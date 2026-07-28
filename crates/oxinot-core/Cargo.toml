@@ -1,0 +1,30 @@
+[package]
+name = "oxinot-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Pure-Rust core for oxinot: file store, index, search, sync"
+
+[lib]
+name = "oxinot_core"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+uuid = { workspace = true }
+blake3 = { workspace = true }
+time = { workspace = true }
+redb = { workspace = true }
+tantivy = { workspace = true }
+notify = { workspace = true }
+fs2 = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

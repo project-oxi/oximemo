@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans:
+    "Inter", "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --color-ink-50: #fafafa;
+  --color-ink-100: #f4f4f5;
+  --color-ink-900: #18181b;
+  --color-ink-950: #09090b;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Title-bar drag region for the main window. */
+[data-tauri-drag-region] {
+  -webkit-user-select: none;
+  user-select: none;
+}

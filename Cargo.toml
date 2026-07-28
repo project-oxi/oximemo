@@ -1,0 +1,64 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/oxinot-core",
+    "crates/oxinot-cli",
+    "crates/oxinot-capture",
+    "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["oxinot"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/a7garden/oxinot"
+homepage = "https://github.com/a7garden/oxinot"
+
+# Centralized dependency versions. Crates opt in with `dep.workspace = true`.
+[workspace.dependencies]
+# Serialization / formats
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Domain primitives
+uuid = { version = "1", features = ["v7", "serde"] }
+blake3 = "1"
+time = { version = "0.3", features = ["serde", "serde-human-readable", "serde-well-known", "parsing", "formatting", "macros"] }
+
+# Storage
+redb = "2"
+tantivy = "0.22"
+notify = "7"
+fs2 = "0.4"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# macOS native
+objc2 = "0.5"
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSApplication", "NSWindow", "NSStatusBar", "NSStatusItem", "NSMenu", "NSMenuItem", "block2"] }
+
+# Errors
+objc2-foundation = { version = "0.3", features = ["NSString", "NSProcessInfo", "NSThread", "NSRunLoop"] }
+thiserror = "2"
+anyhow = "1"
+
+# Internal crates
+oxinot-core = { path = "crates/oxinot-core" }
+oxinot-capture = { path = "crates/oxinot-capture" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"
+panic = "abort"
+
+[profile.dev]
+opt-level = 1

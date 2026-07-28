@@ -1,0 +1,37 @@
+# --- Rust / Cargo ---
+/target
+**/target
+**/*.rs.bk
+
+# --- Tauri + frontend (apps/desktop) ---
+apps/desktop/node_modules
+apps/desktop/dist
+apps/desktop/src-tauri/gen
+apps/desktop/*.tsbuildinfo
+*.tsbuildinfo
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- macOS / OS ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- Editors ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# --- Logs / local scratch ---
+*.log

@@ -1,0 +1,134 @@
+name: Release
+
+# Builds the `oxinot` CLI binary and the macOS desktop app (.dmg) for
+# aarch64-apple-darwin, then publishes a GitHub Release with the artifacts.
+#
+# Apple signing + notarization is enabled automatically when the APPLE_*
+# secrets are present; otherwise the app is built unsigned (fine for local use).
+#
+#   git tag v0.3.0 && git push origin v0.3.0
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.3.0)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TARGET: aarch64-apple-darwin
+
+jobs:
+  build:
+    name: Build (${{ env.TARGET }})
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ env.TARGET }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      # The desktop crate's `generate_context!()` embeds build.frontendDist,
+      # so the frontend must be built before `cargo tauri build`.
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: apps/desktop
+        run: pnpm build
+
+      # @tauri-apps/cli is intentionally not a package.json dependency; install
+      # the Rust-backed Tauri CLI in the workflow instead.
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --locked --version "^2"
+
+      - name: Build CLI binary
+        run: cargo build --release -p oxinot-cli --target ${{ env.TARGET }}
+
+      - name: Package CLI binary
+        run: |
+          mkdir -p staging
+          tar -czf staging/oxinot-${{ env.TARGET }}.tar.gz \
+            -C target/${{ env.TARGET }}/release oxinot
+          shasum -a 256 staging/oxinot-${{ env.TARGET }}.tar.gz \
+            | awk '{print $1}' > staging/oxinot-${{ env.TARGET }}.tar.gz.sha256
+
+      - name: Build desktop app (.dmg)
+        working-directory: apps/desktop
+        run: cargo tauri build --target ${{ env.TARGET }}
+        env:
+          # Signing/notarization kicks in only when these secrets are defined.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Collect desktop bundle
+        run: |
+          mkdir -p staging
+          BUNDLE="target/${{ env.TARGET }}/release/bundle"
+          find "$BUNDLE/dmg" -name '*.dmg' -exec cp {} staging/ \;
+          find "$BUNDLE/macos" -name '*.app.tar.gz' -exec cp {} staging/ \; || true
+          (cd staging && for f in *.dmg; do
+            [ -e "$f" ] && shasum -a 256 "$f" | awk '{print $1}' > "$f.sha256"
+          done) || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: staging/*
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: staging
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.tag.outputs.name }}" \
+            --title "oxinot ${{ steps.tag.outputs.name }}" \
+            --generate-notes \
+            staging/*

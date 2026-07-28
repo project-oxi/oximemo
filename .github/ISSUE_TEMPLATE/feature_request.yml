@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest an idea for oxinot
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        oxinot is deliberately minimal — capture speed and reliability come first.
+        The bar for new features is "does this make capturing a thought faster
+        or safer?" Help us see how it does.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What's hard or impossible to do today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Your proposed solution
+      description: What would you like oxinot to do instead?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
