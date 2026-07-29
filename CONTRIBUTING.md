@@ -22,7 +22,7 @@ Keep it that way: domain logic belongs in the core.
 
 ## Prerequisites
 
-- **Rust** 1.85+ (edition 2024) — <https://rustup.rs>
+- **Rust** 1.89+ (edition 2024) — <https://rustup.rs>
 - **Node.js** 20+ and **pnpm** 9+ — for the desktop frontend
 - **macOS 14+ on Apple Silicon** — oxinot targets `aarch64-apple-darwin` only
 

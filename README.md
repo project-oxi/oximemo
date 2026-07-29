@@ -11,7 +11,7 @@ Where a human hits `Option` twice and a coding agent reads the same vault over a
 [![CI](https://img.shields.io/github/actions/workflow/status/a7garden/oxinot/ci.yml?branch=main&logo=github&label=CI)](https://github.com/a7garden/oxinot/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/a7garden/oxinot?include_prereleases&logo=github)](https://github.com/a7garden/oxinot/releases)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
-[![Rust](https://img.shields.io/badge/Rust-1.85%2B-dea584?logo=rust&logoColor=000)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/Rust-1.89%2B-dea584?logo=rust&logoColor=000)](https://www.rust-lang.org)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24c8d8?logo=tauri&logoColor=000)](https://v2.tauri.app)
 [![macOS](https://img.shields.io/badge/platform-macOS%20%7C%20Apple%20Silicon-000000?logo=apple&logoColor=fff)](#system-requirements)
 
@@ -53,7 +53,7 @@ Two core scenarios, one vault:
 ## System requirements
 
 - **macOS 14+** on **Apple Silicon** (`aarch64-apple-darwin`).
-- Rust 1.85+ (edition 2024) to build from source.
+- Rust 1.89+ (edition 2024) to build from source.
 
 Windows, Linux, and mobile are intentionally out of scope for the MVP. See the [design doc](doc/DESIGN.md).
 
