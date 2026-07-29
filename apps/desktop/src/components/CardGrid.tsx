@@ -187,8 +187,8 @@ export function CardGrid() {
   return (
     <div className="flex h-full flex-col">
       <header
-        data-tauri-drag-region
-        className="flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/80 px-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80"
+        data-tauri-drag-region="deep"
+        className="flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/80 pr-4 pl-[76px] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80"
       >
         <div className="relative w-64">
           <Search

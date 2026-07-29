@@ -5,6 +5,7 @@
   "windows": ["main", "capture"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
     "global-shortcut:default",
     "dialog:default"
   ]
