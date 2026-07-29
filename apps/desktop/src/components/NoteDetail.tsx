@@ -7,13 +7,12 @@
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Check, Pin } from "lucide-react";
+import { Pin } from "lucide-react";
 
 import { deleteNote, getNote, updateNote } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
-import { ColorPicker } from "./ColorPicker";
-import { TagInput } from "./TagInput";
+import { NoteComposeForm } from "./NoteComposeForm";
 
 export function NoteDetail() {
   const { t } = useI18n();
@@ -106,8 +105,15 @@ export function NoteDetail() {
               close();
             }
           }}
-          className="fixed left-1/2 top-1/2 z-50 flex max-h-[80vh] w-[min(640px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+          className="fixed left-1/2 top-1/2 z-50 isolate flex max-h-[80vh] w-[min(640px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
         >
+          {color && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 -z-10 opacity-25 dark:opacity-35"
+              style={{ background: color }}
+            />
+          )}
           {note.isLoading || !note.data ? (
             <div className="py-10 text-center text-sm text-zinc-400">…</div>
           ) : (
@@ -128,34 +134,19 @@ export function NoteDetail() {
                   <Pin size={12} /> {t.pinned}
                 </button>
               </div>
-              <textarea
-                value={body}
-                onChange={(e) => edit(setBody)(e.target.value)}
-                autoFocus
-                className="min-h-[160px] flex-1 resize-none bg-transparent text-sm leading-relaxed text-zinc-800 focus:outline-none dark:text-zinc-100"
+              <NoteComposeForm
+                body={body}
+                onBodyChange={edit(setBody)}
+                bodyProps={{ autoFocus: true }}
+                bodyClassName="min-h-[160px]"
+                tags={tags}
+                onTagsChange={edit(setTags)}
+                color={color}
+                onColorChange={edit(setColor)}
+                onConfirm={close}
+                confirmLabel={t.done}
+                confirmKbd="⌘⏎"
               />
-              <div className="flex flex-col gap-3">
-                <TagInput tags={tags} onChange={edit(setTags)} placeholder="tag…" />
-                <ColorPicker value={color} onChange={edit(setColor)} />
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <kbd className="rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500">
-                  ⌘⏎
-                </kbd>
-                <button
-                  type="button"
-                  onClick={close}
-                  aria-label={t.done}
-                  title={t.done}
-                  className="group inline-flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900 text-white shadow-md transition-all hover:bg-zinc-700 hover:shadow-lg active:scale-90 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-                >
-                  <Check
-                    size={18}
-                    strokeWidth={2.5}
-                    className="transition-transform group-hover:scale-110"
-                  />
-                </button>
-              </div>
             </>
           )}
         </Dialog.Popup>

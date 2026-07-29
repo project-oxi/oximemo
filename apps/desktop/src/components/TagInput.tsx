@@ -1,7 +1,8 @@
 /**
  * Inline tag editor: type + Enter/comma to add, backspace on empty to remove
  * the last, click × to remove a chip. Tags are normalized to lowercase and
- * de-duplicated.
+ * de-duplicated. Borderless by design — it flows inside the compose strip,
+ * so a `className` can size it (e.g. `flex-1` to fill the available width).
  */
 import { useState, type KeyboardEvent } from "react";
 import { X } from "lucide-react";
@@ -10,9 +11,10 @@ interface Props {
   tags: string[];
   onChange: (tags: string[]) => void;
   placeholder?: string;
+  className?: string;
 }
 
-export function TagInput({ tags, onChange, placeholder }: Props) {
+export function TagInput({ tags, onChange, placeholder, className }: Props) {
   const [draft, setDraft] = useState("");
 
   const commit = () => {
@@ -31,11 +33,11 @@ export function TagInput({ tags, onChange, placeholder }: Props) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
+    <div className={`flex flex-wrap items-center gap-1.5 ${className ?? ""}`}>
       {tags.map((tag) => (
         <span
           key={tag}
-          className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+          className="inline-flex items-center gap-1 rounded-full bg-zinc-200/70 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-700/50 dark:text-zinc-300"
         >
           {tag}
           <button
