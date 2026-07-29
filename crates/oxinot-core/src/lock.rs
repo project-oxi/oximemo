@@ -35,7 +35,12 @@ impl FileLock {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let file = OpenOptions::new().create(true).read(true).write(true).truncate(false).open(path)?;
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(path)?;
 
         let deadline = std::time::Instant::now() + timeout;
         loop {
@@ -76,8 +81,13 @@ pub fn acquire(path: &Path, kind: LockKind, timeout: Duration) -> Result<FileLoc
 /// Probe whether an *exclusive* lock is currently held by some process. Used by
 /// `oxinot doctor` to report lock contention without blocking.
 pub fn is_locked(path: &Path) -> bool {
-    let Ok(file) = OpenOptions::new().read(true).write(true).create(true).open(path) else {
+    let Ok(file) = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(false)
+        .open(path)
+    else {
         return false;
     };
-    matches!(file.try_lock_exclusive(), Err(_))
+    file.try_lock_exclusive().is_err()
 }

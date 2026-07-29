@@ -100,7 +100,9 @@ impl FileStore {
     /// Parse raw file text. Never panics on malformed input.
     pub fn parse(content: &str) -> Result<ParsedFile> {
         match split_frontmatter(content) {
-            FrontmatterSplit::None { body } => Ok(ParsedFile::BodyOnly { body: body.to_string() }),
+            FrontmatterSplit::None { body } => Ok(ParsedFile::BodyOnly {
+                body: body.to_string(),
+            }),
             FrontmatterSplit::Unclosed => Err(CoreError::Frontmatter {
                 path: PathBuf::new(),
                 reason: "missing closing `+++` delimiter".into(),
@@ -111,7 +113,10 @@ impl FileStore {
                         path: PathBuf::new(),
                         reason: e.to_string(),
                     })?;
-                Ok(ParsedFile::Note { fm, body: body.to_string() })
+                Ok(ParsedFile::Note {
+                    fm,
+                    body: body.to_string(),
+                })
             }
         }
     }
@@ -121,9 +126,10 @@ impl FileStore {
     pub fn read(&self, path: &Path) -> Result<ParsedFile> {
         let content = std::fs::read_to_string(path)?;
         Self::parse(&content).map_err(|e| match e {
-            CoreError::Frontmatter { reason, .. } => {
-                CoreError::Frontmatter { path: path.to_path_buf(), reason }
-            }
+            CoreError::Frontmatter { reason, .. } => CoreError::Frontmatter {
+                path: path.to_path_buf(),
+                reason,
+            },
             other => other,
         })
     }
@@ -245,14 +251,22 @@ fn split_frontmatter(content: &str) -> FrontmatterSplit<'_> {
             let toml_text = &content[after_first..pos];
             // Body begins after this line's newline; drop exactly one leading
             // newline (the conventional blank separator) for a canonical body.
-            let body_start = if rel.is_some() { line_end + 1 } else { content.len() };
+            let body_start = if rel.is_some() {
+                line_end + 1
+            } else {
+                content.len()
+            };
             let mut body = &content[body_start..];
             if body.starts_with('\n') {
                 body = &body[1..];
             }
             return FrontmatterSplit::Some { toml_text, body };
         }
-        pos = if rel.is_some() { line_end + 1 } else { content.len() };
+        pos = if rel.is_some() {
+            line_end + 1
+        } else {
+            content.len()
+        };
     }
     FrontmatterSplit::Unclosed
 }
@@ -280,7 +294,9 @@ fn walk_md(root: &Path) -> Vec<PathBuf> {
 }
 
 fn walk_md_into(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let ft = match entry.file_type() {
@@ -308,7 +324,12 @@ mod tests {
             id,
             created_at: now,
             updated_at: now,
-            hash: hash::hash_note(body.as_bytes(), &["idea".to_string()], false, "oklch(0.75 0.15 75)"),
+            hash: hash::hash_note(
+                body.as_bytes(),
+                &["idea".to_string()],
+                false,
+                "oklch(0.75 0.15 75)",
+            ),
             pinned: false,
             color: NoteColor("oklch(0.75 0.15 75)".into()),
             tags: vec!["idea".into()],

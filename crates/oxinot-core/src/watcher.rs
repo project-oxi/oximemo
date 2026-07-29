@@ -5,12 +5,12 @@
 //! swap-and-rename produces a single re-index call per path. The caller
 //! supplies the per-path handler (the [`Vault`] re-indexes the file).
 
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::error::Result;
 
@@ -30,24 +30,28 @@ impl NoteWatcher {
         let (tx, rx) = mpsc::channel::<PathBuf>();
         std::thread::spawn(move || debounce_loop(rx, debounce, on_change));
 
-        let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-            if let Ok(ev) = res {
-                // Ignore purely-access (open/close) chatter; only act on
-                // creation/modification/removal.
-                let relevant = matches!(
-                    ev.kind,
-                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) | EventKind::Any
-                );
-                if !relevant {
-                    return;
-                }
-                for p in ev.paths {
-                    if is_markdown(&p) {
-                        let _ = tx.send(p);
+        let mut watcher =
+            notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                if let Ok(ev) = res {
+                    // Ignore purely-access (open/close) chatter; only act on
+                    // creation/modification/removal.
+                    let relevant = matches!(
+                        ev.kind,
+                        EventKind::Create(_)
+                            | EventKind::Modify(_)
+                            | EventKind::Remove(_)
+                            | EventKind::Any
+                    );
+                    if !relevant {
+                        return;
+                    }
+                    for p in ev.paths {
+                        if is_markdown(&p) {
+                            let _ = tx.send(p);
+                        }
                     }
                 }
-            }
-        })?;
+            })?;
 
         for root in &roots {
             if root.exists() {

@@ -8,6 +8,7 @@
 //! - **shared** for reads (multiple readers, including a CLI reading while the
 //!   GUI runs),
 //! - **exclusive** for writes.
+//!
 //! redb and tantivy are opened *transiently* within the lock scope, so no
 //! process holds them open across the boundary — two processes never collide on
 //! redb's or tantivy's own single-writer locks. This keeps the agent path
@@ -21,9 +22,9 @@ use time::OffsetDateTime;
 use crate::config::VaultConfig;
 use crate::error::{CoreError, Result};
 use crate::hash;
-use crate::lock::{acquire, FileLock, LockKind};
+use crate::lock::{FileLock, LockKind, acquire};
 use crate::note::{
-    make_preview, Cursor, IndexStats, Note, NoteColor, NoteFilter, NoteId, NoteSummary, Page,
+    Cursor, IndexStats, Note, NoteColor, NoteFilter, NoteId, NoteSummary, Page, make_preview,
 };
 use crate::paths::Paths;
 use crate::store::files::FileStore;
@@ -48,7 +49,11 @@ impl Vault {
         let paths = Paths::resolve(vault);
         let config = VaultConfig::load(&paths);
         let files = FileStore::new(paths.clone());
-        Ok(Self { paths, config, files })
+        Ok(Self {
+            paths,
+            config,
+            files,
+        })
     }
 
     pub fn paths(&self) -> &Paths {
@@ -128,19 +133,30 @@ impl Vault {
         if let Some(ca) = created_at {
             let live = self.paths.note_path(id, ca);
             if live.exists() {
-                return self.files.read_note(&live)?.ok_or_else(|| CoreError::NotFound(id.to_string()));
+                return self
+                    .files
+                    .read_note(&live)?
+                    .ok_or_else(|| CoreError::NotFound(id.to_string()));
             }
             let trash = self.paths.trash_path(id);
             if trash.exists() {
-                return self.files.read_note(&trash)?.ok_or_else(|| CoreError::NotFound(id.to_string()));
+                return self
+                    .files
+                    .read_note(&trash)?
+                    .ok_or_else(|| CoreError::NotFound(id.to_string()));
             }
         }
         // Index miss (not yet indexed): scan the tree.
-        for path in self.files.list_note_files().iter().chain(self.files.list_trash_files().iter()) {
-            if let Ok(Some(n)) = self.files.read_note(path) {
-                if n.id == id {
-                    return Ok(n);
-                }
+        for path in self
+            .files
+            .list_note_files()
+            .iter()
+            .chain(self.files.list_trash_files().iter())
+        {
+            if let Ok(Some(n)) = self.files.read_note(path)
+                && n.id == id
+            {
+                return Ok(n);
             }
         }
         Err(CoreError::NotFound(id.to_string()))
@@ -215,7 +231,9 @@ impl Vault {
         let mut purged = 0u64;
         self.with_redb_and_search(|idx, search| {
             for path in self.files.list_trash_files() {
-                let Ok(Some(n)) = self.files.read_note(&path) else { continue };
+                let Ok(Some(n)) = self.files.read_note(&path) else {
+                    continue;
+                };
                 if n.deleted_at.is_some_and(|t| t < cutoff) {
                     self.files.purge(n.id)?;
                     idx.remove(n.id)?;
@@ -239,9 +257,10 @@ impl Vault {
         self.with_redb(|idx| {
             let recs = idx.list(after, limit, &filter)?;
             let items: Vec<NoteSummary> = recs.iter().map(|r| r.to_summary()).collect();
-            let next_cursor = items
-                .last()
-                .map(|s| Cursor { updated_at: s.updated_at, id: s.id });
+            let next_cursor = items.last().map(|s| Cursor {
+                updated_at: s.updated_at,
+                id: s.id,
+            });
             Ok(Page { items, next_cursor })
         })
     }
@@ -381,7 +400,9 @@ impl Vault {
         // Re-open a Vault per callback: each op takes its own lock, so the
         // watcher coordinates with concurrent CLI/GUI access naturally.
         let on_change: crate::watcher::OnChange = std::sync::Arc::new(move |path| {
-            let Ok(v) = Vault::open(Some(&vault_path)) else { return };
+            let Ok(v) = Vault::open(Some(&vault_path)) else {
+                return;
+            };
             v.reindex_path(&path);
         });
         crate::watcher::NoteWatcher::spawn(
@@ -395,8 +416,10 @@ impl Vault {
     /// (hash recompute + rewrite; orphan index cleanup). Files are never deleted.
     pub fn doctor(&self, fix: bool) -> Result<DoctorReport> {
         self.ensure_initialized()?;
-        let mut report = DoctorReport::default();
-        report.index_locked = crate::lock::is_locked(&self.paths.meta_lock_path());
+        let mut report = DoctorReport {
+            index_locked: crate::lock::is_locked(&self.paths.meta_lock_path()),
+            ..DoctorReport::default()
+        };
 
         // Gather indexed ids for orphan detection.
         let all_recs = self.with_redb(|idx| idx.export_since(None))?;
@@ -404,15 +427,24 @@ impl Vault {
             all_recs.iter().map(|r| (r.id, r.clone())).collect();
 
         let mut seen: std::collections::HashSet<NoteId> = std::collections::HashSet::new();
-        for path in self.files.list_note_files().iter().chain(self.files.list_trash_files().iter()) {
+        for path in self
+            .files
+            .list_note_files()
+            .iter()
+            .chain(self.files.list_trash_files().iter())
+        {
             match self.files.read_note(path) {
                 Ok(Some(mut note)) => {
                     seen.insert(note.id);
                     if !note.color.is_valid() {
                         report.invalid_colors.push(note.id);
                     }
-                    let recomputed =
-                        hash::hash_note(note.body.as_bytes(), &note.tags, note.pinned, &note.color.0);
+                    let recomputed = hash::hash_note(
+                        note.body.as_bytes(),
+                        &note.tags,
+                        note.pinned,
+                        &note.color.0,
+                    );
                     if recomputed != note.hash {
                         report.hash_mismatches.push(note.id);
                         if fix {
@@ -426,12 +458,14 @@ impl Vault {
                     report.corrupt_frontmatter.push((path.clone(), reason));
                 }
                 Err(e) => {
-                    report.corrupt_frontmatter.push((path.clone(), e.to_string()));
+                    report
+                        .corrupt_frontmatter
+                        .push((path.clone(), e.to_string()));
                 }
             }
         }
 
-        for (id, _) in &indexed {
+        for id in indexed.keys() {
             if !seen.contains(id) {
                 report.orphan_index_records.push(*id);
             }
@@ -454,10 +488,10 @@ impl Vault {
         let cutoff = OffsetDateTime::now_utc()
             - Duration::from_secs(86400 * self.config.general.trash_retention_days as u64);
         for path in self.files.list_trash_files() {
-            if let Ok(Some(n)) = self.files.read_note(&path) {
-                if n.deleted_at.is_some_and(|t| t < cutoff) {
-                    report.trash_expiring += 1;
-                }
+            if let Ok(Some(n)) = self.files.read_note(&path)
+                && n.deleted_at.is_some_and(|t| t < cutoff)
+            {
+                report.trash_expiring += 1;
             }
         }
 
@@ -500,7 +534,6 @@ pub struct DoctorReport {
     pub vault_ok: bool,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,11 +548,15 @@ mod tests {
     #[test]
     fn create_get_update_delete_restore() {
         let (_t, v) = tmp_vault();
-        let n = v.create_note("hello world".into(), vec!["t".into()], None).unwrap();
+        let n = v
+            .create_note("hello world".into(), vec!["t".into()], None)
+            .unwrap();
         let got = v.get_note(n.id).unwrap();
         assert_eq!(got.body, "hello world");
 
-        let updated = v.update_note(n.id, Some("edited".into()), None, Some(true), None).unwrap();
+        let updated = v
+            .update_note(n.id, Some("edited".into()), None, Some(true), None)
+            .unwrap();
         assert!(updated.pinned);
         assert_ne!(updated.hash, n.hash);
 
@@ -534,8 +571,10 @@ mod tests {
     #[test]
     fn list_and_search() {
         let (_t, v) = tmp_vault();
-        v.create_note("rust async runtime".into(), vec!["rust".into()], None).unwrap();
-        v.create_note("go goroutines".into(), vec!["go".into()], None).unwrap();
+        v.create_note("rust async runtime".into(), vec!["rust".into()], None)
+            .unwrap();
+        v.create_note("go goroutines".into(), vec!["go".into()], None)
+            .unwrap();
         let page = v.list_notes(None, 10, NoteFilter::default()).unwrap();
         assert_eq!(page.items.len(), 2);
         let hits = v.search_notes("rust", 10).unwrap();
@@ -545,7 +584,9 @@ mod tests {
     #[test]
     fn export_manifest_and_full_roundtrip() {
         let (_t, v) = tmp_vault();
-        let n = v.create_note("body text".into(), vec!["a".into()], None).unwrap();
+        let n = v
+            .create_note("body text".into(), vec!["a".into()], None)
+            .unwrap();
         let manifest = v.export_manifest(None).unwrap();
         assert_eq!(manifest.len(), 1);
         let full = v.export_full(&[n.id]).unwrap();

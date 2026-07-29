@@ -147,8 +147,18 @@ mod tests {
 
     #[test]
     fn identical_state_hashes_equal() {
-        let a = hash_note(b"body", &["a".into(), "b".into()], true, "oklch(0.75 0.15 75)");
-        let b = hash_note(b"body", &["a".into(), "b".into()], true, "oklch(0.75 0.15 75)");
+        let a = hash_note(
+            b"body",
+            &["a".into(), "b".into()],
+            true,
+            "oklch(0.75 0.15 75)",
+        );
+        let b = hash_note(
+            b"body",
+            &["a".into(), "b".into()],
+            true,
+            "oklch(0.75 0.15 75)",
+        );
         assert_eq!(a, b);
     }
 }

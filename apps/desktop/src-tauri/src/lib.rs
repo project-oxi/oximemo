@@ -16,7 +16,10 @@ pub struct AppState {
 
 impl AppState {
     fn new(vault: oxinot_core::Vault) -> Self {
-        Self { vault: Arc::new(vault), capture_monitor: Mutex::new(None) }
+        Self {
+            vault: Arc::new(vault),
+            capture_monitor: Mutex::new(None),
+        }
     }
 }
 
@@ -90,7 +93,9 @@ fn default_shortcut() -> Shortcut {
 }
 
 fn show_capture(handle: &AppHandle) {
-    let Some(win) = handle.get_webview_window("capture") else { return };
+    let Some(win) = handle.get_webview_window("capture") else {
+        return;
+    };
     if let Ok(mouse) = handle.cursor_position() {
         let _ = win.set_position(LogicalPosition::new(mouse.x - 280.0, 80.0));
     }
@@ -126,8 +131,15 @@ mod commands {
             Some(s) => Some(Cursor::parse(&s).map_err(|e| e.to_string())?),
             None => None,
         };
-        let filter = NoteFilter { tag, pinned_only: false, include_deleted: false };
-        state.vault.list_notes(after, limit, filter).map_err(|e| e.to_string())
+        let filter = NoteFilter {
+            tag,
+            pinned_only: false,
+            include_deleted: false,
+        };
+        state
+            .vault
+            .list_notes(after, limit, filter)
+            .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -143,7 +155,10 @@ mod commands {
         tags: Vec<String>,
         color: Option<String>,
     ) -> Result<oxinot_core::Note, String> {
-        state.vault.create_note(body, tags, color).map_err(|e| e.to_string())
+        state
+            .vault
+            .create_note(body, tags, color)
+            .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -156,7 +171,8 @@ mod commands {
         color: Option<String>,
     ) -> Result<oxinot_core::Note, String> {
         let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
-        state.vault
+        state
+            .vault
             .update_note(id, body, tags, pinned, color)
             .map_err(|e| e.to_string())
     }
@@ -173,7 +189,10 @@ mod commands {
         query: String,
         limit: u32,
     ) -> Result<Vec<oxinot_core::NoteSummary>, String> {
-        state.vault.search_notes(&query, limit).map_err(|e| e.to_string())
+        state
+            .vault
+            .search_notes(&query, limit)
+            .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -185,7 +204,10 @@ mod commands {
             Some(s) => Some(time::OffsetDateTime::parse(&s, &Rfc3339).map_err(|e| e.to_string())?),
             None => None,
         };
-        state.vault.export_manifest(since).map_err(|e| e.to_string())
+        state
+            .vault
+            .export_manifest(since)
+            .map_err(|e| e.to_string())
     }
 
     #[tauri::command]

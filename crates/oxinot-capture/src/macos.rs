@@ -54,11 +54,11 @@ mod inner {
     #[cfg(feature = "objc2-monitor")]
     use std::ptr::NonNull;
     #[cfg(feature = "objc2-monitor")]
+    use std::sync::Arc;
+    #[cfg(feature = "objc2-monitor")]
     use std::sync::atomic::{AtomicBool, Ordering};
     #[cfg(feature = "objc2-monitor")]
     use std::sync::mpsc;
-    #[cfg(feature = "objc2-monitor")]
-    use std::sync::Arc;
     #[cfg(feature = "objc2-monitor")]
     use std::thread::JoinHandle;
     #[cfg(feature = "objc2-monitor")]

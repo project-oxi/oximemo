@@ -40,7 +40,9 @@ pub struct GeneralConfig {
 
 impl Default for GeneralConfig {
     fn default() -> Self {
-        Self { trash_retention_days: 30 }
+        Self {
+            trash_retention_days: 30,
+        }
     }
 }
 
@@ -53,7 +55,10 @@ pub struct CaptureConfig {
 
 impl Default for CaptureConfig {
     fn default() -> Self {
-        Self { double_tap_threshold_ms: 350, overlay_max_height: 400 }
+        Self {
+            double_tap_threshold_ms: 350,
+            overlay_max_height: 400,
+        }
     }
 }
 
@@ -75,7 +80,10 @@ pub struct AppearanceConfig {
 
 impl Default for AppearanceConfig {
     fn default() -> Self {
-        Self { theme: Theme::System, show_dock_icon: true }
+        Self {
+            theme: Theme::System,
+            show_dock_icon: true,
+        }
     }
 }
 
@@ -89,7 +97,10 @@ pub struct ColorConfig {
 impl Default for ColorConfig {
     fn default() -> Self {
         Self {
-            presets: crate::note::COLOR_PRESETS.iter().map(|s| s.to_string()).collect(),
+            presets: crate::note::COLOR_PRESETS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         }
     }
 }
@@ -104,7 +115,11 @@ pub struct IndexConfig {
 
 impl Default for IndexConfig {
     fn default() -> Self {
-        Self { watcher_debounce_ms: 300, watcher_retry_count: 2, watcher_retry_interval_ms: 200 }
+        Self {
+            watcher_debounce_ms: 300,
+            watcher_retry_count: 2,
+            watcher_retry_interval_ms: 200,
+        }
     }
 }
 

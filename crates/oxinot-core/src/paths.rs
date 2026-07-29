@@ -59,7 +59,10 @@ impl Paths {
                     .join(INDEX_SUBDIR)
                     .join(BY_VAULT_SUBDIR)
                     .join(vault_namespace(v));
-                Self { vault: v.to_path_buf(), index_dir }
+                Self {
+                    vault: v.to_path_buf(),
+                    index_dir,
+                }
             }
         }
     }
@@ -154,7 +157,10 @@ mod tests {
     #[test]
     fn custom_vault_index_lives_outside_vault() {
         let p = Paths::resolve(Some(Path::new("/tmp/some-vault")));
-        assert!(!p.index_dir.starts_with(&p.vault), "index must not be inside the vault");
+        assert!(
+            !p.index_dir.starts_with(&p.vault),
+            "index must not be inside the vault"
+        );
         assert!(p.index_dir.starts_with(app_support_dir()));
     }
 

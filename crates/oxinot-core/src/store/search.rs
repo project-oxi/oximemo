@@ -9,8 +9,8 @@ use std::sync::Mutex;
 
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
-use tantivy::schema::{Field, Schema, STORED, STRING, TEXT};
-use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
+use tantivy::schema::{Field, STORED, STRING, Schema, TEXT};
+use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term, doc};
 
 use crate::error::{CoreError, Result};
 use crate::note::NoteId;
@@ -48,11 +48,21 @@ impl TantivySearch {
             .reader_builder()
             .reload_policy(ReloadPolicy::OnCommitWithDelay)
             .try_into()?;
-        Ok(Self { index, writer: Mutex::new(None), reader, id_field, body_field, tags_field })
+        Ok(Self {
+            index,
+            writer: Mutex::new(None),
+            reader,
+            id_field,
+            body_field,
+            tags_field,
+        })
     }
 
     fn ensure_writer(&self) -> Result<std::sync::MutexGuard<'_, Option<IndexWriter>>> {
-        let mut guard = self.writer.lock().map_err(|e| CoreError::other(e.to_string()))?;
+        let mut guard = self
+            .writer
+            .lock()
+            .map_err(|e| CoreError::other(e.to_string()))?;
         if guard.is_none() {
             // 15 MB is tantivy's long-standing minimum arena size.
             *guard = Some(self.index.writer(15_000_000)?);
@@ -98,12 +108,11 @@ impl SearchIndex for TantivySearch {
         let mut out = Vec::with_capacity(hits.len());
         for (_score, addr) in hits {
             let d: tantivy::TantivyDocument = searcher.doc(addr)?;
-            if let Some(v) = d.get_first(self.id_field) {
-                if let tantivy::schema::OwnedValue::Str(s) = v {
-                    if let Ok(id) = NoteId::parse(s) {
-                        out.push(id);
-                    }
-                }
+            if let Some(v) = d.get_first(self.id_field)
+                && let tantivy::schema::OwnedValue::Str(s) = v
+                && let Ok(id) = NoteId::parse(s)
+            {
+                out.push(id);
             }
         }
         Ok(out)
@@ -144,7 +153,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let s = TantivySearch::open(dir.path()).unwrap();
         let id = NoteId::now();
-        s.upsert(id, "the quick brown fox", &["animal".into()]).unwrap();
+        s.upsert(id, "the quick brown fox", &["animal".into()])
+            .unwrap();
         let hits = s.search("quick", 10).unwrap();
         assert!(hits.contains(&id));
     }

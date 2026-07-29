@@ -255,10 +255,10 @@ impl NoteFilter {
         if self.pinned_only && !s.pinned {
             return false;
         }
-        if let Some(t) = &self.tag {
-            if !s.tags.iter().any(|x| x.eq_ignore_ascii_case(t)) {
-                return false;
-            }
+        if let Some(t) = &self.tag
+            && !s.tags.iter().any(|x| x.eq_ignore_ascii_case(t))
+        {
+            return false;
         }
         true
     }
@@ -282,7 +282,10 @@ mod tests {
     #[test]
     fn color_falls_back_for_legacy_values() {
         assert_eq!(NoteColor::parse_or_none("amber"), NoteColor::NONE);
-        assert_eq!(NoteColor::parse_or_none("oklch(0.75 0.15 75)").0, "oklch(0.75 0.15 75)");
+        assert_eq!(
+            NoteColor::parse_or_none("oklch(0.75 0.15 75)").0,
+            "oklch(0.75 0.15 75)"
+        );
     }
 
     #[test]

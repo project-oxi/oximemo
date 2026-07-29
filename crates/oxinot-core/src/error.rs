@@ -42,7 +42,6 @@ pub enum CoreError {
     #[error("tantivy error: {0}")]
     Tantivy(#[from] tantivy::TantivyError),
 
-
     #[error("notify watcher error: {0}")]
     Notify(#[from] notify::Error),
 

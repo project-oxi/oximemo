@@ -6,10 +6,10 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
-use oxinot_core::note::NoteId;
 use oxinot_core::Vault;
+use oxinot_core::note::NoteId;
 
 mod commands;
 mod format;
@@ -147,18 +147,34 @@ fn run() -> Result<()> {
     let vault = Vault::open(cli.vault.as_deref())?;
     match cli.cmd {
         Cmd::New { text, tags, color } => commands::cmd_new(&vault, text, tags, color),
-        Cmd::List { limit, tag, pinned, format } => {
+        Cmd::List {
+            limit,
+            tag,
+            pinned,
+            format,
+        } => {
             let fmt = format::Format::from_arg(&format)
                 .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
             commands::cmd_list(&vault, limit, tag, pinned, fmt)
         }
         Cmd::Get { id, md } => commands::cmd_get(&vault, parse_id(&id)?, md),
-        Cmd::Search { query, limit, format } => {
+        Cmd::Search {
+            query,
+            limit,
+            format,
+        } => {
             let fmt = format::Format::from_arg(&format)
                 .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
             commands::cmd_search(&vault, query, limit, fmt)
         }
-        Cmd::Export { since, ids, ids_file, ids_stdin, full, format } => {
+        Cmd::Export {
+            since,
+            ids,
+            ids_file,
+            ids_stdin,
+            full,
+            format,
+        } => {
             let fmt = format::Format::from_arg(&format)
                 .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
             commands::cmd_export(&vault, since, ids, ids_file, ids_stdin, full, fmt)

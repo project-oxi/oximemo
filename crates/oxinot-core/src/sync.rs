@@ -28,7 +28,12 @@ pub struct ManifestRecord {
 
 impl ManifestRecord {
     pub fn from_note(n: &Note) -> Self {
-        Self { id: n.id, hash: n.hash.clone(), updated_at: n.updated_at, deleted: n.deleted_at.is_some() }
+        Self {
+            id: n.id,
+            hash: n.hash.clone(),
+            updated_at: n.updated_at,
+            deleted: n.deleted_at.is_some(),
+        }
     }
 }
 

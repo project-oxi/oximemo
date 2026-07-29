@@ -15,7 +15,7 @@ use redb::{ReadableTable, ReadableTableMetadata};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use crate::error::{CoreError, Result};
+use crate::error::Result;
 use crate::note::{Cursor, NoteFilter, NoteHash, NoteId, NoteSummary};
 
 const BY_ID: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new("by_id");
@@ -294,13 +294,17 @@ mod tests {
         let base = OffsetDateTime::now_utc();
         let ids: Vec<NoteId> = (0..5).map(|_| NoteId::now()).collect();
         for (i, id) in ids.iter().enumerate() {
-            idx.upsert(&rec(*id, base + time::Duration::seconds(i as i64))).unwrap();
+            idx.upsert(&rec(*id, base + time::Duration::seconds(i as i64)))
+                .unwrap();
         }
         let page = idx.list(None, 3, &NoteFilter::default()).unwrap();
         assert_eq!(page.len(), 3);
         // newest first: last-inserted (largest ts) comes first
         assert_eq!(page[0].id, *ids.last().unwrap());
-        let cursor = Cursor { updated_at: page[2].updated_at, id: page[2].id };
+        let cursor = Cursor {
+            updated_at: page[2].updated_at,
+            id: page[2].id,
+        };
         let next = idx.list(Some(cursor), 3, &NoteFilter::default()).unwrap();
         assert_eq!(next.len(), 2);
     }

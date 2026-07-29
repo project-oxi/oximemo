@@ -1,0 +1,5 @@
+# Pins the Rust toolchain so local and CI (GitHub Actions) run an identical
+# compiler + lint set. `dtolnay/rust-toolchain@stable` in CI honors this file.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

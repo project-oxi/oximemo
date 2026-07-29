@@ -1,12 +1,12 @@
 //! Command implementations — thin adapters over [`oxinot_core::Vault`].
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
+use oxinot_core::Vault;
 use oxinot_core::note::{NoteFilter, NoteId};
 use oxinot_core::store::files::FileStore;
-use oxinot_core::Vault;
 
 use crate::format::{self, Format};
 
@@ -22,7 +22,9 @@ pub fn cmd_new(
         None => {
             use std::io::Read;
             let mut buf = String::new();
-            std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .context("read stdin")?;
             buf.trim_end().to_string()
         }
     };
@@ -42,7 +44,11 @@ pub fn cmd_list(
     pinned: bool,
     fmt: Format,
 ) -> Result<()> {
-    let filter = NoteFilter { tag, pinned_only: pinned, include_deleted: false };
+    let filter = NoteFilter {
+        tag,
+        pinned_only: pinned,
+        include_deleted: false,
+    };
     let page = vault.list_notes(None, limit, filter)?;
     format::print_summaries(&page.items, fmt)
 }
@@ -136,7 +142,6 @@ pub fn cmd_doctor(vault: &Vault, fix: bool) -> Result<()> {
     Ok(())
 }
 
-
 // --- helpers ----------------------------------------------------------
 
 enum IdsMode {
@@ -145,24 +150,23 @@ enum IdsMode {
 }
 
 impl IdsMode {
-    fn resolve(
-        ids: Option<String>,
-        ids_file: Option<PathBuf>,
-        ids_stdin: bool,
-    ) -> Result<Self> {
+    fn resolve(ids: Option<String>, ids_file: Option<PathBuf>, ids_stdin: bool) -> Result<Self> {
         let provided = [ids.is_some(), ids_file.is_some(), ids_stdin]
             .iter()
             .filter(|&&b| b)
             .count();
         if provided > 1 {
-            return Err(anyhow!("only one of --ids / --ids-file / --ids-stdin may be used"));
+            return Err(anyhow!(
+                "only one of --ids / --ids-file / --ids-stdin may be used"
+            ));
         }
         if let Some(csv) = ids {
             let v = parse_ids(csv.split(',').map(str::trim))?;
             return Ok(Self::Some(v));
         }
         if let Some(path) = ids_file {
-            let text = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("read {}", path.display()))?;
             let v = parse_ids(text.lines().map(str::trim))?;
             return Ok(Self::Some(v));
         }
@@ -193,7 +197,8 @@ fn parse_since(s: Option<String>) -> Result<Option<time::OffsetDateTime>> {
     match s {
         None => Ok(None),
         Some(t) => Ok(Some(
-            time::OffsetDateTime::parse(&t, &Rfc3339).with_context(|| format!("parse --since: {t}"))?,
+            time::OffsetDateTime::parse(&t, &Rfc3339)
+                .with_context(|| format!("parse --since: {t}"))?,
         )),
     }
 }
@@ -204,9 +209,7 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
     if s.is_empty() {
         return Err(anyhow!("empty duration"));
     }
-    let (num, unit) = s.split_at(
-        s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len()),
-    );
+    let (num, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len()));
     let n: u64 = num.parse().context("duration number")?;
     let secs = match unit {
         "d" | "D" => n * 86400,

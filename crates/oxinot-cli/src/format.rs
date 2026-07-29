@@ -54,7 +54,7 @@ pub fn print_manifest(items: &[ManifestRecord], fmt: Format) -> anyhow::Result<(
         }
         Format::Table => {
             let mut h = stdout.lock();
-            writeln!(h, "{:<38} {:<40} {:<10} {}", "ID", "HASH", "UPDATED", "DELETED")?;
+            writeln!(h, "{:<38} {:<40} {:<10} DELETED", "ID", "HASH", "UPDATED")?;
             for it in items {
                 writeln!(
                     h,
@@ -110,7 +110,15 @@ fn print_summary_table(items: &[NoteSummary]) -> anyhow::Result<()> {
         let pin = if s.pinned { "*" } else { "" };
         let color = if s.color.0.is_empty() { "" } else { "(c)" };
         let preview: String = s.preview.chars().take(60).collect();
-        writeln!(h, "{:<10} {:<19} {:<7} {:<7}  {}", short, rfc3339(s.updated_at), pin, color, preview)?;
+        writeln!(
+            h,
+            "{:<10} {:<19} {:<7} {:<7}  {}",
+            short,
+            rfc3339(s.updated_at),
+            pin,
+            color,
+            preview
+        )?;
     }
     Ok(())
 }
