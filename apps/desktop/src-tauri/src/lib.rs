@@ -4,14 +4,16 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, Emitter, LogicalPosition, Manager, State};
+use tauri::{AppHandle, Emitter, LogicalPosition, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 pub struct AppState {
     pub vault: Arc<oxinot_core::Vault>,
     pub capture_monitor: Mutex<Option<oxinot_capture::CaptureMonitor>>,
+    pub watcher: Mutex<Option<oxinot_core::watcher::NoteWatcher>>,
 }
 
 impl AppState {
@@ -19,6 +21,7 @@ impl AppState {
         Self {
             vault: Arc::new(vault),
             capture_monitor: Mutex::new(None),
+            watcher: Mutex::new(None),
         }
     }
 }
@@ -37,6 +40,8 @@ pub fn run() {
             let vault = oxinot_core::Vault::open(cli_vault.as_deref())?;
             vault.ensure_initialized()?;
             app.manage(AppState::new(vault));
+            let wstate = app.state::<AppState>();
+            spawn_watcher(&wstate, app.handle());
 
             let handle = app.handle().clone();
             app.global_shortcut()
@@ -92,6 +97,33 @@ fn default_shortcut() -> Shortcut {
     Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyN)
 }
 
+/// Start the vault file watcher (§5.5, §7.4). On each settled change it
+/// re-indexes the file and broadcasts `notes:changed` so every window can
+/// refresh its query cache. The handle lives in `AppState` for the app
+/// lifetime — dropping it would stop watching.
+fn spawn_watcher(state: &AppState, handle: &AppHandle) {
+    let vault_path = state.vault.paths().vault.clone();
+    let debounce =
+        Duration::from_millis(state.vault.config().index.watcher_debounce_ms as u64);
+    let emit_handle = handle.clone();
+    let on_change: oxinot_core::watcher::OnChange = Arc::new(move |path| {
+        if let Ok(v) = oxinot_core::Vault::open(Some(&vault_path)) {
+            v.reindex_path(&path);
+        }
+        let _ = emit_handle.emit("notes:changed", ());
+    });
+    match oxinot_core::watcher::NoteWatcher::spawn(
+        vec![
+            state.vault.paths().notes_root(),
+            state.vault.paths().trash_root(),
+        ],
+        debounce,
+        on_change,
+    ) {
+        Ok(w) => *state.watcher.lock() = Some(w),
+        Err(e) => tracing::warn!(error = %e, "vault watcher failed to start"),
+    }
+}
 fn show_capture(handle: &AppHandle) {
     let Some(win) = handle.get_webview_window("capture") else {
         return;
@@ -115,7 +147,7 @@ fn init_tracing() {
 mod commands {
     use oxinot_core::note::{Cursor, NoteFilter, NoteId};
     use oxinot_core::sync::ManifestRecord;
-    use tauri::State;
+    use tauri::{AppHandle, Emitter, State};
     use time::format_description::well_known::Rfc3339;
 
     use super::AppState;
@@ -126,6 +158,7 @@ mod commands {
         after: Option<String>,
         limit: u32,
         tag: Option<String>,
+        pinned_only: bool,
     ) -> Result<oxinot_core::Page<oxinot_core::NoteSummary>, String> {
         let after = match after {
             Some(s) => Some(Cursor::parse(&s).map_err(|e| e.to_string())?),
@@ -133,7 +166,7 @@ mod commands {
         };
         let filter = NoteFilter {
             tag,
-            pinned_only: false,
+            pinned_only,
             include_deleted: false,
         };
         state
@@ -151,19 +184,23 @@ mod commands {
     #[tauri::command]
     pub fn create_note(
         state: State<'_, AppState>,
+        app: AppHandle,
         body: String,
         tags: Vec<String>,
         color: Option<String>,
     ) -> Result<oxinot_core::Note, String> {
-        state
+        let note = state
             .vault
             .create_note(body, tags, color)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("notes:changed", ());
+        Ok(note)
     }
 
     #[tauri::command]
     pub fn update_note(
         state: State<'_, AppState>,
+        app: AppHandle,
         id: String,
         body: Option<String>,
         tags: Option<Vec<String>>,
@@ -171,16 +208,24 @@ mod commands {
         color: Option<String>,
     ) -> Result<oxinot_core::Note, String> {
         let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
-        state
+        let note = state
             .vault
             .update_note(id, body, tags, pinned, color)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("notes:changed", ());
+        Ok(note)
     }
 
     #[tauri::command]
-    pub fn delete_note(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    pub fn delete_note(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        id: String,
+    ) -> Result<(), String> {
         let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
-        state.vault.delete_note(id).map_err(|e| e.to_string())
+        state.vault.delete_note(id).map_err(|e| e.to_string())?;
+        let _ = app.emit("notes:changed", ());
+        Ok(())
     }
 
     #[tauri::command]
@@ -211,8 +256,13 @@ mod commands {
     }
 
     #[tauri::command]
-    pub fn reindex(state: State<'_, AppState>) -> Result<oxinot_core::IndexStats, String> {
-        state.vault.reindex().map_err(|e| e.to_string())
+    pub fn reindex(
+        state: State<'_, AppState>,
+        app: AppHandle,
+    ) -> Result<oxinot_core::IndexStats, String> {
+        let stats = state.vault.reindex().map_err(|e| e.to_string())?;
+        let _ = app.emit("notes:changed", ());
+        Ok(stats)
     }
 
     #[tauri::command]

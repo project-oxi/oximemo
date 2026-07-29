@@ -5,11 +5,12 @@
  * unless they add meaning.
  */
 import { Pin, Trash2, Copy } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { barFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import type { NoteSummary } from "../lib/types";
+import { relativeTime } from "../lib/time";
 
 interface Props {
   note: NoteSummary;
@@ -19,13 +20,27 @@ interface Props {
 }
 
 export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [copied, setCopied] = useState(false);
   const shortId = note.id.slice(0, 8);
 
+  function renderInline(text: string): ReactNode[] {
+    if (!text) return [];
+    return text
+      .split(/\*\*(.+?)\*\*/)
+      .map((seg, i) =>
+        i % 2 === 1 ? (
+          <strong key={i} className="font-semibold">
+            {seg}
+          </strong>
+        ) : (
+          seg
+        ),
+      );
+  }
   return (
     <article
-      className="group relative overflow-hidden rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
+      className="group relative flex h-44 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
       onClick={() => onSelect(note.id)}
     >
       <span
@@ -33,19 +48,21 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
         className="absolute inset-y-0 left-0 w-1"
         style={{ background: barFor(note.color) }}
       />
-      <div className="flex items-center gap-2 pl-2 text-[10px] uppercase tracking-wide text-zinc-400">
-        <span>{shortId}</span>
+      <div className="flex items-center gap-1.5 pl-2 text-zinc-500 dark:text-zinc-400">
+        <span className="text-[11px]">{relativeTime(note.updated_at, locale)}</span>
+        <span aria-hidden className="text-zinc-300 dark:text-zinc-600">·</span>
+        <span className="font-mono text-[10px] text-zinc-400">{shortId}</span>
         {note.pinned && (
-          <span className="inline-flex items-center gap-1 text-amber-500">
+          <span className="ml-auto inline-flex items-center gap-1 text-amber-500">
             <Pin size={10} /> {t.pinned}
           </span>
         )}
       </div>
-      <p className="mt-2 line-clamp-4 whitespace-pre-wrap pl-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-        {note.preview || "(empty)"}
+      <p className="mt-2 line-clamp-4 flex-1 whitespace-pre-wrap pl-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+        {note.preview ? renderInline(note.preview) : "(empty)"}
       </p>
       {note.tags.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1 pl-2">
+        <div className="mt-auto flex flex-wrap gap-1 pl-2 pt-2">
           {note.tags.slice(0, 3).map((tag) => (
             <span
               key={tag}

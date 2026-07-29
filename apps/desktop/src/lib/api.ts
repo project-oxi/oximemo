@@ -7,11 +7,17 @@
 import { invoke } from "./tauri";
 import type { Note, NoteSummary, IndexStats, DoctorReport } from "./types";
 
-export async function listNotes(after: string | null, limit = 50, tag: string | null = null) {
+export async function listNotes(
+  after: string | null,
+  limit = 50,
+  tag: string | null = null,
+  pinnedOnly = false,
+) {
   return invoke<{ items: NoteSummary[]; next_cursor: string | null }>("list_notes", {
     after,
     limit,
     tag,
+    pinned_only: pinnedOnly,
   });
 }
 

@@ -1,85 +1,156 @@
 /**
- * Card grid: virtualized (tanstack/react-virtual) responsive grid backed by
- * TanStack Query. The grid is CSS Grid with auto-fill; virtualization keeps
- * the DOM bounded even with thousands of notes (§5.6, §7.2).
+ * Card grid (§7.2–7.5): a virtualized, responsive multi-column grid of note
+ * cards. Cursor-paged listing (with tag/pin filters) or BM25 search; the
+ * title-bar header holds the search field, filter chips, and a theme toggle.
+ * Selecting a card opens the NoteDetail editor; the grid refreshes on
+ * `notes:changed` from the file watcher / other windows (§7.4).
  */
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { Monitor, Moon, Pin, Search, Sun } from "lucide-react";
 
-import { listNotes, searchNotes, deleteNote, updateNote } from "../lib/api";
+import { deleteNote, listNotes, searchNotes, updateNote } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { applyTheme } from "../lib/theme";
+import { listen } from "../lib/tauri";
 import { useUI } from "../stores/ui";
 import type { NoteSummary } from "../lib/types";
 import { Card } from "./Card";
+import { NoteDetail } from "./NoteDetail";
 
 const PAGE_SIZE = 50;
+const MIN_COL_W = 240;
+const CARD_H = 176; // matches Card's h-44 (§7.2 uniform height)
+const ROW_GAP = 12;
+const ROW_H = CARD_H + ROW_GAP;
 
 export function CardGrid() {
   const { t } = useI18n();
   const search = useUI((s) => s.search);
   const setSearch = useUI((s) => s.setSearch);
   const select = useUI((s) => s.select);
-  const [debounced, setDebounced] = useState(search);
+  const activeTag = useUI((s) => s.activeTag);
+  const setActiveTag = useUI((s) => s.setActiveTag);
+  const pinnedOnly = useUI((s) => s.pinnedOnly);
+  const setPinnedOnly = useUI((s) => s.setPinnedOnly);
+  const theme = useUI((s) => s.theme);
+  const setTheme = useUI((s) => s.setTheme);
+
   const [localSearch, setLocalSearch] = useState(search);
+  const [debounced, setDebounced] = useState(search);
   const qc = useQueryClient();
 
   // 200ms debounce on the search field (§7.5).
   useEffect(() => {
-    const id = window.setTimeout(() => setDebounced(localSearch), 200);
-    return () => window.clearTimeout(id);
+    const h = window.setTimeout(() => setDebounced(localSearch), 200);
+    return () => window.clearTimeout(h);
   }, [localSearch]);
 
   const listing = useInfiniteQuery({
-    queryKey: ["notes", debounced],
+    queryKey: ["notes", activeTag, pinnedOnly],
+    queryFn: ({ pageParam }) => listNotes(pageParam, PAGE_SIZE, activeTag, pinnedOnly),
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => listNotes(pageParam, PAGE_SIZE, null),
     getNextPageParam: (last) => last.next_cursor,
   });
 
   const searching = useInfiniteQuery({
     queryKey: ["search", debounced],
-    initialPageParam: null as string | null,
-    enabled: debounced.length > 0,
     queryFn: () => searchNotes(debounced, 100),
+    initialPageParam: null,
     getNextPageParam: () => null,
+    enabled: debounced.length > 0,
   });
 
+  const inSearch = debounced.length > 0;
   const items: NoteSummary[] = useMemo(() => {
-    if (debounced) return searching.data?.pages.flat() ?? [];
-    return listing.data?.pages.flatMap((p) => p.items) ?? [];
-  }, [debounced, listing.data, searching.data]);
+    const base = inSearch
+      ? searching.data?.pages.flat() ?? []
+      : listing.data?.pages.flatMap((p) => p.items) ?? [];
+    // Search results come from BM25 without the tag/pin filter; apply it
+    // client-side so filters stay meaningful during a search.
+    if (!inSearch) return base;
+    return base.filter(
+      (n) => (!activeTag || n.tags.includes(activeTag)) && (!pinnedOnly || n.pinned),
+    );
+  }, [inSearch, activeTag, pinnedOnly, listing.data, searching.data]);
+
+  // Distinct tags across loaded notes, for the filter chips (§7.5).
+  const tags = useMemo(() => {
+    const all =
+      listing.data?.pages.flatMap((p) => p.items.flatMap((n) => n.tags)) ?? [];
+    return [...new Set(all)].sort();
+  }, [listing.data]);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const [cols, setCols] = useState(1);
+
+  // Responsive column count from the scroller width (§7.2 auto-fill grid).
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const update = () =>
+      setCols(Math.max(1, Math.floor((el.clientWidth - 16) / MIN_COL_W)));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const rowCount = Math.ceil(items.length / cols);
   const virtualizer = useVirtualizer({
-    count: items.length,
+    count: rowCount,
     getScrollElement: () => scrollerRef.current,
-    estimateSize: () => 200,
-    overscan: 6,
+    estimateSize: () => ROW_H,
+    overscan: 4,
   });
 
-  // Fetch next listing page when the virtualizer's last item is in view.
+  // Fetch the next listing page when the last row nears view.
   useEffect(() => {
     const last = virtualizer.getVirtualItems().at(-1);
-    if (!last) return;
-    if (last.index >= items.length - 8 && listing.hasNextPage) {
+    if (last && last.index >= rowCount - 2 && listing.hasNextPage) {
       void listing.fetchNextPage();
     }
-  }, [virtualizer, items.length, listing]);
+  }, [virtualizer, rowCount, listing]);
+
+  // Refresh when another window or the file watcher changes the vault (§7.4).
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    void listen("notes:changed", () => {
+      qc.invalidateQueries({ queryKey: ["notes"] });
+      qc.invalidateQueries({ queryKey: ["search"] });
+    }).then((u) => {
+      un = u;
+    });
+    return () => un?.();
+  }, [qc]);
+
+  // Reset scroll to top when the active filter changes, so a shorter filtered
+  // list doesn't leave the viewport stuck at its old bottom offset.
+  useEffect(() => {
+    scrollerRef.current?.scrollTo({ top: 0 });
+  }, [activeTag, pinnedOnly]);
 
   const onDelete = (id: string) => {
     void deleteNote(id).then(() => {
-      void qc.invalidateQueries({ queryKey: ["notes"] });
-      void qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["notes"] });
+      qc.invalidateQueries({ queryKey: ["search"] });
     });
   };
 
-  const onTogglePin = (id: string) => {
-    void updateNote(id, null, null, true, null).then(() => {
-      void qc.invalidateQueries({ queryKey: ["notes"] });
+  const onTogglePin = (id: string, pinned: boolean) => {
+    void updateNote(id, null, null, !pinned, null).then(() => {
+      qc.invalidateQueries({ queryKey: ["notes"] });
     });
   };
+
+  const cycleTheme = () => {
+    const next =
+      theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+    setTheme(next);
+    applyTheme(next);
+  };
+  const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
 
   return (
     <div className="flex h-full flex-col">
@@ -87,7 +158,7 @@ export function CardGrid() {
         data-tauri-drag-region
         className="flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/80 px-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80"
       >
-        <div className="relative w-72">
+        <div className="relative w-64">
           <Search
             size={14}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
@@ -103,42 +174,91 @@ export function CardGrid() {
             className="w-full rounded-full border border-zinc-200 bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:focus:border-zinc-500"
           />
         </div>
+        <div className="flex flex-1 flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setPinnedOnly(!pinnedOnly)}
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] transition-colors ${
+              pinnedOnly
+                ? "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400"
+                : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+          >
+            <Pin size={11} /> {t.pinned}
+          </button>
+          {tags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => setActiveTag(activeTag === tag ? null : tag)}
+                className={`rounded-full px-2.5 py-1 text-[11px] transition-colors ${
+                  activeTag === tag
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                }`}
+              >
+                #{tag}
+              </button>
+            ))}
+        </div>
+        <button
+          type="button"
+          onClick={cycleTheme}
+          aria-label="theme"
+          className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        >
+          <ThemeIcon size={15} />
+        </button>
       </header>
-      <div ref={scrollerRef} className="flex-1 overflow-y-auto p-4">
+      <div ref={scrollerRef} className="flex-1 overflow-y-auto p-2">
         {items.length === 0 ? (
-          <div className="mt-20 text-center text-sm text-zinc-400">{t.empty_hint}</div>
+          <div className="mt-20 text-center text-sm text-zinc-400">
+            {t.empty_hint}
+          </div>
         ) : (
           <div
             style={{ height: virtualizer.getTotalSize() }}
             className="relative w-full"
           >
             {virtualizer.getVirtualItems().map((v) => {
-              const n = items[v.index];
-              if (!n) return null;
+              const start = v.index * cols;
+              const row = items.slice(start, start + cols);
               return (
                 <div
-                  key={n.id}
+                  key={v.key}
                   style={{
                     position: "absolute",
                     top: 0,
                     left: 0,
                     transform: `translateY(${v.start}px)`,
                     width: "100%",
-                    padding: "6px",
                   }}
                 >
-                  <Card
-                    note={n}
-                    onSelect={select}
-                    onTogglePin={onTogglePin}
-                    onDelete={onDelete}
-                  />
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                      gridAutoRows: `${CARD_H}px`,
+                      gap: `${ROW_GAP}px`,
+                    }}
+                  >
+                    {row.map((n) => (
+                      <Card
+                        key={n.id}
+                        note={n}
+                        onSelect={select}
+                        onTogglePin={(id) => onTogglePin(id, n.pinned)}
+                        onDelete={onDelete}
+                      />
+                    ))}
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
       </div>
+      <NoteDetail />
     </div>
   );
 }

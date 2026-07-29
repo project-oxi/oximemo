@@ -1,7 +1,6 @@
 /** UI state store (Zustand). Server data lives in TanStack Query; this
  *  holds only ephemeral UI state per §7.4. */
 import { create } from "zustand";
-import type { Locale } from "../lib/i18n";
 import type { Theme } from "../lib/theme";
 
 interface UIState {
@@ -9,10 +8,12 @@ interface UIState {
   setSearch: (s: string) => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
-  locale: Locale | null;
-  setLocale: (l: Locale) => void;
   selectedId: string | null;
   select: (id: string | null) => void;
+  activeTag: string | null;
+  setActiveTag: (t: string | null) => void;
+  pinnedOnly: boolean;
+  setPinnedOnly: (b: boolean) => void;
 }
 
 export const useUI = create<UIState>((set) => ({
@@ -20,8 +21,10 @@ export const useUI = create<UIState>((set) => ({
   setSearch: (s) => set({ search: s }),
   theme: "system",
   setTheme: (t) => set({ theme: t }),
-  locale: null,
-  setLocale: (l) => set({ locale: l }),
   selectedId: null,
   select: (id) => set({ selectedId: id }),
+  activeTag: null,
+  setActiveTag: (t) => set({ activeTag: t }),
+  pinnedOnly: false,
+  setPinnedOnly: (b) => set({ pinnedOnly: b }),
 }));
