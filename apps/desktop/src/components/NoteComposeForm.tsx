@@ -81,28 +81,25 @@ export function NoteComposeForm({
           className="min-w-[180px] flex-1"
         />
         <ColorSwatches value={color} onChange={onColorChange} />
-        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={confirmDisabled}
+          aria-label={confirmLabel}
+          title={confirmLabel}
+          className="group inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-900 px-2 text-white shadow-sm transition-all hover:bg-zinc-800 active:scale-95 disabled:pointer-events-none disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+        >
+          <Check
+            size={15}
+            strokeWidth={2.5}
+            className="transition-transform group-hover:scale-110"
+          />
           {confirmKbd && (
-            <kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500">
+            <kbd className="font-mono text-[10px] leading-none text-white/60 dark:text-zinc-500">
               {confirmKbd}
             </kbd>
           )}
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={confirmDisabled}
-            aria-label={confirmLabel}
-            title={confirmLabel}
-            className="group inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-900 pl-2.5 pr-3 text-xs font-medium text-white shadow-sm transition-all hover:bg-zinc-800 active:scale-95 disabled:pointer-events-none disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-          >
-            <Check
-              size={14}
-              strokeWidth={2.5}
-              className="transition-transform group-hover:scale-110"
-            />
-            <span>{confirmLabel}</span>
-          </button>
-        </div>
+        </button>
       </div>
     </div>
   );
