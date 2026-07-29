@@ -34,6 +34,7 @@ export const dict = {
   pinned_count: "고정 {n}개",
   empty_cta: "첫 메모 작성",
   copy_failed: "복사 실패",
+  done: "완료",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

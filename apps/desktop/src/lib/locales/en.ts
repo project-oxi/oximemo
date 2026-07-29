@@ -35,4 +35,5 @@ export const dict: Record<keyof typeof ko, string> = {
   pinned_count: "{n} pinned",
   empty_cta: "Write your first note",
   copy_failed: "Copy failed",
+  done: "Done",
 };
