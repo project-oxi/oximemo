@@ -181,6 +181,14 @@ impl FileStore {
         }
         if live.exists() {
             std::fs::rename(&live, &trash)?;
+            // Durability (C2): persist the new trash entry and the removal
+            // from the live shard so a crash can't lose the rename.
+            if let Some(d) = trash.parent() {
+                fsync_dir(d)?;
+            }
+            if let Some(d) = live.parent() {
+                fsync_dir(d)?;
+            }
         }
         Ok(trash)
     }
@@ -197,6 +205,14 @@ impl FileStore {
                 std::fs::create_dir_all(parent)?;
             }
             std::fs::rename(&trash, &live)?;
+            // Durability (C2): persist the restored entry and the removal
+            // from trash.
+            if let Some(d) = live.parent() {
+                fsync_dir(d)?;
+            }
+            if let Some(d) = trash.parent() {
+                fsync_dir(d)?;
+            }
         }
         Ok(live)
     }
@@ -272,11 +288,17 @@ fn split_frontmatter(content: &str) -> FrontmatterSplit<'_> {
 }
 
 /// Atomic write: temp file in the same directory, fsync, rename over target.
+///
+/// Durability (C2): the file is fsync'd, then the parent *directory* is
+/// fsync'd so the rename survives power loss — otherwise a crash can leave the
+/// new content written but the directory entry pointing at the old (or no)
+/// name. Collision safety (C3): the temp name embeds pid + a per-process
+/// counter so two processes writing the same note concurrently cannot stomp
+/// each other's temp file.
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("md.tmp");
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    let tmp = unique_temp(path);
     {
         let mut file = std::fs::File::create(&tmp)?;
         use std::io::Write;
@@ -284,6 +306,30 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         file.sync_all()?;
     }
     std::fs::rename(&tmp, path)?;
+    fsync_dir(parent)?;
+    Ok(())
+}
+
+/// Build a unique sibling temp path for `target`: `<target>.tmp.<pid>.<n>`.
+/// The extension is not `md`, so a stale temp file is never picked up by the
+/// note walker (`walk_md`).
+fn unique_temp(target: &Path) -> PathBuf {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let suffix = format!("tmp.{}.{}", std::process::id(), n);
+    let mut name = target
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_default();
+    name.push(".");
+    name.push(suffix);
+    target.with_file_name(name)
+}
+
+/// fsync a directory so a recent rename/create is durable across power loss.
+fn fsync_dir(dir: &Path) -> Result<()> {
+    let f = std::fs::File::open(dir)?;
+    f.sync_all()?;
     Ok(())
 }
 

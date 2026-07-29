@@ -6,6 +6,7 @@ import { isRouteCapture } from "../lib/window";
 
 import { CardGrid } from "./CardGrid";
 import { CaptureOverlay } from "./CaptureOverlay";
+import { ErrorToast } from "./ErrorBoundary";
 import { useUI } from "../stores/ui";
 import { applyTheme, loadTheme, saveTheme } from "../lib/theme";
 
@@ -37,5 +38,10 @@ function Shell() {
     applyTheme(theme);
     saveTheme(theme);
   }, [theme]);
-  return <CardGrid />;
+  return (
+    <>
+      <CardGrid />
+      <ErrorToast />
+    </>
+  );
 }

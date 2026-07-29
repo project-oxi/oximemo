@@ -11,7 +11,9 @@ import { COLOR_PRESETS, presetToString } from "../lib/color";
 import { listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import { closeCurrentWindow } from "../lib/window";
+import { useUI } from "../stores/ui";
 import { TagInput } from "./TagInput";
+import { ErrorToast } from "./ErrorBoundary";
 
 export function CaptureOverlay() {
   const { t } = useI18n();
@@ -20,6 +22,7 @@ export function CaptureOverlay() {
   const [color, setColor] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const setError = useUI((s) => s.setError);
 
   useEffect(() => {
     void listen("capture:show", () => {
@@ -48,6 +51,9 @@ export function CaptureOverlay() {
     try {
       await createNote(body, tags, color || null);
       await closeCurrentWindow();
+    } catch (e) {
+      // Keep the text so the user can retry; surface the failure (H4).
+      setError(String(e).split("\n")[0]);
     } finally {
       setBusy(false);
     }
@@ -117,6 +123,7 @@ export function CaptureOverlay() {
           {t.capture_save}
         </button>
       </div>
+      <ErrorToast />
     </div>
   );
 }

@@ -36,6 +36,7 @@ export function CardGrid() {
   const setPinnedOnly = useUI((s) => s.setPinnedOnly);
   const theme = useUI((s) => s.theme);
   const setTheme = useUI((s) => s.setTheme);
+  const setError = useUI((s) => s.setError);
 
   const [localSearch, setLocalSearch] = useState(search);
   const [debounced, setDebounced] = useState(search);
@@ -132,16 +133,20 @@ export function CardGrid() {
   }, [activeTag, pinnedOnly]);
 
   const onDelete = (id: string) => {
-    void deleteNote(id).then(() => {
-      qc.invalidateQueries({ queryKey: ["notes"] });
-      qc.invalidateQueries({ queryKey: ["search"] });
-    });
+    void deleteNote(id)
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["notes"] });
+        qc.invalidateQueries({ queryKey: ["search"] });
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
   };
 
   const onTogglePin = (id: string, pinned: boolean) => {
-    void updateNote(id, null, null, !pinned, null).then(() => {
-      qc.invalidateQueries({ queryKey: ["notes"] });
-    });
+    void updateNote(id, null, null, !pinned, null)
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["notes"] });
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
   };
 
   const cycleTheme = () => {

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  oxinot macOS entitlements (Hardened Runtime, DESIGN §6.5).
+
+  The app is NOT sandboxed:
+    - The vault lives anywhere on disk (~/Library/… by default, but --vault can
+      point anywhere) and oxinot reads/writes plain .md files directly.
+    - The global Option double-tap monitor (NSEvent global flagsChanged) needs
+      unrestricted event access that the sandbox does not grant; Accessibility /
+      Input Monitoring are granted by the user at runtime via TCC, not here.
+
+  disable-library-validation is required because objc2 loads AppKit/Foundation
+  symbols dynamically, which Hardened Runtime would otherwise reject.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.app-sandbox</key>
+  <false/>
+
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!-- The renderer (WebKit) is sandboxed by the OS; no JIT exemption needed. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <false/>
+
+  <!-- No network access in the MVP (local-only vault, no telemetry). -->
+  <key>com.apple.security.network.client</key>
+  <false/>
+  <key>com.apple.security.network.server</key>
+  <false/>
+
+  <!-- A user may pick a vault via a future folder picker; keep read-write on
+       user-selected paths. -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+</dict>
+</plist>

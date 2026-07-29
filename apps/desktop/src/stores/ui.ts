@@ -14,6 +14,9 @@ interface UIState {
   setActiveTag: (t: string | null) => void;
   pinnedOnly: boolean;
   setPinnedOnly: (b: boolean) => void;
+  /** Transient error message surfaced as a toast (H4). `null` = none. */
+  error: string | null;
+  setError: (msg: string | null) => void;
 }
 
 export const useUI = create<UIState>((set) => ({
@@ -27,4 +30,6 @@ export const useUI = create<UIState>((set) => ({
   setActiveTag: (t) => set({ activeTag: t }),
   pinnedOnly: false,
   setPinnedOnly: (b) => set({ pinnedOnly: b }),
+  error: null,
+  setError: (msg) => set({ error: msg }),
 }));

@@ -15,9 +15,24 @@ use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term, doc};
 use crate::error::{CoreError, Result};
 use crate::note::NoteId;
 
+/// A single search upsert, used for batched reindex commits (§5.6).
+pub struct Upsert<'a> {
+    pub id: NoteId,
+    pub body: &'a str,
+    pub tags: &'a [String],
+}
+
 /// Swappable search boundary (§5.1).
 pub trait SearchIndex: Send + Sync {
     fn upsert(&self, id: NoteId, body: &str, tags: &[String]) -> Result<()>;
+    /// Upsert many notes in one transaction. The default loops [`Self::upsert`];
+    /// `TantivySearch` overrides it to commit once for fast bulk reindex.
+    fn upsert_batch(&self, notes: &[Upsert<'_>]) -> Result<()> {
+        for n in notes {
+            self.upsert(n.id, n.body, n.tags)?;
+        }
+        Ok(())
+    }
     fn remove(&self, id: NoteId) -> Result<()>;
     fn search(&self, query: &str, limit: u32) -> Result<Vec<NoteId>>;
     fn clear(&self) -> Result<()>;
@@ -85,6 +100,25 @@ impl SearchIndex for TantivySearch {
             self.body_field => body,
             self.tags_field => tags.join(" "),
         ))?;
+        writer.commit()?;
+        self.reader.reload()?;
+        Ok(())
+    }
+    fn upsert_batch(&self, notes: &[Upsert<'_>]) -> Result<()> {
+        if notes.is_empty() {
+            return Ok(());
+        }
+        let mut guard = self.ensure_writer()?;
+        let writer = guard.as_mut().expect("writer initialized");
+        for n in notes {
+            writer.delete_term(self.id_term(n.id));
+            writer.add_document(doc!(
+                self.id_field => n.id.to_string(),
+                self.body_field => n.body,
+                self.tags_field => n.tags.join(" "),
+            ))?;
+        }
+        // Single commit for the whole batch — avoids one fsync per note (H1).
         writer.commit()?;
         self.reader.reload()?;
         Ok(())

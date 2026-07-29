@@ -105,6 +105,7 @@ impl Vault {
         color: Option<String>,
     ) -> Result<Note> {
         self.ensure_initialized()?;
+        validate_note_input(&body, &tags)?;
         let now = OffsetDateTime::now_utc();
         let id = NoteId::now();
         let color = color.map(NoteColor).unwrap_or_default();
@@ -184,6 +185,7 @@ impl Vault {
         if let Some(c) = color {
             note.color = NoteColor(c);
         }
+        validate_note_input(&note.body, &note.tags)?;
         note.updated_at = OffsetDateTime::now_utc();
         note.hash = hash::hash_note(note.body.as_bytes(), &note.tags, note.pinned, &note.color.0);
         self.files.write(&note)?;
@@ -325,6 +327,9 @@ impl Vault {
         self.ensure_initialized()?;
         self.with_redb_and_search(|idx, search| {
             let mut stats = IndexStats::default();
+            // Collect search upserts to commit once (H1: avoids one tantivy
+            // commit/fsync per note). redb upserts stay per-call; they're cheap.
+            let mut search_owned: Vec<(NoteId, String, Vec<String>)> = Vec::new();
             for path in self.files.list_note_files() {
                 match self.files.read_note(&path) {
                     Ok(Some(note)) => {
@@ -332,7 +337,7 @@ impl Vault {
                         match idx.get(note.id)? {
                             None => {
                                 idx.upsert(&rec)?;
-                                search.upsert(note.id, &note.body, &note.tags)?;
+                                search_owned.push((note.id, note.body, note.tags));
                                 stats.added += 1;
                             }
                             Some(prev) if prev.hash == rec.hash => {
@@ -340,7 +345,7 @@ impl Vault {
                             }
                             Some(_) => {
                                 idx.upsert(&rec)?;
-                                search.upsert(note.id, &note.body, &note.tags)?;
+                                search_owned.push((note.id, note.body, note.tags));
                                 stats.updated += 1;
                             }
                         }
@@ -357,10 +362,20 @@ impl Vault {
                 if let Ok(Some(note)) = self.files.read_note(&path) {
                     let rec = record_of(&note);
                     idx.upsert(&rec)?;
-                    search.upsert(note.id, &note.body, &note.tags)?;
+                    search_owned.push((note.id, note.body, note.tags));
                     stats.trashed += 1;
                 }
             }
+            // One tantivy commit for everything that changed.
+            let batch: Vec<crate::store::search::Upsert<'_>> = search_owned
+                .iter()
+                .map(|(id, body, tags)| crate::store::search::Upsert {
+                    id: *id,
+                    body,
+                    tags,
+                })
+                .collect();
+            search.upsert_batch(&batch)?;
             Ok(stats)
         })
     }
@@ -446,10 +461,28 @@ impl Vault {
                         &note.color.0,
                     );
                     if recomputed != note.hash {
-                        report.hash_mismatches.push(note.id);
-                        if fix {
+                        // Report only *unresolved* mismatches. When --fix
+                        // rewrites successfully the note is no longer a
+                        // mismatch; a failed rewrite is counted separately.
+                        let repaired = if fix {
                             note.hash = recomputed;
-                            let _ = self.files.write(&note);
+                            match self.files.write(&note) {
+                                Ok(_) => true,
+                                Err(e) => {
+                                    report.hash_repair_failed += 1;
+                                    tracing::warn!(
+                                        id = %note.id,
+                                        error = %e,
+                                        "doctor: failed to rewrite hash"
+                                    );
+                                    false
+                                }
+                            }
+                        } else {
+                            false
+                        };
+                        if !repaired {
+                            report.hash_mismatches.push(note.id);
                         }
                     }
                 }
@@ -481,7 +514,6 @@ impl Vault {
                 Ok(())
             })?;
             report.orphan_index_records.clear();
-            report.hash_mismatches.clear();
         }
 
         // Trash purge estimate.
@@ -521,6 +553,40 @@ fn id_from_path(path: &Path) -> Option<NoteId> {
     NoteId::parse(stem).ok()
 }
 
+/// Soft input bounds (H6). A note is a quick card, not a document; reject
+/// absurdly large bodies or tag spam before they hit the store/index so a
+/// malformed input can't bloat the indexes.
+const MAX_BODY_BYTES: usize = 64 * 1024;
+const MAX_TAGS: usize = 64;
+const MAX_TAG_LEN: usize = 64;
+
+fn validate_note_input(body: &str, tags: &[String]) -> Result<()> {
+    if body.len() > MAX_BODY_BYTES {
+        return Err(CoreError::other(format!(
+            "note body too large: {} bytes (max {})",
+            body.len(),
+            MAX_BODY_BYTES
+        )));
+    }
+    if tags.len() > MAX_TAGS {
+        return Err(CoreError::other(format!(
+            "too many tags: {} (max {})",
+            tags.len(),
+            MAX_TAGS
+        )));
+    }
+    for t in tags {
+        if t.chars().count() > MAX_TAG_LEN {
+            return Err(CoreError::other(format!(
+                "tag too long: {} chars (max {})",
+                t.chars().count(),
+                MAX_TAG_LEN
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Output of `oxinot doctor` (§9.3).
 #[derive(Debug, Default, serde::Serialize)]
 pub struct DoctorReport {
@@ -528,6 +594,8 @@ pub struct DoctorReport {
     pub orphan_index_records: Vec<NoteId>,
     pub orphan_files: Vec<PathBuf>,
     pub hash_mismatches: Vec<NoteId>,
+    /// Notes whose hash was rewritten by `doctor --fix` but the write failed.
+    pub hash_repair_failed: u64,
     pub invalid_colors: Vec<NoteId>,
     pub index_locked: bool,
     pub trash_expiring: u64,

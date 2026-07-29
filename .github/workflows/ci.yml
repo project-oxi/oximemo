@@ -39,6 +39,47 @@ jobs:
       - name: test
         run: cargo test -p oxinot-core -p oxinot-cli -p oxinot-capture
 
+  # Validate the desktop crate (apps/desktop/src-tauri) too. The desktop
+  # compile embeds the built `dist/` via generate_context!(), so the
+  # `frontend` job's build output is reused via upload/download. This catches
+  # backend regressions on PRs instead of only at release time.
+  desktop-build:
+    name: Desktop (clippy + build)
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: apps/desktop
+    needs: [frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build frontend (for generate_context! embed)
+        run: bun run build
+
+      - name: Tauri config sanity
+        working-directory: .
+        run: node -e "const c=require('./src-tauri/tauri.conf.json'); if(!c.bundle) throw new Error('missing bundle section'); if(!c.bundle.macOS.entitlements) throw new Error('missing entitlements');"
+
+      - name: clippy (desktop)
+        working-directory: .
+        run: cargo clippy -p oxinot-desktop --all-targets -- -D warnings
+
+      - name: check (desktop)
+        working-directory: .
+        run: cargo check -p oxinot-desktop
+
   frontend:
     name: Frontend (typecheck + build)
     runs-on: macos-14

@@ -19,6 +19,7 @@ export function NoteDetail() {
   const { t } = useI18n();
   const selectedId = useUI((s) => s.selectedId);
   const select = useUI((s) => s.select);
+  const setError = useUI((s) => s.setError);
   const open = selectedId !== null;
   const qc = useQueryClient();
 
@@ -52,10 +53,16 @@ export function NoteDetail() {
   useEffect(() => {
     if (!dirty || !selectedId) return;
     const h = window.setTimeout(() => {
-      void updateNote(selectedId, body, tags, pinned, color).then((n) => {
-        qc.setQueryData(["note", selectedId], n);
-        setDirty(false);
-      });
+      void updateNote(selectedId, body, tags, pinned, color)
+        .then((n) => {
+          qc.setQueryData(["note", selectedId], n);
+          setDirty(false);
+        })
+        .catch((e) => {
+          setError(String(e).split("\n")[0]);
+          // Leave dirty=true so the next change or a manual retry attempts
+          // the save again; the user can also close to flush.
+        });
     }, 500);
     return () => window.clearTimeout(h);
   }, [dirty, body, tags, pinned, color, selectedId]);
@@ -63,9 +70,9 @@ export function NoteDetail() {
   const close = () => {
     // Flush a pending edit before dismissing.
     if (dirty && selectedId) {
-      void updateNote(selectedId, body, tags, pinned, color).then((n) =>
-        qc.setQueryData(["note", selectedId], n),
-      );
+      void updateNote(selectedId, body, tags, pinned, color)
+        .then((n) => qc.setQueryData(["note", selectedId], n))
+        .catch((e) => setError(String(e).split("\n")[0]));
     }
     select(null);
   };
