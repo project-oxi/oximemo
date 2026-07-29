@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { createNote } from "../lib/api";
+import { paperFor } from "../lib/color";
 import { listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import { closeCurrentWindow } from "../lib/window";
@@ -63,8 +64,8 @@ export function CaptureOverlay() {
       {color && (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 -z-10 rounded-2xl opacity-25 dark:opacity-35"
-          style={{ background: color }}
+          className="pointer-events-none absolute inset-0 -z-10 rounded-2xl"
+          style={{ backgroundColor: paperFor(color) }}
         />
       )}
       <NoteComposeForm

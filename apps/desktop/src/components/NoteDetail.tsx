@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { Pin } from "lucide-react";
 
 import { deleteNote, getNote, updateNote } from "../lib/api";
+import { paperFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { NoteComposeForm } from "./NoteComposeForm";
@@ -110,8 +111,8 @@ export function NoteDetail() {
           {color && (
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-0 -z-10 opacity-25 dark:opacity-35"
-              style={{ background: color }}
+              className="pointer-events-none absolute inset-0 -z-10"
+              style={{ backgroundColor: paperFor(color) }}
             />
           )}
           {note.isLoading || !note.data ? (
