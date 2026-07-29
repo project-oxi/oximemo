@@ -1,15 +1,28 @@
 /**
- * Settings popover: theme + language segmented controls, the capture
- * shortcut, the vault path with copy, and vault maintenance (rebuild index,
- * run doctor). Anchored to the gear button in the CardGrid header; every
- * action maps onto an existing IPC command.
+ * Settings modal: a full Dialog (not a popover) with grouped sections —
+ * appearance, language, capture, storage/vault, and about. Every action maps
+ * onto an existing IPC command (theme/locale are local state; reindex/doctor
+ * hit the vault). Anchored to the gear button in the CardGrid header.
  */
-import { Popover } from "@base-ui-components/react";
+import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Check, Copy, RefreshCw, Settings, ShieldCheck, Stethoscope } from "lucide-react";
+import { type ReactNode, useState } from "react";
+import {
+  Check,
+  Copy,
+  Globe,
+  HardDrive,
+  Info,
+  Languages,
+  Palette,
+  RefreshCw,
+  Settings,
+  ShieldCheck,
+  Stethoscope,
+  X,
+} from "lucide-react";
 
-import { doctor, reindex, vaultPath } from "../lib/api";
+import { doctor, noteStats, reindex, vaultPath } from "../lib/api";
 import { applyTheme, type Theme } from "../lib/theme";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
@@ -33,7 +46,7 @@ function Segmented<T extends string>({
           type="button"
           onClick={() => onChange(o.value)}
           className={
-            "flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors " +
+            "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors " +
             (o.value === value
               ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
               : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
@@ -43,6 +56,26 @@ function Segmented<T extends string>({
         </button>
       ))}
     </div>
+  );
+}
+
+function Section({
+  icon,
+  title,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section>
+      <h2 className="mb-2.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+        <span className="text-zinc-400 dark:text-zinc-500">{icon}</span>
+        {title}
+      </h2>
+      {children}
+    </section>
   );
 }
 
@@ -63,6 +96,8 @@ export function SettingsMenu() {
     queryFn: vaultPath,
     staleTime: Infinity,
   });
+
+  const stats = useQuery({ queryKey: ["stats"], queryFn: noteStats });
 
   const onTheme = (v: Theme) => {
     setTheme(v);
@@ -110,119 +145,139 @@ export function SettingsMenu() {
   };
 
   return (
-    <Popover.Root>
-      <Popover.Trigger
+    <Dialog.Root>
+      <Dialog.Trigger
         aria-label={t.settings}
         className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
       >
         <Settings size={15} />
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner side="bottom" align="end" sideOffset={8} className="z-50">
-          <Popover.Popup
-            className="w-72 animate-popover-in rounded-xl border border-zinc-200 bg-white p-3 shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
-          >
-          <div className="mb-3">
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              {t.theme}
-            </p>
-            <Segmented
-              value={theme}
-              onChange={onTheme}
-              options={[
-                { value: "system", label: t.theme_system },
-                { value: "light", label: t.theme_light },
-                { value: "dark", label: t.theme_dark },
-              ]}
-            />
-          </div>
-          <div className="mb-3">
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              {t.language}
-            </p>
-            <Segmented
-              value={locale}
-              onChange={setLocale}
-              options={[
-                { value: "ko", label: t.locale_ko },
-                { value: "en", label: t.locale_en },
-              ]}
-            />
-          </div>
-          <div className="mb-1 flex items-center justify-between rounded-lg bg-zinc-50 px-2.5 py-2 dark:bg-zinc-800/50">
-            <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-              {t.capture_shortcut}
-            </span>
-            <kbd className="rounded-md border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-              ⌘⇧N
-            </kbd>
-          </div>
-
-          <div className="my-2.5 border-t border-zinc-100 dark:border-zinc-800" />
-
-          <div className="mb-3">
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              {t.vault}
-            </p>
-            <div className="flex items-center gap-1.5">
-              <code
-                title={vault.data ?? ""}
-                className="min-w-0 flex-1 truncate rounded-lg bg-zinc-50 px-2.5 py-1.5 font-mono text-[10px] text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-300"
-              >
-                {vault.data ?? "…"}
-              </code>
-              <button
-                type="button"
-                onClick={() => void copyVault()}
-                aria-label={t.copy}
-                className="shrink-0 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              >
-                {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-              </button>
-            </div>
-          </div>
-
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              onClick={onReindex}
-              disabled={busy !== null}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-1.5 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
+        <Dialog.Popup
+          className="fixed left-1/2 top-1/2 z-50 flex max-h-[82vh] w-[min(600px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3.5 dark:border-zinc-800">
+            <h1 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+              {t.settings}
+            </h1>
+            <Dialog.Close
+              aria-label={t.close}
+              className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
-              <RefreshCw size={12} className={busy === "reindex" ? "animate-spin" : ""} />
-              {busy === "reindex" ? t.reindexing : t.reindex}
-            </button>
-            <button
-              type="button"
-              onClick={onDoctor}
-              disabled={busy !== null}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-1.5 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              <Stethoscope size={12} />
-              {busy === "doctor" ? t.checking : t.doctor}
-            </button>
+              <X size={16} />
+            </Dialog.Close>
           </div>
-          {issues !== null && busy === null && (
-            <p
-              className={
-                "mt-2 flex items-center gap-1 text-[11px] " +
-                (issues === 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-amber-600 dark:text-amber-400")
-              }
-            >
-              <ShieldCheck size={12} />
-              {issues === 0 ? t.vault_ok : `${t.vault_issues}: ${issues}`}
-            </p>
-          )}
 
-          <div className="my-2.5 border-t border-zinc-100 dark:border-zinc-800" />
-          <p className="text-center text-[10px] text-zinc-400 dark:text-zinc-500">
-            oxinot v{APP_VERSION}
-          </p>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+          {/* Body */}
+          <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+            <Section icon={<Palette size={12} />} title={t.section_appearance}>
+              <Segmented
+                value={theme}
+                onChange={onTheme}
+                options={[
+                  { value: "system", label: t.theme_system },
+                  { value: "light", label: t.theme_light },
+                  { value: "dark", label: t.theme_dark },
+                ]}
+              />
+            </Section>
+
+            <Section icon={<Languages size={12} />} title={t.language}>
+              <Segmented
+                value={locale}
+                onChange={setLocale}
+                options={[
+                  { value: "ko", label: t.locale_ko },
+                  { value: "en", label: t.locale_en },
+                ]}
+              />
+            </Section>
+
+            <Section icon={<Globe size={12} />} title={t.section_capture}>
+              <div className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/50">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                  {t.capture_shortcut}
+                </span>
+                <kbd className="rounded-md border border-zinc-200 bg-white px-2 py-1 font-mono text-[11px] text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  ⌘⇧N
+                </kbd>
+              </div>
+            </Section>
+
+            <Section icon={<HardDrive size={12} />} title={t.section_storage}>
+              <div className="space-y-2.5">
+                <div>
+                  <p className="mb-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+                    {t.vault_location}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <code
+                      title={vault.data ?? ""}
+                      className="min-w-0 flex-1 truncate rounded-lg bg-zinc-50 px-2.5 py-1.5 font-mono text-[11px] text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-300"
+                    >
+                      {vault.data ?? "…"}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => void copyVault()}
+                      aria-label={t.copy}
+                      className="shrink-0 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                    >
+                      {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800/50 dark:text-zinc-400">
+                  <span>{t.note_count.replace("{n}", String(stats.data?.notes ?? 0))}</span>
+                  <span>{t.pinned_count.replace("{n}", String(stats.data?.pinned ?? 0))}</span>
+                </div>
+                <div className="flex gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={onReindex}
+                    disabled={busy !== null}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-2 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    <RefreshCw size={13} className={busy === "reindex" ? "animate-spin" : ""} />
+                    {busy === "reindex" ? t.reindexing : t.reindex}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onDoctor}
+                    disabled={busy !== null}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-2 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    <Stethoscope size={13} />
+                    {busy === "doctor" ? t.checking : t.doctor}
+                  </button>
+                </div>
+                {issues !== null && busy === null && (
+                  <p
+                    className={
+                      "flex items-center gap-1 text-xs " +
+                      (issues === 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-amber-600 dark:text-amber-400")
+                    }
+                  >
+                    <ShieldCheck size={13} />
+                    {issues === 0 ? t.vault_ok : `${t.vault_issues}: ${issues}`}
+                  </p>
+                )}
+              </div>
+            </Section>
+
+            <Section icon={<Info size={12} />} title={t.section_about}>
+              <div className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/50">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">oxinot</span>
+                <span className="font-mono text-xs text-zinc-400">v{APP_VERSION}</span>
+              </div>
+            </Section>
+          </div>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

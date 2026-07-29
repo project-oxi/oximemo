@@ -244,7 +244,7 @@ export function CardGrid() {
         <button
           type="button"
           onClick={cycleTheme}
-          aria-label="theme"
+          aria-label={t.theme}
           className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
         >
           <ThemeIcon size={15} />

@@ -35,6 +35,22 @@ export const dict = {
   empty_cta: "첫 메모 작성",
   copy_failed: "복사 실패",
   done: "완료",
+  close: "닫기",
+  empty_note: "빈 메모",
+  action_pin: "고정",
+  action_delete: "삭제",
+  no_color: "색상 없음",
+  color_red: "빨강",
+  color_amber: "주황",
+  color_green: "초록",
+  color_teal: "청록",
+  color_blue: "파랑",
+  color_purple: "보라",
+  section_appearance: "외관",
+  section_capture: "캡처",
+  section_storage: "저장소",
+  section_about: "정보",
+  vault_location: "볼트 위치",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

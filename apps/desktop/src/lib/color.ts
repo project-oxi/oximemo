@@ -41,10 +41,18 @@ export function isValidOklch(s: string): boolean {
 }
 
 /**
- * Render a color bar from a stored color string. Returns `transparent` for
- * an empty value so the card simply omits the accent.
+ * Post-it paper fill: the note color washed toward the card surface so the
+ * whole card reads as colored paper — a light pastel in light mode, a muted
+ * tint in dark. `--card-surface` flips with the `.dark` class, so the same
+ * value adapts to both themes. Empty color falls back to the bare surface.
  */
-export function barFor(color: string): string {
-  if (!color) return "transparent";
-  return color;
+export function paperFor(color: string): string {
+  if (!color) return "var(--card-surface)";
+  return `color-mix(in oklch, ${color} 30%, var(--card-surface))`;
+}
+
+/** Card edge: a touch more saturated than the fill, for subtle definition. */
+export function edgeFor(color: string): string {
+  if (!color) return "var(--card-edge)";
+  return `color-mix(in oklch, ${color} 42%, var(--card-edge))`;
 }

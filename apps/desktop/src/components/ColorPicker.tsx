@@ -4,6 +4,16 @@
  * fine-tune sliders were dropped — the presets cover what we need.
  */
 import { COLOR_PRESETS, presetToString } from "../lib/color";
+import { useI18n, type Dict } from "../lib/i18n";
+
+const COLOR_NAME: Record<string, keyof Dict> = {
+  red: "color_red",
+  amber: "color_amber",
+  green: "color_green",
+  teal: "color_teal",
+  blue: "color_blue",
+  purple: "color_purple",
+};
 
 interface Props {
   value: string;
@@ -12,11 +22,12 @@ interface Props {
 
 /** Inline swatch cluster: "no color" + six presets. Stays together as a unit. */
 export function ColorSwatches({ value, onChange }: Props) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-none items-center gap-2">
       <button
         type="button"
-        aria-label="no color"
+        aria-label={t.no_color}
         onClick={() => onChange("")}
         className={`grid h-6 w-6 place-items-center rounded-full border text-zinc-400 ${
           value === ""
@@ -36,7 +47,7 @@ export function ColorSwatches({ value, onChange }: Props) {
           <button
             key={p.id}
             type="button"
-            aria-label={p.id}
+            aria-label={t[COLOR_NAME[p.id]]}
             onClick={() => onChange(s)}
             style={{ background: s }}
             className={`h-6 w-6 rounded-full border border-black/10 transition-transform hover:scale-110 dark:border-white/10 ${

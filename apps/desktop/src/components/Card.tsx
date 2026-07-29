@@ -1,13 +1,13 @@
 /**
- * Card component for a note summary. Renders a color bar on the left, the
- * preview text, tags, and hover actions (pin/delete/copy). The visual
- * language stays minimal: thin separators, generous whitespace, no icons
- * unless they add meaning.
+ * Card component for a note summary. The note's color fills the whole card as
+ * colored "paper" (post-it), not just a side accent — see `paperFor` in
+ * lib/color.ts, which washes the OKLCH color toward the theme's card surface.
+ * Renders the preview text, tags, and hover actions (pin/delete/copy).
  */
 import { Pin, Trash2, Copy } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { barFor } from "../lib/color";
+import { edgeFor, paperFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import type { NoteSummary } from "../lib/types";
 import { relativeTime } from "../lib/time";
@@ -38,35 +38,39 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
         ),
       );
   }
+
   return (
     <article
-      className="group relative flex h-44 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
       onClick={() => onSelect(note.id)}
+      style={{
+        backgroundColor: paperFor(note.color),
+        borderColor: edgeFor(note.color),
+      }}
+      className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-2xl border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_3px_10px_-3px_rgba(0,0,0,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_2px_5px_rgba(0,0,0,0.06),0_10px_24px_-6px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.3),0_3px_10px_-3px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_2px_5px_rgba(0,0,0,0.4),0_10px_24px_-6px_rgba(0,0,0,0.6)]"
     >
-      <span
-        aria-hidden
-        className="absolute inset-y-0 left-0 w-1"
-        style={{ background: barFor(note.color) }}
-      />
-      <div className="flex items-center gap-1.5 pl-2 text-zinc-500 dark:text-zinc-400">
+      <div className="flex items-center gap-1.5 text-zinc-500/90 dark:text-zinc-400">
         <span className="text-[11px]">{relativeTime(note.updated_at, locale)}</span>
-        <span aria-hidden className="text-zinc-300 dark:text-zinc-600">·</span>
-        <span className="font-mono text-[10px] text-zinc-400">{shortId}</span>
+        <span aria-hidden className="text-zinc-400/50 dark:text-zinc-600">
+          ·
+        </span>
+        <span className="font-mono text-[10px] text-zinc-400/90 dark:text-zinc-500">
+          {shortId}
+        </span>
         {note.pinned && (
-          <span className="ml-auto inline-flex items-center gap-1 text-amber-500">
+          <span className="ml-auto inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
             <Pin size={10} /> {t.pinned}
           </span>
         )}
       </div>
-      <p className="mt-2 line-clamp-4 flex-1 whitespace-pre-wrap pl-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-        {note.preview ? renderInline(note.preview) : "(empty)"}
+      <p className="mt-2 line-clamp-4 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-200">
+        {note.preview ? renderInline(note.preview) : t.empty_note}
       </p>
       {note.tags.length > 0 && (
-        <div className="mt-auto flex flex-wrap gap-1 pl-2 pt-2">
+        <div className="mt-auto flex flex-wrap gap-1 pt-2">
           {note.tags.slice(0, 3).map((tag) => (
             <span
               key={tag}
-              className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+              className="rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-white/10 dark:text-zinc-300"
             >
               {tag}
             </span>
@@ -76,11 +80,11 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
           )}
         </div>
       )}
-      <div className="mt-3 flex items-center justify-end gap-1 pl-2 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="mt-3 flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         <button
           type="button"
-          aria-label="copy"
-          className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          aria-label={t.copy}
+          className="rounded-md p-1.5 text-zinc-500 hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
           onClick={(e) => {
             e.stopPropagation();
             void navigator.clipboard.writeText(note.id).then(() => {
@@ -90,12 +94,12 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
           }}
         >
           <Copy size={14} />
-          {copied && <span className="ml-1 text-[10px]">copied</span>}
+          {copied && <span className="ml-1 text-[10px]">{t.copied}</span>}
         </button>
         <button
           type="button"
-          aria-label="pin"
-          className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-amber-500 dark:hover:bg-zinc-800"
+          aria-label={t.action_pin}
+          className="rounded-md p-1.5 text-zinc-500 hover:bg-black/5 hover:text-amber-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-amber-400"
           onClick={(e) => {
             e.stopPropagation();
             onTogglePin(note.id);
@@ -105,8 +109,8 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
         </button>
         <button
           type="button"
-          aria-label="delete"
-          className="rounded-md p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
+          aria-label={t.action_delete}
+          className="rounded-md p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-500 dark:text-zinc-400 dark:hover:bg-red-500/20"
           onClick={(e) => {
             e.stopPropagation();
             onDelete(note.id);

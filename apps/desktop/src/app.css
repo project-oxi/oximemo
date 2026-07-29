@@ -3,6 +3,16 @@
 /* Tailwind v4 routes `dark:` to `prefers-color-scheme` by default. Our theme
  * system toggles the `.dark` class on <html>, so retarget the variant. */
 @custom-variant dark (&:where(.dark, .dark *));
+/* Post-it card surfaces: flipped by the `.dark` class so color-mix tints
+ * resolve correctly in both themes (see lib/color.ts paperFor/edgeFor). */
+:root {
+  --card-surface: #ffffff;
+  --card-edge: #e7e7ea;
+}
+.dark {
+  --card-surface: #18181b;
+  --card-edge: #2a2a2e;
+}
 
 @theme {
   --font-sans:
