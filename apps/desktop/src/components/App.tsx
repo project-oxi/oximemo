@@ -9,22 +9,17 @@ import { CaptureOverlay } from "./CaptureOverlay";
 import { ErrorToast } from "./ErrorBoundary";
 import { Toast } from "./Toast";
 import { useUI } from "../stores/ui";
-import { applyTheme, loadTheme, saveTheme } from "../lib/theme";
+import { applyTheme, saveTheme } from "../lib/theme";
 
 const qc = new QueryClient({
   defaultOptions: { queries: { staleTime: 5_000, refetchOnWindowFocus: false } },
 });
 
 export function App() {
-  useEffect(() => {
-    const t = loadTheme();
-    useUI.getState().setTheme(t);
-    applyTheme(t);
-  }, []);
-
   if (isRouteCapture()) {
     return <CaptureOverlay />;
   }
+
 
   return (
     <QueryClientProvider client={qc}>

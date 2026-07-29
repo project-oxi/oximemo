@@ -1,7 +1,7 @@
 /** UI state store (Zustand). Server data lives in TanStack Query; this
  *  holds only ephemeral UI state per §7.4. */
 import { create } from "zustand";
-import type { Theme } from "../lib/theme";
+import { loadTheme, type Theme } from "../lib/theme";
 
 interface UIState {
   search: string;
@@ -29,7 +29,7 @@ interface UIState {
 export const useUI = create<UIState>((set) => ({
   search: "",
   setSearch: (s) => set({ search: s }),
-  theme: "system",
+  theme: loadTheme(),
   setTheme: (t) => set({ theme: t }),
   selectedId: null,
   select: (id) => set({ selectedId: id }),
