@@ -25,7 +25,8 @@ pub mod watcher;
 pub use config::{Theme, VaultConfig};
 pub use error::{CoreError, Result};
 pub use note::{
-    Cursor, IndexStats, Note, NoteColor, NoteFilter, NoteHash, NoteId, NoteSummary, Page,
+    Cursor, IndexStats, Note, NoteColor, NoteFilter, NoteHash, NoteId, NoteStats, NoteSummary,
+    Page,
 };
 pub use paths::Paths;
 pub use vault::{DoctorReport, Vault};

@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Pin } from "lucide-react";
 
-import { getNote, updateNote } from "../lib/api";
+import { deleteNote, getNote, updateNote } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { ColorPicker } from "./ColorPicker";
@@ -20,6 +20,8 @@ export function NoteDetail() {
   const selectedId = useUI((s) => s.selectedId);
   const select = useUI((s) => s.select);
   const setError = useUI((s) => s.setError);
+  const draftId = useUI((s) => s.draftId);
+  const setDraftId = useUI((s) => s.setDraftId);
   const open = selectedId !== null;
   const qc = useQueryClient();
 
@@ -68,12 +70,23 @@ export function NoteDetail() {
   }, [dirty, body, tags, pinned, color, selectedId]);
 
   const close = () => {
+    // A note minted by "new note" this session is discarded while still
+    // empty, so cancelled drafts don't accumulate as orphan files.
+    if (selectedId && selectedId === draftId && !body.trim() && tags.length === 0) {
+      void deleteNote(selectedId)
+        .then(() => qc.invalidateQueries({ queryKey: ["notes"] }))
+        .catch((e) => setError(String(e).split("\n")[0]));
+      setDraftId(null);
+      select(null);
+      return;
+    }
     // Flush a pending edit before dismissing.
     if (dirty && selectedId) {
       void updateNote(selectedId, body, tags, pinned, color)
         .then((n) => qc.setQueryData(["note", selectedId], n))
         .catch((e) => setError(String(e).split("\n")[0]));
     }
+    if (selectedId === draftId) setDraftId(null);
     select(null);
   };
 

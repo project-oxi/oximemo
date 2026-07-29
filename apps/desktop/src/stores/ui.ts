@@ -17,6 +17,13 @@ interface UIState {
   /** Transient error message surfaced as a toast (H4). `null` = none. */
   error: string | null;
   setError: (msg: string | null) => void;
+  /** Transient neutral toast message. `null` = none. */
+  toast: string | null;
+  setToast: (msg: string | null) => void;
+  /** Id of a note minted by "new note" this session; discarded on close
+   * while still empty so no orphan notes accumulate. */
+  draftId: string | null;
+  setDraftId: (id: string | null) => void;
 }
 
 export const useUI = create<UIState>((set) => ({
@@ -32,4 +39,8 @@ export const useUI = create<UIState>((set) => ({
   setPinnedOnly: (b) => set({ pinnedOnly: b }),
   error: null,
   setError: (msg) => set({ error: msg }),
+  toast: null,
+  setToast: (msg) => set({ toast: msg }),
+  draftId: null,
+  setDraftId: (id) => set({ draftId: id }),
 }));

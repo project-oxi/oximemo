@@ -5,7 +5,7 @@
  * standalone.
  */
 import { invoke } from "./tauri";
-import type { Note, NoteSummary, IndexStats, DoctorReport } from "./types";
+import type { Note, NoteSummary, IndexStats, DoctorReport, NoteStats } from "./types";
 
 export async function listNotes(
   after: string | null,
@@ -61,4 +61,8 @@ export async function doctor(fix: boolean) {
 
 export async function vaultPath() {
   return invoke<string>("vault_path");
+}
+
+export async function noteStats() {
+  return invoke<NoteStats>("note_stats");
 }

@@ -50,3 +50,8 @@ export interface DoctorReport {
   trash_expiring: number;
   vault_ok: boolean;
 }
+
+export interface NoteStats {
+  notes: number;
+  pinned: number;
+}

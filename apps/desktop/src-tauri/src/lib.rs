@@ -78,6 +78,7 @@ pub fn run() {
             commands::reindex,
             commands::doctor,
             commands::vault_path,
+            commands::note_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running oxinot desktop app");
@@ -274,5 +275,10 @@ mod commands {
     #[tauri::command]
     pub fn vault_path(state: State<'_, AppState>) -> Result<String, String> {
         Ok(state.vault.paths().vault.display().to_string())
+    }
+
+    #[tauri::command]
+    pub fn note_stats(state: State<'_, AppState>) -> Result<oxinot_core::NoteStats, String> {
+        state.vault.note_stats().map_err(|e| e.to_string())
     }
 }

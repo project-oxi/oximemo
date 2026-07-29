@@ -7,10 +7,10 @@
  */
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Monitor, Moon, Pin, Search, Sun } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Monitor, Moon, Pin, Plus, Search, Sun } from "lucide-react";
 
-import { deleteNote, listNotes, searchNotes, updateNote } from "../lib/api";
+import { createNote, deleteNote, listNotes, searchNotes, updateNote } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { applyTheme } from "../lib/theme";
 import { listen } from "../lib/tauri";
@@ -18,6 +18,8 @@ import { useUI } from "../stores/ui";
 import type { NoteSummary } from "../lib/types";
 import { Card } from "./Card";
 import { NoteDetail } from "./NoteDetail";
+import { SettingsMenu } from "./SettingsMenu";
+import { StatusBar } from "./StatusBar";
 
 const PAGE_SIZE = 50;
 const MIN_COL_W = 240;
@@ -37,6 +39,7 @@ export function CardGrid() {
   const theme = useUI((s) => s.theme);
   const setTheme = useUI((s) => s.setTheme);
   const setError = useUI((s) => s.setError);
+  const setDraftId = useUI((s) => s.setDraftId);
 
   const [localSearch, setLocalSearch] = useState(search);
   const [debounced, setDebounced] = useState(search);
@@ -157,6 +160,30 @@ export function CardGrid() {
   };
   const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
 
+  const onNewNote = useCallback(() => {
+    // Never re-seed over an open editor: the seed effect would clobber a
+    // pending draft and cancel its autosave flush.
+    if (useUI.getState().selectedId) return;
+    void createNote("", [], null)
+      .then((n) => {
+        setDraftId(n.id);
+        select(n.id);
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  }, [select, setDraftId, setError]);
+
+  // ⌘N mints a new note in the editor (the capture window keeps ⌘⇧N).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        onNewNote();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onNewNote]);
+
   return (
     <div className="flex h-full flex-col">
       <header
@@ -208,6 +235,14 @@ export function CardGrid() {
         </div>
         <button
           type="button"
+          onClick={onNewNote}
+          className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+        >
+          <Plus size={13} strokeWidth={2.5} /> {t.new_note}
+        </button>
+        <SettingsMenu />
+        <button
+          type="button"
           onClick={cycleTheme}
           aria-label="theme"
           className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
@@ -217,8 +252,15 @@ export function CardGrid() {
       </header>
       <div ref={scrollerRef} className="flex-1 overflow-y-auto p-2">
         {items.length === 0 ? (
-          <div className="mt-20 text-center text-sm text-zinc-400">
-            {t.empty_hint}
+          <div className="mt-24 flex flex-col items-center gap-4 text-center">
+            <p className="text-sm text-zinc-400">{t.empty_hint}</p>
+            <button
+              type="button"
+              onClick={onNewNote}
+              className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            >
+              <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
+            </button>
           </div>
         ) : (
           <div
@@ -264,6 +306,7 @@ export function CardGrid() {
         )}
       </div>
       <NoteDetail />
+      <StatusBar />
     </div>
   );
 }

@@ -275,6 +275,13 @@ pub struct IndexStats {
     pub failed: u64,
 }
 
+/// Live vault statistics (excludes soft-deleted tombstones).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NoteStats {
+    pub notes: u64,
+    pub pinned: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -291,6 +291,24 @@ impl Vault {
         })
     }
 
+    /// Live note counts (soft-deleted tombstones excluded).
+    pub fn note_stats(&self) -> Result<crate::note::NoteStats> {
+        self.with_redb(|idx| {
+            let recs = idx.export_since(None)?;
+            let mut stats = crate::note::NoteStats::default();
+            for r in &recs {
+                if r.deleted {
+                    continue;
+                }
+                stats.notes += 1;
+                if r.pinned {
+                    stats.pinned += 1;
+                }
+            }
+            Ok(stats)
+        })
+    }
+
     // -- sync / export (§9.2) --------------------------------------------
 
     pub fn export_manifest(&self, since: Option<OffsetDateTime>) -> Result<Vec<ManifestRecord>> {

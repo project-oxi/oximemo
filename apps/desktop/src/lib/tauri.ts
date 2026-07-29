@@ -43,6 +43,24 @@ async function browserFallback(_cmd: string, _args?: Record<string, unknown>): P
         trash_expiring: 0,
         vault_ok: true,
       };
+    case "create_note":
+    case "get_note":
+    case "update_note": {
+      const now = new Date().toISOString();
+      return {
+        id: String(_args?.id ?? crypto.randomUUID()),
+        created_at: now,
+        updated_at: now,
+        hash: "b3:0000000000000000",
+        pinned: false,
+        color: "",
+        tags: [],
+        body: "",
+        deleted_at: null,
+      };
+    }
+    case "note_stats":
+      return { notes: 0, pinned: 0 };
     default:
       return null;
   }

@@ -7,6 +7,8 @@
   --color-ink-100: #f4f4f5;
   --color-ink-900: #18181b;
   --color-ink-950: #09090b;
+  --animate-popover-in: popover-in 0.15s ease-out;
+  --animate-toast-in: toast-in 0.2s ease-out;
 }
 
 html,
@@ -24,4 +26,25 @@ body {
 [data-tauri-drag-region] {
   -webkit-user-select: none;
   user-select: none;
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

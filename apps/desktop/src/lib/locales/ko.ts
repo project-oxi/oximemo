@@ -17,6 +17,23 @@ export const dict = {
   theme_dark: "다크",
   locale_ko: "한국어",
   locale_en: "English",
+  settings: "설정",
+  theme: "테마",
+  capture_shortcut: "캡처 단축키",
+  vault: "볼트",
+  copy: "복사",
+  copied: "복사됨",
+  reindex: "인덱스 재구성",
+  reindexing: "재구성 중…",
+  reindex_done: "인덱스 재구성 완료",
+  doctor: "볼트 점검",
+  checking: "점검 중…",
+  vault_ok: "볼트 상태 정상",
+  vault_issues: "문제 발견",
+  note_count: "메모 {n}개",
+  pinned_count: "고정 {n}개",
+  empty_cta: "첫 메모 작성",
+  copy_failed: "복사 실패",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;
