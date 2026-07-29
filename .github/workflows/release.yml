@@ -38,25 +38,19 @@ jobs:
         with:
           key: release-${{ env.TARGET }}
 
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+          bun-version: "1.3.14"
 
       # The desktop crate's `generate_context!()` embeds build.frontendDist,
       # so the frontend must be built before `cargo tauri build`.
       - name: Install frontend dependencies
         working-directory: apps/desktop
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Build frontend
         working-directory: apps/desktop
-        run: pnpm build
+        run: bun run build
 
       # @tauri-apps/cli is intentionally not a package.json dependency; install
       # the Rust-backed Tauri CLI in the workflow instead.

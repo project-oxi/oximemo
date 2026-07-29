@@ -23,7 +23,7 @@ Keep it that way: domain logic belongs in the core.
 ## Prerequisites
 
 - **Rust** 1.89+ (edition 2024) — <https://rustup.rs>
-- **Node.js** 20+ and **pnpm** 9+ — for the desktop frontend
+- **Bun** 1.3+ — for the desktop frontend (`curl -fsSL https://bun.sh | bash`)
 - **macOS 14+ on Apple Silicon** — oxinot targets `aarch64-apple-darwin` only
 
 ## Setup
@@ -39,8 +39,8 @@ cargo test
 
 # Desktop frontend
 cd apps/desktop
-pnpm install
-pnpm build
+bun install
+bun run build
 ```
 
 ## Development loop
@@ -48,7 +48,7 @@ pnpm build
 | What | Command |
 | :--- | :--- |
 | Run the CLI | `cargo run -p oxinot-cli -- vault path` |
-| Dev server (frontend) | `cd apps/desktop && pnpm dev` |
+| Dev server (frontend) | `cd apps/desktop && bun run dev` |
 | Full desktop app (dev) | `cargo tauri dev` *(needs `cargo install tauri-cli`)* |
 | Build release CLI | `cargo build --release -p oxinot-cli` |
 
@@ -67,7 +67,7 @@ locally — please run them too:
 - [ ] `cargo fmt --all -- --check` passes
 - [ ] `cargo clippy -p oxinot-core -p oxinot-cli -p oxinot-capture --all-targets -- -D warnings` is clean
 - [ ] `cargo test -p oxinot-core -p oxinot-cli -p oxinot-capture` passes
-- [ ] `cd apps/desktop && pnpm build` passes (TypeScript + Vite)
+- [ ] `cd apps/desktop && bun run build` passes (TypeScript + Vite)
 - [ ] New behavior is covered by a test where it makes sense
 
 ## Commit & PR conventions

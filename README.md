@@ -257,8 +257,8 @@ cargo test -p oxinot-core -p oxinot-cli -p oxinot-capture
 
 # Desktop frontend
 cd apps/desktop
-pnpm install
-pnpm build
+bun install
+bun run build
 ```
 
 A scratch vault is handy for manual testing:
