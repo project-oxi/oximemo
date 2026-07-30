@@ -1,4 +1,4 @@
-//! Domain model: notes, identifiers, colors, pagination.
+//! Domain model: notes, identifiers, categories, pagination.
 //!
 //! These types are the shared contract between the file store, the metadata
 //! index, the search index, the CLI and the Tauri commands. Keeping them in one
@@ -74,46 +74,8 @@ impl std::fmt::Display for NoteHash {
     }
 }
 
-/// Note color, stored verbatim as a CSS `oklch(...)` string. Validation is
-/// permissive on the Rust side (§7.7); the renderer is the final authority.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct NoteColor(pub String);
-
-impl NoteColor {
-    pub const NONE: Self = Self(String::new());
-
-    /// True when empty (no color) or a valid-looking `oklch(...)` value.
-    pub fn is_valid(&self) -> bool {
-        self.0.is_empty() || self.0.starts_with("oklch(")
-    }
-
-    /// Coerce legacy enum-style values to "none" (§7.7 fallback).
-    pub fn parse_or_none(s: &str) -> Self {
-        if s.is_empty() || s.starts_with("oklch(") {
-            Self(s.to_string())
-        } else {
-            Self::NONE
-        }
-    }
-}
-
-impl std::fmt::Display for NoteColor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-/// Default OKLCH preset palette (§7.7). L≈0.70–0.75, C≈0.12–0.15 so every
-/// preset reads well on both light and dark backgrounds.
-pub const COLOR_PRESETS: &[&str] = &[
-    "oklch(0.75 0.15 25)",  // red
-    "oklch(0.75 0.15 75)",  // amber
-    "oklch(0.75 0.13 145)", // green
-    "oklch(0.75 0.12 195)", // teal
-    "oklch(0.70 0.14 250)", // blue
-    "oklch(0.72 0.15 310)", // purple
-];
+/// Default category id for new notes. Used when no category is supplied.
+pub const DEFAULT_CATEGORY: &str = "inbox";
 
 /// Synchronization cursor: `(updated_at, id)`. Stable across reindex because
 /// both components live in the note file's frontmatter (§5.3).
@@ -160,7 +122,8 @@ pub struct Note {
     pub updated_at: OffsetDateTime,
     pub hash: NoteHash,
     pub pinned: bool,
-    pub color: NoteColor,
+    #[serde(default = "default_category")]
+    pub category: String,
     pub tags: Vec<String>,
     pub body: String,
     #[serde(
@@ -169,6 +132,10 @@ pub struct Note {
         with = "time::serde::rfc3339::option"
     )]
     pub deleted_at: Option<OffsetDateTime>,
+}
+
+pub fn default_category() -> String {
+    DEFAULT_CATEGORY.to_string()
 }
 
 /// Lightweight projection used by listings, search results and exports.
@@ -181,7 +148,8 @@ pub struct NoteSummary {
     pub updated_at: OffsetDateTime,
     pub hash: NoteHash,
     pub pinned: bool,
-    pub color: NoteColor,
+    #[serde(default = "default_category")]
+    pub category: String,
     pub tags: Vec<String>,
     pub preview: String,
     pub deleted: bool,
@@ -201,7 +169,7 @@ impl From<Note> for NoteSummary {
             updated_at: n.updated_at,
             hash: n.hash,
             pinned: n.pinned,
-            color: n.color,
+            category: n.category,
             tags: n.tags,
             preview: make_preview(&n.body),
             deleted,
@@ -239,7 +207,7 @@ pub struct Page<T> {
 }
 
 /// Filter applied to listings (§4.3, §7.5). Composite: include-tag set
-/// (AND or OR), exclude-tag set, color set (OR membership), pin, deleted.
+/// (AND or OR), exclude-tag set, category set (OR membership), pin, deleted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NoteFilter {
     /// Note must contain these tags. Empty = no constraint.
@@ -248,8 +216,8 @@ pub struct NoteFilter {
     pub exclude_tags: Vec<String>,
     /// `true` = note must contain ALL `include_tags` (AND); `false` = ANY (OR).
     pub match_all: bool,
-    /// Non-empty = note's color must equal one of these (OR membership).
-    pub colors: Vec<String>,
+    /// Non-empty = note's category must equal one of these (OR membership).
+    pub categories: Vec<String>,
     pub pinned_only: bool,
     /// When false, soft-deleted notes are excluded.
     pub include_deleted: bool,
@@ -263,7 +231,9 @@ impl NoteFilter {
         if self.pinned_only && !s.pinned {
             return false;
         }
-        if !self.colors.is_empty() && !self.colors.iter().any(|c| c == &s.color.0) {
+        if !self.categories.is_empty()
+            && !self.categories.iter().any(|c| c == &s.category)
+        {
             return false;
         }
         if !self.exclude_tags.is_empty()
@@ -274,6 +244,7 @@ impl NoteFilter {
         {
             return false;
         }
+
         if !self.include_tags.is_empty() {
             let hit = |t: &String| s.tags.iter().any(|x| x.eq_ignore_ascii_case(t));
             let ok = if self.match_all {
@@ -307,27 +278,18 @@ pub struct NoteStats {
     pub pinned: u64,
 }
 
-/// Tag + color counts across the (non-deleted) vault, for the sidebar (§4.2).
+/// Tag + category counts across the (non-deleted) vault, for the sidebar (§4.2).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Facets {
     /// `(normalized_tag, count)` sorted by tag.
     pub tags: Vec<(String, u32)>,
-    /// `(oklch_color, count)` sorted by color; empty-color notes excluded.
-    pub colors: Vec<(String, u32)>,
+    /// `(category_id, count)` sorted by category; default-category notes excluded.
+    pub categories: Vec<(String, u32)>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn color_falls_back_for_legacy_values() {
-        assert_eq!(NoteColor::parse_or_none("amber"), NoteColor::NONE);
-        assert_eq!(
-            NoteColor::parse_or_none("oklch(0.75 0.15 75)").0,
-            "oklch(0.75 0.15 75)"
-        );
-    }
 
     #[test]
     fn preview_collapses_and_truncates() {
@@ -341,14 +303,14 @@ mod filter_tests {
     use super::*;
     use time::OffsetDateTime;
 
-    fn sum(tags: &[&str], color: &str, pinned: bool) -> NoteSummary {
+    fn sum(tags: &[&str], category: &str, pinned: bool) -> NoteSummary {
         NoteSummary {
             id: NoteId::now(),
             created_at: OffsetDateTime::now_utc(),
             updated_at: OffsetDateTime::now_utc(),
             hash: NoteHash::new("h"),
             pinned,
-            color: NoteColor(color.to_string()),
+            category: category.to_string(),
             tags: tags.iter().map(|t| t.to_string()).collect(),
             preview: String::new(),
             deleted: false,
@@ -363,10 +325,10 @@ mod filter_tests {
             match_all: false,
             ..Default::default()
         };
-        assert!(f.matches(&sum(&["a"], "", false)));
-        assert!(f.matches(&sum(&["b"], "", false)));
-        assert!(!f.matches(&sum(&["c"], "", false)));
-        assert!(!f.matches(&sum(&["a", "x"], "", false)));
+        assert!(f.matches(&sum(&["a"], "inbox", false)));
+        assert!(f.matches(&sum(&["b"], "inbox", false)));
+        assert!(!f.matches(&sum(&["c"], "inbox", false)));
+        assert!(!f.matches(&sum(&["a", "x"], "inbox", false)));
     }
 
     #[test]
@@ -376,18 +338,18 @@ mod filter_tests {
             match_all: true,
             ..Default::default()
         };
-        assert!(f.matches(&sum(&["a", "b"], "", false)));
-        assert!(!f.matches(&sum(&["a"], "", false)));
+        assert!(f.matches(&sum(&["a", "b"], "inbox", false)));
+        assert!(!f.matches(&sum(&["a"], "inbox", false)));
     }
 
     #[test]
-    fn color_membership() {
+    fn category_membership() {
         let f = NoteFilter {
-            colors: vec!["oklch(0.75 0.15 25)".into()],
+            categories: vec!["todo".into()],
             ..Default::default()
         };
-        assert!(f.matches(&sum(&[], "oklch(0.75 0.15 25)", false)));
-        assert!(!f.matches(&sum(&[], "oklch(0.7 0.13 270)", false)));
-        assert!(NoteFilter::default().matches(&sum(&[], "", false)));
+        assert!(f.matches(&sum(&[], "todo", false)));
+        assert!(!f.matches(&sum(&[], "idea", false)));
+        assert!(NoteFilter::default().matches(&sum(&[], "inbox", false)));
     }
 }

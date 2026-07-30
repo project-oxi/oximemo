@@ -31,7 +31,8 @@ pub struct IndexRecord {
     pub updated_at: OffsetDateTime,
     pub hash: NoteHash,
     pub pinned: bool,
-    pub color: crate::note::NoteColor,
+    #[serde(default = "crate::note::default_category")]
+    pub category: String,
     #[serde(default)]
     pub tags: Vec<String>,
     pub deleted: bool,
@@ -49,7 +50,7 @@ impl IndexRecord {
             updated_at: self.updated_at,
             hash: self.hash.clone(),
             pinned: self.pinned,
-            color: self.color.clone(),
+            category: self.category.clone(),
             tags: self.tags.clone(),
             preview: self.preview.clone(),
             deleted: self.deleted,
@@ -254,8 +255,8 @@ fn encode_sort(updated_at: OffsetDateTime, id: NoteId) -> [u8; 24] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::note::NoteColor;
     use tempfile::TempDir;
+
 
     fn rec(id: NoteId, ts: OffsetDateTime) -> IndexRecord {
         IndexRecord {
@@ -264,7 +265,7 @@ mod tests {
             updated_at: ts,
             hash: NoteHash::new("deadbeef"),
             pinned: false,
-            color: NoteColor::NONE,
+            category: "inbox".to_string(),
             tags: vec![],
             deleted: false,
             deleted_at: None,

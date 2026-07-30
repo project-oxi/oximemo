@@ -78,14 +78,14 @@ pub fn hash_normalized(normalized: &str) -> NoteHash {
 /// Because tags, pin, and color are part of the digest, editing any of them
 /// changes the hash and is correctly surfaced by the sync diff — closing the
 /// gap where a metadata-only edit would otherwise look "unchanged".
-pub fn hash_note(body: &[u8], pinned: bool, color: &str) -> NoteHash {
+pub fn hash_note(body: &[u8], pinned: bool, category: &str) -> NoteHash {
     let normalized_body = normalize(body);
     let mut hasher = Hasher::new();
     hasher.update(normalized_body.as_bytes());
     hasher.update(b"\x1f"); // unit separator between fields
     hasher.update(if pinned { b"1" } else { b"0" });
     hasher.update(b"\x1f");
-    hasher.update(color.as_bytes());
+    hasher.update(category.as_bytes());
     NoteHash::new(hasher.finalize().to_hex().to_string())
 }
 
@@ -134,7 +134,7 @@ mod tests {
         // body now, so a tag change IS a body change — covered below.
         let base = hash_note(b"body", false, "");
         let pinned = hash_note(b"body", true, "");
-        let colored = hash_note(b"body", false, "oklch(0.75 0.15 75)");
+        let colored = hash_note(b"body", false, "todo");
         assert_ne!(base, pinned);
         assert_ne!(base, colored);
     }
@@ -148,8 +148,8 @@ mod tests {
 
     #[test]
     fn identical_state_hashes_equal() {
-        let a = hash_note(b"body", true, "oklch(0.75 0.15 75)");
-        let b = hash_note(b"body", true, "oklch(0.75 0.15 75)");
+        let a = hash_note(b"body", true, "todo");
+        let b = hash_note(b"body", true, "todo");
         assert_eq!(a, b);
     }
 }

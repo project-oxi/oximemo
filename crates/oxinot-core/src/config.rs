@@ -13,7 +13,7 @@ pub struct VaultConfig {
     pub general: GeneralConfig,
     pub capture: CaptureConfig,
     pub appearance: AppearanceConfig,
-    pub color: ColorConfig,
+    pub categories: CategoriesConfig,
     pub index: IndexConfig,
     /// Forward-compatible schema marker. Unknown fields are ignored.
     pub schema_version: u32,
@@ -25,9 +25,9 @@ impl Default for VaultConfig {
             general: GeneralConfig::default(),
             capture: CaptureConfig::default(),
             appearance: AppearanceConfig::default(),
-            color: ColorConfig::default(),
+            categories: CategoriesConfig::default(),
             index: IndexConfig::default(),
-            schema_version: 1,
+            schema_version: 2,
         }
     }
 }
@@ -86,25 +86,57 @@ impl Default for AppearanceConfig {
         }
     }
 }
+/// Six default category color stops (OKLCH). The order and ids are the
+/// canonical built-in palette; `CategoriesConfig::default` ships them as the
+/// initial `items` so a fresh vault inherits a usable sidebar.
+pub const AUTO_COLORS: &[&str] = &[
+    "oklch(0.78 0.02 250)", // inbox — neutral gray-blue
+    "oklch(0.75 0.13 250)", // note — blue
+    "oklch(0.78 0.15 75)",  // todo — amber
+    "oklch(0.72 0.15 310)", // idea — purple
+    "oklch(0.75 0.12 195)", // bookmark — teal
+    "oklch(0.75 0.13 145)", // snippet — green
+];
+
+/// Resolve a category id to its OKLCH color string. Returns the inbox color
+/// when the id is empty or not in `items`, so an unknown / legacy category
+/// never crashes rendering — it falls back to the neutral inbox color.
+pub fn resolve_category_color(id: &str, items: &[CategoryDef]) -> String {
+    if let Some(def) = items.iter().find(|c| c.id == id) {
+        return def.color.clone();
+    }
+    AUTO_COLORS[0].to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryDef {
+    pub id: String,
+    pub color: String,
+    #[serde(default)]
+    pub builtin: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct ColorConfig {
-    /// OKLCH preset strings offered in the picker.
-    pub presets: Vec<String>,
+pub struct CategoriesConfig {
+    pub items: Vec<CategoryDef>,
 }
 
-impl Default for ColorConfig {
+impl Default for CategoriesConfig {
     fn default() -> Self {
-        Self {
-            presets: crate::note::COLOR_PRESETS
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-        }
+        let ids = ["inbox", "note", "todo", "idea", "bookmark", "snippet"];
+        let items = ids
+            .iter()
+            .zip(AUTO_COLORS.iter())
+            .map(|(id, color)| CategoryDef {
+                id: (*id).to_string(),
+                color: (*color).to_string(),
+                builtin: true,
+            })
+            .collect();
+        Self { items }
     }
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IndexConfig {
@@ -156,7 +188,7 @@ mod tests {
         let s = c.to_toml().unwrap();
         let back: VaultConfig = toml::from_str(&s).unwrap();
         assert_eq!(back.general.trash_retention_days, 30);
-        assert_eq!(back.schema_version, 1);
+        assert_eq!(back.schema_version, 2);
     }
 
     #[test]

@@ -24,7 +24,7 @@ use crate::error::{CoreError, Result};
 use crate::hash;
 use crate::lock::{FileLock, LockKind, acquire};
 use crate::note::{
-    Cursor, IndexStats, Note, NoteColor, NoteFilter, NoteId, NoteSummary, Page, make_preview,
+    Cursor, IndexStats, Note, NoteFilter, NoteId, NoteSummary, Page, make_preview,
 };
 use crate::paths::Paths;
 use crate::store::files::FileStore;
@@ -99,20 +99,20 @@ impl Vault {
 
     // -- CRUD -------------------------------------------------------------
 
-    pub fn create_note(&self, body: String, color: Option<String>) -> Result<Note> {
+    pub fn create_note(&self, body: String, category: Option<String>) -> Result<Note> {
         self.ensure_initialized()?;
         let tags = extract_tags(&body);
         validate_note_input(&body, &tags)?;
         let now = OffsetDateTime::now_utc();
         let id = NoteId::now();
-        let color = color.map(NoteColor).unwrap_or_default();
+        let category = category.unwrap_or_else(|| crate::note::DEFAULT_CATEGORY.to_string());
         let note = Note {
             id,
             created_at: now,
             updated_at: now,
-            hash: hash::hash_note(body.as_bytes(), false, &color.0),
+            hash: hash::hash_note(body.as_bytes(), false, &category),
             pinned: false,
-            color,
+            category,
             tags,
             body,
             deleted_at: None,
@@ -165,7 +165,7 @@ impl Vault {
         id: NoteId,
         body: Option<String>,
         pinned: Option<bool>,
-        color: Option<String>,
+        category: Option<String>,
     ) -> Result<Note> {
         let mut note = self.get_note(id)?;
         if let Some(b) = body {
@@ -175,12 +175,12 @@ impl Vault {
         if let Some(p) = pinned {
             note.pinned = p;
         }
-        if let Some(c) = color {
-            note.color = NoteColor(c);
+        if let Some(c) = category {
+            note.category = c;
         }
         validate_note_input(&note.body, &note.tags)?;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
+        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
             idx.upsert(&record_of(&note))?;
@@ -195,7 +195,7 @@ impl Vault {
         let now = OffsetDateTime::now_utc();
         note.deleted_at = Some(now);
         note.updated_at = now;
-        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
+        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
         self.files.move_to_trash(&note)?;
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
@@ -209,7 +209,7 @@ impl Vault {
         let mut note = self.get_note(id)?;
         note.deleted_at = None;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
+        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
         self.files.restore_from_trash(&note)?;
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
@@ -310,7 +310,7 @@ impl Vault {
         self.with_redb(|idx| {
             let recs = idx.export_since(None)?;
             let mut tag_map: std::collections::BTreeMap<String, u32> = Default::default();
-            let mut color_map: std::collections::BTreeMap<String, u32> = Default::default();
+            let mut cat_map: std::collections::BTreeMap<String, u32> = Default::default();
             for r in &recs {
                 if r.deleted {
                     continue;
@@ -318,13 +318,13 @@ impl Vault {
                 for t in &r.tags {
                     *tag_map.entry(t.clone()).or_insert(0) += 1;
                 }
-                if !r.color.0.is_empty() {
-                    *color_map.entry(r.color.0.clone()).or_insert(0) += 1;
+                if !r.category.is_empty() {
+                    *cat_map.entry(r.category.clone()).or_insert(0) += 1;
                 }
             }
             Ok(crate::note::Facets {
                 tags: tag_map.into_iter().collect(),
-                colors: color_map.into_iter().collect(),
+                categories: cat_map.into_iter().collect(),
             })
         })
     }
@@ -489,11 +489,10 @@ impl Vault {
             match self.files.read_note(path) {
                 Ok(Some(mut note)) => {
                     seen.insert(note.id);
-                    if !note.color.is_valid() {
-                        report.invalid_colors.push(note.id);
-                    }
+                    // Categories have no format validity — only orphan/index
+                    // consistency is checked here.
                     let recomputed =
-                        hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
+                        hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
                     if recomputed != note.hash {
                         // Report only *unresolved* mismatches. When --fix
                         // rewrites successfully the note is no longer a
@@ -574,7 +573,7 @@ fn record_of(n: &Note) -> IndexRecord {
         updated_at: n.updated_at,
         hash: n.hash.clone(),
         pinned: n.pinned,
-        color: n.color.clone(),
+        category: n.category.clone(),
         tags: n.tags.clone(),
         deleted: n.deleted_at.is_some(),
         deleted_at: n.deleted_at,
@@ -630,7 +629,6 @@ pub struct DoctorReport {
     pub hash_mismatches: Vec<NoteId>,
     /// Notes whose hash was rewritten by `doctor --fix` but the write failed.
     pub hash_repair_failed: u64,
-    pub invalid_colors: Vec<NoteId>,
     pub index_locked: bool,
     pub trash_expiring: u64,
     pub vault_ok: bool,

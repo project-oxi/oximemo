@@ -16,7 +16,7 @@ use time::OffsetDateTime;
 
 use crate::error::{CoreError, Result};
 use crate::hash;
-use crate::note::{Note, NoteColor, NoteId};
+use crate::note::{Note, NoteId};
 use crate::paths::Paths;
 
 /// TOML frontmatter payload. Field order matches the on-disk example in §5.2.
@@ -30,8 +30,8 @@ pub struct Frontmatter {
     pub hash: crate::note::NoteHash,
     #[serde(default)]
     pub pinned: bool,
-    #[serde(default)]
-    pub color: NoteColor,
+    #[serde(default = "crate::note::default_category")]
+    pub category: String,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -46,7 +46,7 @@ impl Frontmatter {
             updated_at: n.updated_at,
             hash: n.hash.clone(),
             pinned: n.pinned,
-            color: n.color.clone(),
+            category: n.category.clone(),
             tags: n.tags.clone(),
             deleted_at: n.deleted_at,
         }
@@ -146,9 +146,9 @@ impl FileStore {
                     id: fm.id,
                     created_at: fm.created_at,
                     updated_at: fm.updated_at,
-                    hash: hash::hash_note(body.as_bytes(), fm.pinned, &fm.color.0),
+                    hash: hash::hash_note(body.as_bytes(), fm.pinned, &fm.category),
                     pinned: fm.pinned,
-                    color: fm.color,
+                    category: fm.category,
                     tags,
                     body,
                     deleted_at: fm.deleted_at,
@@ -371,9 +371,9 @@ mod tests {
             id,
             created_at: now,
             updated_at: now,
-            hash: hash::hash_note(body.as_bytes(), false, "oklch(0.75 0.15 75)"),
+            hash: hash::hash_note(body.as_bytes(), false, "todo"),
             pinned: false,
-            color: NoteColor("oklch(0.75 0.15 75)".into()),
+            category: "todo".to_string(),
             tags: vec!["idea".into()],
             body: body.into(),
             deleted_at: None,
