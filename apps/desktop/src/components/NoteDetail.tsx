@@ -9,11 +9,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Pin } from "lucide-react";
 
-import { deleteNote, getNote, updateNote } from "../lib/api";
-import { paperFor } from "../lib/color";
+import { deleteNote, getNote, updateNote, listCategories } from "../lib/api";
+import { colorForCategory, paperFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { NoteEditorForm } from "./NoteEditorForm";
+import type { CategoryDef } from "../lib/types";
 
 export function NoteDetail() {
   const { t } = useI18n();
@@ -32,16 +33,21 @@ export function NoteDetail() {
   });
 
   const [body, setBody] = useState("");
-  const [color, setColor] = useState("");
+  const [category, setCategory] = useState("");
+  const [categories, setCategories] = useState<CategoryDef[]>([]);
   const [pinned, setPinned] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [seededId, setSeededId] = useState<string | null>(null);
+
+  useEffect(() => {
+    listCategories().then(setCategories).catch(() => {});
+  }, []);
 
   // Seed the draft exactly once per loaded note; reset when the dialog closes.
   useEffect(() => {
     if (open && note.data && seededId !== note.data.id) {
       setBody(note.data.body);
-      setColor(note.data.category);
+      setCategory(note.data.category);
       setPinned(note.data.pinned);
       setDirty(false);
       setSeededId(note.data.id);
@@ -53,7 +59,7 @@ export function NoteDetail() {
   useEffect(() => {
     if (!dirty || !selectedId) return;
     const h = window.setTimeout(() => {
-      void updateNote(selectedId, body, pinned, color)
+      void updateNote(selectedId, body, pinned, category)
         .then((n) => {
           qc.setQueryData(["note", selectedId], n);
           setDirty(false);
@@ -65,7 +71,7 @@ export function NoteDetail() {
         });
     }, 500);
     return () => window.clearTimeout(h);
-  }, [dirty, body, pinned, color, selectedId]);
+  }, [dirty, body, pinned, category, selectedId]);
 
   const close = () => {
     // A note minted by "new note" this session is discarded while still
@@ -80,7 +86,7 @@ export function NoteDetail() {
     }
     // Flush a pending edit before dismissing.
     if (dirty && selectedId) {
-      void updateNote(selectedId, body, pinned, color)
+      void updateNote(selectedId, body, pinned, category)
         .then((n) => qc.setQueryData(["note", selectedId], n))
         .catch((e) => setError(String(e).split("\n")[0]));
     }
@@ -106,11 +112,11 @@ export function NoteDetail() {
           }}
           className="fixed left-1/2 top-1/2 z-50 isolate flex max-h-[80vh] w-[min(640px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
         >
-          {color && (
+          {category && (
             <div
               aria-hidden
               className="pointer-events-none absolute inset-0 -z-10"
-              style={{ backgroundColor: paperFor(color) }}
+              style={{ backgroundColor: paperFor(colorForCategory(category, categories)) }}
             />
           )}
           {note.isLoading || !note.data ? (
@@ -137,8 +143,9 @@ export function NoteDetail() {
                 body={body}
                 onBodyChange={edit(setBody)}
                 documentId={note.data.id}
-                color={color}
-                onColorChange={edit(setColor)}
+                category={category}
+                onCategoryChange={edit(setCategory)}
+                categories={categories}
                 onConfirm={close}
                 confirmLabel={t.done}
                 confirmKbd="⌘⏎"

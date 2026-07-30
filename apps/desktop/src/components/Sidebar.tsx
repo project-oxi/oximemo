@@ -8,7 +8,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Layers, PanelLeftClose, Pin } from "lucide-react";
 
-import { listFacets, noteStats } from "../lib/api";
+import { listFacets, noteStats, listCategories } from "../lib/api";
+import { colorForCategory } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI, type TagState } from "../stores/ui";
 
@@ -27,14 +28,16 @@ export function Sidebar() {
   const clearTagFilter = useUI((s) => s.clearTagFilter);
   const matchAll = useUI((s) => s.matchAll);
   const toggleMatchAll = useUI((s) => s.toggleMatchAll);
-  const colorFilter = useUI((s) => s.colorFilter);
-  const toggleColor = useUI((s) => s.toggleColor);
+  const categoryFilter = useUI((s) => s.categoryFilter);
+  const setCategory = useUI((s) => s.setCategory);
   const pinnedOnly = useUI((s) => s.pinnedOnly);
   const setPinnedOnly = useUI((s) => s.setPinnedOnly);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
 
   const tags = facets.data?.tags ?? [];
   const categories = facets.data?.categories ?? [];
+  const catQuery = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  const catDefs = catQuery.data ?? [];
   const total = stats.data?.notes ?? 0;
   const pinnedCount = stats.data?.pinned ?? 0;
 
@@ -111,30 +114,50 @@ export function Sidebar() {
         })}
       </div>
 
-      {categories.length > 0 && (
-        <>
-          <div className="mt-3 px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-            {t.colors_section}
-          </div>
-          <div className="flex flex-wrap gap-2 px-3 pt-1">
-            {categories.map(([cat]) => (
+      {/* 카테고리 라디오 필터 */}
+      <div className="mt-3 px-3">
+        <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+          Category
+        </label>
+        <div className="mt-1 flex flex-col gap-0.5">
+          <button
+            className={`flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm ${
+              categoryFilter === null
+                ? "bg-zinc-200/70 font-semibold dark:bg-zinc-700"
+                : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            }`}
+            onClick={() => setCategory(null)}
+          >
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-400" />
+            <span>All</span>
+          </button>
+          {catDefs.map((c) => {
+            const count = categories.find(([id]) => id === c.id)?.[1];
+            return (
               <button
-                key={cat}
-                type="button"
-                onClick={() => toggleColor(cat)}
-                aria-label={cat}
-                className="h-5 w-5 rounded-md"
-                style={{
-                  backgroundColor: cat,
-                  boxShadow: colorFilter.includes(cat)
-                    ? "0 0 0 2px var(--card-surface), 0 0 0 3.5px var(--tag)"
-                    : undefined,
-                }}
-              />
-            ))}
-          </div>
-        </>
-      )}
+                key={c.id}
+                className={`flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm ${
+                  categoryFilter === c.id
+                    ? "bg-zinc-200/70 font-semibold dark:bg-zinc-700"
+                    : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                }`}
+                onClick={() => setCategory(categoryFilter === c.id ? null : c.id)}
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: colorForCategory(c.id, catDefs) }}
+                />
+                <span>{c.id}</span>
+                {count !== undefined && (
+                  <span className="ml-auto text-[11px] text-zinc-400">{count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 태그 */}
 
     </aside>
   );

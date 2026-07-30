@@ -9,9 +9,9 @@
  */
 import { Check } from "lucide-react";
 
-import { ColorSwatches } from "./ColorPicker";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { TagChipRow } from "./TagChipRow";
+import type { CategoryDef } from "../lib/types";
 
 const cx = (...xs: (string | false | null | undefined)[]) =>
   xs.filter(Boolean).join(" ");
@@ -20,8 +20,9 @@ export interface NoteEditorFormProps {
   body: string;
   onBodyChange: (v: string) => void;
   documentId: string;
-  color: string;
-  onColorChange: (oklch: string) => void;
+  category: string;
+  onCategoryChange: (c: string) => void;
+  categories: CategoryDef[];
   /** Primary action — "done" in NoteDetail. */
   onConfirm: () => void;
   confirmLabel: string;
@@ -35,8 +36,9 @@ export function NoteEditorForm({
   body,
   onBodyChange,
   documentId,
-  color,
-  onColorChange,
+  category,
+  onCategoryChange,
+  categories,
   onConfirm,
   confirmLabel,
   confirmDisabled,
@@ -53,7 +55,17 @@ export function NoteEditorForm({
       />
       <TagChipRow body={body} />
       <div className="flex flex-wrap items-center gap-2.5">
-        <ColorSwatches value={color} onChange={onColorChange} />
+        <select
+          value={category || "inbox"}
+          onChange={(e) => onCategoryChange(e.target.value)}
+          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+        >
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.id}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           onClick={onConfirm}

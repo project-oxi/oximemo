@@ -6,12 +6,12 @@
  * Selecting a card opens the NoteDetail editor; the grid refreshes on
  * `notes:changed` from the file watcher / other windows (§7.4).
  */
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Plus, Search } from "lucide-react";
 
-import { createNote, deleteNote, listNotes, searchNotes, updateNote } from "../lib/api";
+import { createNote, deleteNote, listNotes, searchNotes, updateNote, listCategories } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
 import { useUI } from "../stores/ui";
@@ -34,12 +34,15 @@ export function CardGrid() {
   const select = useUI((s) => s.select);
   const tagFilter = useUI((s) => s.tagFilter);
   const matchAll = useUI((s) => s.matchAll);
-  const colorFilter = useUI((s) => s.colorFilter);
+  const categoryFilter = useUI((s) => s.categoryFilter);
   const pinnedOnly = useUI((s) => s.pinnedOnly);
   const sidebarCollapsed = useUI((s) => s.sidebarCollapsed);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
   const setError = useUI((s) => s.setError);
   const setDraftId = useUI((s) => s.setDraftId);
+
+  const categoriesQ = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  const catDefs = categoriesQ.data ?? [];
 
   // Composite filter derived from the sidebar's 3-state tag chips.
   const includeTags = useMemo(
@@ -62,13 +65,13 @@ export function CardGrid() {
   }, [localSearch]);
 
   const listing = useInfiniteQuery({
-    queryKey: ["notes", includeTags, excludeTags, matchAll, colorFilter, pinnedOnly],
+    queryKey: ["notes", includeTags, excludeTags, matchAll, categoryFilter, pinnedOnly],
     queryFn: ({ pageParam }) =>
       listNotes(pageParam, PAGE_SIZE, {
         include_tags: includeTags,
         exclude_tags: excludeTags,
         match_all: matchAll,
-        categories: colorFilter,
+        categories: categoryFilter ? [categoryFilter] : [],
         pinned_only: pinnedOnly,
       }),
     initialPageParam: null as string | null,
@@ -93,7 +96,7 @@ export function CardGrid() {
     if (!inSearch) return base;
     return base.filter((n) => {
       if (pinnedOnly && !n.pinned) return false;
-      if (colorFilter.length && !colorFilter.includes(n.category)) return false;
+      if (categoryFilter && n.category !== categoryFilter) return false;
       if (excludeTags.some((tag) => n.tags.includes(tag))) return false;
       if (includeTags.length) {
         const ok = matchAll
@@ -103,7 +106,7 @@ export function CardGrid() {
       }
       return true;
     });
-  }, [inSearch, includeTags, excludeTags, matchAll, colorFilter, pinnedOnly, listing.data, searching.data]);
+  }, [inSearch, includeTags, excludeTags, matchAll, categoryFilter, pinnedOnly, listing.data, searching.data]);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(1);
@@ -153,7 +156,7 @@ export function CardGrid() {
   // Reset scroll to top when the active filter changes.
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: 0 });
-  }, [includeTags, excludeTags, colorFilter, pinnedOnly, matchAll]);
+  }, [includeTags, excludeTags, categoryFilter, pinnedOnly, matchAll]);
 
   const onDelete = (id: string) => {
     void deleteNote(id)
@@ -282,6 +285,7 @@ export function CardGrid() {
                         <Card
                           key={n.id}
                           note={n}
+                          categories={catDefs}
                           onSelect={select}
                           onTogglePin={(id) => onTogglePin(id, n.pinned)}
                           onDelete={onDelete}

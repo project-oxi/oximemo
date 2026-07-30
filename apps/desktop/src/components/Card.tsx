@@ -8,19 +8,21 @@ import { Pin, Trash2, Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { edgeFor, paperFor } from "../lib/color";
+import { colorForCategory } from "../lib/color";
 import { useI18n } from "../lib/i18n";
-import type { NoteSummary } from "../lib/types";
+import type { CategoryDef, NoteSummary } from "../lib/types";
 import { relativeTime } from "../lib/time";
 import { renderPreviewMarkdown } from "../lib/markdownPreview";
 
 interface Props {
   note: NoteSummary;
+  categories: CategoryDef[];
   onSelect: (id: string) => void;
   onTogglePin: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
+export function Card({ note, categories, onSelect, onTogglePin, onDelete }: Props) {
   const { t, locale } = useI18n();
   const [copied, setCopied] = useState(false);
   const shortId = note.id.slice(0, 8);
@@ -34,8 +36,8 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
     <article
       onClick={() => onSelect(note.id)}
       style={{
-        backgroundColor: paperFor(note.category),
-        borderColor: edgeFor(note.category),
+        backgroundColor: paperFor(colorForCategory(note.category, categories)),
+        borderColor: edgeFor(colorForCategory(note.category, categories)),
       }}
       className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-2xl border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_3px_10px_-3px_rgba(0,0,0,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_2px_5px_rgba(0,0,0,0.06),0_10px_24px_-6px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.3),0_3px_10px_-3px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_2px_5px_rgba(0,0,0,0.4),0_10px_24px_-6px_rgba(0,0,0,0.6)]"
     >
