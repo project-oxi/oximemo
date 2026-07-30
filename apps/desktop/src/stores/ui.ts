@@ -19,9 +19,10 @@ interface UIState {
   /** AND over the include set when true, OR when false. */
   matchAll: boolean;
   toggleMatchAll: () => void;
-  /** Selected colors (OR membership). */
-  colorFilter: string[];
-  toggleColor: (c: string) => void;
+  /** Selected category. `null` = all categories. */
+  categoryFilter: string | null;
+  setCategory: (c: string | null) => void;
+  clearCategoryFilter: () => void;
   pinnedOnly: boolean;
   setPinnedOnly: (b: boolean) => void;
   /** Sidebar collapsed? Persisted to localStorage. */
@@ -65,13 +66,9 @@ export const useUI = create<UIState>((set) => ({
   clearTagFilter: () => set({ tagFilter: {} }),
   matchAll: true,
   toggleMatchAll: () => set((s) => ({ matchAll: !s.matchAll })),
-  colorFilter: [],
-  toggleColor: (c) =>
-    set((s) => ({
-      colorFilter: s.colorFilter.includes(c)
-        ? s.colorFilter.filter((x) => x !== c)
-        : [...s.colorFilter, c],
-    })),
+  categoryFilter: null,
+  setCategory: (c) => set({ categoryFilter: c }),
+  clearCategoryFilter: () => set({ categoryFilter: null }),
   pinnedOnly: false,
   setPinnedOnly: (b) => set({ pinnedOnly: b }),
   sidebarCollapsed: loadCollapsed(),
