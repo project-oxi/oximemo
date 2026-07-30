@@ -35,3 +35,6 @@ Thumbs.db
 
 # --- Logs / local scratch ---
 *.log
+
+# Brainstorm visual companion
+.superpowers/
