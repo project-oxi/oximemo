@@ -22,7 +22,6 @@ use time::OffsetDateTime;
 use crate::config::VaultConfig;
 use crate::error::{CoreError, Result};
 use crate::hash;
-use crate::tags::extract_tags;
 use crate::lock::{FileLock, LockKind, acquire};
 use crate::note::{
     Cursor, IndexStats, Note, NoteColor, NoteFilter, NoteId, NoteSummary, Page, make_preview,
@@ -32,6 +31,7 @@ use crate::store::files::FileStore;
 use crate::store::index::{IndexRecord, NoteIndex, RedbIndex};
 use crate::store::search::{SearchIndex, TantivySearch};
 use crate::sync::{FullRecord, ManifestRecord};
+use crate::tags::extract_tags;
 
 /// How long to wait for the cross-process index lock before timing out (§5.7).
 const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -252,9 +252,12 @@ impl Vault {
         self.with_redb(|idx| {
             let recs = idx.list(after, limit, &filter)?;
             let items: Vec<NoteSummary> = recs.iter().map(|r| r.to_summary()).collect();
-            let next_cursor = items.last().map(|s| Cursor {
-                updated_at: s.updated_at,
-                id: s.id,
+            let next_cursor = items.last().and_then(|s| {
+                serde_json::to_string(&Cursor {
+                    updated_at: s.updated_at,
+                    id: s.id,
+                })
+                .ok()
             });
             Ok(Page { items, next_cursor })
         })
@@ -647,9 +650,7 @@ mod tests {
     #[test]
     fn create_get_update_delete_restore() {
         let (_t, v) = tmp_vault();
-        let n = v
-            .create_note("hello world".into(), None)
-            .unwrap();
+        let n = v.create_note("hello world".into(), None).unwrap();
         let got = v.get_note(n.id).unwrap();
         assert_eq!(got.body, "hello world");
 
@@ -670,10 +671,8 @@ mod tests {
     #[test]
     fn list_and_search() {
         let (_t, v) = tmp_vault();
-        v.create_note("rust async runtime".into(), None)
-            .unwrap();
-        v.create_note("go goroutines".into(), None)
-            .unwrap();
+        v.create_note("rust async runtime".into(), None).unwrap();
+        v.create_note("go goroutines".into(), None).unwrap();
         let page = v.list_notes(None, 10, NoteFilter::default()).unwrap();
         assert_eq!(page.items.len(), 2);
         let hits = v.search_notes("rust", 10).unwrap();
@@ -681,11 +680,41 @@ mod tests {
     }
 
     #[test]
+    fn list_notes_next_cursor_roundtrips_as_string() {
+        // The Tauri `list_notes(after: Option<String>)` command and the
+        // frontend's cursor pagination both treat `next_cursor` as a JSON
+        // *string* that `Cursor::parse(&str)` can read back. This locks that
+        // contract: a non-null cursor must be a string and must round-trip.
+        let (_t, v) = tmp_vault();
+        v.create_note("first note".into(), None).unwrap();
+        v.create_note("second note".into(), None).unwrap();
+
+        // limit below the count forces a non-null cursor on page 1.
+        let page = v.list_notes(None, 1, NoteFilter::default()).unwrap();
+        assert_eq!(page.items.len(), 1);
+        let cursor = page.next_cursor.expect("page 1 must carry a next cursor");
+        assert!(
+            cursor.starts_with('{'),
+            "next_cursor must be a JSON object string, got: {cursor}"
+        );
+
+        let parsed = Cursor::parse(&cursor).expect("cursor must round-trip via Cursor::parse");
+        let page2 = v.list_notes(Some(parsed), 10, NoteFilter::default()).unwrap();
+        assert_eq!(page2.items.len(), 1, "page 2 must return the remaining note");
+        // The cursor on page 2 still points past its last item; the pagination
+        // terminator is the NEXT fetch returning an empty page with no cursor.
+        let c2 = page2.next_cursor.expect("page 2 carries a cursor");
+        let page3 = v
+            .list_notes(Some(Cursor::parse(&c2).unwrap()), 10, NoteFilter::default())
+            .unwrap();
+        assert!(page3.items.is_empty(), "page 3 must be empty");
+        assert!(page3.next_cursor.is_none(), "empty page must carry no cursor");
+    }
+
+    #[test]
     fn export_manifest_and_full_roundtrip() {
         let (_t, v) = tmp_vault();
-        let n = v
-            .create_note("body text".into(), None)
-            .unwrap();
+        let n = v.create_note("body text".into(), None).unwrap();
         let manifest = v.export_manifest(None).unwrap();
         assert_eq!(manifest.len(), 1);
         let full = v.export_full(&[n.id]).unwrap();
@@ -705,9 +734,7 @@ mod tests {
     #[test]
     fn derived_tags_from_body_end_to_end() {
         let (_t, v) = tmp_vault();
-        let n = v
-            .create_note("회의록 #work #urgent".into(), None)
-            .unwrap();
+        let n = v.create_note("회의록 #work #urgent".into(), None).unwrap();
         let got = v.get_note(n.id).unwrap();
         // Tags are derived from the body, normalized + lowercased.
         assert_eq!(got.tags, vec!["work", "urgent"]);
@@ -743,11 +770,19 @@ mod tests {
         // facets aggregate derived tags over the vault.
         let facets = v.list_facets().unwrap();
         assert_eq!(
-            facets.tags.iter().find(|(t, _)| t == "work").map(|(_, c)| *c),
+            facets
+                .tags
+                .iter()
+                .find(|(t, _)| t == "work")
+                .map(|(_, c)| *c),
             Some(1)
         );
         assert_eq!(
-            facets.tags.iter().find(|(t, _)| t == "urgent").map(|(_, c)| *c),
+            facets
+                .tags
+                .iter()
+                .find(|(t, _)| t == "urgent")
+                .map(|(_, c)| *c),
             Some(1)
         );
     }

@@ -79,7 +79,10 @@ mod tests {
 
     #[test]
     fn punctuation_truncates_token() {
-        assert_eq!(extract_tags("메모 #태그, 그리고 #업무!"), vec!["태그", "업무"]);
+        assert_eq!(
+            extract_tags("메모 #태그, 그리고 #업무!"),
+            vec!["태그", "업무"]
+        );
     }
 
     #[test]

@@ -235,7 +235,7 @@ fn truncate_chars(s: &str, max: usize) -> String {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Page<T> {
     pub items: Vec<T>,
-    pub next_cursor: Option<Cursor>,
+    pub next_cursor: Option<String>,
 }
 
 /// Filter applied to listings (§4.3, §7.5). Composite: include-tag set
