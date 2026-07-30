@@ -36,7 +36,7 @@ enum Cmd {
     New {
         /// Note body. If omitted, reads from stdin.
         text: Option<String>,
-        /// Tags to attach (repeatable).
+        /// Inline tag appended to the body as `#TAG` (repeatable).
         #[arg(long = "tag", value_name = "TAG")]
         tags: Vec<String>,
         /// OKLCH color string, e.g. `oklch(0.75 0.15 75)`.
@@ -48,8 +48,9 @@ enum Cmd {
     List {
         #[arg(long, default_value_t = 50)]
         limit: u32,
-        #[arg(long)]
-        tag: Option<String>,
+        /// Include notes with this tag (repeatable; OR).
+        #[arg(long = "tag", value_name = "TAG")]
+        tag: Vec<String>,
         #[arg(long)]
         pinned: bool,
         /// table | json | ndjson

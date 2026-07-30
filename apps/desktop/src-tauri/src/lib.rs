@@ -79,6 +79,7 @@ pub fn run() {
             commands::doctor,
             commands::vault_path,
             commands::note_stats,
+            commands::list_facets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running oxinot desktop app");
@@ -154,11 +155,15 @@ mod commands {
     use super::AppState;
 
     #[tauri::command]
+    #[allow(clippy::too_many_arguments)]
     pub fn list_notes(
         state: State<'_, AppState>,
         after: Option<String>,
         limit: u32,
-        tag: Option<String>,
+        include_tags: Vec<String>,
+        exclude_tags: Vec<String>,
+        match_all: bool,
+        colors: Vec<String>,
         pinned_only: bool,
     ) -> Result<oxinot_core::Page<oxinot_core::NoteSummary>, String> {
         let after = match after {
@@ -166,7 +171,10 @@ mod commands {
             None => None,
         };
         let filter = NoteFilter {
-            tag,
+            include_tags,
+            exclude_tags,
+            match_all,
+            colors,
             pinned_only,
             include_deleted: false,
         };
@@ -187,12 +195,11 @@ mod commands {
         state: State<'_, AppState>,
         app: AppHandle,
         body: String,
-        tags: Vec<String>,
         color: Option<String>,
     ) -> Result<oxinot_core::Note, String> {
         let note = state
             .vault
-            .create_note(body, tags, color)
+            .create_note(body, color)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("notes:changed", ());
         Ok(note)
@@ -204,14 +211,13 @@ mod commands {
         app: AppHandle,
         id: String,
         body: Option<String>,
-        tags: Option<Vec<String>>,
         pinned: Option<bool>,
         color: Option<String>,
     ) -> Result<oxinot_core::Note, String> {
         let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
         let note = state
             .vault
-            .update_note(id, body, tags, pinned, color)
+            .update_note(id, body, pinned, color)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("notes:changed", ());
         Ok(note)
@@ -280,5 +286,9 @@ mod commands {
     #[tauri::command]
     pub fn note_stats(state: State<'_, AppState>) -> Result<oxinot_core::NoteStats, String> {
         state.vault.note_stats().map_err(|e| e.to_string())
+    }
+    #[tauri::command]
+    pub fn list_facets(state: State<'_, AppState>) -> Result<oxinot_core::Facets, String> {
+        state.vault.list_facets().map_err(|e| e.to_string())
     }
 }

@@ -11,13 +11,16 @@ use oxinot_core::store::files::FileStore;
 use crate::format::{self, Format};
 
 /// `oxinot new` — capture a note from an argument or stdin.
+///
+/// `--tag` values are folded into the body as inline `#tag` tokens so the
+/// derived model picks them up (the core no longer takes a tags argument).
 pub fn cmd_new(
     vault: &Vault,
     text: Option<String>,
     tags: Vec<String>,
     color: Option<String>,
 ) -> Result<()> {
-    let body = match text {
+    let mut body = match text {
         Some(t) => t,
         None => {
             use std::io::Read;
@@ -28,10 +31,23 @@ pub fn cmd_new(
             buf.trim_end().to_string()
         }
     };
+    if !tags.is_empty() {
+        let suffix = tags
+            .iter()
+            .map(|t| format!("#{}", t.trim().trim_start_matches('#')))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if body.is_empty() {
+            body = suffix;
+        } else {
+            body.push_str("\n\n");
+            body.push_str(&suffix);
+        }
+    }
     if body.is_empty() {
         return Err(anyhow!("refusing to create an empty note"));
     }
-    let note = vault.create_note(body, tags, color)?;
+    let note = vault.create_note(body, color)?;
     println!("{}", note.id);
     Ok(())
 }
@@ -40,14 +56,15 @@ pub fn cmd_new(
 pub fn cmd_list(
     vault: &Vault,
     limit: u32,
-    tag: Option<String>,
+    tag: Vec<String>,
     pinned: bool,
     fmt: Format,
 ) -> Result<()> {
     let filter = NoteFilter {
-        tag,
+        include_tags: tag,
+        match_all: false,
         pinned_only: pinned,
-        include_deleted: false,
+        ..Default::default()
     };
     let page = vault.list_notes(None, limit, filter)?;
     format::print_summaries(&page.items, fmt)
