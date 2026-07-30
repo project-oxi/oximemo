@@ -9,11 +9,10 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Monitor, Moon, PanelLeft, Plus, Search, Sun } from "lucide-react";
+import { PanelLeft, Plus, Search } from "lucide-react";
 
 import { createNote, deleteNote, listNotes, searchNotes, updateNote } from "../lib/api";
 import { useI18n } from "../lib/i18n";
-import { applyTheme } from "../lib/theme";
 import { listen } from "../lib/tauri";
 import { useUI } from "../stores/ui";
 import type { NoteSummary } from "../lib/types";
@@ -21,7 +20,6 @@ import { Card } from "./Card";
 import { NoteDetail } from "./NoteDetail";
 import { SettingsMenu } from "./SettingsMenu";
 import { Sidebar } from "./Sidebar";
-import { StatusBar } from "./StatusBar";
 
 const PAGE_SIZE = 50;
 const MIN_COL_W = 240;
@@ -40,8 +38,6 @@ export function CardGrid() {
   const pinnedOnly = useUI((s) => s.pinnedOnly);
   const sidebarCollapsed = useUI((s) => s.sidebarCollapsed);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
-  const theme = useUI((s) => s.theme);
-  const setTheme = useUI((s) => s.setTheme);
   const setError = useUI((s) => s.setError);
   const setDraftId = useUI((s) => s.setDraftId);
 
@@ -178,14 +174,6 @@ export function CardGrid() {
       .catch((e) => setError(String(e).split("\n")[0]));
   };
 
-  const cycleTheme = () => {
-    const next =
-      theme === "system" ? "light" : theme === "light" ? "dark" : "system";
-    setTheme(next);
-    applyTheme(next);
-  };
-  const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
-
   const onNewNote = useCallback(() => {
     // Never re-seed over an open editor: the seed effect would clobber a
     // pending draft and cancel its autosave flush.
@@ -230,7 +218,8 @@ export function CardGrid() {
               <PanelLeft size={15} />
             </button>
           )}
-          <div className="relative w-64">
+          <div className="flex-1" />
+          <div className="relative w-56">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
             <input
               type="text"
@@ -243,23 +232,15 @@ export function CardGrid() {
               className="w-full rounded-full border border-zinc-200 bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:focus:border-zinc-500"
             />
           </div>
-          <div className="flex-1" />
           <button
             type="button"
             onClick={onNewNote}
-            className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            aria-label={t.new_note}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
-            <Plus size={13} strokeWidth={2.5} /> {t.new_note}
+            <Plus size={15} strokeWidth={2.5} />
           </button>
           <SettingsMenu />
-          <button
-            type="button"
-            onClick={cycleTheme}
-            aria-label={t.theme}
-            className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-          >
-            <ThemeIcon size={15} />
-          </button>
         </header>
         <div ref={scrollerRef} className="flex-1 overflow-y-auto p-2">
           {items.length === 0 ? (
@@ -315,7 +296,6 @@ export function CardGrid() {
         </div>
       </div>
       <NoteDetail />
-      <StatusBar />
     </div>
   );
 }

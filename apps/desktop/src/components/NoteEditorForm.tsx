@@ -44,12 +44,12 @@ export function NoteEditorForm({
   className,
 }: NoteEditorFormProps) {
   return (
-    <div className={cx("flex flex-1 flex-col gap-2.5", className)}>
+    <div className={cx("flex flex-col gap-2.5", className)}>
       <MarkdownEditor
         body={body}
         onChange={onBodyChange}
         documentId={documentId}
-        className="min-h-[160px] flex-1"
+        className="max-h-[55vh] overflow-y-auto"
       />
       <TagChipRow body={body} />
       <div className="flex flex-wrap items-center gap-2.5">

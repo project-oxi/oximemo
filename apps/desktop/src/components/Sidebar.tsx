@@ -42,7 +42,16 @@ export function Sidebar() {
     <aside className="flex w-56 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50/60 dark:border-zinc-800 dark:bg-zinc-950/40">
       {/* Traffic-light drag region: the macOS lights live in the top-left of
           this column, so reserve h-12 + the standard 76px clearance here. */}
-      <div data-tauri-drag-region className="h-12 pl-[76px]" />
+      <div data-tauri-drag-region className="flex h-12 items-center pl-[76px] pr-3">
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-label={t.hide_sidebar}
+          className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-200/60 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        >
+          <PanelLeftClose size={15} />
+        </button>
+      </div>
 
       <button
         type="button"
@@ -127,13 +136,6 @@ export function Sidebar() {
         </>
       )}
 
-      <button
-        type="button"
-        onClick={toggleSidebar}
-        className="mx-2 mb-2 mt-auto flex items-center gap-2 rounded-md px-2 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-      >
-        <PanelLeftClose size={14} /> {t.hide_sidebar}
-      </button>
     </aside>
   );
 }
