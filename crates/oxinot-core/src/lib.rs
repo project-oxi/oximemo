@@ -15,6 +15,7 @@ pub mod error;
 pub mod hash;
 pub mod note;
 pub mod paths;
+pub mod tags;
 
 pub mod lock;
 pub mod store;
