@@ -38,3 +38,6 @@ Thumbs.db
 
 # Brainstorm visual companion
 .superpowers/
+
+# --- App data ---
+data/
