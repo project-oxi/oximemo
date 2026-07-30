@@ -70,7 +70,7 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
           {note.tags.slice(0, 3).map((tag) => (
             <span
               key={tag}
-              className="rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-white/10 dark:text-zinc-300"
+              className="rounded-full bg-[var(--tag-bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--tag)]"
             >
               {tag}
             </span>

@@ -32,7 +32,6 @@ export function NoteDetail() {
   });
 
   const [body, setBody] = useState("");
-  const [tags, setTags] = useState<string[]>([]);
   const [color, setColor] = useState("");
   const [pinned, setPinned] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -42,7 +41,6 @@ export function NoteDetail() {
   useEffect(() => {
     if (open && note.data && seededId !== note.data.id) {
       setBody(note.data.body);
-      setTags(note.data.tags);
       setColor(note.data.color);
       setPinned(note.data.pinned);
       setDirty(false);
@@ -55,7 +53,7 @@ export function NoteDetail() {
   useEffect(() => {
     if (!dirty || !selectedId) return;
     const h = window.setTimeout(() => {
-      void updateNote(selectedId, body, tags, pinned, color)
+      void updateNote(selectedId, body, pinned, color)
         .then((n) => {
           qc.setQueryData(["note", selectedId], n);
           setDirty(false);
@@ -67,12 +65,12 @@ export function NoteDetail() {
         });
     }, 500);
     return () => window.clearTimeout(h);
-  }, [dirty, body, tags, pinned, color, selectedId]);
+  }, [dirty, body, pinned, color, selectedId]);
 
   const close = () => {
     // A note minted by "new note" this session is discarded while still
     // empty, so cancelled drafts don't accumulate as orphan files.
-    if (selectedId && selectedId === draftId && !body.trim() && tags.length === 0) {
+    if (selectedId && selectedId === draftId && !body.trim()) {
       void deleteNote(selectedId)
         .then(() => qc.invalidateQueries({ queryKey: ["notes"] }))
         .catch((e) => setError(String(e).split("\n")[0]));
@@ -82,7 +80,7 @@ export function NoteDetail() {
     }
     // Flush a pending edit before dismissing.
     if (dirty && selectedId) {
-      void updateNote(selectedId, body, tags, pinned, color)
+      void updateNote(selectedId, body, pinned, color)
         .then((n) => qc.setQueryData(["note", selectedId], n))
         .catch((e) => setError(String(e).split("\n")[0]));
     }
@@ -140,8 +138,6 @@ export function NoteDetail() {
                 onBodyChange={edit(setBody)}
                 bodyProps={{ autoFocus: true }}
                 bodyClassName="min-h-[160px]"
-                tags={tags}
-                onTagsChange={edit(setTags)}
                 color={color}
                 onColorChange={edit(setColor)}
                 onConfirm={close}

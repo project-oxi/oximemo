@@ -1,19 +1,12 @@
 /**
- * Shared note compose panel (§6.3 / §7.3). Both the capture overlay and the
- * note detail editor drive the SAME layout: a body textarea plus a single
- * unified bottom strip that flows tags → color swatches → confirm action on
- * one borderless line, with the OKLCH sliders (if any) expanding to full
- * width below it. Hosts own their own state + save/close semantics and pass
- * them down; only the layout is shared.
- *
- * TagInput has a `min-w` floor so that in the narrow capture window it wraps
- * onto its own full-width line rather than being squeezed by the swatches +
- * action; in the wide editor the three groups sit on a single line.
+ * Shared note compose panel. Body is a `MirrorTagEditor` (inline `#tag` chips);
+ * the bottom strip is color swatches + confirm only — the tag input is gone
+ * because tags are derived from the body (§4.1).
  */
 import { type Ref, type TextareaHTMLAttributes } from "react";
 import { Check } from "lucide-react";
 
-import { TagInput } from "./TagInput";
+import { MirrorTagEditor } from "./MirrorTagEditor";
 import { ColorSwatches } from "./ColorPicker";
 
 const cx = (...xs: (string | false | null | undefined)[]) =>
@@ -22,17 +15,12 @@ const cx = (...xs: (string | false | null | undefined)[]) =>
 export interface NoteComposeFormProps {
   body: string;
   onBodyChange: (v: string) => void;
-  /** Forwarded to the textarea (focus control, Esc/Enter handling in capture). */
   bodyRef?: Ref<HTMLTextAreaElement>;
   bodyProps?: Omit<
     TextareaHTMLAttributes<HTMLTextAreaElement>,
-    "value" | "onChange"
+    "value" | "onChange" | "className"
   >;
-  /** Extra textarea classes (e.g. a `min-h` floor in the editor). */
   bodyClassName?: string;
-  tags: string[];
-  onTagsChange: (t: string[]) => void;
-  tagPlaceholder?: string;
   color: string;
   onColorChange: (oklch: string) => void;
   /** Primary action — "save" in capture, "done" in the editor. */
@@ -50,9 +38,6 @@ export function NoteComposeForm({
   bodyRef,
   bodyProps,
   bodyClassName,
-  tags,
-  onTagsChange,
-  tagPlaceholder = "tag…",
   color,
   onColorChange,
   onConfirm,
@@ -63,23 +48,14 @@ export function NoteComposeForm({
 }: NoteComposeFormProps) {
   return (
     <div className={cx("flex flex-1 flex-col gap-2.5", className)}>
-      <textarea
+      <MirrorTagEditor
         ref={bodyRef}
         value={body}
-        onChange={(e) => onBodyChange(e.target.value)}
-        {...bodyProps}
-        className={cx(
-          "min-h-0 flex-1 resize-none bg-transparent text-sm leading-relaxed text-zinc-800 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100",
-          bodyClassName,
-        )}
+        onChange={onBodyChange}
+        textareaProps={bodyProps}
+        className={cx("min-h-0 flex-1", bodyClassName)}
       />
       <div className="flex flex-wrap items-center gap-2.5">
-        <TagInput
-          tags={tags}
-          onChange={onTagsChange}
-          placeholder={tagPlaceholder}
-          className="min-w-[180px] flex-1"
-        />
         <ColorSwatches value={color} onChange={onColorChange} />
         <button
           type="button"

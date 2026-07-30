@@ -18,7 +18,6 @@ import { ErrorToast } from "./ErrorBoundary";
 export function CaptureOverlay() {
   const { t } = useI18n();
   const [value, setValue] = useState("");
-  const [tags, setTags] = useState<string[]>([]);
   const [color, setColor] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -28,7 +27,6 @@ export function CaptureOverlay() {
   useEffect(() => {
     void listen("capture:show", () => {
       setValue("");
-      setTags([]);
       setColor("");
       setBusy(false);
       savingRef.current = false;
@@ -60,7 +58,7 @@ export function CaptureOverlay() {
       // reset form state on success — `capture:show` owns that, which also
       // avoids wiping text if the user re-captures mid-write.
       await closeCurrentWindow();
-      await createNote(body, tags, color || null);
+      await createNote(body, color || null);
     } catch (e) {
       // Surface the failure (H4) and restore the window with the text
       // intact so the user can fix and retry — the write didn't land.
@@ -90,8 +88,6 @@ export function CaptureOverlay() {
           rows: 2,
           onKeyDown: onKey,
         }}
-        tags={tags}
-        onTagsChange={setTags}
         color={color}
         onColorChange={setColor}
         onConfirm={save}

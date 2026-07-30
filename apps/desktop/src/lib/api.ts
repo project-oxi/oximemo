@@ -5,19 +5,27 @@
  * standalone.
  */
 import { invoke } from "./tauri";
-import type { Note, NoteSummary, IndexStats, DoctorReport, NoteStats } from "./types";
+import type { Note, NoteSummary, IndexStats, DoctorReport, NoteStats, Facets } from "./types";
 
 export async function listNotes(
   after: string | null,
   limit = 50,
-  tag: string | null = null,
-  pinnedOnly = false,
+  filter: {
+    include_tags?: string[];
+    exclude_tags?: string[];
+    match_all?: boolean;
+    colors?: string[];
+    pinned_only?: boolean;
+  } = {},
 ) {
   return invoke<{ items: NoteSummary[]; next_cursor: string | null }>("list_notes", {
     after,
     limit,
-    tag,
-    pinned_only: pinnedOnly,
+    include_tags: filter.include_tags ?? [],
+    exclude_tags: filter.exclude_tags ?? [],
+    match_all: filter.match_all ?? false,
+    colors: filter.colors ?? [],
+    pinned_only: filter.pinned_only ?? false,
   });
 }
 
@@ -25,18 +33,21 @@ export async function getNote(id: string) {
   return invoke<Note>("get_note", { id });
 }
 
-export async function createNote(body: string, tags: string[], color: string | null) {
-  return invoke<Note>("create_note", { body, tags, color });
+export async function createNote(body: string, color: string | null) {
+  return invoke<Note>("create_note", { body, color });
 }
 
 export async function updateNote(
   id: string,
   body: string | null,
-  tags: string[] | null,
   pinned: boolean | null,
   color: string | null,
 ) {
-  return invoke<Note>("update_note", { id, body, tags, pinned, color });
+  return invoke<Note>("update_note", { id, body, pinned, color });
+}
+
+export async function listFacets() {
+  return invoke<Facets>("list_facets");
 }
 
 export async function deleteNote(id: string) {

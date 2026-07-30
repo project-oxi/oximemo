@@ -51,6 +51,16 @@ export const dict = {
   section_storage: "저장소",
   section_about: "정보",
   vault_location: "볼트 위치",
+  all_notes: "모든 노트",
+  tags_section: "태그",
+  colors_section: "색상",
+  all_tags: "모든 태그",
+  match_all: "모두 포함",
+  match_any: "하나라도 포함",
+  hide_sidebar: "사이드바 숨기기",
+  show_sidebar: "사이드바 보기",
+  filter_summary: "{tags}개 태그 선택 · {notes}개의 메모",
+  filter_none: "전체 · {notes}개의 메모",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

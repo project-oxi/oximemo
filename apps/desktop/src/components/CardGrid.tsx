@@ -1,14 +1,15 @@
 /**
  * Card grid (§7.2–7.5): a virtualized, responsive multi-column grid of note
- * cards. Cursor-paged listing (with tag/pin filters) or BM25 search; the
- * title-bar header holds the search field, filter chips, and a theme toggle.
+ * cards. Cursor-paged listing (with composite tag/color filters) or BM25
+ * search; the title-bar header holds the search field, new-note button, and a
+ * theme toggle. A collapsible left Sidebar owns navigation + filtering.
  * Selecting a card opens the NoteDetail editor; the grid refreshes on
  * `notes:changed` from the file watcher / other windows (§7.4).
  */
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Monitor, Moon, Pin, Plus, Search, Sun } from "lucide-react";
+import { Monitor, Moon, PanelLeft, Plus, Search, Sun } from "lucide-react";
 
 import { createNote, deleteNote, listNotes, searchNotes, updateNote } from "../lib/api";
 import { useI18n } from "../lib/i18n";
@@ -19,6 +20,7 @@ import type { NoteSummary } from "../lib/types";
 import { Card } from "./Card";
 import { NoteDetail } from "./NoteDetail";
 import { SettingsMenu } from "./SettingsMenu";
+import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 
 const PAGE_SIZE = 50;
@@ -32,14 +34,26 @@ export function CardGrid() {
   const search = useUI((s) => s.search);
   const setSearch = useUI((s) => s.setSearch);
   const select = useUI((s) => s.select);
-  const activeTag = useUI((s) => s.activeTag);
-  const setActiveTag = useUI((s) => s.setActiveTag);
+  const tagFilter = useUI((s) => s.tagFilter);
+  const matchAll = useUI((s) => s.matchAll);
+  const colorFilter = useUI((s) => s.colorFilter);
   const pinnedOnly = useUI((s) => s.pinnedOnly);
-  const setPinnedOnly = useUI((s) => s.setPinnedOnly);
+  const sidebarCollapsed = useUI((s) => s.sidebarCollapsed);
+  const toggleSidebar = useUI((s) => s.toggleSidebar);
   const theme = useUI((s) => s.theme);
   const setTheme = useUI((s) => s.setTheme);
   const setError = useUI((s) => s.setError);
   const setDraftId = useUI((s) => s.setDraftId);
+
+  // Composite filter derived from the sidebar's 3-state tag chips.
+  const includeTags = useMemo(
+    () => Object.entries(tagFilter).filter(([, s]) => s === "in").map(([t]) => t),
+    [tagFilter],
+  );
+  const excludeTags = useMemo(
+    () => Object.entries(tagFilter).filter(([, s]) => s === "out").map(([t]) => t),
+    [tagFilter],
+  );
 
   const [localSearch, setLocalSearch] = useState(search);
   const [debounced, setDebounced] = useState(search);
@@ -52,8 +66,15 @@ export function CardGrid() {
   }, [localSearch]);
 
   const listing = useInfiniteQuery({
-    queryKey: ["notes", activeTag, pinnedOnly],
-    queryFn: ({ pageParam }) => listNotes(pageParam, PAGE_SIZE, activeTag, pinnedOnly),
+    queryKey: ["notes", includeTags, excludeTags, matchAll, colorFilter, pinnedOnly],
+    queryFn: ({ pageParam }) =>
+      listNotes(pageParam, PAGE_SIZE, {
+        include_tags: includeTags,
+        exclude_tags: excludeTags,
+        match_all: matchAll,
+        colors: colorFilter,
+        pinned_only: pinnedOnly,
+      }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
   });
@@ -71,20 +92,22 @@ export function CardGrid() {
     const base = inSearch
       ? searching.data?.pages.flat() ?? []
       : listing.data?.pages.flatMap((p) => p.items) ?? [];
-    // Search results come from BM25 without the tag/pin filter; apply it
+    // Search results come from BM25 without the composite filter; apply it
     // client-side so filters stay meaningful during a search.
     if (!inSearch) return base;
-    return base.filter(
-      (n) => (!activeTag || n.tags.includes(activeTag)) && (!pinnedOnly || n.pinned),
-    );
-  }, [inSearch, activeTag, pinnedOnly, listing.data, searching.data]);
-
-  // Distinct tags across loaded notes, for the filter chips (§7.5).
-  const tags = useMemo(() => {
-    const all =
-      listing.data?.pages.flatMap((p) => p.items.flatMap((n) => n.tags)) ?? [];
-    return [...new Set(all)].sort();
-  }, [listing.data]);
+    return base.filter((n) => {
+      if (pinnedOnly && !n.pinned) return false;
+      if (colorFilter.length && !colorFilter.includes(n.color)) return false;
+      if (excludeTags.some((tag) => n.tags.includes(tag))) return false;
+      if (includeTags.length) {
+        const ok = matchAll
+          ? includeTags.every((tag) => n.tags.includes(tag))
+          : includeTags.some((tag) => n.tags.includes(tag));
+        if (!ok) return false;
+      }
+      return true;
+    });
+  }, [inSearch, includeTags, excludeTags, matchAll, colorFilter, pinnedOnly, listing.data, searching.data]);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(1);
@@ -123,31 +146,34 @@ export function CardGrid() {
     void listen("notes:changed", () => {
       qc.invalidateQueries({ queryKey: ["notes"] });
       qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["facets"] });
+      qc.invalidateQueries({ queryKey: ["stats"] });
     }).then((u) => {
       un = u;
     });
     return () => un?.();
   }, [qc]);
 
-  // Reset scroll to top when the active filter changes, so a shorter filtered
-  // list doesn't leave the viewport stuck at its old bottom offset.
+  // Reset scroll to top when the active filter changes.
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: 0 });
-  }, [activeTag, pinnedOnly]);
+  }, [includeTags, excludeTags, colorFilter, pinnedOnly, matchAll]);
 
   const onDelete = (id: string) => {
     void deleteNote(id)
       .then(() => {
         qc.invalidateQueries({ queryKey: ["notes"] });
         qc.invalidateQueries({ queryKey: ["search"] });
+        qc.invalidateQueries({ queryKey: ["facets"] });
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   };
 
   const onTogglePin = (id: string, pinned: boolean) => {
-    void updateNote(id, null, null, !pinned, null)
+    void updateNote(id, null, !pinned, null)
       .then(() => {
         qc.invalidateQueries({ queryKey: ["notes"] });
+        qc.invalidateQueries({ queryKey: ["facets"] });
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   };
@@ -164,7 +190,7 @@ export function CardGrid() {
     // Never re-seed over an open editor: the seed effect would clobber a
     // pending draft and cancel its autosave flush.
     if (useUI.getState().selectedId) return;
-    void createNote("", [], null)
+    void createNote("", null)
       .then((n) => {
         setDraftId(n.id);
         select(n.id);
@@ -185,125 +211,108 @@ export function CardGrid() {
   }, [onNewNote]);
 
   return (
-    <div className="flex h-full flex-col">
-      <header
-        data-tauri-drag-region="deep"
-        className="flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/80 pr-4 pl-[76px] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80"
-      >
-        <div className="relative w-64">
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
-          />
-          <input
-            type="text"
-            value={localSearch}
-            onChange={(e) => {
-              setLocalSearch(e.target.value);
-              setSearch(e.target.value);
-            }}
-            placeholder={t.search_placeholder}
-            className="w-full rounded-full border border-zinc-200 bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:focus:border-zinc-500"
-          />
-        </div>
-        <div className="flex flex-1 flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setPinnedOnly(!pinnedOnly)}
-            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] transition-colors ${
-              pinnedOnly
-                ? "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400"
-                : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-            }`}
-          >
-            <Pin size={11} /> {t.pinned}
-          </button>
-          {tags.map((tag) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => setActiveTag(activeTag === tag ? null : tag)}
-                className={`rounded-full px-2.5 py-1 text-[11px] transition-colors ${
-                  activeTag === tag
-                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                    : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-                }`}
-              >
-                #{tag}
-              </button>
-            ))}
-        </div>
-        <button
-          type="button"
-          onClick={onNewNote}
-          className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+    <div className="flex h-full">
+      {!sidebarCollapsed && <Sidebar />}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header
+          data-tauri-drag-region="deep"
+          className={`flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/80 pr-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80 ${
+            sidebarCollapsed ? "pl-[76px]" : "pl-4"
+          }`}
         >
-          <Plus size={13} strokeWidth={2.5} /> {t.new_note}
-        </button>
-        <SettingsMenu />
-        <button
-          type="button"
-          onClick={cycleTheme}
-          aria-label={t.theme}
-          className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-        >
-          <ThemeIcon size={15} />
-        </button>
-      </header>
-      <div ref={scrollerRef} className="flex-1 overflow-y-auto p-2">
-        {items.length === 0 ? (
-          <div className="mt-24 flex flex-col items-center gap-4 text-center">
-            <p className="text-sm text-zinc-400">{t.empty_hint}</p>
+          {sidebarCollapsed && (
             <button
               type="button"
-              onClick={onNewNote}
-              className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              onClick={toggleSidebar}
+              aria-label={t.show_sidebar}
+              className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             >
-              <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
+              <PanelLeft size={15} />
             </button>
+          )}
+          <div className="relative w-64">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+            <input
+              type="text"
+              value={localSearch}
+              onChange={(e) => {
+                setLocalSearch(e.target.value);
+                setSearch(e.target.value);
+              }}
+              placeholder={t.search_placeholder}
+              className="w-full rounded-full border border-zinc-200 bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:focus:border-zinc-500"
+            />
           </div>
-        ) : (
-          <div
-            style={{ height: virtualizer.getTotalSize() }}
-            className="relative w-full"
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={onNewNote}
+            className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
-            {virtualizer.getVirtualItems().map((v) => {
-              const start = v.index * cols;
-              const row = items.slice(start, start + cols);
-              return (
-                <div
-                  key={v.key}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    transform: `translateY(${v.start}px)`,
-                    width: "100%",
-                  }}
-                >
+            <Plus size={13} strokeWidth={2.5} /> {t.new_note}
+          </button>
+          <SettingsMenu />
+          <button
+            type="button"
+            onClick={cycleTheme}
+            aria-label={t.theme}
+            className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          >
+            <ThemeIcon size={15} />
+          </button>
+        </header>
+        <div ref={scrollerRef} className="flex-1 overflow-y-auto p-2">
+          {items.length === 0 ? (
+            <div className="mt-24 flex flex-col items-center gap-4 text-center">
+              <p className="text-sm text-zinc-400">{t.empty_hint}</p>
+              <button
+                type="button"
+                onClick={onNewNote}
+                className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              >
+                <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
+              </button>
+            </div>
+          ) : (
+            <div style={{ height: virtualizer.getTotalSize() }} className="relative w-full">
+              {virtualizer.getVirtualItems().map((v) => {
+                const start = v.index * cols;
+                const row = items.slice(start, start + cols);
+                return (
                   <div
+                    key={v.key}
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                      gridAutoRows: `${CARD_H}px`,
-                      gap: `${ROW_GAP}px`,
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      transform: `translateY(${v.start}px)`,
+                      width: "100%",
                     }}
                   >
-                    {row.map((n) => (
-                      <Card
-                        key={n.id}
-                        note={n}
-                        onSelect={select}
-                        onTogglePin={(id) => onTogglePin(id, n.pinned)}
-                        onDelete={onDelete}
-                      />
-                    ))}
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                        gridAutoRows: `${CARD_H}px`,
+                        gap: `${ROW_GAP}px`,
+                      }}
+                    >
+                      {row.map((n) => (
+                        <Card
+                          key={n.id}
+                          note={n}
+                          onSelect={select}
+                          onTogglePin={(id) => onTogglePin(id, n.pinned)}
+                          onDelete={onDelete}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
       <NoteDetail />
       <StatusBar />

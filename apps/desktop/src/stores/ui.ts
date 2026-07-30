@@ -3,6 +3,8 @@
 import { create } from "zustand";
 import { loadTheme, type Theme } from "../lib/theme";
 
+export type TagState = "off" | "in" | "out";
+
 interface UIState {
   search: string;
   setSearch: (s: string) => void;
@@ -10,10 +12,21 @@ interface UIState {
   setTheme: (t: Theme) => void;
   selectedId: string | null;
   select: (id: string | null) => void;
-  activeTag: string | null;
-  setActiveTag: (t: string | null) => void;
+  /** tag -> filter state (3-state cycle). Absent = "off". */
+  tagFilter: Record<string, TagState>;
+  cycleTag: (tag: string) => void;
+  clearTagFilter: () => void;
+  /** AND over the include set when true, OR when false. */
+  matchAll: boolean;
+  toggleMatchAll: () => void;
+  /** Selected colors (OR membership). */
+  colorFilter: string[];
+  toggleColor: (c: string) => void;
   pinnedOnly: boolean;
   setPinnedOnly: (b: boolean) => void;
+  /** Sidebar collapsed? Persisted to localStorage. */
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
   /** Transient error message surfaced as a toast (H4). `null` = none. */
   error: string | null;
   setError: (msg: string | null) => void;
@@ -26,6 +39,12 @@ interface UIState {
   setDraftId: (id: string | null) => void;
 }
 
+const COLLAPSED_KEY = "oxinot.sidebarCollapsed";
+function loadCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(COLLAPSED_KEY) === "1";
+}
+
 export const useUI = create<UIState>((set) => ({
   search: "",
   setSearch: (s) => set({ search: s }),
@@ -33,10 +52,36 @@ export const useUI = create<UIState>((set) => ({
   setTheme: (t) => set({ theme: t }),
   selectedId: null,
   select: (id) => set({ selectedId: id }),
-  activeTag: null,
-  setActiveTag: (t) => set({ activeTag: t }),
+  tagFilter: {},
+  cycleTag: (tag) =>
+    set((s) => {
+      const cur = s.tagFilter[tag] ?? "off";
+      const next = cur === "off" ? "in" : cur === "in" ? "out" : "off";
+      const tf = { ...s.tagFilter };
+      if (next === "off") delete tf[tag];
+      else tf[tag] = next;
+      return { tagFilter: tf };
+    }),
+  clearTagFilter: () => set({ tagFilter: {} }),
+  matchAll: true,
+  toggleMatchAll: () => set((s) => ({ matchAll: !s.matchAll })),
+  colorFilter: [],
+  toggleColor: (c) =>
+    set((s) => ({
+      colorFilter: s.colorFilter.includes(c)
+        ? s.colorFilter.filter((x) => x !== c)
+        : [...s.colorFilter, c],
+    })),
   pinnedOnly: false,
   setPinnedOnly: (b) => set({ pinnedOnly: b }),
+  sidebarCollapsed: loadCollapsed(),
+  toggleSidebar: () =>
+    set((s) => {
+      const v = !s.sidebarCollapsed;
+      if (typeof window !== "undefined")
+        window.localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0");
+      return { sidebarCollapsed: v };
+    }),
   error: null,
   setError: (msg) => set({ error: msg }),
   toast: null,

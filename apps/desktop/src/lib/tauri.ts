@@ -8,6 +8,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Note, NoteSummary } from "./types";
+import { extractTags } from "./tags";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
@@ -119,11 +120,25 @@ async function browserFallback(
     case "list_notes": {
       const after = (args?.after as string | null | undefined) ?? null;
       const limit = (args?.limit as number | undefined) ?? 50;
-      const tag = (args?.tag as string | null | undefined) ?? null;
+      const include = (args?.include_tags as string[] | undefined) ?? [];
+      const exclude = (args?.exclude_tags as string[] | undefined) ?? [];
+      const matchAll = (args?.match_all as boolean | undefined) ?? false;
+      const colors = (args?.colors as string[] | undefined) ?? [];
       const pinnedOnly = (args?.pinned_only as boolean | undefined) ?? false;
-      const notes = liveSorted(loadStore()).filter(
-        (n) => (!tag || n.tags.includes(tag)) && (!pinnedOnly || n.pinned),
-      );
+      const has = (n: Note, t: string) =>
+        n.tags.some((x) => x.toLowerCase() === t.toLowerCase());
+      const notes = liveSorted(loadStore()).filter((n) => {
+        if (pinnedOnly && !n.pinned) return false;
+        if (colors.length && !colors.includes(n.color)) return false;
+        if (exclude.some((t) => has(n, t))) return false;
+        if (include.length) {
+          const ok = matchAll
+            ? include.every((t) => has(n, t))
+            : include.some((t) => has(n, t));
+          if (!ok) return false;
+        }
+        return true;
+      });
       let start = 0;
       if (after) {
         const sep = after.indexOf("|");
@@ -159,6 +174,7 @@ async function browserFallback(
 
     case "create_note": {
       const now = new Date().toISOString();
+      const body = (args?.body as string | undefined) ?? "";
       const note: Note = {
         id: crypto.randomUUID(),
         created_at: now,
@@ -166,8 +182,8 @@ async function browserFallback(
         hash: fakeHash(),
         pinned: false,
         color: (args?.color as string | null | undefined) ?? "",
-        tags: (args?.tags as string[] | undefined) ?? [],
-        body: (args?.body as string | undefined) ?? "",
+        tags: extractTags(body),
+        body,
         deleted_at: null,
       };
       const store = loadStore();
@@ -182,8 +198,10 @@ async function browserFallback(
       const store = loadStore();
       const n = store[id];
       if (!n) throw new Error(`note not found: ${id}`);
-      if (typeof args?.body === "string") n.body = args.body;
-      if (Array.isArray(args?.tags)) n.tags = args.tags as string[];
+      if (typeof args?.body === "string") {
+        n.body = args.body;
+        n.tags = extractTags(n.body);
+      }
       if (typeof args?.pinned === "boolean") n.pinned = args.pinned;
       if (typeof args?.color === "string") n.color = args.color;
       n.updated_at = new Date().toISOString();
@@ -208,6 +226,19 @@ async function browserFallback(
     case "note_stats": {
       const live = liveSorted(loadStore());
       return { notes: live.length, pinned: live.filter((n) => n.pinned).length };
+    }
+    case "list_facets": {
+      const live = liveSorted(loadStore());
+      const tagMap = new Map<string, number>();
+      const colorMap = new Map<string, number>();
+      for (const n of live) {
+        for (const t of n.tags) tagMap.set(t, (tagMap.get(t) ?? 0) + 1);
+        if (n.color) colorMap.set(n.color, (colorMap.get(n.color) ?? 0) + 1);
+      }
+      return {
+        tags: [...tagMap.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+        colors: [...colorMap.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+      };
     }
 
     case "vault_path":
