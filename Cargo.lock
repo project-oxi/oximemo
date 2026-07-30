@@ -2637,7 +2637,7 @@ dependencies = [
 
 [[package]]
 name = "oxinot-capture"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "block2 0.5.1",
  "objc2 0.5.2",
@@ -2648,7 +2648,7 @@ dependencies = [
 
 [[package]]
 name = "oxinot-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2660,7 +2660,7 @@ dependencies = [
 
 [[package]]
 name = "oxinot-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "fs2",
@@ -2680,7 +2680,7 @@ dependencies = [
 
 [[package]]
 name = "oxinot-desktop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "oxinot-capture",

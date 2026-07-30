@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+## [0.3.0] — 2026-07-30
+
+### Added
+- **Inline `#tag` extraction** — tags are now derived from note bodies
+  (`#foo` in the text is auto-recognized), with a chord-symbol guard
+  (`C#m7` / `F#m7` are not mistaken for tags). No more separate tag chip input.
+- **`list_facets` core API** — single backend aggregation of all tags and
+  colors with counts, replacing the previous "loaded page only" facet hack.
+- **Collapsible left sidebar** — filter the grid by tag (with count) and by
+  color, plus a 3-state (inactive / include / exclude) filter with AND/OR
+  composition. Apple Notes–style.
+- **Tag accent color** — app-wide orange tag token (`--color-tag`) unifying
+  sidebar filter chips, inline body chips, and card chips.
+- **Capture & editor compose panel unification** — the post-it capture overlay
+  and the full editor now share one component, ensuring visual and behavioral
+  parity.
+
+### Changed
+- **Body-derived `tags` field** — `tags` on a note is now derived from the body
+  on every read/write/index. Direct edits to `tags` in frontmatter are dropped
+  on next reindex.
+- **`hash` excludes `tags`** — note identity (BLAKE3 `b3:`) is now content-only,
+  preventing spurious hash drift when tags are re-extracted.
+- **`NoteFilter` is now a composite** — `Tag::Eq` / `Color::Eq` / `Text` /
+  `Pinned` / `Date` collapse into one `NoteFilter` enum shared by CLI + Tauri.
 
 ## [0.2.0] — 2026-07-28
 
@@ -51,6 +75,7 @@ _Nothing yet._
 - Agent integration via `skills/oxinot/SKILL.md`.
 - Light/dark mode following the macOS system appearance.
 
-[Unreleased]: https://github.com/a7garden/oxinot/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/a7garden/oxinot/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/a7garden/oxinot/releases/tag/v0.3.0
 [0.2.0]: https://github.com/a7garden/oxinot/releases/tag/v0.2.0
 [0.1.0]: https://github.com/a7garden/oxinot/releases/tag/v0.1.0
