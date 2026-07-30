@@ -136,7 +136,7 @@ export function SettingsMenu() {
           r.orphan_index_records.length +
           r.orphan_files.length +
           r.hash_mismatches.length +
-          r.invalid_colors.length;
+          r.hash_repair_failed;
         setIssues(n);
         setToast(n === 0 ? t.vault_ok : `${t.vault_issues}: ${n}`);
       })

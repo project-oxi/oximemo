@@ -41,7 +41,7 @@ export function NoteDetail() {
   useEffect(() => {
     if (open && note.data && seededId !== note.data.id) {
       setBody(note.data.body);
-      setColor(note.data.color);
+      setColor(note.data.category);
       setPinned(note.data.pinned);
       setDirty(false);
       setSeededId(note.data.id);

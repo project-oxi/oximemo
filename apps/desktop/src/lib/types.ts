@@ -8,7 +8,7 @@ export interface Note {
   updated_at: string;
   hash: string;
   pinned: boolean;
-  color: string;
+  category: string;
   tags: string[];
   body: string;
   deleted_at: string | null;
@@ -20,7 +20,7 @@ export interface NoteSummary {
   updated_at: string;
   hash: string;
   pinned: boolean;
-  color: string;
+  category: string;
   tags: string[];
   preview: string;
   deleted: boolean;
@@ -45,7 +45,7 @@ export interface DoctorReport {
   orphan_index_records: string[];
   orphan_files: string[];
   hash_mismatches: string[];
-  invalid_colors: string[];
+  hash_repair_failed: number;
   index_locked: boolean;
   trash_expiring: number;
   vault_ok: boolean;
@@ -58,5 +58,11 @@ export interface NoteStats {
 
 export interface Facets {
   tags: [string, number][];
-  colors: [string, number][];
+  categories: [string, number][];
+}
+
+export interface CategoryDef {
+  id: string;
+  color: string;
+  builtin: boolean;
 }

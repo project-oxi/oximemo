@@ -89,7 +89,7 @@ function summaryOf(n: Note): NoteSummary {
     updated_at: n.updated_at,
     hash: n.hash,
     pinned: n.pinned,
-    color: n.color,
+    category: n.category,
     tags: n.tags,
     preview: makePreview(n.body),
     deleted: n.deleted_at !== null,
@@ -123,13 +123,13 @@ async function browserFallback(
       const include = (args?.include_tags as string[] | undefined) ?? [];
       const exclude = (args?.exclude_tags as string[] | undefined) ?? [];
       const matchAll = (args?.match_all as boolean | undefined) ?? false;
-      const colors = (args?.colors as string[] | undefined) ?? [];
+      const categories = (args?.categories as string[] | undefined) ?? [];
       const pinnedOnly = (args?.pinned_only as boolean | undefined) ?? false;
       const has = (n: Note, t: string) =>
         n.tags.some((x) => x.toLowerCase() === t.toLowerCase());
       const notes = liveSorted(loadStore()).filter((n) => {
         if (pinnedOnly && !n.pinned) return false;
-        if (colors.length && !colors.includes(n.color)) return false;
+        if (categories.length && !categories.includes(n.category)) return false;
         if (exclude.some((t) => has(n, t))) return false;
         if (include.length) {
           const ok = matchAll
@@ -181,7 +181,7 @@ async function browserFallback(
         updated_at: now,
         hash: fakeHash(),
         pinned: false,
-        color: (args?.color as string | null | undefined) ?? "",
+        category: (args?.category as string | null | undefined) ?? "",
         tags: extractTags(body),
         body,
         deleted_at: null,
@@ -203,7 +203,7 @@ async function browserFallback(
         n.tags = extractTags(n.body);
       }
       if (typeof args?.pinned === "boolean") n.pinned = args.pinned;
-      if (typeof args?.color === "string") n.color = args.color;
+      if (typeof args?.category === "string") n.category = args.category;
       n.updated_at = new Date().toISOString();
       n.hash = fakeHash();
       store[id] = n;
@@ -230,14 +230,14 @@ async function browserFallback(
     case "list_facets": {
       const live = liveSorted(loadStore());
       const tagMap = new Map<string, number>();
-      const colorMap = new Map<string, number>();
+      const catMap = new Map<string, number>();
       for (const n of live) {
         for (const t of n.tags) tagMap.set(t, (tagMap.get(t) ?? 0) + 1);
-        if (n.color) colorMap.set(n.color, (colorMap.get(n.color) ?? 0) + 1);
+        if (n.category) catMap.set(n.category, (catMap.get(n.category) ?? 0) + 1);
       }
       return {
         tags: [...tagMap.entries()].sort((a, b) => a[0].localeCompare(b[0])),
-        colors: [...colorMap.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+        categories: [...catMap.entries()].sort((a, b) => a[0].localeCompare(b[0])),
       };
     }
 
@@ -253,10 +253,27 @@ async function browserFallback(
         orphan_index_records: [],
         orphan_files: [],
         hash_mismatches: [],
-        invalid_colors: [],
+        hash_repair_failed: 0,
         index_locked: false,
         trash_expiring: 0,
         vault_ok: true,
+      };
+
+    case "list_categories":
+      return [
+        { id: "inbox", color: "oklch(0.78 0.02 250)", builtin: true },
+        { id: "note", color: "oklch(0.75 0.13 250)", builtin: true },
+        { id: "todo", color: "oklch(0.78 0.15 75)", builtin: true },
+        { id: "idea", color: "oklch(0.72 0.15 310)", builtin: true },
+        { id: "bookmark", color: "oklch(0.75 0.12 195)", builtin: true },
+        { id: "snippet", color: "oklch(0.75 0.13 145)", builtin: true },
+      ];
+
+    case "create_category":
+      return {
+        id: args?.id as string,
+        color: (args?.color as string) ?? "oklch(50% 0.06 270)",
+        builtin: false,
       };
 
     default:

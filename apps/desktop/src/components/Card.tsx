@@ -34,8 +34,8 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
     <article
       onClick={() => onSelect(note.id)}
       style={{
-        backgroundColor: paperFor(note.color),
-        borderColor: edgeFor(note.color),
+        backgroundColor: paperFor(note.category),
+        borderColor: edgeFor(note.category),
       }}
       className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-2xl border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_3px_10px_-3px_rgba(0,0,0,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_2px_5px_rgba(0,0,0,0.06),0_10px_24px_-6px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.3),0_3px_10px_-3px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_2px_5px_rgba(0,0,0,0.4),0_10px_24px_-6px_rgba(0,0,0,0.6)]"
     >

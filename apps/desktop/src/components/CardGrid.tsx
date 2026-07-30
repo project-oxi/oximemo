@@ -68,7 +68,7 @@ export function CardGrid() {
         include_tags: includeTags,
         exclude_tags: excludeTags,
         match_all: matchAll,
-        colors: colorFilter,
+        categories: colorFilter,
         pinned_only: pinnedOnly,
       }),
     initialPageParam: null as string | null,
@@ -93,7 +93,7 @@ export function CardGrid() {
     if (!inSearch) return base;
     return base.filter((n) => {
       if (pinnedOnly && !n.pinned) return false;
-      if (colorFilter.length && !colorFilter.includes(n.color)) return false;
+      if (colorFilter.length && !colorFilter.includes(n.category)) return false;
       if (excludeTags.some((tag) => n.tags.includes(tag))) return false;
       if (includeTags.length) {
         const ok = matchAll

@@ -34,7 +34,7 @@ export function Sidebar() {
   const toggleSidebar = useUI((s) => s.toggleSidebar);
 
   const tags = facets.data?.tags ?? [];
-  const colors = facets.data?.colors ?? [];
+  const categories = facets.data?.categories ?? [];
   const total = stats.data?.notes ?? 0;
   const pinnedCount = stats.data?.pinned ?? 0;
 
@@ -111,22 +111,22 @@ export function Sidebar() {
         })}
       </div>
 
-      {colors.length > 0 && (
+      {categories.length > 0 && (
         <>
           <div className="mt-3 px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
             {t.colors_section}
           </div>
           <div className="flex flex-wrap gap-2 px-3 pt-1">
-            {colors.map(([color]) => (
+            {categories.map(([cat]) => (
               <button
-                key={color}
+                key={cat}
                 type="button"
-                onClick={() => toggleColor(color)}
-                aria-label={color}
+                onClick={() => toggleColor(cat)}
+                aria-label={cat}
                 className="h-5 w-5 rounded-md"
                 style={{
-                  backgroundColor: color,
-                  boxShadow: colorFilter.includes(color)
+                  backgroundColor: cat,
+                  boxShadow: colorFilter.includes(cat)
                     ? "0 0 0 2px var(--card-surface), 0 0 0 3.5px var(--tag)"
                     : undefined,
                 }}

@@ -80,6 +80,7 @@ pub fn run() {
             commands::vault_path,
             commands::note_stats,
             commands::list_facets,
+            commands::list_categories,
         ])
         .run(tauri::generate_context!())
         .expect("error while running oxinot desktop app");
@@ -178,7 +179,7 @@ mod commands {
         include_tags: Vec<String>,
         exclude_tags: Vec<String>,
         match_all: bool,
-        colors: Vec<String>,
+        categories: Vec<String>,
         pinned_only: bool,
     ) -> Result<oxinot_core::Page<oxinot_core::NoteSummary>, String> {
         let after = match after {
@@ -189,7 +190,7 @@ mod commands {
             include_tags,
             exclude_tags,
             match_all,
-            colors,
+            categories,
             pinned_only,
             include_deleted: false,
         };
@@ -210,11 +211,11 @@ mod commands {
         state: State<'_, AppState>,
         app: AppHandle,
         body: String,
-        color: Option<String>,
+        category: Option<String>,
     ) -> Result<oxinot_core::Note, String> {
         let note = state
             .vault
-            .create_note(body, color)
+            .create_note(body, category)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("notes:changed", ());
         Ok(note)
@@ -227,12 +228,12 @@ mod commands {
         id: String,
         body: Option<String>,
         pinned: Option<bool>,
-        color: Option<String>,
+        category: Option<String>,
     ) -> Result<oxinot_core::Note, String> {
         let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
         let note = state
             .vault
-            .update_note(id, body, pinned, color)
+            .update_note(id, body, pinned, category)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("notes:changed", ());
         Ok(note)
@@ -305,5 +306,12 @@ mod commands {
     #[tauri::command]
     pub fn list_facets(state: State<'_, AppState>) -> Result<oxinot_core::Facets, String> {
         state.vault.list_facets().map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn list_categories(
+        state: State<'_, AppState>,
+    ) -> Result<Vec<oxinot_core::config::CategoryDef>, String> {
+        Ok(state.vault.config().categories.items.clone())
     }
 }
