@@ -78,16 +78,11 @@ pub fn hash_normalized(normalized: &str) -> NoteHash {
 /// Because tags, pin, and color are part of the digest, editing any of them
 /// changes the hash and is correctly surfaced by the sync diff — closing the
 /// gap where a metadata-only edit would otherwise look "unchanged".
-pub fn hash_note(body: &[u8], tags: &[String], pinned: bool, color: &str) -> NoteHash {
+pub fn hash_note(body: &[u8], pinned: bool, color: &str) -> NoteHash {
     let normalized_body = normalize(body);
     let mut hasher = Hasher::new();
     hasher.update(normalized_body.as_bytes());
     hasher.update(b"\x1f"); // unit separator between fields
-    for t in tags {
-        let nfc: String = t.nfc().collect();
-        hasher.update(nfc.as_bytes());
-        hasher.update(b"\x1e"); // record separator between tags
-    }
     hasher.update(if pinned { b"1" } else { b"0" });
     hasher.update(b"\x1f");
     hasher.update(color.as_bytes());
@@ -135,30 +130,26 @@ mod tests {
 
     #[test]
     fn metadata_only_edit_changes_hash() {
-        // Same body, but adding a tag must change the note hash (§9.2 gap fix).
-        let base = hash_note(b"body", &[], false, "");
-        let tagged = hash_note(b"body", &["idea".into()], false, "");
-        let pinned = hash_note(b"body", &[], true, "");
-        let colored = hash_note(b"body", &[], false, "oklch(0.75 0.15 75)");
-        assert_ne!(base, tagged);
+        // Pin / color still change the hash (§9.2). Tags are derived from the
+        // body now, so a tag change IS a body change — covered below.
+        let base = hash_note(b"body", false, "");
+        let pinned = hash_note(b"body", true, "");
+        let colored = hash_note(b"body", false, "oklch(0.75 0.15 75)");
         assert_ne!(base, pinned);
         assert_ne!(base, colored);
+    }
+    #[test]
+    fn tag_in_body_changes_hash() {
+        // Adding `#x` to the body changes the digest (tags live in the body).
+        let a = hash_note(b"note", false, "");
+        let b = hash_note(b"note #x", false, "");
+        assert_ne!(a, b);
     }
 
     #[test]
     fn identical_state_hashes_equal() {
-        let a = hash_note(
-            b"body",
-            &["a".into(), "b".into()],
-            true,
-            "oklch(0.75 0.15 75)",
-        );
-        let b = hash_note(
-            b"body",
-            &["a".into(), "b".into()],
-            true,
-            "oklch(0.75 0.15 75)",
-        );
+        let a = hash_note(b"body", true, "oklch(0.75 0.15 75)");
+        let b = hash_note(b"body", true, "oklch(0.75 0.15 75)");
         assert_eq!(a, b);
     }
 }

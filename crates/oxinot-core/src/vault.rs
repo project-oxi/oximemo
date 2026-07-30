@@ -22,6 +22,7 @@ use time::OffsetDateTime;
 use crate::config::VaultConfig;
 use crate::error::{CoreError, Result};
 use crate::hash;
+use crate::tags::extract_tags;
 use crate::lock::{FileLock, LockKind, acquire};
 use crate::note::{
     Cursor, IndexStats, Note, NoteColor, NoteFilter, NoteId, NoteSummary, Page, make_preview,
@@ -98,13 +99,9 @@ impl Vault {
 
     // -- CRUD -------------------------------------------------------------
 
-    pub fn create_note(
-        &self,
-        body: String,
-        tags: Vec<String>,
-        color: Option<String>,
-    ) -> Result<Note> {
+    pub fn create_note(&self, body: String, color: Option<String>) -> Result<Note> {
         self.ensure_initialized()?;
+        let tags = extract_tags(&body);
         validate_note_input(&body, &tags)?;
         let now = OffsetDateTime::now_utc();
         let id = NoteId::now();
@@ -113,7 +110,7 @@ impl Vault {
             id,
             created_at: now,
             updated_at: now,
-            hash: hash::hash_note(body.as_bytes(), &tags, false, &color.0),
+            hash: hash::hash_note(body.as_bytes(), false, &color.0),
             pinned: false,
             color,
             tags,
@@ -163,21 +160,17 @@ impl Vault {
         Err(CoreError::NotFound(id.to_string()))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn update_note(
         &self,
         id: NoteId,
         body: Option<String>,
-        tags: Option<Vec<String>>,
         pinned: Option<bool>,
         color: Option<String>,
     ) -> Result<Note> {
         let mut note = self.get_note(id)?;
         if let Some(b) = body {
             note.body = b;
-        }
-        if let Some(t) = tags {
-            note.tags = t;
+            note.tags = extract_tags(&note.body);
         }
         if let Some(p) = pinned {
             note.pinned = p;
@@ -187,7 +180,7 @@ impl Vault {
         }
         validate_note_input(&note.body, &note.tags)?;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_note(note.body.as_bytes(), &note.tags, note.pinned, &note.color.0);
+        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
             idx.upsert(&record_of(&note))?;
@@ -202,7 +195,7 @@ impl Vault {
         let now = OffsetDateTime::now_utc();
         note.deleted_at = Some(now);
         note.updated_at = now;
-        note.hash = hash::hash_note(note.body.as_bytes(), &note.tags, note.pinned, &note.color.0);
+        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
         self.files.move_to_trash(&note)?;
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
@@ -216,7 +209,7 @@ impl Vault {
         let mut note = self.get_note(id)?;
         note.deleted_at = None;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_note(note.body.as_bytes(), &note.tags, note.pinned, &note.color.0);
+        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
         self.files.restore_from_trash(&note)?;
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
@@ -306,6 +299,30 @@ impl Vault {
                 }
             }
             Ok(stats)
+        })
+    }
+
+    /// Tag + color counts over live (non-deleted) notes for the sidebar (§4.2).
+    pub fn list_facets(&self) -> Result<crate::note::Facets> {
+        self.with_redb(|idx| {
+            let recs = idx.export_since(None)?;
+            let mut tag_map: std::collections::BTreeMap<String, u32> = Default::default();
+            let mut color_map: std::collections::BTreeMap<String, u32> = Default::default();
+            for r in &recs {
+                if r.deleted {
+                    continue;
+                }
+                for t in &r.tags {
+                    *tag_map.entry(t.clone()).or_insert(0) += 1;
+                }
+                if !r.color.0.is_empty() {
+                    *color_map.entry(r.color.0.clone()).or_insert(0) += 1;
+                }
+            }
+            Ok(crate::note::Facets {
+                tags: tag_map.into_iter().collect(),
+                colors: color_map.into_iter().collect(),
+            })
         })
     }
 
@@ -472,12 +489,8 @@ impl Vault {
                     if !note.color.is_valid() {
                         report.invalid_colors.push(note.id);
                     }
-                    let recomputed = hash::hash_note(
-                        note.body.as_bytes(),
-                        &note.tags,
-                        note.pinned,
-                        &note.color.0,
-                    );
+                    let recomputed =
+                        hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
                     if recomputed != note.hash {
                         // Report only *unresolved* mismatches. When --fix
                         // rewrites successfully the note is no longer a
@@ -635,13 +648,13 @@ mod tests {
     fn create_get_update_delete_restore() {
         let (_t, v) = tmp_vault();
         let n = v
-            .create_note("hello world".into(), vec!["t".into()], None)
+            .create_note("hello world".into(), None)
             .unwrap();
         let got = v.get_note(n.id).unwrap();
         assert_eq!(got.body, "hello world");
 
         let updated = v
-            .update_note(n.id, Some("edited".into()), None, Some(true), None)
+            .update_note(n.id, Some("edited".into()), Some(true), None)
             .unwrap();
         assert!(updated.pinned);
         assert_ne!(updated.hash, n.hash);
@@ -657,9 +670,9 @@ mod tests {
     #[test]
     fn list_and_search() {
         let (_t, v) = tmp_vault();
-        v.create_note("rust async runtime".into(), vec!["rust".into()], None)
+        v.create_note("rust async runtime".into(), None)
             .unwrap();
-        v.create_note("go goroutines".into(), vec!["go".into()], None)
+        v.create_note("go goroutines".into(), None)
             .unwrap();
         let page = v.list_notes(None, 10, NoteFilter::default()).unwrap();
         assert_eq!(page.items.len(), 2);
@@ -671,7 +684,7 @@ mod tests {
     fn export_manifest_and_full_roundtrip() {
         let (_t, v) = tmp_vault();
         let n = v
-            .create_note("body text".into(), vec!["a".into()], None)
+            .create_note("body text".into(), None)
             .unwrap();
         let manifest = v.export_manifest(None).unwrap();
         assert_eq!(manifest.len(), 1);
@@ -682,11 +695,60 @@ mod tests {
     #[test]
     fn reindex_is_idempotent() {
         let (_t, v) = tmp_vault();
-        v.create_note("one".into(), vec![], None).unwrap();
+        v.create_note("one".into(), None).unwrap();
         let s1 = v.reindex().unwrap();
         let s2 = v.reindex().unwrap();
         assert_eq!(s2.added, 0);
         assert!(s2.unchanged >= 1);
         let _ = s1;
+    }
+    #[test]
+    fn derived_tags_from_body_end_to_end() {
+        let (_t, v) = tmp_vault();
+        let n = v
+            .create_note("회의록 #work #urgent".into(), None)
+            .unwrap();
+        let got = v.get_note(n.id).unwrap();
+        // Tags are derived from the body, normalized + lowercased.
+        assert_eq!(got.tags, vec!["work", "urgent"]);
+
+        // include filter (AND) matches a note carrying the tag.
+        let inc = v
+            .list_notes(
+                None,
+                10,
+                NoteFilter {
+                    include_tags: vec!["work".into()],
+                    match_all: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(inc.items.len(), 1);
+
+        // exclude removes the note that also carries the excluded tag.
+        let exc = v
+            .list_notes(
+                None,
+                10,
+                NoteFilter {
+                    include_tags: vec!["work".into()],
+                    exclude_tags: vec!["urgent".into()],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(exc.items.is_empty());
+
+        // facets aggregate derived tags over the vault.
+        let facets = v.list_facets().unwrap();
+        assert_eq!(
+            facets.tags.iter().find(|(t, _)| t == "work").map(|(_, c)| *c),
+            Some(1)
+        );
+        assert_eq!(
+            facets.tags.iter().find(|(t, _)| t == "urgent").map(|(_, c)| *c),
+            Some(1)
+        );
     }
 }

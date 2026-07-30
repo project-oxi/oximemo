@@ -141,14 +141,15 @@ impl FileStore {
         match Self::parse(&content)? {
             ParsedFile::BodyOnly { .. } => Ok(None),
             ParsedFile::Note { fm, body } => {
+                let tags = crate::tags::extract_tags(&body);
                 let note = Note {
                     id: fm.id,
                     created_at: fm.created_at,
                     updated_at: fm.updated_at,
-                    hash: hash::hash_note(body.as_bytes(), &fm.tags, fm.pinned, &fm.color.0),
+                    hash: hash::hash_note(body.as_bytes(), fm.pinned, &fm.color.0),
                     pinned: fm.pinned,
                     color: fm.color,
-                    tags: fm.tags,
+                    tags,
                     body,
                     deleted_at: fm.deleted_at,
                 };
@@ -370,12 +371,7 @@ mod tests {
             id,
             created_at: now,
             updated_at: now,
-            hash: hash::hash_note(
-                body.as_bytes(),
-                &["idea".to_string()],
-                false,
-                "oklch(0.75 0.15 75)",
-            ),
+            hash: hash::hash_note(body.as_bytes(), false, "oklch(0.75 0.15 75)"),
             pinned: false,
             color: NoteColor("oklch(0.75 0.15 75)".into()),
             tags: vec!["idea".into()],
