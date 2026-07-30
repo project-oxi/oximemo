@@ -238,10 +238,18 @@ pub struct Page<T> {
     pub next_cursor: Option<Cursor>,
 }
 
-/// Filter applied to listings (§7.5).
+/// Filter applied to listings (§4.3, §7.5). Composite: include-tag set
+/// (AND or OR), exclude-tag set, color set (OR membership), pin, deleted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NoteFilter {
-    pub tag: Option<String>,
+    /// Note must contain these tags. Empty = no constraint.
+    pub include_tags: Vec<String>,
+    /// Note must contain NONE of these tags.
+    pub exclude_tags: Vec<String>,
+    /// `true` = note must contain ALL `include_tags` (AND); `false` = ANY (OR).
+    pub match_all: bool,
+    /// Non-empty = note's color must equal one of these (OR membership).
+    pub colors: Vec<String>,
     pub pinned_only: bool,
     /// When false, soft-deleted notes are excluded.
     pub include_deleted: bool,
@@ -255,10 +263,27 @@ impl NoteFilter {
         if self.pinned_only && !s.pinned {
             return false;
         }
-        if let Some(t) = &self.tag
-            && !s.tags.iter().any(|x| x.eq_ignore_ascii_case(t))
+        if !self.colors.is_empty() && !self.colors.iter().any(|c| c == &s.color.0) {
+            return false;
+        }
+        if !self.exclude_tags.is_empty()
+            && self
+                .exclude_tags
+                .iter()
+                .any(|t| s.tags.iter().any(|x| x.eq_ignore_ascii_case(t)))
         {
             return false;
+        }
+        if !self.include_tags.is_empty() {
+            let hit = |t: &String| s.tags.iter().any(|x| x.eq_ignore_ascii_case(t));
+            let ok = if self.match_all {
+                self.include_tags.iter().all(hit)
+            } else {
+                self.include_tags.iter().any(hit)
+            };
+            if !ok {
+                return false;
+            }
         }
         true
     }
@@ -282,6 +307,15 @@ pub struct NoteStats {
     pub pinned: u64,
 }
 
+/// Tag + color counts across the (non-deleted) vault, for the sidebar (§4.2).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Facets {
+    /// `(normalized_tag, count)` sorted by tag.
+    pub tags: Vec<(String, u32)>,
+    /// `(oklch_color, count)` sorted by color; empty-color notes excluded.
+    pub colors: Vec<(String, u32)>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,5 +333,61 @@ mod tests {
     fn preview_collapses_and_truncates() {
         let body = "first line\n\nsecond line\n".to_string();
         assert_eq!(make_preview(&body), "first line second line");
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+    use time::OffsetDateTime;
+
+    fn sum(tags: &[&str], color: &str, pinned: bool) -> NoteSummary {
+        NoteSummary {
+            id: NoteId::now(),
+            created_at: OffsetDateTime::now_utc(),
+            updated_at: OffsetDateTime::now_utc(),
+            hash: NoteHash::new("h"),
+            pinned,
+            color: NoteColor(color.to_string()),
+            tags: tags.iter().map(|t| t.to_string()).collect(),
+            preview: String::new(),
+            deleted: false,
+        }
+    }
+
+    #[test]
+    fn include_or_and_exclude() {
+        let f = NoteFilter {
+            include_tags: vec!["a".into(), "b".into()],
+            exclude_tags: vec!["x".into()],
+            match_all: false,
+            ..Default::default()
+        };
+        assert!(f.matches(&sum(&["a"], "", false)));
+        assert!(f.matches(&sum(&["b"], "", false)));
+        assert!(!f.matches(&sum(&["c"], "", false)));
+        assert!(!f.matches(&sum(&["a", "x"], "", false)));
+    }
+
+    #[test]
+    fn include_and_requires_all() {
+        let f = NoteFilter {
+            include_tags: vec!["a".into(), "b".into()],
+            match_all: true,
+            ..Default::default()
+        };
+        assert!(f.matches(&sum(&["a", "b"], "", false)));
+        assert!(!f.matches(&sum(&["a"], "", false)));
+    }
+
+    #[test]
+    fn color_membership() {
+        let f = NoteFilter {
+            colors: vec!["oklch(0.75 0.15 25)".into()],
+            ..Default::default()
+        };
+        assert!(f.matches(&sum(&[], "oklch(0.75 0.15 25)", false)));
+        assert!(!f.matches(&sum(&[], "oklch(0.7 0.13 270)", false)));
+        assert!(NoteFilter::default().matches(&sum(&[], "", false)));
     }
 }
