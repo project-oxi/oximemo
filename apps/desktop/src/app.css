@@ -8,10 +8,14 @@
 :root {
   --card-surface: #ffffff;
   --card-edge: #e7e7ea;
+  --tag: #b45309;
+  --tag-bg: #fff3df;
 }
 .dark {
   --card-surface: #18181b;
   --card-edge: #2a2a2e;
+  --tag: #ffb84d;
+  --tag-bg: rgba(255, 159, 10, 0.16);
 }
 
 @theme {

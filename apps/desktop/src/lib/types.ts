@@ -55,3 +55,8 @@ export interface NoteStats {
   notes: number;
   pinned: number;
 }
+
+export interface Facets {
+  tags: [string, number][];
+  colors: [string, number][];
+}
