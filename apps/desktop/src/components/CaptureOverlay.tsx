@@ -8,10 +8,11 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { createNote } from "../lib/api";
+import { createNote, listCategories } from "../lib/api";
 import { listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import { closeCurrentWindow, showCurrentWindow } from "../lib/window";
+import type { CategoryDef } from "../lib/types";
 import { useUI } from "../stores/ui";
 import { QuickCaptureForm } from "./QuickCaptureForm";
 import { ErrorToast } from "./ErrorBoundary";
@@ -19,16 +20,21 @@ import { ErrorToast } from "./ErrorBoundary";
 export function CaptureOverlay() {
   const { t } = useI18n();
   const [value, setValue] = useState("");
-  const [color, setColor] = useState("");
+  const [category, setCategory] = useState("");
+  const [categories, setCategories] = useState<CategoryDef[]>([]);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const setError = useUI((s) => s.setError);
   const savingRef = useRef(false);
 
   useEffect(() => {
+    void listCategories().then(setCategories).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     void listen("capture:show", () => {
       setValue("");
-      setColor("");
+      setCategory("");
       setBusy(false);
       savingRef.current = false;
       // Focus the textarea after the window is brought forward.
@@ -59,7 +65,7 @@ export function CaptureOverlay() {
       // reset form state on success — `capture:show` owns that, which also
       // avoids wiping text if the user re-captures mid-write.
       await closeCurrentWindow();
-      await createNote(body, color || null);
+      await createNote(body, category || null);
     } catch (e) {
       // Surface the failure (H4) and restore the window with the text
       // intact so the user can fix and retry — the write didn't land.
@@ -81,8 +87,9 @@ export function CaptureOverlay() {
           placeholder: t.capture_placeholder,
           onKeyDown: onKey,
         }}
-        color={color}
-        onColorChange={setColor}
+        category={category}
+        onCategoryChange={setCategory}
+        categories={categories}
         onConfirm={save}
         confirmLabel={t.capture_save}
         confirmDisabled={busy || value.trim().length === 0}
