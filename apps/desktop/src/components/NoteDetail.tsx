@@ -13,7 +13,7 @@ import { deleteNote, getNote, updateNote } from "../lib/api";
 import { paperFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
-import { NoteComposeForm } from "./NoteComposeForm";
+import { NoteEditorForm } from "./NoteEditorForm";
 
 export function NoteDetail() {
   const { t } = useI18n();
@@ -133,11 +133,10 @@ export function NoteDetail() {
                   <Pin size={12} /> {t.pinned}
                 </button>
               </div>
-              <NoteComposeForm
+              <NoteEditorForm
                 body={body}
                 onBodyChange={edit(setBody)}
-                bodyProps={{ autoFocus: true }}
-                bodyClassName="min-h-[160px]"
+                documentId={note.data.id}
                 color={color}
                 onColorChange={edit(setColor)}
                 onConfirm={close}
