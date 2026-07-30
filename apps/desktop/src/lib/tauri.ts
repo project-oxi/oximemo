@@ -269,12 +269,23 @@ async function browserFallback(
         { id: "snippet", color: "oklch(0.75 0.13 145)", builtin: true },
       ];
 
-    case "create_category":
-      return {
-        id: args?.id as string,
-        color: (args?.color as string) ?? "oklch(50% 0.06 270)",
-        builtin: false,
-      };
+    case "create_category": {
+      const id = String(args?.id ?? "").trim().toLowerCase();
+      if (!id) throw new Error("category id must not be empty");
+      // Builtins from list_categories
+      const builtins: Array<{ id: string }> = [
+        { id: "inbox" },
+        { id: "note" },
+        { id: "todo" },
+        { id: "idea" },
+        { id: "bookmark" },
+        { id: "snippet" },
+      ];
+      if (builtins.some((c) => c.id === id))
+        throw new Error(`category '${id}' already exists`);
+      const color = (args?.color as string | null | undefined) ?? "oklch(0.78 0.02 250)";
+      return { id, color, builtin: false };
+    }
 
     default:
       return null;

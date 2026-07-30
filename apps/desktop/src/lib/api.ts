@@ -82,9 +82,9 @@ export async function listCategories() {
   return invoke<CategoryDef[]>("list_categories");
 }
 
-/** NOTE: `create_category` only works in browser dev mode (mock).
- *  The real Tauri backend lacks `VaultConfig::save` — this command is blocked
- *  until core supports durable category mutation. */
+/** Create a session-scoped category. Persists for the lifetime of the app
+ *  process but is **not** saved to disk — categories are lost on restart.
+ *  Duplicate IDs (builtin or user-created) return an error. */
 export async function createCategory(id: string, color: string | null) {
   return invoke<CategoryDef>("create_category", { id, color });
 }

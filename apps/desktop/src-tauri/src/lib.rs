@@ -14,6 +14,7 @@ pub struct AppState {
     pub vault: Arc<oxinot_core::Vault>,
     pub capture_monitor: Mutex<Option<oxinot_capture::CaptureMonitor>>,
     pub watcher: Mutex<Option<oxinot_core::watcher::NoteWatcher>>,
+    pub user_categories: Mutex<Vec<oxinot_core::config::CategoryDef>>,
 }
 
 impl AppState {
@@ -22,6 +23,7 @@ impl AppState {
             vault: Arc::new(vault),
             capture_monitor: Mutex::new(None),
             watcher: Mutex::new(None),
+            user_categories: Mutex::new(vec![]),
         }
     }
 }
@@ -81,6 +83,7 @@ pub fn run() {
             commands::note_stats,
             commands::list_facets,
             commands::list_categories,
+            commands::create_category,
         ])
         .run(tauri::generate_context!())
         .expect("error while running oxinot desktop app");
@@ -312,6 +315,37 @@ mod commands {
     pub fn list_categories(
         state: State<'_, AppState>,
     ) -> Result<Vec<oxinot_core::config::CategoryDef>, String> {
-        Ok(state.vault.config().categories.items.clone())
+        let mut items = state.vault.config().categories.items.clone();
+        items.extend(state.user_categories.lock().iter().cloned());
+        Ok(items)
+    }
+
+    #[tauri::command]
+    pub fn create_category(
+        state: State<'_, AppState>,
+        id: String,
+        color: Option<String>,
+    ) -> Result<oxinot_core::config::CategoryDef, String> {
+        let id = id.trim().to_lowercase();
+        if id.is_empty() {
+            return Err("category id must not be empty".into());
+        }
+        if state.vault.config().categories.items.iter().any(|c| c.id == id) {
+            return Err(format!("category '{id}' already exists"));
+        }
+        {
+            let user = state.user_categories.lock();
+            if user.iter().any(|c| c.id == id) {
+                return Err(format!("category '{id}' already exists"));
+            }
+        }
+        let color = color.unwrap_or_else(|| oxinot_core::config::AUTO_COLORS[0].to_string());
+        let def = oxinot_core::config::CategoryDef {
+            id,
+            color,
+            builtin: false,
+        };
+        state.user_categories.lock().push(def.clone());
+        Ok(def)
     }
 }
