@@ -41,18 +41,18 @@ export function isValidOklch(s: string): boolean {
 }
 
 /**
- * Post-it paper fill: the note color washed toward the card surface so the
- * whole card reads as colored paper — a light pastel in light mode, a muted
- * tint in dark. `--card-surface` flips with the `.dark` class, so the same
- * value adapts to both themes. Empty color falls back to the bare surface.
+ * Post-it paper fill: the note color mixed toward the card surface so the
+ * card reads as colored paper — a clear pastel in light mode, a muted tint
+ * in dark. Mixed at 60% (not a faint wash) so the picked color actually
+ * reads, and the ColorPicker swatches preview this exact value (WYSIWYG).
  */
 export function paperFor(color: string): string {
   if (!color) return "var(--card-surface)";
-  return `color-mix(in oklch, ${color} 30%, var(--card-surface))`;
+  return `color-mix(in oklch, ${color} 60%, var(--card-surface))`;
 }
 
-/** Card edge: a touch more saturated than the fill, for subtle definition. */
+/** Card edge: more saturated than the fill (80%) for clear definition. */
 export function edgeFor(color: string): string {
   if (!color) return "var(--card-edge)";
-  return `color-mix(in oklch, ${color} 42%, var(--card-edge))`;
+  return `color-mix(in oklch, ${color} 80%, var(--card-edge))`;
 }

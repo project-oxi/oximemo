@@ -3,7 +3,7 @@
  * uniform presets. Emits a full `oklch(...)` string (or "" for none). The
  * fine-tune sliders were dropped — the presets cover what we need.
  */
-import { COLOR_PRESETS, presetToString } from "../lib/color";
+import { COLOR_PRESETS, paperFor, presetToString } from "../lib/color";
 import { useI18n, type Dict } from "../lib/i18n";
 
 const COLOR_NAME: Record<string, keyof Dict> = {
@@ -49,7 +49,7 @@ export function ColorSwatches({ value, onChange }: Props) {
             type="button"
             aria-label={t[COLOR_NAME[p.id]]}
             onClick={() => onChange(s)}
-            style={{ background: s }}
+            style={{ background: paperFor(s) }}
             className={`h-6 w-6 rounded-full border border-black/10 transition-transform hover:scale-110 dark:border-white/10 ${
               active ? "ring-2 ring-zinc-400 ring-offset-1 dark:ring-offset-zinc-900" : ""
             }`}
