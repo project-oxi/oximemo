@@ -78,13 +78,13 @@ export async function noteStats() {
   return invoke<NoteStats>("note_stats");
 }
 
-export async function listCategories() {
+export async function listCategories(): Promise<CategoryDef[]> {
   return invoke<CategoryDef[]>("list_categories");
 }
 
 /** Create a session-scoped category. Persists for the lifetime of the app
  *  process but is **not** saved to disk — categories are lost on restart.
  *  Duplicate IDs (builtin or user-created) return an error. */
-export async function createCategory(id: string, color: string | null) {
+export async function createCategory(id: string, color: string | null): Promise<CategoryDef> {
   return invoke<CategoryDef>("create_category", { id, color });
 }
