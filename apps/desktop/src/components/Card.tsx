@@ -5,12 +5,13 @@
  * Renders the preview text, tags, and hover actions (pin/delete/copy).
  */
 import { Pin, Trash2, Copy } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 
 import { edgeFor, paperFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import type { NoteSummary } from "../lib/types";
 import { relativeTime } from "../lib/time";
+import { renderPreviewMarkdown } from "../lib/markdownPreview";
 
 interface Props {
   note: NoteSummary;
@@ -24,20 +25,10 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
   const [copied, setCopied] = useState(false);
   const shortId = note.id.slice(0, 8);
 
-  function renderInline(text: string): ReactNode[] {
-    if (!text) return [];
-    return text
-      .split(/\*\*(.+?)\*\*/)
-      .map((seg, i) =>
-        i % 2 === 1 ? (
-          <strong key={i} className="font-semibold">
-            {seg}
-          </strong>
-        ) : (
-          seg
-        ),
-      );
-  }
+  const previewHtml = useMemo(
+    () => (note.preview ? renderPreviewMarkdown(note.preview) : ""),
+    [note.preview],
+  );
 
   return (
     <article
@@ -62,9 +53,16 @@ export function Card({ note, onSelect, onTogglePin, onDelete }: Props) {
           </span>
         )}
       </div>
-      <p className="mt-2 line-clamp-4 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-200">
-        {note.preview ? renderInline(note.preview) : t.empty_note}
-      </p>
+      {note.preview ? (
+        <div
+          className="md-preview mt-2 line-clamp-4 flex-1 text-sm leading-relaxed text-zinc-700 dark:text-zinc-200"
+          dangerouslySetInnerHTML={{ __html: previewHtml }}
+        />
+      ) : (
+        <p className="mt-2 line-clamp-4 flex-1 text-sm leading-relaxed text-zinc-700 dark:text-zinc-200">
+          {t.empty_note}
+        </p>
+      )}
       {note.tags.length > 0 && (
         <div className="mt-auto flex flex-wrap gap-1 pt-2">
           {note.tags.slice(0, 3).map((tag) => (

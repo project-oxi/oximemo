@@ -66,3 +66,73 @@ body {
     transform: translateY(0);
   }
 }
+
+/* Card preview markdown output (lib/markdownPreview.ts). */
+.md-preview h1,
+.md-preview h2,
+.md-preview h3,
+.md-preview h4,
+.md-preview h5,
+.md-preview h6 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0.2rem 0;
+}
+.md-preview p {
+  margin: 0.1rem 0;
+}
+.md-preview ul,
+.md-preview ol {
+  margin: 0.15rem 0 0.15rem 1.25rem;
+  padding: 0;
+  list-style: revert;
+}
+.md-preview blockquote {
+  margin: 0.2rem 0;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--card-edge);
+  color: var(--tag);
+  opacity: 0.85;
+}
+.md-preview code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0 0.2rem;
+  border-radius: 3px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 0.85em;
+}
+.dark .md-preview code {
+  background: rgba(255, 255, 255, 0.08);
+}
+.md-preview pre {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.dark .md-preview pre {
+  background: rgba(255, 255, 255, 0.06);
+}
+.md-preview pre code {
+  background: transparent;
+  padding: 0;
+}
+.md-preview a {
+  color: var(--tag);
+  text-decoration: underline;
+}
+.md-preview hr {
+  border: 0;
+  border-top: 1px solid var(--card-edge);
+  margin: 0.4rem 0;
+}
+.md-preview strong {
+  font-weight: 600;
+}
+.md-preview em {
+  font-style: italic;
+}
+.md-preview del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
