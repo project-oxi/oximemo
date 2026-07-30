@@ -17,3 +17,14 @@ export async function closeCurrentWindow(): Promise<void> {
   if (!("__TAURI_INTERNALS__" in window)) return;
   await getCurrentWindow().hide();
 }
+
+/** Re-show the current window. Used to restore the capture overlay after a
+ *  failed save so the error and the user's text stay visible — the window is
+ *  only ever parked (hidden), never destroyed. Mirrors `closeCurrentWindow`. */
+export async function showCurrentWindow(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  const w = getCurrentWindow();
+  await w.show();
+  await w.setFocus();
+}

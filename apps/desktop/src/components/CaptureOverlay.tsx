@@ -10,7 +10,7 @@ import { createNote } from "../lib/api";
 import { paperFor } from "../lib/color";
 import { listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
-import { closeCurrentWindow } from "../lib/window";
+import { closeCurrentWindow, showCurrentWindow } from "../lib/window";
 import { useUI } from "../stores/ui";
 import { NoteComposeForm } from "./NoteComposeForm";
 import { ErrorToast } from "./ErrorBoundary";
@@ -23,6 +23,7 @@ export function CaptureOverlay() {
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const setError = useUI((s) => s.setError);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     void listen("capture:show", () => {
@@ -30,6 +31,7 @@ export function CaptureOverlay() {
       setTags([]);
       setColor("");
       setBusy(false);
+      savingRef.current = false;
       // Focus the textarea after the window is brought forward.
       window.setTimeout(() => ref.current?.focus(), 30);
     });
@@ -45,16 +47,27 @@ export function CaptureOverlay() {
   };
 
   async function save() {
+    if (savingRef.current) return;
     const body = value.trim();
     if (!body) return;
+    savingRef.current = true;
     setBusy(true);
     try {
-      await createNote(body, tags, color || null);
+      // Dismiss optimistically: the capture window is parked (hidden, not
+      // destroyed), so hide it the instant the user confirms and let the
+      // write finish behind the curtain. The note surfaces in the grid via
+      // the watcher's `notes:changed` broadcast. We deliberately do NOT
+      // reset form state on success — `capture:show` owns that, which also
+      // avoids wiping text if the user re-captures mid-write.
       await closeCurrentWindow();
+      await createNote(body, tags, color || null);
     } catch (e) {
-      // Keep the text so the user can retry; surface the failure (H4).
+      // Surface the failure (H4) and restore the window with the text
+      // intact so the user can fix and retry — the write didn't land.
       setError(String(e).split("\n")[0]);
+      await showCurrentWindow();
     } finally {
+      savingRef.current = false;
       setBusy(false);
     }
   }
