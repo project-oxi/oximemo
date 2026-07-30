@@ -66,6 +66,33 @@ body {
     transform: translateY(0);
   }
 }
+/* atomic-editor theme tokens (§6) — mapped to oxinot design tokens. */
+:root {
+  --atomic-editor-fg: #18181b;
+  --atomic-editor-bg: transparent;
+  --atomic-editor-bg-panel: rgba(0, 0, 0, 0.04);
+  --atomic-editor-border: var(--card-edge, #e7e7ea);
+  --atomic-editor-link: #2563eb;
+  --atomic-editor-code-bg: rgba(0, 0, 0, 0.05);
+  --atomic-editor-code-fg: #1f2328;
+  --atomic-editor-blockquote-fg: #57606a;
+}
+
+.dark {
+  --atomic-editor-fg: #f4f4f5;
+  --atomic-editor-bg: transparent;
+  --atomic-editor-bg-panel: rgba(255, 255, 255, 0.04);
+  --atomic-editor-border: #2a2e36;
+  --atomic-editor-link: #60a5fa;
+  --atomic-editor-code-bg: rgba(255, 255, 255, 0.06);
+  --atomic-editor-code-fg: #e6edf3;
+  --atomic-editor-blockquote-fg: #8b949e;
+}
+
+.atomic-cm-editor {
+  font-family: var(--font-sans);
+  font-size: 0.875rem; /* text-sm */
+}
 
 /* Card preview markdown output (lib/markdownPreview.ts). */
 .md-preview h1,
