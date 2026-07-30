@@ -12,7 +12,7 @@ import { listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import { closeCurrentWindow, showCurrentWindow } from "../lib/window";
 import { useUI } from "../stores/ui";
-import { NoteComposeForm } from "./NoteComposeForm";
+import { QuickCaptureForm } from "./QuickCaptureForm";
 import { ErrorToast } from "./ErrorBoundary";
 
 export function CaptureOverlay() {
@@ -79,7 +79,7 @@ export function CaptureOverlay() {
           style={{ backgroundColor: paperFor(color) }}
         />
       )}
-      <NoteComposeForm
+      <QuickCaptureForm
         body={value}
         onBodyChange={setValue}
         bodyRef={ref}
