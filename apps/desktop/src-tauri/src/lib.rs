@@ -49,6 +49,7 @@ pub fn run() {
             app.global_shortcut()
                 .on_shortcut(default_shortcut(), move |_app, _sc, event| {
                     if event.state() == ShortcutState::Pressed {
+                        tracing::info!("capture: Cmd+Shift+N pressed");
                         show_capture(&handle);
                     }
                 })?;
@@ -133,26 +134,55 @@ fn show_capture(handle: &AppHandle) {
     use tauri::{LogicalPosition, LogicalSize};
 
     let Some(win) = handle.get_webview_window("capture") else {
+        tracing::warn!("capture: overlay window not found");
         return;
     };
-    // Bottom-center of the focused monitor. The window is transparent and
-    // `decorations:false`, so it reads as a chat composer pill floating
-    // over whatever the user is doing. JS auto-grows the height on input
-    // and re-anchors the bottom edge on every resize.
-    if let Some(monitor) = win.current_monitor().ok().flatten() {
-        const W: f64 = 560.0;
-        const H: f64 = 200.0;
-        const BOTTOM_GAP: f64 = 24.0;
-        let pos = monitor.position();
-        let sf = monitor.scale_factor();
-        let mw = monitor.size().width as f64 / sf;
-        let mh = monitor.size().height as f64 / sf;
-        let x = pos.x as f64 / sf + mw / 2.0 - W / 2.0;
-        let y = pos.y as f64 / sf + mh - H - BOTTOM_GAP;
-        let _ = win.set_size(LogicalSize::new(W, H));
-        let _ = win.set_position(LogicalPosition::new(x, y));
+
+    // Anchor the overlay to the monitor the main window sits on — that's the
+    // screen the user runs the app on and expects the overlay to appear. The
+    // capture window's own `current_monitor()` is None (it is parked off-screen
+    // at -9999,-9999 while hidden), and `cursor_position()` is unreliable on a
+    // hidden window, so neither can place it. On multi-display setups where the
+    // user works on a secondary screen, putting the overlay on the OS "primary"
+    // (which may be an unused/asleep display) means it never composites and the
+    // user sees nothing. Fall back to the primary monitor only as a last resort.
+    const W: f64 = 560.0;
+    const H: f64 = 200.0;
+    const BOTTOM_GAP: f64 = 24.0;
+    let monitor = handle
+        .get_webview_window("main")
+        .and_then(|w| w.current_monitor().ok().flatten())
+        .or_else(|| win.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        tracing::warn!("capture: no monitor available; cannot position overlay");
+        if let Err(e) = win.show() {
+            tracing::warn!(error = ?e, "capture: show failed");
+        }
+        let _ = win.set_focus();
+        let _ = handle.emit("capture:show", ());
+        return;
+    };
+    let pos = monitor.position();
+    let sf = monitor.scale_factor();
+    let mw = monitor.size().width as f64 / sf;
+    let mh = monitor.size().height as f64 / sf;
+    // Bottom-center composer pill: centered horizontally, 24px above the
+    // bottom edge. JS auto-grows the height on input and re-anchors the
+    // bottom edge on every resize.
+    let x = pos.x as f64 / sf + mw / 2.0 - W / 2.0;
+    let y = pos.y as f64 / sf + mh - H - BOTTOM_GAP;
+    tracing::info!(target_x = x, target_y = y, sf, "capture: positioning overlay");
+    if let Err(e) = win.set_size(LogicalSize::new(W, H)) {
+        tracing::warn!(error = ?e, "capture: set_size failed");
     }
-    let _ = win.show();
+    if let Err(e) = win.set_position(LogicalPosition::new(x, y)) {
+        tracing::warn!(error = ?e, "capture: set_position failed");
+    }
+    if let Err(e) = win.show() {
+        tracing::warn!(error = ?e, "capture: show failed");
+    } else {
+        tracing::info!("capture: overlay shown");
+    }
     let _ = win.set_focus();
     let _ = handle.emit("capture:show", ());
 }
