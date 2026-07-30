@@ -1,10 +1,8 @@
 /**
- * CaptureOverlay 전용 빠른 캡처 폼 (§4.4). 채팅 입력창 형태 — 본문은
- * 좌측 정렬된 메시지 버블 안에 auto-grow textarea, 그 아래에 색상
- * 스왓치와 Enter 저장 액션이 한 줄로 모인다. 빈 상태에서도 카드는 1줄
- * 만큼만 작게 시작해 "스티커가 떠 있는" 정체성을 유지하고, 본문이
- * 늘어나면 카드가 같이 위로 자라며 window의 bottom edge는 그대로
- * 유지한다 (chat composer 패턴).
+ * 캡처 입력창 형태 — 본문은 메시지 버블 안에 auto-grow textarea,
+ * 그 아래에 색상 스왓치와 Enter 저장 액션이 한 줄로 모인다. 윈도우는
+ * 200pt 고정이고 카드만 콘텐츠 높이를 따라가며, 짧은 카드 위의 빈
+ * 공간은 투명한 윈도우 배경으로 보이지 않는다.
  *
  * 본문은 plain textarea 그대로 유지 — CM6 mount 비용은 캡처 윈도우의
  * 즉시성을 깎는다. `MirrorTagEditor` 미러 오버레이는 빠짐 — 빠른
@@ -15,13 +13,12 @@
 import {
   type Ref,
   type TextareaHTMLAttributes,
-  useEffect,
   useLayoutEffect,
   useRef,
 } from "react";
 import { Check } from "lucide-react";
 
-import { fitCaptureWindow } from "../lib/window";
+import { paperFor } from "../lib/color";
 import { ColorSwatches } from "./ColorPicker";
 
 const cx = (...xs: (string | false | null | undefined)[]) =>
@@ -62,7 +59,6 @@ export function QuickCaptureForm({
   className,
 }: QuickCaptureFormProps) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
-  const rootRef = useRef<HTMLDivElement | null>(null);
   // forward the inner ref to the caller for focus()
   const setRef = (el: HTMLTextAreaElement | null) => {
     innerRef.current = el;
@@ -70,39 +66,27 @@ export function QuickCaptureForm({
     else if (bodyRef) bodyRef.current = el;
   };
 
-  // Auto-grow: keep textarea height = its scrollHeight so content drives
-  // the box, and re-fit the Tauri window to the card so the bottom edge
-  // stays anchored.
+  // Auto-grow: snap textarea height to its scrollHeight so the card tracks
+  // content. The window stays fixed (200pt); dead space above a short card
+  // is the transparent window background.
   useLayoutEffect(() => {
     const ta = innerRef.current;
     if (!ta) return;
-    // reset to measure natural height, then snap to content
     ta.style.height = "auto";
     ta.style.height = `${ta.scrollHeight}px`;
   }, [body]);
 
-  // After every paint, measure the card and ask the window to grow/shrink
-  // so the bottom edge never moves. We use rAF so DOM has the final layout.
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      const card = rootRef.current;
-      if (!card) return;
-      // Add a small breathing room so the card's last line isn't flush
-      // with the rounded bottom edge.
-      const target = card.getBoundingClientRect().height + 8;
-      void fitCaptureWindow(target);
-    });
-    return () => cancelAnimationFrame(id);
-  }, [body]);
-
   return (
-    <div ref={rootRef} className={cx("flex w-full flex-col gap-2", className)}>
+    <div className={cx("flex w-full flex-col gap-2", className)}>
       {/* 메시지 버블 — 색상이 선택되면 paper tint로 동일 색조. */}
       <div
         className={cx(
-          "rounded-2xl border border-zinc-200/80 bg-white/70 px-3 py-2 shadow-sm backdrop-blur transition-colors",
-          "dark:border-zinc-700/80 dark:bg-zinc-800/70",
+          "rounded-2xl border px-3 py-2 shadow-sm backdrop-blur transition-colors",
+          color
+            ? "border-black/5"
+            : "border-zinc-200/80 bg-white/70 dark:border-zinc-700/80 dark:bg-zinc-800/70",
         )}
+        style={color ? { backgroundColor: paperFor(color) } : undefined}
       >
         <textarea
           ref={setRef}

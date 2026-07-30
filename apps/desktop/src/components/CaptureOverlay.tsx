@@ -1,13 +1,14 @@
 /**
  * Capture overlay (§6.3). Lives in the `capture` window: off-screen by
  * default, parked there to keep the NSWindow warm. On `capture:show` the
- * Rust side moves the window near the cursor and focuses it. The user
- * types, presses Enter to save (Shift+Enter for newline), or Esc to close.
+ * Rust side anchors the window to the bottom-center of the monitor. The
+ * user types, presses Enter to save (Shift+Enter for newline), or Esc to
+ * close. The NSWindow is fixed at 560×200 and transparent outside the
+ * rounded card, which sits at the bottom edge and tracks its content height.
  */
 import { useEffect, useRef, useState } from "react";
 
 import { createNote } from "../lib/api";
-import { paperFor } from "../lib/color";
 import { listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import { closeCurrentWindow, showCurrentWindow } from "../lib/window";
@@ -71,14 +72,7 @@ export function CaptureOverlay() {
   }
 
   return (
-    <div className="relative isolate w-full p-2">
-      {color && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 -z-10 rounded-2xl"
-          style={{ backgroundColor: paperFor(color) }}
-        />
-      )}
+    <div className="relative isolate flex h-screen w-full items-end justify-center p-2">
       <QuickCaptureForm
         body={value}
         onBodyChange={setValue}
