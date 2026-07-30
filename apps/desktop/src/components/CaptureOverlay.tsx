@@ -71,7 +71,7 @@ export function CaptureOverlay() {
   }
 
   return (
-    <div className="relative isolate flex h-screen w-full flex-col rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-2xl backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
+    <div className="relative isolate w-full p-2">
       {color && (
         <div
           aria-hidden
@@ -85,7 +85,6 @@ export function CaptureOverlay() {
         bodyRef={ref}
         bodyProps={{
           placeholder: t.capture_placeholder,
-          rows: 2,
           onKeyDown: onKey,
         }}
         color={color}
