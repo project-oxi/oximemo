@@ -15,11 +15,5 @@ path = "src/lib.rs"
 objc2 = { workspace = true }
 objc2-foundation = { workspace = true }
 objc2-app-kit = { workspace = true }
-block2 = "0.5"
+block2 = "0.6"
 thiserror = { workspace = true }
-
-[features]
-# Default: stub that returns PermissionDenied so the desktop app falls back
-# to the global-shortcut plugin (§6.4). Enable for the real monitor.
-default = []
-objc2-monitor = []

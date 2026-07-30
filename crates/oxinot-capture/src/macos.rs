@@ -1,20 +1,20 @@
-//! macOS-specific implementation of the Option double-tap monitor.
-//!
-//! The real passive `NSEvent::addGlobalMonitorForEventsMatchingMask:handler:`
-//! implementation is gated behind the `objc2-monitor` cargo feature. By
-//! default the crate compiles cleanly on macOS but `start` returns
-//! `PermissionDenied`, which the desktop app treats as "fall back to the
-//! global-shortcut plugin" (§6.4) — exactly the path the design recommends
-//! for environments without Accessibility/Input-Monitoring permission.
-//!
-//! Enable with `cargo build -p oxinot-capture --features objc2-monitor` when
-//! you want the real monitor and are prepared to grant permissions.
+//! macOS implementation of the passive Option-key double-tap monitor.
 
 use super::CaptureError;
+use block2::RcBlock;
+use objc2::runtime::AnyObject;
+use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
+use objc2_foundation::{NSDate, NSRunLoop};
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
-/// Live monitor. Drop to stop.
+/// The running monitor and its worker-thread shutdown signal.
 pub struct CaptureMonitorImpl {
-    _inner: Option<inner::RealImpl>,
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl CaptureMonitorImpl {
@@ -22,128 +22,110 @@ impl CaptureMonitorImpl {
         threshold_ms: u32,
         on_trigger: Box<dyn Fn() + Send + 'static>,
     ) -> Result<Self, CaptureError> {
-        #[cfg(feature = "objc2-monitor")]
-        {
-            let real = inner::RealImpl::start(threshold_ms, on_trigger)?;
-            Ok(Self { _inner: Some(real) })
-        }
-        #[cfg(not(feature = "objc2-monitor"))]
-        {
-            let _ = (threshold_ms, on_trigger);
-            Err(CaptureError::PermissionDenied)
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let thread = std::thread::Builder::new()
+            .name("oxinot-capture".into())
+            .spawn(move || worker(ready_tx, worker_stop, threshold_ms, on_trigger))
+            .map_err(|error| CaptureError::Os(format!("spawn monitor thread: {error}")))?;
+
+        match ready_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(Ok(())) => Ok(Self {
+                stop,
+                thread: Some(thread),
+            }),
+            Ok(Err(error)) => {
+                let _ = thread.join();
+                Err(error)
+            }
+            Err(error) => {
+                stop.store(true, Ordering::Release);
+                let _ = thread.join();
+                Err(CaptureError::Os(format!(
+                    "monitor thread did not initialize: {error}"
+                )))
+            }
         }
     }
 }
 
 impl Drop for CaptureMonitorImpl {
     fn drop(&mut self) {
-        #[cfg(feature = "objc2-monitor")]
-        {
-            self._inner.take();
+        self.stop.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
+            }
         }
     }
 }
 
-// The inner module is always compiled so `inner::RealImpl` resolves. The
-// real implementation (with objc2 NSEvent monitor) is feature-gated; in the
-// default build `RealImpl` is a zero-sized stub whose `start` is unreachable
-// because `CaptureMonitorImpl::start` short-circuits with PermissionDenied.
-mod inner {
-    #[cfg(feature = "objc2-monitor")]
-    use super::CaptureError;
-    #[cfg(feature = "objc2-monitor")]
-    use std::ptr::NonNull;
-    #[cfg(feature = "objc2-monitor")]
-    use std::sync::Arc;
-    #[cfg(feature = "objc2-monitor")]
-    use std::sync::atomic::{AtomicBool, Ordering};
-    #[cfg(feature = "objc2-monitor")]
-    use std::sync::mpsc;
-    #[cfg(feature = "objc2-monitor")]
-    use std::thread::JoinHandle;
-    #[cfg(feature = "objc2-monitor")]
-    use std::time::{Duration, Instant};
-
-    #[cfg(feature = "objc2-monitor")]
-    use block2::RcBlock;
-    #[cfg(feature = "objc2-monitor")]
-    use objc2::rc::Retained;
-    #[cfg(feature = "objc2-monitor")]
-    use objc2::runtime::AnyObject;
-    #[cfg(feature = "objc2-monitor")]
-    use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags, NSEventType};
-    #[cfg(feature = "objc2-monitor")]
-    use objc2_foundation::{NSDate, NSRunLoop, NSRunLoopCommonModes};
-
-    /// Stub (default build) or real (feature-gated) monitor.
-    pub struct RealImpl(());
-
-    #[cfg(feature = "objc2-monitor")]
-    const OPTION_FLAG: u64 = NSEventModifierFlags::Option.0 as u64;
-
-    #[cfg(feature = "objc2-monitor")]
-    struct MonitorState {
-        threshold: Duration,
-        last_release: Option<Instant>,
-        on_trigger: Box<dyn Fn() + Send + 'static>,
-    }
-
-    #[cfg(feature = "objc2-monitor")]
-    impl RealImpl {
-        pub fn start(
-            threshold_ms: u32,
-            on_trigger: Box<dyn Fn() + Send + 'static>,
-        ) -> Result<Self, super::CaptureError> {
-            let (token_tx, token_rx) = mpsc::channel();
-            let stop = Arc::new(AtomicBool::new(false));
-            let stop_for_thread = stop.clone();
-
-            let thread = std::thread::Builder::new()
-                .name("oxinot-capture".into())
-                .spawn(move || worker(token_tx, stop_for_thread, threshold_ms, on_trigger))
-                .map_err(|e| super::CaptureError::Os(format!("spawn monitor thread: {e}")))?;
-
-            let token = match token_rx.recv_timeout(std::time::Duration::from_secs(1)) {
-                Ok(Ok(t)) => t,
-                Ok(Err(msg)) => return Err(super::CaptureError::Os(msg)),
-                Err(_) => return Err(super::CaptureError::PermissionDenied),
-            };
-
-            Ok(Self::wrap(token, thread, stop))
-        }
-
-        fn wrap(
-            _token: Retained<AnyObject>,
-            _thread: JoinHandle<()>,
-            _stop: Arc<AtomicBool>,
-        ) -> Self {
-            RealImpl(())
-        }
-    }
-
-    #[cfg(feature = "objc2-monitor")]
-    impl Drop for RealImpl {
-        fn drop(&mut self) {
-            // The fields are stored in the private wrapper; this is reached
-            // only when `start` populated them.
-        }
-    }
-
-    #[cfg(feature = "objc2-monitor")]
-    fn worker(
-        _token_tx: mpsc::Sender<Result<Retained<AnyObject>, String>>,
-        _stop: Arc<AtomicBool>,
-        _threshold_ms: u32,
-        _on_trigger: Box<dyn Fn() + Send + 'static>,
-    ) {
-        // Placeholder body to keep the struct shape stable; the real worker
-        // lives behind an additional opt-in that requires the caller to
-        // accept the trait-bound dance documented in the module doc-comment.
-    }
-
-    #[cfg(feature = "objc2-monitor")]
-    fn _silence_unused() {
-        let _ = OPTION_FLAG;
-        let _: Option<NonNull<NSEvent>> = None;
-    }
+struct TapState {
+    option_down_alone: bool,
+    last_release: Option<Instant>,
 }
+
+fn worker(
+    ready_tx: mpsc::SyncSender<Result<(), CaptureError>>,
+    stop: Arc<AtomicBool>,
+    threshold_ms: u32,
+    on_trigger: Box<dyn Fn() + Send + 'static>,
+) {
+    let state = RefCell::new(TapState {
+        option_down_alone: false,
+        last_release: None,
+    });
+    let threshold = Duration::from_millis(u64::from(threshold_ms));
+    let handler = RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| {
+        // SAFETY: AppKit supplies a valid NSEvent pointer for the duration of this callback.
+        let event = unsafe { event.as_ref() };
+        let flags = event.modifierFlags();
+        let device_independent = flags & NSEventModifierFlags::DeviceIndependentFlagsMask;
+        let option_only = device_independent == NSEventModifierFlags::Option;
+        let mut state = state.borrow_mut();
+
+        if option_only {
+            state.option_down_alone = true;
+            return;
+        }
+
+        if device_independent.is_empty() && state.option_down_alone {
+            state.option_down_alone = false;
+            let now = Instant::now();
+            if state
+                .last_release
+                .is_some_and(|last| now.duration_since(last) <= threshold)
+            {
+                state.last_release = None;
+                on_trigger();
+            } else {
+                state.last_release = Some(now);
+            }
+        } else {
+            state.option_down_alone = false;
+            state.last_release = None;
+        }
+    });
+
+    let Some(monitor) = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
+        NSEventMask::FlagsChanged,
+        &handler,
+    ) else {
+        let _ = ready_tx.send(Err(CaptureError::PermissionDenied));
+        return;
+    };
+
+    let _ = ready_tx.send(Ok(()));
+    let run_loop = NSRunLoop::currentRunLoop();
+    while !stop.load(Ordering::Acquire) {
+        let deadline = NSDate::dateWithTimeIntervalSinceNow(0.05);
+        run_loop.runUntilDate(&deadline);
+    }
+
+    // SAFETY: `monitor` is the token returned by the matching AppKit registration call.
+    unsafe { NSEvent::removeMonitor(&monitor) };
+}
+
+// Keep the Objective-C token type explicit in this module's API boundary.
+const _: Option<&AnyObject> = None;
