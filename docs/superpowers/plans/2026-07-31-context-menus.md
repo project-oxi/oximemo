@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 카테고리·노트(카드 + NoteDetail)에 우클릭 컨텍스트 메뉴 추가 — 이름변경/색상/삭제, 고정/카테고리이동/본문·ID복사/삭제.
+**Goal:** 카테고리·노트(카드 + NoteDetail)에 우클릭 컨텍스트 메뉴 추가 — 이름변경/색상/삭제, 즐겨찾기/카테고리이동/본문·ID복사/삭제.
 
 **Architecture:** Base UI `ContextMenu`(이미 의존성에 있음)의 styled 프리미티브 1개를 만들고, 사이드바 카테고리 행·카드·NoteDetail 세 곳에 연결. 백엔드 IPC는 전부 기존 것 재사용(신규 Rust 작업 0). DOM 보존을 위해 `render` prop으로 트리거를 기존 요소에 병합(grid/flex 레이아웃 유지).
 
@@ -15,7 +15,7 @@
 - 색상 "없음"은 빈 문자열 `""` (`updateCategory(id: string, color: string)` non-nullable). 절대 `null`.
 - `inbox` 카테고리: 이름변경·삭제 비활성(`c.id === "inbox"`).
 - z-index: ContextMenu Positioner `z-[70]` (Dialog z-50, Popover z-60 위).
-- 모든 뮤테이션 후 `qc.invalidateQueries` (기존 `onDelete`/`onTogglePin` 패턴 준수).
+- 모든 뮤테이션 후 `qc.invalidateQueries` (기존 `onDelete`/`onToggleFavorite` 패턴 준수).
 - Base UI `render` prop으로 wrapper div 회피 (카드=grid 자식, 사이드바=flex-col 자식).
 
 **Spec:** `docs/superpowers/specs/2026-07-31-context-menus-design.md`
@@ -158,13 +158,13 @@ git commit -m "feat(desktop): add ContextMenu styled primitives"
 - Modify: `apps/desktop/src/lib/locales/en.ts`
 
 **Interfaces:**
-- Produces: `action_rename`, `action_unpin`, `action_move_category`, `action_copy_body`, `action_copy_id`, `no_color`, `inbox_immutable` — 후속 태스크가 `t.xxx`로 사용.
+- Produces: `action_rename`, `action_unfavorite`, `action_move_category`, `action_copy_body`, `action_copy_id`, `no_color`, `inbox_immutable` — 후속 태스크가 `t.xxx`로 사용.
 
 - [ ] **Step 1: ko.ts에 키 추가** — `clear_filters` 줄(67) 뒤, 닫는 `}` 전에 삽입:
 
 ```ts
   action_rename: "이름 변경",
-  action_unpin: "고정 해제",
+  action_unfavorite: "즐겨찾기 해제",
   action_move_category: "카테고리 이동",
   action_copy_body: "본문 복사",
   action_copy_id: "ID 복사",
@@ -176,7 +176,7 @@ git commit -m "feat(desktop): add ContextMenu styled primitives"
 
 ```ts
   action_rename: "Rename",
-  action_unpin: "Unpin",
+  action_unfavorite: "Unfavorite",
   action_move_category: "Move to category",
   action_copy_body: "Copy body",
   action_copy_id: "Copy ID",
@@ -352,7 +352,7 @@ git commit -m "feat(desktop): category context menu with inline rename"
 - [ ] **Step 2: Card.tsx import + 래퍼** — 상단 import:
 
 ```tsx
-import { Pin, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
+import { Star, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
 import { CtxTrigger, CtxMenu, CtxItem, CtxSeparator, CtxSubmenu } from "./ContextMenu";
 ```
 함수 시그니처에 `onMoveCategory, onCopyBody` 추가. `<article ...>`을 `CtxTrigger render={<article .../>}`로 감싸기: 기존 `<article onClick={...} style={...} className={...}>` 여는 태그를 `CtxTrigger`로 교체하고 같은 속성 전달. `</article>` → `</CtxTrigger>`. article 본문 + hover 버튼은 그대로. `CtxMenu`를 article 첫 자식(또는 hover 버튼 div 형제)으로 배치.
@@ -361,8 +361,8 @@ import { CtxTrigger, CtxMenu, CtxItem, CtxSeparator, CtxSubmenu } from "./Contex
 
 ```tsx
 <CtxMenu>
-  <CtxItem icon={Pin} label={note.pinned ? t.action_unpin : t.action_pin}
-    onClick={() => onTogglePin(note.id)} />
+  <CtxItem icon={Star} label={note.favorite ? t.action_unfavorite : t.action_favorite}
+    onClick={() => onToggleFavorite(note.id)} />
   <CtxSubmenu icon={FolderInput} label={t.action_move_category}>
     {categories.map((c) => (
       <CtxItem key={c.id} label={c.id} disabled={note.category === c.id}
@@ -418,12 +418,12 @@ git commit -m "feat(desktop): note card context menu"
 - Modify: `apps/desktop/src/components/NoteDetail.tsx`
 
 **Interfaces:**
-- Consumes: `CtxTrigger/CtxMenu/CtxItem/...` (Task 1), i18n (Task 2). 로컬 `body/pinned/category` 상태 + `updateNote`/`deleteNote`.
+- Consumes: `CtxTrigger/CtxMenu/CtxItem/...` (Task 1), i18n (Task 2). 로컬 `body/favorite/category` 상태 + `updateNote`/`deleteNote`.
 
 - [ ] **Step 1: import + 트리거** — 상단:
 
 ```tsx
-import { Pin, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
+import { Star, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
 import { CtxTrigger, CtxMenu, CtxItem, CtxSeparator, CtxSubmenu } from "./ContextMenu";
 ```
 `Dialog.Popup` 내부 콘텐츠 프래그먼트(`<>...</>`)를 `<CtxTrigger render={<div className="contents" />}>...</CtxTrigger>`로 감싸거나, id/span 헤더 영역을 트리거로. `display:contents` 래퍼는 레이아웃 영향 없음.
@@ -432,7 +432,7 @@ import { CtxTrigger, CtxMenu, CtxItem, CtxSeparator, CtxSubmenu } from "./Contex
 
 ```tsx
 <CtxMenu>
-  <CtxItem icon={Pin} label={pinned ? t.action_unpin : t.action_pin} onClick={() => edit(setPinned)(!pinned)} />
+  <CtxItem icon={Star} label={favorite ? t.action_unfavorite : t.action_favorite} onClick={() => edit(setFavorite)(!favorite)} />
   <CtxSubmenu icon={FolderInput} label={t.action_move_category}>
     {categories.map((c) => (
       <CtxItem key={c.id} label={c.id} disabled={category === c.id} onClick={() => edit(setCategory)(c.id)} />

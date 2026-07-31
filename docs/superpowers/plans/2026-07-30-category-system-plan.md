@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - `color: NoteColor` 필드를 `category: String`(기본 `"inbox"`)로 교체. `NoteColor` 타입 제거.
-- `hash_note(body, pinned, category)` — category 변경이 hash를 바꿈 (동기화 diff 정확성).
+- `hash_note(body, favorite, category)` — category 변경이 hash를 바꿈 (동기화 diff 정확성).
 - `Frontmatter`에 `#[serde(default)]`로 `category` 추가, `color` 제거. serde가 알려지지 않은 필드 무시 — 구형 파일 `color=` 줄 안전.
 - Orphan 카테고리 id → 읽기시 inbox 중성색 폴백. 렌더 브레이크 금지.
 - 마이그레이션 M2: 재작성 없음. 기존 파일에 `category` 없으면 inbox. `reindex` 1회로 인덱스 정리.
@@ -28,7 +28,7 @@
 
 **Interfaces:**
 - Consumes: 없음 (루트 변경)
-- Produces: `Note.category: String`, `NoteSummary.category: String`, `NoteFilter.categories: Vec<String>`, `Facets.categories: Vec<(String, u32)>`, `hash_note(body, pinned, category: &str)`
+- Produces: `Note.category: String`, `NoteSummary.category: String`, `NoteFilter.categories: Vec<String>`, `Facets.categories: Vec<(String, u32)>`, `hash_note(body, favorite, category: &str)`
 
 - [ ] **Step 1: Note / NoteSummary 구조체 교체**
 
@@ -126,7 +126,7 @@ fn category_membership() {
 `sum()` 헬퍼도 `color` 대신 `category` 필드:
 
 ```rust
-fn sum(tags: &[&str], category: &str, pinned: bool) -> NoteSummary {
+fn sum(tags: &[&str], category: &str, favorite: bool) -> NoteSummary {
     NoteSummary {
         // ...
         // 변경 전:
@@ -140,14 +140,12 @@ fn sum(tags: &[&str], category: &str, pinned: bool) -> NoteSummary {
 
 - [ ] **Step 4: hash_note 시그니처 변경**
 
-`hash.rs`에서 `hash_note(body: &[u8], pinned: bool, color: &str)`을 `hash_note(body: &[u8], pinned: bool, category: &str)`로 변경. 내부 구현은 인자 이름만 변경(해시 대상은 동일하게 인자를 그대로 사용).
-
 ```rust
 // hash.rs — 시그니처만 변경
-pub fn hash_note(body: &[u8], pinned: bool, category: &str) -> NoteHash {
+pub fn hash_note(body: &[u8], favorite: bool, category: &str) -> NoteHash {
     // 함수 바디는 동일 — category가 color를 대체하는 것 외 변경 없음
     let normalized = normalize(body);
-    let input = format!("{normalized}::{pinned}::{category}");
+    let input = format!("{normalized}::{favorite}::{category}");
     // ...
 }
 ```
@@ -393,10 +391,8 @@ pub fn create_note(&self, body: String, category: Option<String>) -> Result<Note
         created_at: now,
         updated_at: now,
         hash: hash::hash_note(body.as_bytes(), false, &category),
-        pinned: false,
+        favorite: false,
         category,
-        tags,
-        body,
         deleted_at: None,
     };
     self.files.write(&note)?;
@@ -415,7 +411,7 @@ pub fn update_note(
     &self,
     id: NoteId,
     body: Option<String>,
-    pinned: Option<bool>,
+    favorite: Option<bool>,
     category: Option<String>,  // color: Option<String> → category
 ) -> Result<Note> {
     let mut note = self.get_note(id)?;
@@ -423,17 +419,15 @@ pub fn update_note(
         note.body = b;
         note.tags = extract_tags(&note.body);
     }
-    if let Some(p) = pinned {
-        note.pinned = p;
+    if let Some(p) = favorite {
+        note.favorite = p;
     }
     if let Some(c) = category {
         note.category = c;  // note.color = NoteColor(c) → category
     }
     validate_note_input(&note.body, &note.tags)?;
     note.updated_at = OffsetDateTime::now_utc();
-    note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
-    self.files.write(&note)?;
-    self.with_redb_and_search(|idx, search| {
+    note.hash = hash::hash_note(note.body.as_bytes(), note.favorite, &note.category);
         idx.upsert(&record_of(&note))?;
         search.upsert(note.id, &note.body, &note.tags)
     })?;
@@ -445,11 +439,8 @@ pub fn update_note(
 
 ```rust
 // delete_note — hash_note 호출:
-note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
+note.hash = hash::hash_note(note.body.as_bytes(), note.favorite, &note.category);
 // restore_note도 동일
-```
-
-- [ ] **Step 6: record_of 수정**
 
 ```rust
 fn record_of(n: &Note) -> IndexRecord {
@@ -575,7 +566,7 @@ pub fn list_notes(
     exclude_tags: Vec<String>,
     match_all: bool,
     categories: Vec<String>,  // colors → categories
-    pinned_only: bool,
+    favorites_only: bool,
 ) -> Result<oxinot_core::Page<oxinot_core::NoteSummary>, String> {
     let after = match after {
         Some(s) => Some(Cursor::parse(&s).map_err(|e| e.to_string())?),
@@ -586,8 +577,7 @@ pub fn list_notes(
         exclude_tags,
         match_all,
         categories,  // colors → categories
-        pinned_only,
-        include_deleted: false,
+        favorites_only,
     };
     state.vault.list_notes(after, limit, filter).map_err(|e| e.to_string())
 }
@@ -616,12 +606,11 @@ pub fn update_note(
     app: AppHandle,
     id: String,
     body: Option<String>,
-    pinned: Option<bool>,
+    favorite: Option<bool>,
     category: Option<String>,  // color → category
 ) -> Result<oxinot_core::Note, String> {
     let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
-    let note = state.vault.update_note(id, body, pinned, category).map_err(|e| e.to_string())?;
-    let _ = app.emit("notes:changed", ());
+    let note = state.vault.update_note(id, body, favorite, category).map_err(|e| e.to_string())?;
     Ok(note)
 }
 ```
@@ -711,7 +700,7 @@ export interface Note {
   created_at: string;
   updated_at: string;
   hash: string;
-  pinned: boolean;
+  favorite: boolean;
   category: string;   // ← color → category
   tags: string[];
   body: string;
@@ -723,7 +712,7 @@ export interface NoteSummary {
   created_at: string;
   updated_at: string;
   hash: string;
-  pinned: boolean;
+  favorite: boolean;
   category: string;   // ← color → category
   tags: string[];
   preview: string;
@@ -756,10 +745,10 @@ export async function createNote(body: string, category: string | null) {
 export async function updateNote(
   id: string,
   body: string | null,
-  pinned: boolean | null,
+  favorite: boolean | null,
   category: string | null,  // color → category
 ) {
-  return invoke<Note>("update_note", { id, body, pinned, category });
+  return invoke<Note>("update_note", { id, body, favorite, category });
 }
 
 export async function listNotes(
@@ -770,7 +759,7 @@ export async function listNotes(
     exclude_tags?: string[];
     match_all?: boolean;
     categories?: string[];  // colors → categories
-    pinned_only?: boolean;
+    favorites_only?: boolean;
   } = {},
 ) {
   return invoke<{ items: NoteSummary[]; next_cursor: string | null }>("list_notes", {
@@ -780,7 +769,7 @@ export async function listNotes(
     exclude_tags: filter.exclude_tags ?? [],
     match_all: filter.match_all ?? false,
     categories: filter.categories ?? [],  // colors → categories
-    pinned_only: filter.pinned_only ?? false,
+    favorites_only: filter.favorites_only ?? false,
   });
 }
 
@@ -1209,7 +1198,7 @@ export function Sidebar() {
   // ...
   return (
     <aside ...>
-      {/* All Notes (+ total), Pinned — 그대로 */}
+      {/* All Notes (+ total), Favorites — 그대로 */}
       
       {/* 카테고리 섹션 — 신규 */}
       <div className="mt-3 px-3">
@@ -1275,7 +1264,7 @@ export function useNotesQuery(filter: NoteFilter) {
       exclude_tags: filter.exclude_tags,
       match_all: filter.match_all,
       categories: filter.categories,  // colors → categories
-      pinned_only: filter.pinned_only,
+      favorites_only: filter.favorites_only,
     }),
   });
 }
@@ -1326,7 +1315,7 @@ export function Card({ note, categories }: CardProps) {
 ```tsx
 // NoteEditorForm.tsx
 // color: string → category: string (prop 이름 변경)
-// onSubmit에서 updateNote(body, pinned, category) 호출
+// onSubmit에서 updateNote(body, favorite, category) 호출
 
 // NoteDetail.tsx
 // note.color → note.category 참조 변경

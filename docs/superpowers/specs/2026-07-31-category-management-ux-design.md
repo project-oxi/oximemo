@@ -33,15 +33,15 @@ v1에서 카테고리가 핵심 분류로 자리잡았지만 관리·UX가 미�
 
 ## 2. P0 — 저장 후 목록 미갱신 (root cause + 수정)
 
-**현상:** 메모 저장(캡처·＋·편집) 후 그리드에 나타나지 않음. 삭제/핀고정은 즉시 갱신됨.
+**현상:** 메모 저장(캡처·＋·편집) 후 그리드에 나타나지 않음. 삭제/즐겨찾기는 즉시 갱신됨.
 
 **Phase 1 조사(완료):**
 - Rust 코어 41 단위테스트 전 통과(create→redb 인덱스 동기 upsert→`list_notes`→필터). 디스크 vault(18노트+인덱스 3.7MB) 정상.
 - `create_note`/`update_note` 커맨드가 `app.emit("notes:changed")` 송출(lib.rs). capability `core:default`가 `core:event:default`(`allow-listen`/`allow-emit`) 포함 → 권한 정상.
-- **비대칭(핵심 단서):** `onDelete`/`onTogglePin`은 `qc.invalidateQueries(["notes"])` **직접** 호출. 반면 `onNewNote`·NoteDetail autosave는 **오직 `notes:changed` 이벤트**에만 의존. 사용자 확인(삭제/핀=즉시, 신규=안 뜸)으로 **이벤트가 런타임에 도달하지 않음**이 확정.
+- **비대칭(핵심 단서):** `onDelete`/`onToggleFavorite`은 `qc.invalidateQueries(["notes"])` **직접** 호출. 반면 `onNewNote`·NoteDetail autosave는 **오직 `notes:changed` 이벤트**에만 의존. 사용자 확인(삭제/즐겨찾기=즉시, 신규=안 뜸)으로 **이벤트가 런타임에 도달하지 않음**이 확정.
 
 **수정(적용됨, 컴파일 검증 완료):**
-- `onNewNote`(CardGrid)·NoteDetail autosave/close-flush에 **직접 `invalidateQueries(["notes"],["facets"])` 추가** — delete/pin과 대칭화. 동일 윈도우 create/update는 이제 이벤트 무관하게 갱신.
+- `onNewNote`(CardGrid)·NoteDetail autosave/close-flush에 **직접 `invalidateQueries(["notes"],["facets"])` 추가** — delete/favorite과 대칭화. 동일 윈도우 create/update는 이제 이벤트 무관하게 갱신.
 - **진단(임시):** `notes:changed` 리스너에 `console.log("[oxinot] notes:changed received")`, `create_note`/`update_note`에 `tracing::info!` 추가.
 - **검증 보류(사용자 실행 필요):** 
   1. ＋/편집 → 즉시 표시되는지(동일 윈도우 수정 확인).
@@ -107,7 +107,7 @@ rename_category(old, new) -> Result<u64>:
       note = files.read_note(note_path(rec.id, rec.created_at))
       note.category = new
       note.updated_at = now_utc            # 동기화 정확성(export_manifest가 updated_at 커서 사용)
-      note.hash = hash_note(body, pinned, new)
+      note.hash = hash_note(body, favorite, new)
       files.write(&note)
       idx.upsert(record_of(&note))
       search.upsert(id, body, tags)        # tags 불변이지만 완전성

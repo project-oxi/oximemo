@@ -25,7 +25,7 @@
 | 5 | 새 카테고리 = **캡처 중 명시 선택으로 생성** | `/새이름` 입력 후 메뉴 최하단 "✨ 추가" 항목 선택 = 확인. 오타 무단 생성 방지 + 캡처 흐름 유지. |
 | 6 | 슬래시 메뉴 = **자동완성 드롭다운 + 칩 확정** | `/`로 열고 ↑↓ 선택, 즉시 색상 칩으로 시각 확정. 본문 입력과 분리. |
 | 7 | 마이그레이션 = **재작성 없음(M2), inbox 기본** | 인라인태그 스펙(§5) 선례 + 프리릴리즈 단일 사용자 + 색상 무의미. M1(재작성)은 대안. |
-| 8 | 해시 = `hash_note(body, pinned, **category**)` | 카테고리 변경 = 의미 있는 변경으로 동기화 diff에 잡힘. 현재 `color` 자리 교체. |
+| 8 | 해시 = `hash_note(body, favorite, **category**)` | 카테고리 변경 = 의미 있는 변경으로 동기화 diff에 잡힘. 현재 `color` 자리 교체. |
 | 9 | **Orphan 카테고리 = 읽기시 `inbox` 폴백** | 알 수 없는/삭제된 category id는 렌더링이 깨지지 않게 inbox 중성색으로 폴백(§4.6). |
 
 ## 3. 기본 카테고리 세트
@@ -53,7 +53,7 @@ id = "0195..."
 created_at = "2026-07-30T..."
 updated_at = "2026-07-30T..."
 hash = "b3:..."
-pinned = false
+favorite = false
 category = "todo"          # 신규. 기본 "inbox"
 tags = []
 deleted_at = ...
@@ -96,8 +96,8 @@ pub struct CategoryDef {
 ### 4.3 Vault / Tauri 명령 / api.ts
 
 - `Vault::create_note(body, color)` → `create_note(body, category: &str)`.
-- `Vault::update_note(id, body, pinned, color)` → `update_note(id, body, pinned, category)`.
-- Tauri `create_note`/`update_note` 인자 동기화. `api.ts` 시그니처 동기화(`createNote(body, category)`, `updateNote(id, body, pinned, category)`).
+  - `Vault::update_note(id, body, pinned, color)` → `update_note(id, body, favorite, category)`.
+- Tauri `create_note`/`update_note` 인자 동기화. `api.ts` 시그니처 동기화(`createNote(body, category)`, `updateNote(id, body, favorite, category)`).
 - **카테고리 레지스트리 명령 신규**:
   - `list_categories() -> Vec<CategoryDef>` — 레지스트리 반환(캡처 메뉴·사이드바용).
   - `create_category(id, color?) -> CategoryDef` — 사용자 추가. `id` 충돌·빈값 검증, `color` 생략 시 자동 배정. `builtin` 카테고리 id와 충돌 시 거부.
@@ -111,7 +111,7 @@ pub struct NoteFilter {
     pub exclude_tags: Vec<String>,
     pub match_all: bool,
     pub categories: Vec<String>,   // ← colors 대체. 비어있으면 통과, 아니면 category ∈ (OR)
-    pub pinned_only: bool,
+    pub favorites_only: bool,
     pub include_deleted: bool,
 }
 ```
@@ -123,7 +123,7 @@ pub struct NoteFilter {
 
 ### 4.5 해시 함수 변경
 
-`hash_note(body, pinned, color)` → `hash_note(body, pinned, category)`. 카테고리가 색상 자리를 차지.
+`hash_note(body, favorite, color)` → `hash_note(body, favorite, category)`. 카테고리가 색상 자리를 차지.
 
 - 갱신 호출부: `vault.rs`(create/update/soft_delete/restore), `store/files.rs`(읽기 경로 재해시).
 - 기존 해시 테스트에서 `color` 인자를 `category`로 교체. "동일 body + 카테고리 변경 → 해시 변경" 단언 유지(의미 있음).
@@ -188,7 +188,7 @@ flowchart LR
 **사이드바 재구성:**
 
 1. **모든 노트** (전체 건수) — 기본.
-2. **고정됨** (건수).
+2. **즐겨찾기** (건수).
 3. **카테고리** — 레지스트리 순서대로, 색점 + id + 건수(`list_facets`의 categories). **라디오 단일 선택** 필터. `inbox`가 첫 항목. 기존 색상 스왓치 섹션 **제거**(카테고리가 흡수).
 4. **태그** — 3상태 복합 필터(AND/OR) 유지. 카테고리(단일·장소) + 태그(다중·횡단) 역할 분담.
 5. 하단 사이드바 숨기기.

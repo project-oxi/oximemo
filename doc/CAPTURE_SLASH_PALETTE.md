@@ -23,7 +23,7 @@ for a keyboard-only "fast capture with categorization" flow:
    `docs/designs/2026-06-29-command-palette-design.md` and
    `web/src/components/layout/command-palette/{lexer,types,capture,...}.ts`.
 
-The goal for oxinot: let the user pick a capture destination (color / pin /
+The goal for oxinot: let the user pick a capture destination (color / favorite /
 category) **without leaving the keyboard**, while the composer stays a single
 lightweight pill at the bottom-center of the screen.
 
@@ -55,7 +55,7 @@ bare   ::= resolved per-mode (Knowledge → capture, Console → go, Chat → ru
      spawns an inline picker (popover / cmdk list) of capture verbs. Lightest;
      matches the "composer stays a pill" intent.
    - **X2 — global `⌘K` palette on the main window.** Full oxios parity
-     (verbs beyond capture: navigate, pin, new). Much larger scope; needs a
+     (verbs beyond capture: navigate, favorite, new). Much larger scope; needs a
      verb catalog, mode system, provider split. Likely overkill for a card
      memo app.
    - **X3 — hybrid.** X1 first; add `⌘K` later only if demand appears.
@@ -63,8 +63,8 @@ bare   ::= resolved per-mode (Knowledge → capture, Console → go, Chat → ru
 
 2. **Verb catalog for oxinot.** oxios's six verbs are agent-OS-shaped
    (`run`/`switch`/`control`/…). oxinot has none of those nouns. Candidate
-   oxinot verbs are unstaged: color shortcuts (`/r` `/g` `/b` …), pin
-   (`/p`), tag/category routing, "append to last memo" (`+`). The set — and
+   oxinot verbs are unstaged: color shortcuts (...), favorite (`/p`), tag/category
+   routing, "append to last memo" (`+`). The set — and
    whether categories even exist as first-class destinations — is undecided.
 
 3. **Category model.** oxinot today has color + inline `#tag` extraction, no

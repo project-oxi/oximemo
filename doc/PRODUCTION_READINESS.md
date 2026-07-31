@@ -119,7 +119,7 @@
 ### H4. 저장/삭제/업데이트 실패 무음 처리 (unhandled rejection)
 - **위치**:
   - `apps/desktop/src/components/CaptureOverlay.tsx:44-54` (`save()`에 catch 없음 — `void save()`로 rejection 방출)
-  - `apps/desktop/src/components/CardGrid.tsx:134-145` (`onDelete`, `onTogglePin` — `.then()`만, catch 없음)
+  - `apps/desktop/src/components/CardGrid.tsx:134-145` (`onDelete`, `onToggleFavorite` — `.then()`만, catch 없음)
   - `apps/desktop/src/components/NoteDetail.tsx:55-68` (debounce 자동저장 + close flush — `.then()`만)
 - **현상**: 모든 뮤테이션이 `void fn().then(ok)` 패턴. 실패 시 rejection이 잡히지 않아 사용자에게 피드백이 없다. 특히 `NoteDetail.close()`의 flush-on-close는 실패하면 입력이 조용히 유실된다.
 - **영향**: 사용자가 "저장했다"고 믿지만 실제로는 실패. 파일이 진실의 원천이므로 `reindex`로 복구는 가능하나, UX 신뢰성 훼손.

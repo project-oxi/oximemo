@@ -382,7 +382,7 @@ pub fn rename_category(&self, old: String, new: String) -> Result<u64> {
                 .ok_or_else(|| CoreError::NotFound(rec.id.to_string()))?;
             note.category = new.clone();
             note.updated_at = OffsetDateTime::now_utc();
-            note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
+            note.hash = hash::hash_note(note.body.as_bytes(), note.favorite, &note.category);
             self.files.write(&note)?;
             idx.upsert(&record_of(&note))?;
             search.upsert(note.id, &note.body, &note.tags)?;

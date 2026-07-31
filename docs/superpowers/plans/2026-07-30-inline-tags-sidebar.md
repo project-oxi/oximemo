@@ -16,7 +16,7 @@
 
 - macOS 단일 타겟. 프론트 변경은 `cargo build -p oxinot-desktop --release` + `/Applications/oxinot.app/Contents/MacOS/oxinot-desktop` 교체 + `codesign --force --deep -s -` 재서명으로만 앱에 반영됨.
 - Rust `regex` crate 없음 → 추출기는 핸드롤 char 스캐너. TS는 동일 알고리즘을 `/[\p{L}\p{N}_]/u` 술어로 미러링. 양측 정규화 = NFC + 소문자.
-- 태그 강조색 = 주황 app-wide(CSS 변수 `--tag`/`--tag-bg`). 고정은 핀 아이콘만(주황 미사용).
+- 태그 강조색 = 주황 app-wide(CSS 변수 `--tag`/`--tag-bg`). 즐겨찾기는 별 아이콘만(주황 미사용).
 - 레거시 태그 마이그레이션 없음(프리릴리즈, 손실 수용).
 - 인라인 칩 클릭→필터, 폴더/중첩태그/스마트필터, hex 오깅 정제는 비목표.
 - 검증: Rust = `cargo test -p oxinot-core` + `cargo clippy --workspace --all-targets -- -D warnings`. 프론트 = `cd apps/desktop && bun run build`(tsc -b + vite). 매 태스크 끝 커밋.
@@ -190,7 +190,7 @@ git commit -m "feat(core): inline #tag extraction with chord-symbol guard"
 **Files:**
 - Modify: `crates/oxinot-core/src/note.rs` (`NoteFilter` struct + `matches`, `Facets` 추가)
 
-**Produces:** 새 `NoteFilter { include_tags, exclude_tags, match_all, colors, pinned_only, include_deleted }`, `pub struct Facets`, `NoteFilter::matches(&NoteSummary)`.
+**Produces:** 새 `NoteFilter { include_tags, exclude_tags, match_all, colors, favorites_only, include_deleted }`, `pub struct Facets`, `NoteFilter::matches(&NoteSummary)`.
 
 - [ ] **Step 1: `NoteFilter` 교체 + `Facets` 추가 + matches 테스트**
 
@@ -198,7 +198,7 @@ git commit -m "feat(core): inline #tag extraction with chord-symbol guard"
 
 ```rust
 /// Filter applied to listings (§4.3, §7.5). Composite: include-tag set
-/// (AND or OR), exclude-tag set, color set (OR membership), pin, deleted.
+/// (AND or OR), exclude-tag set, color set (OR membership), favorite, deleted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NoteFilter {
     /// Note must contain these tags. Empty = no constraint.
@@ -209,7 +209,7 @@ pub struct NoteFilter {
     pub match_all: bool,
     /// Non-empty = note's color must equal one of these (OR membership).
     pub colors: Vec<String>,
-    pub pinned_only: bool,
+    pub favorites_only: bool,
     /// When false, soft-deleted notes are excluded.
     pub include_deleted: bool,
 }
@@ -219,7 +219,7 @@ impl NoteFilter {
         if !self.include_deleted && s.deleted {
             return false;
         }
-        if self.pinned_only && !s.pinned {
+        if self.favorites_only && !s.favorite {
             return false;
         }
         if !self.colors.is_empty() && !self.colors.iter().any(|c| c == &s.color.0) {
@@ -266,13 +266,13 @@ mod filter_tests {
     use super::*;
     use time::OffsetDateTime;
 
-    fn sum(tags: &[&str], color: &str, pinned: bool) -> NoteSummary {
+    fn sum(tags: &[&str], color: &str, favorite: bool) -> NoteSummary {
         NoteSummary {
             id: NoteId::now(),
             created_at: OffsetDateTime::now_utc(),
             updated_at: OffsetDateTime::now_utc(),
             hash: NoteHash::new("h"),
-            pinned,
+            favorite,
             color: NoteColor(color.to_string()),
             tags: tags.iter().map(|t| t.to_string()).collect(),
             preview: String::new(),
@@ -344,7 +344,7 @@ git commit -m "refactor(core): composite NoteFilter + Facets type"
 `crates/oxinot-core/src/hash.rs` 81–95줄(`hash_note`)을 다음으로 교체:
 
 ```rust
-/// Hash a note's full meaningful state: body + pinned + color (§5.3).
+/// Hash a note's full meaningful state: body + favorite + color (§5.3).
 ///
 /// Tags are intentionally NOT a separate input: they are derived from the
 /// body (§4.1), so the body digest already covers tag changes. Hashing them
@@ -356,29 +356,26 @@ git commit -m "refactor(core): composite NoteFilter + Facets type"
 /// - `id` / `created_at` (immutable after creation),
 /// - `updated_at` (it is the sync *cursor*, not content),
 /// - `deleted_at` (tombstones travel via the manifest's `deleted` flag).
-pub fn hash_note(body: &[u8], pinned: bool, color: &str) -> NoteHash {
+pub fn hash_note(body: &[u8], favorite: bool, color: &str) -> NoteHash {
     let normalized_body = normalize(body);
     let mut hasher = Hasher::new();
     hasher.update(normalized_body.as_bytes());
     hasher.update(b"\x1f"); // unit separator between fields
-    hasher.update(if pinned { b"1" } else { b"0" });
+    hasher.update(if favorite { b"1" } else { b"0" });
     hasher.update(b"\x1f");
     hasher.update(color.as_bytes());
     NoteHash::new(hasher.finalize().to_hex().to_string())
 }
-```
 
 테스트 `metadata_only_edit_changes_hash`(137–146줄)를 다음으로 교체(태그⊥body 단언 제거, `#x` 포함 단언 추가):
 
 ```rust
-    #[test]
-    fn metadata_only_edit_changes_hash() {
-        // Pin / color still change the hash (§9.2). Tags are derived from the
+        // Favorite / color still change the hash (§9.2). Tags are derived from the
         // body now, so a tag change IS a body change — covered by the next test.
         let base = hash_note(b"body", false, "");
-        let pinned = hash_note(b"body", true, "");
+        let favorite = hash_note(b"body", true, "");
         let colored = hash_note(b"body", false, "oklch(0.75 0.15 75)");
-        assert_ne!(base, pinned);
+        assert_ne!(base, favorite);
         assert_ne!(base, colored);
     }
 
@@ -417,7 +414,7 @@ git commit -m "refactor(core): drop tags from note hash (body-derived)"
 - Modify: `crates/oxinot-core/src/vault.rs`
 - Modify: `crates/oxinot-core/src/store/files.rs` (`read_note` 해시 호출)
 
-**Consumes:** `crate::tags::extract_tags`, 새 `hash_note(body, pinned, color)`, `Facets`.
+**Consumes:** `crate::tags::extract_tags`, 새 `hash_note(body, favorite, color)`, `Facets`.
 
 - [ ] **Step 1: `vault.rs` import + `create_note`**
 
@@ -438,7 +435,7 @@ git commit -m "refactor(core): drop tags from note hash (body-derived)"
             created_at: now,
             updated_at: now,
             hash: hash::hash_note(body.as_bytes(), false, &color.0),
-            pinned: false,
+            favorite: false,
             color,
             tags,
             body,
@@ -462,7 +459,7 @@ git commit -m "refactor(core): drop tags from note hash (body-derived)"
         &self,
         id: NoteId,
         body: Option<String>,
-        pinned: Option<bool>,
+        favorite: Option<bool>,
         color: Option<String>,
     ) -> Result<Note> {
         let mut note = self.get_note(id)?;
@@ -470,15 +467,15 @@ git commit -m "refactor(core): drop tags from note hash (body-derived)"
             note.body = b;
             note.tags = extract_tags(&note.body); // body is single source of truth
         }
-        if let Some(p) = pinned {
-            note.pinned = p;
+        if let Some(p) = favorite {
+            note.favorite = p;
         }
         if let Some(c) = color {
             note.color = NoteColor(c);
         }
         validate_note_input(&note.body, &note.tags)?;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
+        note.hash = hash::hash_note(note.body.as_bytes(), note.favorite, &note.color.0);
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
             idx.upsert(&record_of(&note))?;
@@ -495,7 +492,7 @@ git commit -m "refactor(core): drop tags from note hash (body-derived)"
 `delete_note`(205줄)·`restore_note`(219줄)의 `hash::hash_note(...)` 호출에서 `&note.tags,` 인자를 제거:
 
 ```rust
-        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.color.0);
+        note.hash = hash::hash_note(note.body.as_bytes(), note.favorite, &note.color.0);
 ```
 
 (두 곳 모두 동일 변경.)
@@ -540,8 +537,8 @@ git commit -m "refactor(core): drop tags from note hash (body-derived)"
                     id: fm.id,
                     created_at: fm.created_at,
                     updated_at: fm.updated_at,
-                    hash: hash::hash_note(body.as_bytes(), fm.pinned, &fm.color.0),
-                    pinned: fm.pinned,
+                    hash: hash::hash_note(body.as_bytes(), fm.favorite, &fm.color.0),
+                    favorite: fm.favorite,
                     color: fm.color,
                     tags,
                     body,
@@ -635,13 +632,13 @@ pub fn cmd_list(
     vault: &Vault,
     limit: u32,
     tag: Vec<String>,
-    pinned: bool,
+    favorite: bool,
     fmt: Format,
 ) -> Result<()> {
     let filter = NoteFilter {
         include_tags: tag,
         match_all: false,
-        pinned_only: pinned,
+        favorites_only: favorite,
         ..Default::default()
     };
     let page = vault.list_notes(None, limit, filter)?;
@@ -697,7 +694,7 @@ git commit -m "feat(cli): fold --tag into body + repeatable list filter"
         exclude_tags: Vec<String>,
         match_all: bool,
         colors: Vec<String>,
-        pinned_only: bool,
+        favorites_only: bool,
     ) -> Result<oxinot_core::Page<oxinot_core::NoteSummary>, String> {
         let after = match after {
             Some(s) => Some(Cursor::parse(&s).map_err(|e| e.to_string())?),
@@ -708,7 +705,7 @@ git commit -m "feat(cli): fold --tag into body + repeatable list filter"
             exclude_tags,
             match_all,
             colors,
-            pinned_only,
+            favorites_only,
             include_deleted: false,
         };
         state
@@ -750,13 +747,13 @@ git commit -m "feat(cli): fold --tag into body + repeatable list filter"
         app: AppHandle,
         id: String,
         body: Option<String>,
-        pinned: Option<bool>,
+        favorite: Option<bool>,
         color: Option<String>,
     ) -> Result<oxinot_core::Note, String> {
         let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
         let note = state
             .vault
-            .update_note(id, body, pinned, color)
+            .update_note(id, body, favorite, color)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("notes:changed", ());
         Ok(note)
@@ -925,7 +922,7 @@ export async function listNotes(
     exclude_tags?: string[];
     match_all?: boolean;
     colors?: string[];
-    pinned_only?: boolean;
+    favorites_only?: boolean;
   } = {},
 ) {
   return invoke<{ items: NoteSummary[]; next_cursor: string | null }>("list_notes", {
@@ -935,7 +932,7 @@ export async function listNotes(
     exclude_tags: filter.exclude_tags ?? [],
     match_all: filter.match_all ?? false,
     colors: filter.colors ?? [],
-    pinned_only: filter.pinned_only ?? false,
+    favorites_only: filter.favorites_only ?? false,
   });
 }
 
@@ -946,10 +943,10 @@ export async function createNote(body: string, color: string | null) {
 export async function updateNote(
   id: string,
   body: string | null,
-  pinned: boolean | null,
+  favorite: boolean | null,
   color: string | null,
 ) {
-  return invoke<Note>("update_note", { id, body, pinned, color });
+  return invoke<Note>("update_note", { id, body, favorite, color });
 }
 
 export async function listFacets() {
@@ -973,11 +970,11 @@ export async function listFacets() {
       const exclude = (args?.exclude_tags as string[] | undefined) ?? [];
       const matchAll = (args?.match_all as boolean | undefined) ?? false;
       const colors = (args?.colors as string[] | undefined) ?? [];
-      const pinnedOnly = (args?.pinned_only as boolean | undefined) ?? false;
+      const favoritesOnly = (args?.favorites_only as boolean | undefined) ?? false;
       const has = (n: Note, t: string) =>
         n.tags.some((x) => x.toLowerCase() === t.toLowerCase());
       const notes = liveSorted(loadStore()).filter((n) => {
-        if (pinnedOnly && !n.pinned) return false;
+        if (favoritesOnly && !n.favorite) return false;
         if (colors.length && !colors.includes(n.color)) return false;
         if (exclude.some((t) => has(n, t))) return false;
         if (include.length) {
@@ -1015,7 +1012,7 @@ export async function listFacets() {
         created_at: now,
         updated_at: now,
         hash: fakeHash(),
-        pinned: false,
+        favorite: false,
         color: (args?.color as string | null | undefined) ?? "",
         tags: extractTags(body),
         body,
@@ -1041,7 +1038,7 @@ export async function listFacets() {
         n.body = args.body;
         n.tags = extractTags(n.body);
       }
-      if (typeof args?.pinned === "boolean") n.pinned = args.pinned;
+      if (typeof args?.favorite === "boolean") n.favorite = args.favorite;
       if (typeof args?.color === "string") n.color = args.color;
       n.updated_at = new Date().toISOString();
       n.hash = fakeHash();
@@ -1314,7 +1311,7 @@ export function NoteComposeForm({
 
 - [ ] **Step 3: `NoteDetail` — tags 상태 제거, body-only update**
 
-`NoteDetail.tsx`에서 `const [tags, setTags] = useState<string[]>([]);`(35줄) 삭제. seed effect의 `setTags(note.data.tags);`(45줄) 삭제. autosave effect(58줄) `updateNote(selectedId, body, tags, pinned, color)` → `updateNote(selectedId, body, pinned, color)`. effect deps(70줄)에서 `tags` 제거. `close()`의 빈_draft 판정(75줄) `!body.trim() && tags.length === 0` → `!body.trim()`. flush `updateNote`(85줄)도 tags 인자 제거. `<NoteComposeForm ...>`(138–150줄)에서 `tags={tags}`·`onTagsChange={edit(setTags)}` 삭제.
+`NoteDetail.tsx`에서 `const [tags, setTags] = useState<string[]>([]);`(35줄) 삭제. seed effect의 `setTags(note.data.tags);`(45줄) 삭제. autosave effect(58줄) `updateNote(selectedId, body, tags, favorite, color)` → `updateNote(selectedId, body, favorite, color)`. effect deps(70줄)에서 `tags` 제거. `close()`의 빈_draft 판정(75줄) `!body.trim() && tags.length === 0` → `!body.trim()`. flush `updateNote`(85줄)도 tags 인자 제거. `<NoteComposeForm ...>`(138–150줄)에서 `tags={tags}
 
 - [ ] **Step 4: `TagInput.tsx` 삭제**
 
@@ -1372,8 +1369,8 @@ interface UIState {
   /** Selected colors (OR membership). */
   colorFilter: string[];
   toggleColor: (c: string) => void;
-  pinnedOnly: boolean;
-  setPinnedOnly: (b: boolean) => void;
+  favoritesOnly: boolean;
+  setFavoritesOnly: (b: boolean) => void;
   /** Sidebar collapsed? Persisted to localStorage. */
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -1418,8 +1415,8 @@ export const useUI = create<UIState>((set) => ({
         ? s.colorFilter.filter((x) => x !== c)
         : [...s.colorFilter, c],
     })),
-  pinnedOnly: false,
-  setPinnedOnly: (b) => set({ pinnedOnly: b }),
+  favoritesOnly: false,
+  setFavoritesOnly: (b) => set({ favoritesOnly: b }),
   sidebarCollapsed: loadCollapsed(),
   toggleSidebar: () =>
     set((s) => {
@@ -1496,12 +1493,12 @@ git commit -m "feat(desktop): composite filter + sidebar UI state + i18n"
 
 ```tsx
 /**
- * Collapsible left sidebar (§7): All notes / Pinned navigation, the tag list
+ * Collapsible left sidebar (§7): All notes / Favorites navigation, the tag list
  * with 3-state filter chips + AND/OR toggle, and the color filter swatches.
  * Counts come from `list_facets` (page-independent).
  */
 import { useQuery } from "@tanstack/react-query";
-import { PanelLeftClose, PanelLeft, Pin, Layers } from "lucide-react";
+import { PanelLeftClose, PanelLeft, Star, Layers } from "lucide-react";
 
 import { listFacets } from "../lib/api";
 import { useI18n } from "../lib/i18n";
@@ -1523,15 +1520,15 @@ export function Sidebar() {
   const toggleMatchAll = useUI((s) => s.toggleMatchAll);
   const colorFilter = useUI((s) => s.colorFilter);
   const toggleColor = useUI((s) => s.toggleColor);
-  const pinnedOnly = useUI((s) => s.pinnedOnly);
-  const setPinnedOnly = useUI((s) => s.setPinnedOnly);
+  const favoritesOnly = useUI((s) => s.favoritesOnly);
+  const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const collapsed = useUI((s) => s.sidebarCollapsed);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
 
   const tags = facets.data?.tags ?? [];
   const colors = facets.data?.colors ?? [];
   const total = tags.reduce((n, [, c]) => n + c, 0);
-  const pinnedCount = facets.data ? undefined : undefined; // pinned count not in facets; omitted
+  const favoritesCount = facets.data ? undefined : undefined; // favorites count not in facets; omitted
 
   if (collapsed) {
     return (
@@ -1552,9 +1549,9 @@ export function Sidebar() {
     <aside className="flex w-56 flex-col border-r border-zinc-200 bg-zinc-50/60 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
       <button
         type="button"
-        onClick={() => setPinnedOnly(false)}
+        onClick={() => setFavoritesOnly(false)}
         className={`mx-2 flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] ${
-          !pinnedOnly ? "bg-zinc-200/70 font-semibold dark:bg-zinc-800" : "text-zinc-600 dark:text-zinc-300"
+          !favoritesOnly ? "bg-zinc-200/70 font-semibold dark:bg-zinc-800" : "text-zinc-600 dark:text-zinc-300"
         }`}
       >
         <span className="flex items-center gap-2"><Layers size={14} /> {t.all_notes}</span>
@@ -1562,12 +1559,12 @@ export function Sidebar() {
       </button>
       <button
         type="button"
-        onClick={() => setPinnedOnly(true)}
+        onClick={() => setFavoritesOnly(true)}
         className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
-          pinnedOnly ? "bg-amber-100 font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" : "text-zinc-600 dark:text-zinc-300"
+          favoritesOnly ? "bg-amber-100 font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" : "text-zinc-600 dark:text-zinc-300"
         }`}
       >
-        <Pin size={14} /> {t.pinned}
+        <Star size={14} /> {t.favorites}
       </button>
 
       <div className="mt-3 flex items-center justify-between px-3">
@@ -1628,13 +1625,13 @@ export function Sidebar() {
 }
 ```
 
-> `pinnedCount`는 facets에 없음 — "고정됨" 행은 건수 없이 토글만 표시(스코프 내 단순화). 원하면 `note_stats`의 pinned를 facets에 병합 가능(비목표).
+> `favoritesCount`는 facets에 없음 — "즐겨찾기" 행은 건수 없이 토글만 표시(스코프 내 단순화). 원하면 `note_stats`의 favorite를 facets에 병합 가능(비목표).
 
 - [ ] **Step 2: `CardGrid` 재작업 — 레이아웃 + 복합 필터 + facets 무효화**
 
 `CardGrid.tsx`에서 다음 변경:
 
-(a) import 교체: `useUI`에서 `activeTag`/`setActiveTag` 제거, `tagFilter`/`matchAll`/`colorFilter`/`pinnedOnly`/`sidebarCollapsed` 추가. `Sidebar` import 추가. 헤더의 태그 chip 렌더 블록(221–234줄)·`tags` useMemo(82–87줄)·`Pin` import(필터 chip용, 사이드바로 이동) 제거.
+(a) import 교체: `useUI`에서 `activeTag`/`setActiveTag` 제거, `tagFilter`/`matchAll`/`colorFilter`/`favoritesOnly`/`sidebarCollapsed` 추가. `Sidebar` import 추가. 헤더의 태그 chip 렌더 블록(221–234줄)·`tags` useMemo(82–87줄)·`Star` import(필터 chip용, 사이드바로 이동) 제거.
 
 (b) `listing` queryKey/queryFn(54–59줄)을 복합 필터로 교체:
 
@@ -1646,14 +1643,14 @@ export function Sidebar() {
   const exclude_tags = Object.entries(tagFilter).filter(([, s]) => s === "out").map(([t]) => t);
 
   const listing = useInfiniteQuery({
-    queryKey: ["notes", include_tags, exclude_tags, matchAll, colorFilter, pinnedOnly],
+    queryKey: ["notes", include_tags, exclude_tags, matchAll, colorFilter, favoritesOnly],
     queryFn: ({ pageParam }) =>
       listNotes(pageParam, PAGE_SIZE, {
         include_tags,
         exclude_tags,
         match_all: matchAll,
         colors: colorFilter,
-        pinned_only: pinnedOnly,
+        favorites_only: favoritesOnly,
       }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
@@ -1664,7 +1661,7 @@ export function Sidebar() {
 
 ```ts
     return base.filter((n) => {
-      if (pinnedOnly && !n.pinned) return false;
+      if (favoritesOnly && !n.favorite) return false;
       if (colorFilter.length && !colorFilter.includes(n.color)) return false;
       if (exclude_tags.some((t) => n.tags.includes(t))) return false;
       if (include_tags.length) {
@@ -1677,7 +1674,7 @@ export function Sidebar() {
 
 (d) `notes:changed` 리스너(121–130줄)에 `facets` 무효화 추가: `qc.invalidateQueries({ queryKey: ["facets"] });` (두 곳 invalidate 뒤에).
 
-(e) 스크롤 리셋 effect(134–136줄) deps를 `[include_tags, exclude_tags, colorFilter, pinnedOnly]` 로.
+(e) 스크롤 리셋 effect(134–136줄) deps를 `[include_tags, exclude_tags, colorFilter, favoritesOnly]` 로.
 
 (f) `onNewNote`(167줄) `createNote("", [], null)` → `createNote("", null)`.
 
@@ -1749,6 +1746,6 @@ git status
 ## Self-Review Notes (작성자가 점검한 항목)
 
 - **Spec coverage:** §3 추출(Task1/7), §4.1 파생(Task4/8/11), §4.2 facets(Task4/6/8/13), §4.3 복합필터(Task2/5/6/8/12/13), §4.4 해시(Task3/4), §5 마이그레이션 없음(전체 — 마이그레이션 코드 부재), §6 미러 편집기(Task10/11), §7 사이드바(Task12/13), §8 팔레트/헤더/카드(Task9/13). 비목표 명시됨.
-- **타입 일관성:** `createNote(body, color)`, `updateNote(id, body, pinned, color)`, `listNotes(after, limit, filter)`, `listFacets()`, `NoteFilter{include_tags,exclude_tags,match_all,colors,pinned_only,include_deleted}`, `Facets{tags,colors}`, `TagState`, ui store 액션명(`cycleTag`/`toggleColor`/`toggleMatchAll`/`toggleSidebar`) 전 태스크 동일.
+- **타입 일관성:** `createNote(body, color)`, `updateNote(id, body, favorite, color)`, `listNotes(after, limit, filter)`, `listFacets()`, `NoteFilter{include_tags,exclude_tags,match_all,colors,favorites_only,include_deleted}`, `Facets{tags,colors}`, `TagState`, ui store 액션명(`cycleTag`/`toggleColor`/`toggleMatchAll`/`toggleSidebar`) 전 태스크 동일.
 - **플레이스홀더 없음:** 모든 코드 단계에 실제 코드 포함.
 - **알려진 진행 주의:** Task 2·3·4·5·6은 호출부 정리가 태스크를 가로지르므로 중간 `cargo build`는 실패 가능 — Task 6 Step 5에서 한 번에 green. 프론트 Task 8·9·10·11·12·13도 동일(호출부 미연결 기간 tsc 실패 가능) — Task 11·13 종료 시 green. 각 태스크 커밋은 WIP 허용.

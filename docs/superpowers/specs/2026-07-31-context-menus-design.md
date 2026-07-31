@@ -7,7 +7,7 @@
 ## 1. 목표
 
 - 사이드바의 카테고리 항목을 우클릭해 **바로 이름 편집 / 색상 변경 / 삭제**.
-- 노트 카드와 NoteDetail 편집기를 우클릭해 **고정 토글 / 카테고리 이동 / 본문·ID 복사 / 삭제**.
+- 노트 카드와 NoteDetail 편집기를 우클릭해 **즐겨찾기 토글 / 카테고리 이동 / 본문·ID 복사 / 삭제**.
 - 좌클릭(필터/선택) 동작은 그대로. hover 액션 버튼도 유지(메뉴는 보조 + 신규 기능).
 
 ## 2. 접근법 결정
@@ -70,9 +70,8 @@ Popup 스타일: `min-w-44 rounded-lg border bg-white dark:bg-zinc-900 p-1 shado
 `Card` Props 추가: `onMoveCategory: (id, category) => void`, `onCopyBody: (id) => void`.
 
 메뉴:
-| 항목 | 동작 |
+| 즐겨찾기 / 즐겨찾기 해제 | `onToggleFavorite` (라벨은 `note.favorite` 토글) |
 |---|---|
-| 고정 / 고정 해제 | `onTogglePin` (라벨은 `note.pinned` 토글) |
 | 카테고리 이동 ▸ | `categories` 서브메뉴 → `onMoveCategory(note.id, cat.id)` |
 | ───── | |
 | 본문 복사 | `onCopyBody(note.id)` |
@@ -80,11 +79,11 @@ Popup 스타일: `min-w-44 rounded-lg border bg-white dark:bg-zinc-900 p-1 shado
 | ───── | |
 | 삭제 | `onDelete` (danger) |
 
-hover 버튼(복사/고정/삭제)은 **유지**. 메뉴는 보조 + "카테고리 이동"/"본문 복사" 신규 기능.
+:hover 버튼(복사/즐겨찾기/삭제)은 **유지**. 메뉴는 보조 + "카테고리 이동"/"본문 복사" 신규 기능.
 
 ### 3.4 `CardGrid.tsx` — 핸들러 전달
 
-`onDelete`/`onTogglePin` 패턴과 동일하게 추가:
+`onDelete`/`onToggleFavorite` 패턴과 동일하게 추가:
 ```ts
 const onMoveCategory = (id: string, category: string) =>
   updateNote(id, null, null, category)
@@ -102,7 +101,7 @@ const onCopyBody = (id: string) =>
 ### 3.5 `NoteDetail.tsx` — 편집기 메뉴
 
 `Dialog.Popup` 콘텐츠를 `CtxTrigger`로 감싸고, Card와 동일한 노트 메뉴 렌더. 차이:
-- 고정: 로컬 `pinned` 상태 + `updateNote`.
+- 즐겨찾기: 로컬 `favorite` 상태 + `updateNote`.
 - 본문 복사: `getNote` 생략, 상태 `body`를 그대로 복사.
 - 카테고리 이동: `setCategory` + `updateNote(id,null,null,cat)` (기존 autosave 경로).
 - 삭제: `deleteNote` 후 `close()`(선택 해제).
@@ -117,7 +116,7 @@ Positioner `z-[70]`가 Dialog(z-50) 위에 렌더되도록 보장(`CtxMenu` 기�
 | 카테고리 이름변경 | `renameCategory(old, new)` → moved count |
 | 카테고리 색상 | `updateCategory(id, color)` |
 | 카테고리 삭제 | `deleteCategory(id)` |
-| 노트 고정 | `updateNote(id, null, pinned, null)` |
+| 노트 즐겨찾기 | `updateNote(id, null, favorite, null)` |
 | 노트 카테고리 이동 | `updateNote(id, null, null, category)` |
 | 노트 본문 복사 | `getNote(id)` → clipboard |
 | 노트 삭제 | `deleteNote(id)` |
@@ -129,14 +128,14 @@ Positioner `z-[70]`가 Dialog(z-50) 위에 렌더되도록 보장(`CtxMenu` 기�
 | key | ko | en |
 |---|---|---|
 | `action_rename` | 이름 변경 | Rename |
-| `action_unpin` | 고정 해제 | Unpin |
+| `action_unfavorite` | 즐겨찾기 해제 | Unfavorite |
 | `action_move_category` | 카테고리 이동 | Move to category |
 | `action_copy_body` | 본문 복사 | Copy body |
 | `action_copy_id` | ID 복사 | Copy ID |
 | `no_color` | 색상 없음 | No color |
 | `inbox_immutable` | Inbox는 변경할 수 없어요 | Inbox is immutable |
 
-(`action_pin`/`action_delete`/`color`/`copy`/`copied` 기존 키 재사용.)
+(`action_favorite`/... 기존 키 재사용.)
 
 ## 6. 엣지 케이스 / 레이어링
 

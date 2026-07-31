@@ -501,7 +501,7 @@ Rust → React 이벤트:
 ```latex
 oxinot new [TEXT] [--tag TAG ...] [--color "oklch(...)"]
                                            # 인자 또는 stdin으로 캡처
-oxinot list [--limit N] [--tag T] [--pinned]
+oxinot list [--limit N] [--tag T] [--favorites]
             [--format table|json|ndjson]   # 기본 table(사람용), 에이전트는 json/ndjson 권장
 oxinot get <ID> [--format json|md]
 oxinot search <QUERY> [--limit N] [--format json|ndjson]

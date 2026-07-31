@@ -13,7 +13,7 @@
 
 1. **입력 마찰 제거** — 본문에 `#태그`를 쓰면 자동 인식(태그 입력창 제거). Apple Notes/Bear 방식.
 2. **강력한 탐색** — 접이식 사이드바에서 전체 태그(건수)·색상을 3상태 복합 필터로 걸러보기.
-3. **일관된 시각 언어** — 태그=주황 app-wide, 고정은 핀 아이콘만.
+3. **일관된 시각 언어** — 태그=주황 app-wide, 즐겨찾기는 별 아이콘만.
 
 ## 2. 결정 요약 (locked)
 
@@ -23,8 +23,8 @@
 | 2 | 본문 인라인 `#태그` → **파생** 모델 | 입력 흐름을 끊지 않음. `tags` 필드는 인덱스/필터/검색 가속용으로 유지하되 본문에서 파생. |
 | 3 | 추출 규칙 = `#` 앞이 글자/숫자가 아닐 때만 | 사용자의 실제 메모에 `C#m7`,`F#m7`(화음) 존재 → 오태깅 방지(§3). |
 | 4 | **3상태 복합 필터** + AND/OR | 비활성→포함→제외(취소선) 순환 + 포함 집합 AND/OR 토글. 애플 메모와 동일 UX. |
-| 5 | **접이식 왼쪽 사이드바** | 전체/고정 + 태그(건수) + 색상. 헤더 chip 방식은 항목 증가 시 붕괴. |
-| 6 | 태그 = **주황 app-wide** | 사이드바 필터·본문 인라인 칩·카드 칩 동일 색. 고정은 핀 아이콘만(의미 충돌 제거). |
+| 5 | **접이식 왼쪽 사이드바** | 전체/즐겨찾기 + 태그(건수) + 색상. 헤더 chip 방식은 항목 증가 시 붕괴. |
+| 6 | 태그 = **주황 app-wide** | 사이드바 필터·본문 인라인 칩·카드 칩 동일 색. 즐겨찾기는 별 아이콘만(의미 충돌 제거). |
 | 7 | 에디터 = **textarea + mirror overlay (B)** | 시각은 contentEditable과 동일하되 한글 IME·실행취소·붙여넣기가 네이티브(§6). |
 | 8 | 검색 = 헤더 유지, **facets 신규 명령** | 태그/색상 전체 건수는 페이지 독립 백엔드 집계로 제공(현재의 "로딩 페이지 hack" 대체). |
 
@@ -53,7 +53,7 @@
 ### 4.1 태그는 본문에서 파생 (단일 진실 공급원 = 서버)
 
 - `Vault::create_note(body, color)` — `tags` 인자 제거. 내부에서 `tags = extract_tags(&body)`.
-- `Vault::update_note(id, body, pinned, color)` — `tags` 인자 제거. `body = Some` 이면 태그 재파생, `None`(메타 전용 갱신)이면 기존 `note.tags` 유지.
+- `Vault::update_note(id, body, favorite, color)` — `tags` 인자 제거. `body = Some` 이면 태그 재파생, `None`(메타 전용 갱신)이면 기존 `note.tags` 유지.
 - Tauri 명령 `create_note`/`update_note`에서 `tags` 인자 제거. 프론트 `api.ts` 시그니처 동기화.
 - 부수효과: CLI로 본문에 `#태그` 작성 시에도 자동 태깅됨.
 - 미러 편집기는 **순수 시각** 레이어. 저장 시 프론트는 원문 body만 전송, 백엔드가 파생.
@@ -74,12 +74,12 @@ pub struct NoteFilter {
     pub exclude_tags: Vec<String>,
     pub match_all: bool,            // true=AND, false=OR (include_tags에)
     pub colors: Vec<String>,        // 비어있으면 무조건 통과, 아니면 색 소속(OR)
-    pub pinned_only: bool,
+    pub favorites_only: bool,
     pub include_deleted: bool,
 }
 ```
 
-- 매칭: `include_ok && exclude_ok && color_ok && pinned_ok`
+- 매칭: `include_ok && exclude_ok && color_ok && favorites_ok`
   - `include_ok` = include 비었거나 (match_all ? 모두 보유 : 하나 보유)
   - `exclude_ok` = exclude의 어떤 태그도 안 가짐
   - `color_ok` = colors 비었거나 note.color ∈ colors
@@ -89,10 +89,10 @@ pub struct NoteFilter {
 
 ### 4.4 해시 함수 변경
 
-`hash_note(body, pinned, color)` — `tags` 인자 제거. 태그가 본문에서 파생되므로 body 해시가 태그 변경을 이미 포함 → 별도 tags 해싱은 중복.
+`hash_note(body, favorite, color)` — `tags` 인자 제거. 태그가 본문에서 파생되므로 body 해시가 태그 변경을 이미 포함 → 별도 tags 해싱은 중복.
 
 - 갱신 호출부: `vault.rs`(create/update/soft_delete/restore), `store/files.rs`(읽기 경로 해시 재계산).
-- **기존 테스트 수정 필수**: `hash::tests::metadata_only_edit_changes_hash`의 "동일 body + 태그 추가 → 해시 변경" 단언은 전제(태그⊥body)가 성립 불가 → 제거. pinned/color 단언 유지. "body에 `#x` 포함 여부로 해시 변경" 단언 추가.
+- **기존 테스트 수정 필수**: `hash::tests::metadata_only_edit_changes_hash`의 "동일 body + 태그 추가 → 해시 변경" 단언은 전제(태그⊥body)가 성립 불가 → 제거. favorite/color 단언 유지. "body에 `#x` 포함 여부로 해시 변경" 단언 추가.
 
 ### 4.5 검색 인덱스
 
@@ -125,7 +125,7 @@ pub struct NoteFilter {
 섹션(위→아래):
 
 1. **모든 노트** (전체 건수) — 기본 선택.
-2. **고정됨** (건수) — 핀 아이콘.
+2. **즐겨찾기** (건수) — 별 아이콘.
 3. **태그** — `list_facets`의 tags를 칩으로. 각 칩 = 3상태(§4.3 include/exclude). 건수 표시(전역, 비필터 기준). 상단 `선택된 태그 중 모두 포함 ⇅` 토글(match_all). `모든 태그` 버튼 = 태그 선택 초기화.
 4. **색상** — `list_facets`의 colors를 swatch로. 다중 선택(OR 소속). 선택 swatch는 링 표시.
 5. 하단 **사이드바 숨기기** 토글.
@@ -139,7 +139,7 @@ pub struct NoteFilter {
 - **검색**: 헤더 유지(트랜지언트 액션). 사이드바는 탐색.
 - **헤더**: 트래픽라이트 클리어(`pl-[76px]`), 드래그 영역, 검색, 새 노트, 설정, 테마. 태그 chip들은 헤더에서 제거(사이드바로 이동).
 - **카드 태그 칩**: 기존 zinc → 태그 악센트(주황 텍스트 + 연한 주황 배경)로 통일.
-- **고정**: 핀 아이콘만 사용, 주황 미사용(태그와 의미 분리).
+- **즐겨찾기**: 별 아이콘만 사용, 주황 미사용(태그와 의미 분리).
 
 ## 9. 비목표 (향후)
 
