@@ -38,6 +38,11 @@ use crate::tags::extract_tags;
 /// How long to wait for the cross-process index lock before timing out (§5.7).
 const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Indexed preview format version. Bump when `make_preview`'s output changes;
+/// [`Vault::migrate`] reindexes once per bump so cached card previews are
+/// regenerated. Stored in `<index_dir>/index-fmt`.
+const INDEX_FORMAT_VERSION: u32 = 2;
+
 pub struct Vault {
     paths: Paths,
     config: RwLock<VaultConfig>,
@@ -442,7 +447,7 @@ impl Vault {
                                 search_owned.push((note.id, note.body, note.tags));
                                 stats.added += 1;
                             }
-                            Some(prev) if prev.hash == rec.hash => {
+                            Some(prev) if prev.hash == rec.hash && prev.preview == rec.preview => {
                                 stats.unchanged += 1;
                             }
                             Some(_) => {
@@ -480,6 +485,28 @@ impl Vault {
             search.upsert_batch(&batch)?;
             Ok(stats)
         })
+    }
+
+    /// One-time-per-format migration: rebuild the index when the cached preview
+    /// format lags the current `make_preview` (or the marker is absent), so
+    /// existing notes' card previews pick up line-break preservation. Cheap and
+    /// idempotent — returns without touching the index when the marker is
+    /// current.
+    pub fn migrate(&self) -> Result<()> {
+        self.ensure_initialized()?;
+        let marker = self.paths.index_fmt_marker_path();
+        let wants = INDEX_FORMAT_VERSION.to_string();
+        if std::fs::read_to_string(&marker)
+            .ok()
+            .map(|s| s.trim() == wants)
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+        tracing::info!(version = INDEX_FORMAT_VERSION, "migrating index preview format");
+        self.reindex()?;
+        std::fs::write(&marker, &wants)?;
+        Ok(())
     }
 
     /// Re-index a single changed file. Called by the watcher (debounced). Handles

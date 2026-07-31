@@ -39,6 +39,11 @@ pub fn run() {
                 .or_else(parse_vault_arg);
             let vault = oxinot_core::Vault::open(cli_vault.as_deref())?;
             vault.ensure_initialized()?;
+            // Regenerate cached card previews once when the indexed preview
+            // format changes (e.g. line-break preservation). No-op when current.
+            if let Err(e) = vault.migrate() {
+                tracing::warn!(error = %e, "index preview migration failed");
+            }
             app.manage(AppState::new(vault));
             let wstate = app.state::<AppState>();
             spawn_watcher(&wstate, app.handle());

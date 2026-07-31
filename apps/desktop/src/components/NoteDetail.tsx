@@ -125,7 +125,7 @@ export function NoteDetail() {
               style={{ backgroundColor: paperFor(colorForCategory(category, categories)) }}
             />
           )}
-          {note.isLoading || !note.data ? (
+          {note.isLoading || !note.data || seededId !== note.data.id ? (
             <div className="py-10 text-center text-sm text-zinc-400">…</div>
           ) : (
             <>

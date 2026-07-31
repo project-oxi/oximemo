@@ -13,7 +13,9 @@
 import { marked } from "marked";
 
 marked.setOptions({
-  breaks: false,
+  // Render single newlines as <br> so the card preview keeps the line breaks
+  // the user typed (make_preview now preserves them as "\n").
+  breaks: true,
   gfm: true,
 });
 

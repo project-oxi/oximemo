@@ -87,6 +87,13 @@ impl Paths {
         self.index_dir.join(META_LOCK_NAME)
     }
 
+    /// Marker file recording the indexed preview format version. Its absence
+    /// (or a stale version) triggers a one-time reindex on startup so cached
+    /// previews are regenerated after `make_preview` changes.
+    pub fn index_fmt_marker_path(&self) -> PathBuf {
+        self.index_dir.join("index-fmt")
+    }
+
     pub fn search_dir(&self) -> PathBuf {
         self.index_dir.join(SEARCH_SUBDIR)
     }

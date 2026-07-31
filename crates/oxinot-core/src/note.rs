@@ -177,15 +177,16 @@ impl From<Note> for NoteSummary {
     }
 }
 
-/// Compress a body into a single-line preview of bounded length: non-empty
-/// trimmed lines joined by a single space, then truncated on a char boundary.
+/// Build a card preview of bounded length: non-empty trimmed lines joined by
+/// newlines so a multi-line note renders multi-line in the grid (line breaks
+/// the user typed are preserved), then truncated on a char boundary.
 pub fn make_preview(body: &str) -> String {
     let joined: String = body
         .lines()
         .map(|l| l.trim())
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
-        .join(" ");
+        .join("\n");
     truncate_chars(&joined, NoteSummary::PREVIEW_MAX)
 }
 
@@ -292,9 +293,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preview_collapses_and_truncates() {
+    fn preview_preserves_linebreaks_and_truncates() {
+        // Blank lines are dropped; surviving non-empty lines keep their breaks.
         let body = "first line\n\nsecond line\n".to_string();
-        assert_eq!(make_preview(&body), "first line second line");
+        assert_eq!(make_preview(&body), "first line\nsecond line");
+        // A long body truncates on a char boundary with an ellipsis.
+        let big = "a\n".repeat(400);
+        let pv = make_preview(&big);
+        assert!(pv.chars().count() <= NoteSummary::PREVIEW_MAX);
+        assert!(pv.ends_with('\u{2026}'));
     }
 }
 
