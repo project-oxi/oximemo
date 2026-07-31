@@ -22,7 +22,6 @@ export function CaptureOverlay() {
   const [value, setValue] = useState("");
   const [category, setCategory] = useState("");
   const [categories, setCategories] = useState<CategoryDef[]>([]);
-  const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const setError = useUI((s) => s.setError);
   const savingRef = useRef(false);
@@ -35,8 +34,6 @@ export function CaptureOverlay() {
     void listen("capture:show", () => {
       setValue("");
       setCategory("");
-      setBusy(false);
-      savingRef.current = false;
       // Focus the textarea after the window is brought forward.
       window.setTimeout(() => ref.current?.focus(), 30);
     });
@@ -56,7 +53,6 @@ export function CaptureOverlay() {
     const body = value.trim();
     if (!body) return;
     savingRef.current = true;
-    setBusy(true);
     try {
       // Dismiss optimistically: the capture window is parked (hidden, not
       // destroyed), so hide it the instant the user confirms and let the
@@ -73,7 +69,6 @@ export function CaptureOverlay() {
       await showCurrentWindow();
     } finally {
       savingRef.current = false;
-      setBusy(false);
     }
   }
 
@@ -90,10 +85,7 @@ export function CaptureOverlay() {
         category={category}
         onCategoryChange={setCategory}
         categories={categories}
-        onConfirm={save}
-        confirmLabel={t.capture_save}
-        confirmDisabled={busy || value.trim().length === 0}
-        confirmKbd="↵"
+        hint={`↵ ${t.capture_save} · esc ${t.close}`}
       />
       <ErrorToast />
     </div>
