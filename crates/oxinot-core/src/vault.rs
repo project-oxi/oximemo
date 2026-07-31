@@ -627,6 +627,74 @@ impl Vault {
         report.vault_ok = self.paths.vault.is_dir();
         Ok(report)
     }
+
+    /// Rename a category, migrating every note whose `category` matches `old`
+    /// to `new`. Each migrated note is rewritten (category, updated_at, hash),
+    /// re-added to the redb index and the tantivy search index, and the
+    /// category registry is updated and persisted. Returns the number of
+    /// notes migrated.
+    ///
+    /// Rules:
+    /// - `old` and `new` are normalized (trimmed + lowercased).
+    /// - Neither side may be the built-in `inbox` (immutable).
+    /// - `old` must exist in the registry; `new` must not collide.
+    /// - `old == new` is rejected.
+    pub fn rename_category(&self, old: String, new: String) -> Result<u64> {
+        let old = normalize_id(&old);
+        let new = normalize_id(&new);
+        if old == crate::note::DEFAULT_CATEGORY || new == crate::note::DEFAULT_CATEGORY {
+            return Err(CoreError::other("inbox id is immutable"));
+        }
+        if old == new {
+            return Err(CoreError::other("old == new"));
+        }
+
+        // validate + mutate registry under write lock, but defer save until after migration
+        {
+            let cfg = self.config.read();
+            if !cfg.categories.items.iter().any(|c| c.id == old) {
+                return Err(CoreError::other(format!("category '{old}' not found")));
+            }
+            if cfg.categories.items.iter().any(|c| c.id == new) {
+                return Err(CoreError::other(format!("category '{new}' exists")));
+            }
+        }
+
+        let mut migrated = 0u64;
+        self.with_redb_and_search(|idx, search| {
+            for rec in idx.export_since(None)? {
+                if rec.category != old {
+                    continue;
+                }
+                let path = self.paths.note_path(rec.id, rec.created_at);
+                let mut note = self
+                    .files
+                    .read_note(&path)?
+                    .ok_or_else(|| CoreError::NotFound(rec.id.to_string()))?;
+                note.category = new.clone();
+                note.updated_at = OffsetDateTime::now_utc();
+                note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
+                self.files.write(&note)?;
+                idx.upsert(&record_of(&note))?;
+                search.upsert(note.id, &note.body, &note.tags)?;
+                migrated += 1;
+            }
+            Ok(())
+        })?;
+
+        // update registry + persist
+        {
+            let mut cfg = self.config.write();
+            for def in cfg.categories.items.iter_mut() {
+                if def.id == old {
+                    def.id = new.clone();
+                }
+            }
+            cfg.save(&self.paths)?;
+        }
+        Ok(migrated)
+    }
+
 }
 
 /// Build an [`IndexRecord`] from a [`Note`], deriving the card preview.
@@ -903,4 +971,33 @@ mod tests {
         let v2 = Vault::open(Some(dir.path())).unwrap();
         assert!(v2.categories().iter().all(|c| c.id != "urgent"));
     }
+
+    #[test]
+    fn rename_category_migrates_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = Vault::open(Some(dir.path())).unwrap();
+        v.ensure_initialized().unwrap();
+
+        let a = v.create_note("note A".into(), Some("todo".into())).unwrap();
+        let b = v.create_note("note B".into(), Some("todo".into())).unwrap();
+        let c = v.create_note("note C".into(), Some("idea".into())).unwrap();
+
+        let n = v.rename_category("todo".into(), "tasks".into()).unwrap();
+        assert_eq!(n, 2);
+
+        // migrated
+        assert_eq!(v.get_note(a.id).unwrap().category, "tasks");
+        assert_eq!(v.get_note(b.id).unwrap().category, "tasks");
+        // unaffected
+        assert_eq!(v.get_note(c.id).unwrap().category, "idea");
+        // registry updated
+        assert!(v.categories().iter().any(|c| c.id == "tasks"));
+        assert!(v.categories().iter().all(|c| c.id != "todo"));
+
+        // inbox not renameable
+        assert!(v.rename_category("inbox".into(), "x".into()).is_err());
+        // collision
+        assert!(v.rename_category("tasks".into(), "idea".into()).is_err());
+    }
+
 }
