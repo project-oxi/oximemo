@@ -65,6 +65,12 @@ export const dict = {
   retry: "다시 시도",
   no_match_hint: "이 조건에 맞는 메모가 없어요.",
   clear_filters: "필터 모두 지우기",
+  action_rename: "이름 변경",
+  action_unpin: "고정 해제",
+  action_move_category: "카테고리 이동",
+  action_copy_body: "본문 복사",
+  action_copy_id: "ID 복사",
+  inbox_immutable: "Inbox는 변경할 수 없어요",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

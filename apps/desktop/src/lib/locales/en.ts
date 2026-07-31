@@ -65,5 +65,11 @@ export const dict: Record<keyof typeof ko, string> = {
   retry: "Retry",
   no_match_hint: "No notes match this filter.",
   clear_filters: "Clear all filters",
+  action_rename: "Rename",
+  action_unpin: "Unpin",
+  action_move_category: "Move to category",
+  action_copy_body: "Copy body",
+  action_copy_id: "Copy ID",
+  inbox_immutable: "Inbox is immutable",
   filter_none: "All · {notes} notes",
 };
