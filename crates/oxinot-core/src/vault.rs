@@ -26,11 +26,11 @@ use crate::error::{CoreError, Result};
 use crate::hash;
 use crate::lock::{FileLock, LockKind, acquire};
 use crate::note::{
-    Cursor, IndexStats, Note, NoteFilter, NoteId, NoteSummary, Page, make_preview,
+    Cursor, IndexStats, Memo, MemoFilter, MemoId, MemoSummary, Page, make_preview,
 };
 use crate::paths::Paths;
 use crate::store::files::FileStore;
-use crate::store::index::{IndexRecord, NoteIndex, RedbIndex};
+use crate::store::index::{IndexRecord, MemoIndex, RedbIndex};
 use crate::store::search::{SearchIndex, TantivySearch};
 use crate::sync::{FullRecord, ManifestRecord};
 use crate::tags::extract_tags;
@@ -136,7 +136,7 @@ impl Vault {
 
     /// Create the vault + index directories if missing.
     pub fn ensure_initialized(&self) -> Result<()> {
-        std::fs::create_dir_all(self.paths.notes_root())?;
+        std::fs::create_dir_all(self.paths.memos_root())?;
         std::fs::create_dir_all(self.paths.trash_root())?;
         std::fs::create_dir_all(&self.paths.index_dir)?;
         Ok(())
@@ -168,18 +168,18 @@ impl Vault {
 
     // -- CRUD -------------------------------------------------------------
 
-    pub fn create_note(&self, body: String, category: Option<String>) -> Result<Note> {
+    pub fn create_memo(&self, body: String, category: Option<String>) -> Result<Memo> {
         self.ensure_initialized()?;
         let tags = extract_tags(&body);
         validate_note_input(&body, &tags)?;
         let now = OffsetDateTime::now_utc();
-        let id = NoteId::now();
+        let id = MemoId::now();
         let category = category.unwrap_or_else(|| crate::note::DEFAULT_CATEGORY.to_string());
-        let note = Note {
+        let note = Memo {
             id,
             created_at: now,
             updated_at: now,
-            hash: hash::hash_note(body.as_bytes(), false, &category),
+            hash: hash::hash_memo(body.as_bytes(), false, &category),
             pinned: false,
             category,
             tags,
@@ -194,33 +194,33 @@ impl Vault {
         Ok(note)
     }
 
-    pub fn get_note(&self, id: NoteId) -> Result<Note> {
+    pub fn get_memo(&self, id: MemoId) -> Result<Memo> {
         // Use the index to learn created_at, which pins the sharded file path.
         let created_at = self.with_redb(|idx| idx.get(id))?.map(|r| r.created_at);
         if let Some(ca) = created_at {
-            let live = self.paths.note_path(id, ca);
+            let live = self.paths.memo_path(id, ca);
             if live.exists() {
                 return self
                     .files
-                    .read_note(&live)?
+                    .read_memo(&live)?
                     .ok_or_else(|| CoreError::NotFound(id.to_string()));
             }
             let trash = self.paths.trash_path(id);
             if trash.exists() {
                 return self
                     .files
-                    .read_note(&trash)?
+                    .read_memo(&trash)?
                     .ok_or_else(|| CoreError::NotFound(id.to_string()));
             }
         }
         // Index miss (not yet indexed): scan the tree.
         for path in self
             .files
-            .list_note_files()
+            .list_memo_files()
             .iter()
             .chain(self.files.list_trash_files().iter())
         {
-            if let Ok(Some(n)) = self.files.read_note(path)
+            if let Ok(Some(n)) = self.files.read_memo(path)
                 && n.id == id
             {
                 return Ok(n);
@@ -229,14 +229,14 @@ impl Vault {
         Err(CoreError::NotFound(id.to_string()))
     }
 
-    pub fn update_note(
+    pub fn update_memo(
         &self,
-        id: NoteId,
+        id: MemoId,
         body: Option<String>,
         pinned: Option<bool>,
         category: Option<String>,
-    ) -> Result<Note> {
-        let mut note = self.get_note(id)?;
+    ) -> Result<Memo> {
+        let mut note = self.get_memo(id)?;
         if let Some(b) = body {
             note.body = b;
             note.tags = extract_tags(&note.body);
@@ -249,7 +249,7 @@ impl Vault {
         }
         validate_note_input(&note.body, &note.tags)?;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
             idx.upsert(&record_of(&note))?;
@@ -259,12 +259,12 @@ impl Vault {
     }
 
     /// Soft-delete: move to trash, mark tombstone, drop from search (§5.4).
-    pub fn delete_note(&self, id: NoteId) -> Result<()> {
-        let mut note = self.get_note(id)?;
+    pub fn delete_memo(&self, id: MemoId) -> Result<()> {
+        let mut note = self.get_memo(id)?;
         let now = OffsetDateTime::now_utc();
         note.deleted_at = Some(now);
         note.updated_at = now;
-        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
         self.files.move_to_trash(&note)?;
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
@@ -274,11 +274,11 @@ impl Vault {
         Ok(())
     }
 
-    pub fn restore_note(&self, id: NoteId) -> Result<Note> {
-        let mut note = self.get_note(id)?;
+    pub fn restore_memo(&self, id: MemoId) -> Result<Memo> {
+        let mut note = self.get_memo(id)?;
         note.deleted_at = None;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
         self.files.restore_from_trash(&note)?;
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
@@ -295,7 +295,7 @@ impl Vault {
         let mut purged = 0u64;
         self.with_redb_and_search(|idx, search| {
             for path in self.files.list_trash_files() {
-                let Ok(Some(n)) = self.files.read_note(&path) else {
+                let Ok(Some(n)) = self.files.read_memo(&path) else {
                     continue;
                 };
                 if n.deleted_at.is_some_and(|t| t < cutoff) {
@@ -312,15 +312,15 @@ impl Vault {
 
     // -- queries ----------------------------------------------------------
 
-    pub fn list_notes(
+    pub fn list_memos(
         &self,
         after: Option<Cursor>,
         limit: u32,
-        filter: NoteFilter,
-    ) -> Result<Page<NoteSummary>> {
+        filter: MemoFilter,
+    ) -> Result<Page<MemoSummary>> {
         self.with_redb(|idx| {
             let recs = idx.list(after, limit, &filter)?;
-            let items: Vec<NoteSummary> = recs.iter().map(|r| r.to_summary()).collect();
+            let items: Vec<MemoSummary> = recs.iter().map(|r| r.to_summary()).collect();
             let next_cursor = items.last().and_then(|s| {
                 serde_json::to_string(&Cursor {
                     updated_at: s.updated_at,
@@ -332,7 +332,7 @@ impl Vault {
         })
     }
 
-    pub fn search_notes(&self, query: &str, limit: u32) -> Result<Vec<NoteSummary>> {
+    pub fn search_memos(&self, query: &str, limit: u32) -> Result<Vec<MemoSummary>> {
         let _g = self.lock(LockKind::Shared)?;
         let search = TantivySearch::open(&self.paths.search_dir())?;
         let idx = RedbIndex::open(&self.paths.meta_db_path())?;
@@ -349,7 +349,7 @@ impl Vault {
         Ok(out)
     }
 
-    pub fn get_note_summary(&self, id: NoteId) -> Result<NoteSummary> {
+    pub fn get_note_summary(&self, id: MemoId) -> Result<MemoSummary> {
         self.with_redb(|idx| match idx.get(id)? {
             Some(r) => Ok(r.to_summary()),
             None => Err(CoreError::NotFound(id.to_string())),
@@ -357,10 +357,10 @@ impl Vault {
     }
 
     /// Live note counts (soft-deleted tombstones excluded).
-    pub fn note_stats(&self) -> Result<crate::note::NoteStats> {
+    pub fn memo_stats(&self) -> Result<crate::note::MemoStats> {
         self.with_redb(|idx| {
             let recs = idx.export_since(None)?;
-            let mut stats = crate::note::NoteStats::default();
+            let mut stats = crate::note::MemoStats::default();
             for r in &recs {
                 if r.deleted {
                     continue;
@@ -415,10 +415,10 @@ impl Vault {
         })
     }
 
-    pub fn export_full(&self, ids: &[NoteId]) -> Result<Vec<FullRecord>> {
+    pub fn export_full(&self, ids: &[MemoId]) -> Result<Vec<FullRecord>> {
         let mut out = Vec::with_capacity(ids.len());
         for id in ids {
-            match self.get_note(*id) {
+            match self.get_memo(*id) {
                 Ok(n) => out.push(FullRecord::from_note(&n)),
                 Err(CoreError::NotFound(_)) => { /* skip missing */ }
                 Err(e) => return Err(e),
@@ -436,9 +436,9 @@ impl Vault {
             let mut stats = IndexStats::default();
             // Collect search upserts to commit once (H1: avoids one tantivy
             // commit/fsync per note). redb upserts stay per-call; they're cheap.
-            let mut search_owned: Vec<(NoteId, String, Vec<String>)> = Vec::new();
-            for path in self.files.list_note_files() {
-                match self.files.read_note(&path) {
+            let mut search_owned: Vec<(MemoId, String, Vec<String>)> = Vec::new();
+            for path in self.files.list_memo_files() {
+                match self.files.read_memo(&path) {
                     Ok(Some(note)) => {
                         let rec = record_of(&note);
                         match idx.get(note.id)? {
@@ -466,7 +466,7 @@ impl Vault {
                 }
             }
             for path in self.files.list_trash_files() {
-                if let Ok(Some(note)) = self.files.read_note(&path) {
+                if let Ok(Some(note)) = self.files.read_memo(&path) {
                     let rec = record_of(&note);
                     idx.upsert(&rec)?;
                     search_owned.push((note.id, note.body, note.tags));
@@ -486,13 +486,27 @@ impl Vault {
             Ok(stats)
         })
     }
-
-    /// One-time-per-format migration: rebuild the index when the cached preview
-    /// format lags the current `make_preview` (or the marker is absent), so
-    /// existing notes' card previews pick up line-break preservation. Cheap and
-    /// idempotent — returns without touching the index when the marker is
-    /// current.
+    /// One-time migrations run on first use:
+    /// 1. Rename the live memo tree from `notes/` to `memos/` if the legacy
+    ///    path is non-empty and the new one is absent.
+    /// 2. Rebuild the index when the cached preview format lags the current
+    ///    `make_preview` (or the marker is absent), so existing memos' card
+    ///    previews pick up line-break preservation.
+    /// Idempotent: subsequent calls are no-ops once both markers are current.
     pub fn migrate(&self) -> Result<()> {
+        // Rename the legacy live tree to its new name BEFORE ensure_initialized,
+        // which would otherwise create an empty `memos/` and make the
+        // `!new_root.exists()` guard permanently false.
+        let old_root = self.paths.vault.join("notes");
+        let new_root = self.paths.memos_root();
+        if old_root.exists()
+            && old_root != new_root
+            && !new_root.exists()
+            && std::fs::read_dir(&old_root)?.next().is_some()
+        {
+            tracing::info!(from = %old_root.display(), to = %new_root.display(), "renaming vault memos root");
+            std::fs::rename(&old_root, &new_root)?;
+        }
         self.ensure_initialized()?;
         let marker = self.paths.index_fmt_marker_path();
         let wants = INDEX_FORMAT_VERSION.to_string();
@@ -527,7 +541,7 @@ impl Vault {
             }
             return Ok(());
         }
-        match self.files.read_note(path)? {
+        match self.files.read_memo(path)? {
             Some(note) => self.with_redb_and_search(|idx, search| {
                 idx.upsert(&record_of(&note))?;
                 search.upsert(note.id, &note.body, &note.tags)
@@ -538,7 +552,7 @@ impl Vault {
 
     /// Start the background file watcher (§5.5). The returned handle must be
     /// kept alive for the lifetime of the watch.
-    pub fn watch(&self) -> Result<crate::watcher::NoteWatcher> {
+    pub fn watch(&self) -> Result<crate::watcher::MemoWatcher> {
         let debounce = Duration::from_millis(self.config.read().index.watcher_debounce_ms as u64);
         let vault_path = self.paths.vault.clone();
         // Re-open a Vault per callback: each op takes its own lock, so the
@@ -549,8 +563,8 @@ impl Vault {
             };
             v.reindex_path(&path);
         });
-        crate::watcher::NoteWatcher::spawn(
-            vec![self.paths.notes_root(), self.paths.trash_root()],
+        crate::watcher::MemoWatcher::spawn(
+            vec![self.paths.memos_root(), self.paths.trash_root()],
             debounce,
             on_change,
         )
@@ -567,23 +581,23 @@ impl Vault {
 
         // Gather indexed ids for orphan detection.
         let all_recs = self.with_redb(|idx| idx.export_since(None))?;
-        let indexed: std::collections::HashMap<NoteId, IndexRecord> =
+        let indexed: std::collections::HashMap<MemoId, IndexRecord> =
             all_recs.iter().map(|r| (r.id, r.clone())).collect();
 
-        let mut seen: std::collections::HashSet<NoteId> = std::collections::HashSet::new();
+        let mut seen: std::collections::HashSet<MemoId> = std::collections::HashSet::new();
         for path in self
             .files
-            .list_note_files()
+            .list_memo_files()
             .iter()
             .chain(self.files.list_trash_files().iter())
         {
-            match self.files.read_note(path) {
+            match self.files.read_memo(path) {
                 Ok(Some(mut note)) => {
                     seen.insert(note.id);
                     // Categories have no format validity — only orphan/index
                     // consistency is checked here.
                     let recomputed =
-                        hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
+                        hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
                     if recomputed != note.hash {
                         // Report only *unresolved* mismatches. When --fix
                         // rewrites successfully the note is no longer a
@@ -644,7 +658,7 @@ impl Vault {
         let cutoff = OffsetDateTime::now_utc()
             - Duration::from_secs(86400 * self.config.read().general.trash_retention_days as u64);
         for path in self.files.list_trash_files() {
-            if let Ok(Some(n)) = self.files.read_note(&path)
+            if let Ok(Some(n)) = self.files.read_memo(&path)
                 && n.deleted_at.is_some_and(|t| t < cutoff)
             {
                 report.trash_expiring += 1;
@@ -693,14 +707,14 @@ impl Vault {
                 if rec.category != old {
                     continue;
                 }
-                let path = self.paths.note_path(rec.id, rec.created_at);
+                let path = self.paths.memo_path(rec.id, rec.created_at);
                 let mut note = self
                     .files
-                    .read_note(&path)?
+                    .read_memo(&path)?
                     .ok_or_else(|| CoreError::NotFound(rec.id.to_string()))?;
                 note.category = new.clone();
                 note.updated_at = OffsetDateTime::now_utc();
-                note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
+                note.hash = hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
                 self.files.write(&note)?;
                 idx.upsert(&record_of(&note))?;
                 search.upsert(note.id, &note.body, &note.tags)?;
@@ -724,8 +738,8 @@ impl Vault {
 
 }
 
-/// Build an [`IndexRecord`] from a [`Note`], deriving the card preview.
-fn record_of(n: &Note) -> IndexRecord {
+/// Build an [`IndexRecord`] from a [`Memo`], deriving the card preview.
+fn record_of(n: &Memo) -> IndexRecord {
     IndexRecord {
         id: n.id,
         created_at: n.created_at,
@@ -740,9 +754,9 @@ fn record_of(n: &Note) -> IndexRecord {
     }
 }
 
-fn id_from_path(path: &Path) -> Option<NoteId> {
+fn id_from_path(path: &Path) -> Option<MemoId> {
     let stem = path.file_stem()?.to_str()?;
-    NoteId::parse(stem).ok()
+    MemoId::parse(stem).ok()
 }
 
 /// Soft input bounds (H6). A note is a quick card, not a document; reject
@@ -783,9 +797,9 @@ fn validate_note_input(body: &str, tags: &[String]) -> Result<()> {
 #[derive(Debug, Default, serde::Serialize)]
 pub struct DoctorReport {
     pub corrupt_frontmatter: Vec<(PathBuf, String)>,
-    pub orphan_index_records: Vec<NoteId>,
+    pub orphan_index_records: Vec<MemoId>,
     pub orphan_files: Vec<PathBuf>,
-    pub hash_mismatches: Vec<NoteId>,
+    pub hash_mismatches: Vec<MemoId>,
     /// Notes whose hash was rewritten by `doctor --fix` but the write failed.
     pub hash_repair_failed: u64,
     pub index_locked: bool,
@@ -829,47 +843,47 @@ mod tests {
     #[test]
     fn create_get_update_delete_restore() {
         let (_t, v) = tmp_vault();
-        let n = v.create_note("hello world".into(), None).unwrap();
-        let got = v.get_note(n.id).unwrap();
+        let n = v.create_memo("hello world".into(), None).unwrap();
+        let got = v.get_memo(n.id).unwrap();
         assert_eq!(got.body, "hello world");
 
         let updated = v
-            .update_note(n.id, Some("edited".into()), Some(true), None)
+            .update_memo(n.id, Some("edited".into()), Some(true), None)
             .unwrap();
         assert!(updated.pinned);
         assert_ne!(updated.hash, n.hash);
 
-        v.delete_note(n.id).unwrap();
-        let trashed = v.get_note(n.id).unwrap();
+        v.delete_memo(n.id).unwrap();
+        let trashed = v.get_memo(n.id).unwrap();
         assert!(trashed.deleted_at.is_some());
 
-        v.restore_note(n.id).unwrap();
-        assert!(v.get_note(n.id).unwrap().deleted_at.is_none());
+        v.restore_memo(n.id).unwrap();
+        assert!(v.get_memo(n.id).unwrap().deleted_at.is_none());
     }
 
     #[test]
     fn list_and_search() {
         let (_t, v) = tmp_vault();
-        v.create_note("rust async runtime".into(), None).unwrap();
-        v.create_note("go goroutines".into(), None).unwrap();
-        let page = v.list_notes(None, 10, NoteFilter::default()).unwrap();
+        v.create_memo("rust async runtime".into(), None).unwrap();
+        v.create_memo("go goroutines".into(), None).unwrap();
+        let page = v.list_memos(None, 10, MemoFilter::default()).unwrap();
         assert_eq!(page.items.len(), 2);
-        let hits = v.search_notes("rust", 10).unwrap();
+        let hits = v.search_memos("rust", 10).unwrap();
         assert_eq!(hits.len(), 1);
     }
 
     #[test]
     fn list_notes_next_cursor_roundtrips_as_string() {
-        // The Tauri `list_notes(after: Option<String>)` command and the
+        // The Tauri `list_memos(after: Option<String>)` command and the
         // frontend's cursor pagination both treat `next_cursor` as a JSON
         // *string* that `Cursor::parse(&str)` can read back. This locks that
         // contract: a non-null cursor must be a string and must round-trip.
         let (_t, v) = tmp_vault();
-        v.create_note("first note".into(), None).unwrap();
-        v.create_note("second note".into(), None).unwrap();
+        v.create_memo("first note".into(), None).unwrap();
+        v.create_memo("second note".into(), None).unwrap();
 
         // limit below the count forces a non-null cursor on page 1.
-        let page = v.list_notes(None, 1, NoteFilter::default()).unwrap();
+        let page = v.list_memos(None, 1, MemoFilter::default()).unwrap();
         assert_eq!(page.items.len(), 1);
         let cursor = page.next_cursor.expect("page 1 must carry a next cursor");
         assert!(
@@ -878,13 +892,13 @@ mod tests {
         );
 
         let parsed = Cursor::parse(&cursor).expect("cursor must round-trip via Cursor::parse");
-        let page2 = v.list_notes(Some(parsed), 10, NoteFilter::default()).unwrap();
+        let page2 = v.list_memos(Some(parsed), 10, MemoFilter::default()).unwrap();
         assert_eq!(page2.items.len(), 1, "page 2 must return the remaining note");
         // The cursor on page 2 still points past its last item; the pagination
         // terminator is the NEXT fetch returning an empty page with no cursor.
         let c2 = page2.next_cursor.expect("page 2 carries a cursor");
         let page3 = v
-            .list_notes(Some(Cursor::parse(&c2).unwrap()), 10, NoteFilter::default())
+            .list_memos(Some(Cursor::parse(&c2).unwrap()), 10, MemoFilter::default())
             .unwrap();
         assert!(page3.items.is_empty(), "page 3 must be empty");
         assert!(page3.next_cursor.is_none(), "empty page must carry no cursor");
@@ -893,7 +907,7 @@ mod tests {
     #[test]
     fn export_manifest_and_full_roundtrip() {
         let (_t, v) = tmp_vault();
-        let n = v.create_note("body text".into(), None).unwrap();
+        let n = v.create_memo("body text".into(), None).unwrap();
         let manifest = v.export_manifest(None).unwrap();
         assert_eq!(manifest.len(), 1);
         let full = v.export_full(&[n.id]).unwrap();
@@ -903,7 +917,7 @@ mod tests {
     #[test]
     fn reindex_is_idempotent() {
         let (_t, v) = tmp_vault();
-        v.create_note("one".into(), None).unwrap();
+        v.create_memo("one".into(), None).unwrap();
         let s1 = v.reindex().unwrap();
         let s2 = v.reindex().unwrap();
         assert_eq!(s2.added, 0);
@@ -913,17 +927,17 @@ mod tests {
     #[test]
     fn derived_tags_from_body_end_to_end() {
         let (_t, v) = tmp_vault();
-        let n = v.create_note("회의록 #work #urgent".into(), None).unwrap();
-        let got = v.get_note(n.id).unwrap();
+        let n = v.create_memo("회의록 #work #urgent".into(), None).unwrap();
+        let got = v.get_memo(n.id).unwrap();
         // Tags are derived from the body, normalized + lowercased.
         assert_eq!(got.tags, vec!["work", "urgent"]);
 
         // include filter (AND) matches a note carrying the tag.
         let inc = v
-            .list_notes(
+            .list_memos(
                 None,
                 10,
-                NoteFilter {
+                MemoFilter {
                     include_tags: vec!["work".into()],
                     match_all: true,
                     ..Default::default()
@@ -934,10 +948,10 @@ mod tests {
 
         // exclude removes the note that also carries the excluded tag.
         let exc = v
-            .list_notes(
+            .list_memos(
                 None,
                 10,
-                NoteFilter {
+                MemoFilter {
                     include_tags: vec!["work".into()],
                     exclude_tags: vec!["urgent".into()],
                     ..Default::default()
@@ -1008,18 +1022,18 @@ mod tests {
         let v = Vault::open(Some(dir.path())).unwrap();
         v.ensure_initialized().unwrap();
 
-        let a = v.create_note("note A".into(), Some("todo".into())).unwrap();
-        let b = v.create_note("note B".into(), Some("todo".into())).unwrap();
-        let c = v.create_note("note C".into(), Some("idea".into())).unwrap();
+        let a = v.create_memo("note A".into(), Some("todo".into())).unwrap();
+        let b = v.create_memo("note B".into(), Some("todo".into())).unwrap();
+        let c = v.create_memo("note C".into(), Some("idea".into())).unwrap();
 
         let n = v.rename_category("todo".into(), "tasks".into()).unwrap();
         assert_eq!(n, 2);
 
         // migrated
-        assert_eq!(v.get_note(a.id).unwrap().category, "tasks");
-        assert_eq!(v.get_note(b.id).unwrap().category, "tasks");
+        assert_eq!(v.get_memo(a.id).unwrap().category, "tasks");
+        assert_eq!(v.get_memo(b.id).unwrap().category, "tasks");
         // unaffected
-        assert_eq!(v.get_note(c.id).unwrap().category, "idea");
+        assert_eq!(v.get_memo(c.id).unwrap().category, "idea");
         // registry updated
         assert!(v.categories().iter().any(|c| c.id == "tasks"));
         assert!(v.categories().iter().all(|c| c.id != "todo"));
@@ -1030,4 +1044,40 @@ mod tests {
         assert!(v.rename_category("tasks".into(), "idea".into()).is_err());
     }
 
+    #[test]
+    fn migrate_renames_legacy_notes_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = Vault::open(Some(dir.path())).unwrap();
+        v.ensure_initialized().unwrap();
+        let _ = v.create_memo("hello".into(), None).unwrap();
+        let live = v.paths.memos_root();
+        let legacy = v.paths.vault.join("notes");
+        std::fs::rename(&live, &legacy).unwrap();
+        assert!(legacy.exists());
+        assert!(!live.exists());
+        // Idempotent on a fresh open: no-op.
+        let v2 = Vault::open(Some(dir.path())).unwrap();
+        v2.migrate().unwrap();
+        assert!(live.exists());
+        assert!(!legacy.exists());
+    }
+
+    #[test]
+    fn migrate_preserves_existing_memos_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = Vault::open(Some(dir.path())).unwrap();
+        v.ensure_initialized().unwrap();
+        let live = v.paths.memos_root();
+        let legacy = v.paths.vault.join("notes");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("stale.md"), "stale").unwrap();
+        let new_id = v.create_memo("fresh".into(), None).unwrap();
+        assert!(live.exists());
+        assert!(legacy.exists());
+
+        v.migrate().unwrap();
+        assert!(live.exists());
+        assert!(legacy.exists());
+        assert!(v.get_memo(new_id.id).is_ok());
+    }
 }

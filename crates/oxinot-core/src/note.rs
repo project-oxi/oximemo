@@ -14,16 +14,16 @@ use crate::error::{CoreError, Result};
 /// ids are time-ordered and usable as a synchronization tie-breaker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct NoteId(pub Uuid);
+pub struct MemoId(pub Uuid);
 
-impl NoteId {
+impl MemoId {
     /// Mint a new UUIDv7 id (creation time = now).
     pub fn now() -> Self {
         Self(Uuid::now_v7())
     }
 
     pub fn parse(s: &str) -> Result<Self> {
-        let u = Uuid::parse_str(s.trim()).map_err(|_| CoreError::InvalidNoteId(s.into()))?;
+        let u = Uuid::parse_str(s.trim()).map_err(|_| CoreError::InvalidMemoId(s.into()))?;
         Ok(Self(u))
     }
 
@@ -32,13 +32,13 @@ impl NoteId {
     }
 }
 
-impl std::fmt::Display for NoteId {
+impl std::fmt::Display for MemoId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.hyphenated())
     }
 }
 
-impl std::str::FromStr for NoteId {
+impl std::str::FromStr for MemoId {
     type Err = CoreError;
     fn from_str(s: &str) -> Result<Self> {
         Self::parse(s)
@@ -49,9 +49,9 @@ impl std::str::FromStr for NoteId {
 /// algorithm prefix lets us migrate later without rehashing history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct NoteHash(pub String);
+pub struct MemoHash(pub String);
 
-impl NoteHash {
+impl MemoHash {
     pub const ALGO: &'static str = "b3";
 
     pub fn new(hex: impl Into<String>) -> Self {
@@ -68,7 +68,7 @@ impl NoteHash {
     }
 }
 
-impl std::fmt::Display for NoteHash {
+impl std::fmt::Display for MemoHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
     }
@@ -83,7 +83,7 @@ pub const DEFAULT_CATEGORY: &str = "inbox";
 pub struct Cursor {
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
-    pub id: NoteId,
+    pub id: MemoId,
 }
 
 impl Cursor {
@@ -95,7 +95,7 @@ impl Cursor {
 
     /// Ordering used for pagination and export: newer (larger updated_at, then
     /// larger id) sorts first.
-    pub fn sort_key(&self) -> (OffsetDateTime, NoteId) {
+    pub fn sort_key(&self) -> (OffsetDateTime, MemoId) {
         (self.updated_at, self.id)
     }
 }
@@ -114,13 +114,13 @@ impl Ord for Cursor {
 
 /// A complete note: its body plus all metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Note {
-    pub id: NoteId,
+pub struct Memo {
+    pub id: MemoId,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
-    pub hash: NoteHash,
+    pub hash: MemoHash,
     pub pinned: bool,
     #[serde(default = "default_category")]
     pub category: String,
@@ -140,13 +140,13 @@ pub fn default_category() -> String {
 
 /// Lightweight projection used by listings, search results and exports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NoteSummary {
-    pub id: NoteId,
+pub struct MemoSummary {
+    pub id: MemoId,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
-    pub hash: NoteHash,
+    pub hash: MemoHash,
     pub pinned: bool,
     #[serde(default = "default_category")]
     pub category: String,
@@ -155,13 +155,13 @@ pub struct NoteSummary {
     pub deleted: bool,
 }
 
-impl NoteSummary {
+impl MemoSummary {
     /// Max characters kept in a card preview.
     pub const PREVIEW_MAX: usize = 280;
 }
 
-impl From<Note> for NoteSummary {
-    fn from(n: Note) -> Self {
+impl From<Memo> for MemoSummary {
+    fn from(n: Memo) -> Self {
         let deleted = n.deleted_at.is_some();
         Self {
             id: n.id,
@@ -187,7 +187,7 @@ pub fn make_preview(body: &str) -> String {
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    truncate_chars(&joined, NoteSummary::PREVIEW_MAX)
+    truncate_chars(&joined, MemoSummary::PREVIEW_MAX)
 }
 
 /// Truncate on a char boundary, appending an ellipsis when truncated.
@@ -210,10 +210,10 @@ pub struct Page<T> {
 /// Filter applied to listings (§4.3, §7.5). Composite: include-tag set
 /// (AND or OR), exclude-tag set, category set (OR membership), pin, deleted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct NoteFilter {
-    /// Note must contain these tags. Empty = no constraint.
+pub struct MemoFilter {
+    /// Memo must contain these tags. Empty = no constraint.
     pub include_tags: Vec<String>,
-    /// Note must contain NONE of these tags.
+    /// Memo must contain NONE of these tags.
     pub exclude_tags: Vec<String>,
     /// `true` = note must contain ALL `include_tags` (AND); `false` = ANY (OR).
     pub match_all: bool,
@@ -224,8 +224,8 @@ pub struct NoteFilter {
     pub include_deleted: bool,
 }
 
-impl NoteFilter {
-    pub fn matches(&self, s: &NoteSummary) -> bool {
+impl MemoFilter {
+    pub fn matches(&self, s: &MemoSummary) -> bool {
         if !self.include_deleted && s.deleted {
             return false;
         }
@@ -274,7 +274,7 @@ pub struct IndexStats {
 
 /// Live vault statistics (excludes soft-deleted tombstones).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NoteStats {
+pub struct MemoStats {
     pub notes: u64,
     pub pinned: u64,
 }
@@ -300,7 +300,7 @@ mod tests {
         // A long body truncates on a char boundary with an ellipsis.
         let big = "a\n".repeat(400);
         let pv = make_preview(&big);
-        assert!(pv.chars().count() <= NoteSummary::PREVIEW_MAX);
+        assert!(pv.chars().count() <= MemoSummary::PREVIEW_MAX);
         assert!(pv.ends_with('\u{2026}'));
     }
 }
@@ -310,12 +310,12 @@ mod filter_tests {
     use super::*;
     use time::OffsetDateTime;
 
-    fn sum(tags: &[&str], category: &str, pinned: bool) -> NoteSummary {
-        NoteSummary {
-            id: NoteId::now(),
+    fn sum(tags: &[&str], category: &str, pinned: bool) -> MemoSummary {
+        MemoSummary {
+            id: MemoId::now(),
             created_at: OffsetDateTime::now_utc(),
             updated_at: OffsetDateTime::now_utc(),
-            hash: NoteHash::new("h"),
+            hash: MemoHash::new("h"),
             pinned,
             category: category.to_string(),
             tags: tags.iter().map(|t| t.to_string()).collect(),
@@ -326,7 +326,7 @@ mod filter_tests {
 
     #[test]
     fn include_or_and_exclude() {
-        let f = NoteFilter {
+        let f = MemoFilter {
             include_tags: vec!["a".into(), "b".into()],
             exclude_tags: vec!["x".into()],
             match_all: false,
@@ -340,7 +340,7 @@ mod filter_tests {
 
     #[test]
     fn include_and_requires_all() {
-        let f = NoteFilter {
+        let f = MemoFilter {
             include_tags: vec!["a".into(), "b".into()],
             match_all: true,
             ..Default::default()
@@ -351,12 +351,12 @@ mod filter_tests {
 
     #[test]
     fn category_membership() {
-        let f = NoteFilter {
+        let f = MemoFilter {
             categories: vec!["todo".into()],
             ..Default::default()
         };
         assert!(f.matches(&sum(&[], "todo", false)));
         assert!(!f.matches(&sum(&[], "idea", false)));
-        assert!(NoteFilter::default().matches(&sum(&[], "inbox", false)));
+        assert!(MemoFilter::default().matches(&sum(&[], "inbox", false)));
     }
 }

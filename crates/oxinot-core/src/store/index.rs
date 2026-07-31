@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::error::Result;
-use crate::note::{Cursor, NoteFilter, NoteHash, NoteId, NoteSummary};
+use crate::note::{Cursor, MemoFilter, MemoHash, MemoId, MemoSummary};
 
 const BY_ID: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new("by_id");
 const BY_SORT: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new("by_sort");
@@ -24,12 +24,12 @@ const BY_SORT: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new(
 /// A note's indexed metadata (no body). Stored as the index value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexRecord {
-    pub id: NoteId,
+    pub id: MemoId,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
-    pub hash: NoteHash,
+    pub hash: MemoHash,
     pub pinned: bool,
     #[serde(default = "crate::note::default_category")]
     pub category: String,
@@ -43,8 +43,8 @@ pub struct IndexRecord {
 }
 
 impl IndexRecord {
-    pub fn to_summary(&self) -> NoteSummary {
-        NoteSummary {
+    pub fn to_summary(&self) -> MemoSummary {
+        MemoSummary {
             id: self.id,
             created_at: self.created_at,
             updated_at: self.updated_at,
@@ -60,16 +60,16 @@ impl IndexRecord {
 
 /// Swappable storage boundary (§5.1). A future SQLite+FTS5 backend implements
 /// this same trait.
-pub trait NoteIndex: Send + Sync {
+pub trait MemoIndex: Send + Sync {
     fn upsert(&self, rec: &IndexRecord) -> Result<()>;
-    fn remove(&self, id: NoteId) -> Result<()>;
-    fn get(&self, id: NoteId) -> Result<Option<IndexRecord>>;
+    fn remove(&self, id: MemoId) -> Result<()>;
+    fn get(&self, id: MemoId) -> Result<Option<IndexRecord>>;
     /// Cursor-paginated, newest-first listing with in-memory filter.
     fn list(
         &self,
         after: Option<Cursor>,
         limit: u32,
-        filter: &NoteFilter,
+        filter: &MemoFilter,
     ) -> Result<Vec<IndexRecord>>;
     /// Notes with `updated_at >= since` (newest-first). `None` = all notes.
     fn export_since(&self, since: Option<OffsetDateTime>) -> Result<Vec<IndexRecord>>;
@@ -77,7 +77,7 @@ pub trait NoteIndex: Send + Sync {
     fn clear(&self) -> Result<()>;
 }
 
-/// `redb`-backed [`NoteIndex`].
+/// `redb`-backed [`MemoIndex`].
 pub struct RedbIndex {
     db: redb::Database,
 }
@@ -100,7 +100,7 @@ impl RedbIndex {
     }
 }
 
-impl NoteIndex for RedbIndex {
+impl MemoIndex for RedbIndex {
     fn upsert(&self, rec: &IndexRecord) -> Result<()> {
         let uuid = rec.id.as_uuid();
         let id_slice: &[u8] = uuid.as_bytes();
@@ -125,7 +125,7 @@ impl NoteIndex for RedbIndex {
         Ok(())
     }
 
-    fn remove(&self, id: NoteId) -> Result<()> {
+    fn remove(&self, id: MemoId) -> Result<()> {
         let uuid = id.as_uuid();
         let id_slice: &[u8] = uuid.as_bytes();
         let tx = self.db.begin_write()?;
@@ -143,7 +143,7 @@ impl NoteIndex for RedbIndex {
         Ok(())
     }
 
-    fn get(&self, id: NoteId) -> Result<Option<IndexRecord>> {
+    fn get(&self, id: MemoId) -> Result<Option<IndexRecord>> {
         let uuid = id.as_uuid();
         let id_slice: &[u8] = uuid.as_bytes();
         let tx = self.db.begin_read()?;
@@ -158,7 +158,7 @@ impl NoteIndex for RedbIndex {
         &self,
         after: Option<Cursor>,
         limit: u32,
-        filter: &NoteFilter,
+        filter: &MemoFilter,
     ) -> Result<Vec<IndexRecord>> {
         let tx = self.db.begin_read()?;
         let by_sort = tx.open_table(BY_SORT)?;
@@ -238,7 +238,7 @@ impl NoteIndex for RedbIndex {
 
 /// Encode a sort key: 8 bytes (inverted timestamp) ++ 16 bytes (inverted id),
 /// so ascending byte order is newest-first.
-fn encode_sort(updated_at: OffsetDateTime, id: NoteId) -> [u8; 24] {
+fn encode_sort(updated_at: OffsetDateTime, id: MemoId) -> [u8; 24] {
     let mut out = [0u8; 24];
     let nanos = updated_at.unix_timestamp_nanos();
     let clamped = nanos.clamp(0, i64::MAX as i128) as i64;
@@ -258,12 +258,12 @@ mod tests {
     use tempfile::TempDir;
 
 
-    fn rec(id: NoteId, ts: OffsetDateTime) -> IndexRecord {
+    fn rec(id: MemoId, ts: OffsetDateTime) -> IndexRecord {
         IndexRecord {
             id,
             created_at: ts,
             updated_at: ts,
-            hash: NoteHash::new("deadbeef"),
+            hash: MemoHash::new("deadbeef"),
             pinned: false,
             category: "inbox".to_string(),
             tags: vec![],
@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn upsert_get_remove() {
         let (_t, idx) = open_tmp();
-        let id = NoteId::now();
+        let id = MemoId::now();
         let r = rec(id, OffsetDateTime::now_utc());
         idx.upsert(&r).unwrap();
         assert_eq!(idx.get(id).unwrap().unwrap().id, id);
@@ -293,12 +293,12 @@ mod tests {
     fn list_is_newest_first_with_pagination() {
         let (_t, idx) = open_tmp();
         let base = OffsetDateTime::now_utc();
-        let ids: Vec<NoteId> = (0..5).map(|_| NoteId::now()).collect();
+        let ids: Vec<MemoId> = (0..5).map(|_| MemoId::now()).collect();
         for (i, id) in ids.iter().enumerate() {
             idx.upsert(&rec(*id, base + time::Duration::seconds(i as i64)))
                 .unwrap();
         }
-        let page = idx.list(None, 3, &NoteFilter::default()).unwrap();
+        let page = idx.list(None, 3, &MemoFilter::default()).unwrap();
         assert_eq!(page.len(), 3);
         // newest first: last-inserted (largest ts) comes first
         assert_eq!(page[0].id, *ids.last().unwrap());
@@ -306,7 +306,7 @@ mod tests {
             updated_at: page[2].updated_at,
             id: page[2].id,
         };
-        let next = idx.list(Some(cursor), 3, &NoteFilter::default()).unwrap();
+        let next = idx.list(Some(cursor), 3, &MemoFilter::default()).unwrap();
         assert_eq!(next.len(), 2);
     }
 }

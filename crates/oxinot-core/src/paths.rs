@@ -3,7 +3,7 @@
 //! Layout:
 //! ```text
 //! <vault>/
-//! ├── notes/<YYYY>/<MM>/<id>.md
+//! ├── memos/<YYYY>/<MM>/<id>.md
 //! ├── .trash/<id>.md
 //! └── config.toml
 //! <app_support>/index/
@@ -16,7 +16,7 @@
 use std::path::{Path, PathBuf};
 use time::{Month, OffsetDateTime};
 
-use crate::note::NoteId;
+use crate::note::MemoId;
 
 pub const APP_SUPPORT_SUBDIR: &str = "com.oxinot.app";
 pub const VAULT_DEFAULT_SUBDIR: &str = "vault";
@@ -24,7 +24,7 @@ pub const INDEX_SUBDIR: &str = "index";
 pub const META_DB_NAME: &str = "meta.redb";
 pub const META_LOCK_NAME: &str = "meta.redb.lock";
 pub const SEARCH_SUBDIR: &str = "search";
-pub const NOTES_DIR: &str = "notes";
+pub const MEMOS_DIR: &str = "memos";
 pub const TRASH_DIR: &str = ".trash";
 pub const BY_VAULT_SUBDIR: &str = "by-vault";
 pub const CONFIG_NAME: &str = "config.toml";
@@ -67,8 +67,8 @@ impl Paths {
         }
     }
 
-    pub fn notes_root(&self) -> PathBuf {
-        self.vault.join(NOTES_DIR)
+    pub fn memos_root(&self) -> PathBuf {
+        self.vault.join(MEMOS_DIR)
     }
 
     pub fn trash_root(&self) -> PathBuf {
@@ -99,15 +99,15 @@ impl Paths {
     }
 
     /// Where a live note's file lives, sharded by creation year/month.
-    pub fn note_path(&self, id: NoteId, created_at: OffsetDateTime) -> PathBuf {
+    pub fn memo_path(&self, id: MemoId, created_at: OffsetDateTime) -> PathBuf {
         let (year, month) = shard(created_at);
-        self.notes_root()
+        self.memos_root()
             .join(year.to_string())
             .join(month)
             .join(format!("{}.md", id))
     }
 
-    pub fn trash_path(&self, id: NoteId) -> PathBuf {
+    pub fn trash_path(&self, id: MemoId) -> PathBuf {
         self.trash_root().join(format!("{}.md", id))
     }
 }

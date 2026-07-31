@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use oxinot_core::Vault;
-use oxinot_core::note::{NoteFilter, NoteId};
+use oxinot_core::note::{MemoFilter, MemoId};
 use oxinot_core::store::files::FileStore;
 
 use crate::format::{self, Format};
@@ -47,7 +47,7 @@ pub fn cmd_new(
     if body.is_empty() {
         return Err(anyhow!("refusing to create an empty note"));
     }
-    let note = vault.create_note(body, color)?;
+    let note = vault.create_memo(body, color)?;
     println!("{}", note.id);
     Ok(())
 }
@@ -60,24 +60,24 @@ pub fn cmd_list(
     pinned: bool,
     fmt: Format,
 ) -> Result<()> {
-    let filter = NoteFilter {
+    let filter = MemoFilter {
         include_tags: tag,
         match_all: false,
         pinned_only: pinned,
         ..Default::default()
     };
-    let page = vault.list_notes(None, limit, filter)?;
+    let page = vault.list_memos(None, limit, filter)?;
     format::print_summaries(&page.items, fmt)
 }
 
 /// `oxinot get`.
-pub fn cmd_get(vault: &Vault, id: NoteId, md: bool) -> Result<()> {
-    let note = vault.get_note(id)?;
+pub fn cmd_get(vault: &Vault, id: MemoId, md: bool) -> Result<()> {
+    let note = vault.get_memo(id)?;
     if md {
         // Emit the exact on-disk representation (frontmatter + body).
         println!("{}", FileStore::serialize(&note)?);
     } else {
-        let summary: oxinot_core::note::NoteSummary = oxinot_core::note::NoteSummary::from(note);
+        let summary: oxinot_core::note::MemoSummary = oxinot_core::note::MemoSummary::from(note);
         println!("{}", serde_json::to_string_pretty(&summary)?);
     }
     Ok(())
@@ -85,7 +85,7 @@ pub fn cmd_get(vault: &Vault, id: NoteId, md: bool) -> Result<()> {
 
 /// `oxinot search`.
 pub fn cmd_search(vault: &Vault, query: String, limit: u32, fmt: Format) -> Result<()> {
-    let hits = vault.search_notes(&query, limit)?;
+    let hits = vault.search_memos(&query, limit)?;
     format::print_summaries(&hits, fmt)
 }
 
@@ -110,7 +110,7 @@ pub fn cmd_export(
         (IdsMode::All, true) => {
             let since = parse_since(since)?;
             let manifest = vault.export_manifest(since)?;
-            let ids: Vec<NoteId> = manifest.iter().map(|m| m.id).collect();
+            let ids: Vec<MemoId> = manifest.iter().map(|m| m.id).collect();
             let items = vault.export_full(&ids)?;
             format::print_full(&items, fmt)
         }
@@ -122,8 +122,8 @@ pub fn cmd_export(
 }
 
 /// `oxinot delete` — soft-delete (trash).
-pub fn cmd_delete(vault: &Vault, id: NoteId) -> Result<()> {
-    vault.delete_note(id)?;
+pub fn cmd_delete(vault: &Vault, id: MemoId) -> Result<()> {
+    vault.delete_memo(id)?;
     println!("trashed {}", id);
     Ok(())
 }
@@ -163,7 +163,7 @@ pub fn cmd_doctor(vault: &Vault, fix: bool) -> Result<()> {
 
 enum IdsMode {
     All,
-    Some(Vec<NoteId>),
+    Some(Vec<MemoId>),
 }
 
 impl IdsMode {
@@ -198,13 +198,13 @@ impl IdsMode {
     }
 }
 
-fn parse_ids<'a, I: Iterator<Item = &'a str>>(it: I) -> Result<Vec<NoteId>> {
+fn parse_ids<'a, I: Iterator<Item = &'a str>>(it: I) -> Result<Vec<MemoId>> {
     let mut out = Vec::new();
     for s in it {
         if s.is_empty() {
             continue;
         }
-        out.push(NoteId::parse(s).with_context(|| format!("invalid id: {s}"))?);
+        out.push(MemoId::parse(s).with_context(|| format!("invalid id: {s}"))?);
     }
     Ok(out)
 }

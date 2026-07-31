@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 use oxinot_core::Vault;
-use oxinot_core::note::NoteId;
+use oxinot_core::note::MemoId;
 
 mod commands;
 mod format;
@@ -34,7 +34,7 @@ struct Cli {
 enum Cmd {
     /// Create a note from an argument or stdin.
     New {
-        /// Note body. If omitted, reads from stdin.
+        /// Memo body. If omitted, reads from stdin.
         text: Option<String>,
         /// Inline tag appended to the body as `#TAG` (repeatable).
         #[arg(long = "tag", value_name = "TAG")]
@@ -146,6 +146,7 @@ fn main() -> ExitCode {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let vault = Vault::open(cli.vault.as_deref())?;
+    vault.migrate()?;
     match cli.cmd {
         Cmd::New { text, tags, color } => commands::cmd_new(&vault, text, tags, color),
         Cmd::List {
@@ -193,8 +194,8 @@ fn run() -> Result<()> {
     }
 }
 
-fn parse_id(s: &str) -> Result<NoteId> {
-    NoteId::parse(s).map_err(|e| anyhow!("invalid id `{s}`: {e}"))
+fn parse_id(s: &str) -> Result<MemoId> {
+    MemoId::parse(s).map_err(|e| anyhow!("invalid id `{s}`: {e}"))
 }
 
 fn init_tracing() {

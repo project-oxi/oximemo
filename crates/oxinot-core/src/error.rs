@@ -64,7 +64,7 @@ pub enum CoreError {
     NotFound(String),
 
     #[error("invalid note id: {0}")]
-    InvalidNoteId(String),
+    InvalidMemoId(String),
 
     /// A file existed but its frontmatter could not be parsed. The watcher and
     /// `doctor` treat this as recoverable; body-only content is still indexed.

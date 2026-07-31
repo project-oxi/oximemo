@@ -13,18 +13,18 @@ use tantivy::schema::{Field, STORED, STRING, Schema, TEXT};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term, doc};
 
 use crate::error::{CoreError, Result};
-use crate::note::NoteId;
+use crate::note::MemoId;
 
 /// A single search upsert, used for batched reindex commits (§5.6).
 pub struct Upsert<'a> {
-    pub id: NoteId,
+    pub id: MemoId,
     pub body: &'a str,
     pub tags: &'a [String],
 }
 
 /// Swappable search boundary (§5.1).
 pub trait SearchIndex: Send + Sync {
-    fn upsert(&self, id: NoteId, body: &str, tags: &[String]) -> Result<()>;
+    fn upsert(&self, id: MemoId, body: &str, tags: &[String]) -> Result<()>;
     /// Upsert many notes in one transaction. The default loops [`Self::upsert`];
     /// `TantivySearch` overrides it to commit once for fast bulk reindex.
     fn upsert_batch(&self, notes: &[Upsert<'_>]) -> Result<()> {
@@ -33,8 +33,8 @@ pub trait SearchIndex: Send + Sync {
         }
         Ok(())
     }
-    fn remove(&self, id: NoteId) -> Result<()>;
-    fn search(&self, query: &str, limit: u32) -> Result<Vec<NoteId>>;
+    fn remove(&self, id: MemoId) -> Result<()>;
+    fn search(&self, query: &str, limit: u32) -> Result<Vec<MemoId>>;
     fn clear(&self) -> Result<()>;
 }
 
@@ -85,13 +85,13 @@ impl TantivySearch {
         Ok(guard)
     }
 
-    fn id_term(&self, id: NoteId) -> Term {
+    fn id_term(&self, id: MemoId) -> Term {
         Term::from_field_text(self.id_field, &id.to_string())
     }
 }
 
 impl SearchIndex for TantivySearch {
-    fn upsert(&self, id: NoteId, body: &str, tags: &[String]) -> Result<()> {
+    fn upsert(&self, id: MemoId, body: &str, tags: &[String]) -> Result<()> {
         let mut guard = self.ensure_writer()?;
         let writer = guard.as_mut().expect("writer initialized");
         writer.delete_term(self.id_term(id));
@@ -124,7 +124,7 @@ impl SearchIndex for TantivySearch {
         Ok(())
     }
 
-    fn remove(&self, id: NoteId) -> Result<()> {
+    fn remove(&self, id: MemoId) -> Result<()> {
         let mut guard = self.ensure_writer()?;
         let writer = guard.as_mut().expect("writer initialized");
         writer.delete_term(self.id_term(id));
@@ -133,7 +133,7 @@ impl SearchIndex for TantivySearch {
         Ok(())
     }
 
-    fn search(&self, query: &str, limit: u32) -> Result<Vec<NoteId>> {
+    fn search(&self, query: &str, limit: u32) -> Result<Vec<MemoId>> {
         let searcher = self.reader.searcher();
         let parser = QueryParser::for_index(&self.index, vec![self.body_field, self.tags_field]);
         let q = parser.parse_query(query)?;
@@ -144,7 +144,7 @@ impl SearchIndex for TantivySearch {
             let d: tantivy::TantivyDocument = searcher.doc(addr)?;
             if let Some(v) = d.get_first(self.id_field)
                 && let tantivy::schema::OwnedValue::Str(s) = v
-                && let Ok(id) = NoteId::parse(s)
+                && let Ok(id) = MemoId::parse(s)
             {
                 out.push(id);
             }
@@ -186,7 +186,7 @@ mod tests {
     fn index_and_search() {
         let dir = TempDir::new().unwrap();
         let s = TantivySearch::open(dir.path()).unwrap();
-        let id = NoteId::now();
+        let id = MemoId::now();
         s.upsert(id, "the quick brown fox", &["animal".into()])
             .unwrap();
         let hits = s.search("quick", 10).unwrap();
@@ -197,7 +197,7 @@ mod tests {
     fn remove_drops_from_results() {
         let dir = TempDir::new().unwrap();
         let s = TantivySearch::open(dir.path()).unwrap();
-        let id = NoteId::now();
+        let id = MemoId::now();
         s.upsert(id, "sphinx of black quartz", &[]).unwrap();
         s.remove(id).unwrap();
         assert!(s.search("quartz", 10).unwrap().is_empty());

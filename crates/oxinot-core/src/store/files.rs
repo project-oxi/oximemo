@@ -16,18 +16,18 @@ use time::OffsetDateTime;
 
 use crate::error::{CoreError, Result};
 use crate::hash;
-use crate::note::{Note, NoteId};
+use crate::note::{Memo, MemoId};
 use crate::paths::Paths;
 
 /// TOML frontmatter payload. Field order matches the on-disk example in §5.2.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Frontmatter {
-    pub id: NoteId,
+    pub id: MemoId,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
-    pub hash: crate::note::NoteHash,
+    pub hash: crate::note::MemoHash,
     #[serde(default)]
     pub pinned: bool,
     #[serde(default = "crate::note::default_category")]
@@ -39,7 +39,7 @@ pub struct Frontmatter {
 }
 
 impl Frontmatter {
-    pub fn from_note(n: &Note) -> Self {
+    pub fn from_note(n: &Memo) -> Self {
         Self {
             id: n.id,
             created_at: n.created_at,
@@ -57,7 +57,7 @@ impl Frontmatter {
 #[derive(Debug)]
 pub enum ParsedFile {
     /// A well-formed note: valid frontmatter + body.
-    Note { fm: Frontmatter, body: String },
+    Memo { fm: Frontmatter, body: String },
     /// A file with no frontmatter (first line was not `+++`). External/legacy.
     BodyOnly { body: String },
 }
@@ -65,7 +65,7 @@ pub enum ParsedFile {
 impl ParsedFile {
     pub fn body(&self) -> &str {
         match self {
-            ParsedFile::Note { body, .. } => body,
+            ParsedFile::Memo { body, .. } => body,
             ParsedFile::BodyOnly { body } => body,
         }
     }
@@ -86,7 +86,7 @@ impl FileStore {
     }
 
     /// Serialize a note to its on-disk representation (frontmatter + body).
-    pub fn serialize(note: &Note) -> Result<String> {
+    pub fn serialize(note: &Memo) -> Result<String> {
         let fm = Frontmatter::from_note(note);
         let toml = toml::to_string(&fm)?;
         let mut out = String::with_capacity(toml.len() + note.body.len() + 16);
@@ -113,7 +113,7 @@ impl FileStore {
                         path: PathBuf::new(),
                         reason: e.to_string(),
                     })?;
-                Ok(ParsedFile::Note {
+                Ok(ParsedFile::Memo {
                     fm,
                     body: body.to_string(),
                 })
@@ -134,19 +134,19 @@ impl FileStore {
         })
     }
 
-    /// Parse into a complete [`Note`], recomputing the content hash from the
+    /// Parse into a complete [`Memo`], recomputing the content hash from the
     /// body. Returns `None` for body-only files (no identity to attach).
-    pub fn read_note(&self, path: &Path) -> Result<Option<Note>> {
+    pub fn read_memo(&self, path: &Path) -> Result<Option<Memo>> {
         let content = std::fs::read_to_string(path)?;
         match Self::parse(&content)? {
             ParsedFile::BodyOnly { .. } => Ok(None),
-            ParsedFile::Note { fm, body } => {
+            ParsedFile::Memo { fm, body } => {
                 let tags = crate::tags::extract_tags(&body);
-                let note = Note {
+                let note = Memo {
                     id: fm.id,
                     created_at: fm.created_at,
                     updated_at: fm.updated_at,
-                    hash: hash::hash_note(body.as_bytes(), fm.pinned, &fm.category),
+                    hash: hash::hash_memo(body.as_bytes(), fm.pinned, &fm.category),
                     pinned: fm.pinned,
                     category: fm.category,
                     tags,
@@ -160,11 +160,11 @@ impl FileStore {
 
     /// Atomically write a note to its sharded path (or trash path when
     /// `deleted_at` is set). Returns the path written.
-    pub fn write(&self, note: &Note) -> Result<PathBuf> {
+    pub fn write(&self, note: &Memo) -> Result<PathBuf> {
         let path = if note.deleted_at.is_some() {
             self.paths.trash_path(note.id)
         } else {
-            self.paths.note_path(note.id, note.created_at)
+            self.paths.memo_path(note.id, note.created_at)
         };
         let text = Self::serialize(note)?;
         atomic_write(&path, text.as_bytes())?;
@@ -173,9 +173,9 @@ impl FileStore {
 
     /// Move a note's file from the live tree into the trash. Idempotent if the
     /// file is already trashed. Returns the trash path.
-    pub fn move_to_trash(&self, note: &Note) -> Result<PathBuf> {
+    pub fn move_to_trash(&self, note: &Memo) -> Result<PathBuf> {
         std::fs::create_dir_all(self.paths.trash_root())?;
-        let live = self.paths.note_path(note.id, note.created_at);
+        let live = self.paths.memo_path(note.id, note.created_at);
         let trash = self.paths.trash_path(note.id);
         if trash.exists() {
             return Ok(trash);
@@ -195,8 +195,8 @@ impl FileStore {
     }
 
     /// Restore a note from the trash back to its live path.
-    pub fn restore_from_trash(&self, note: &Note) -> Result<PathBuf> {
-        let live = self.paths.note_path(note.id, note.created_at);
+    pub fn restore_from_trash(&self, note: &Memo) -> Result<PathBuf> {
+        let live = self.paths.memo_path(note.id, note.created_at);
         let trash = self.paths.trash_path(note.id);
         if live.exists() {
             return Ok(live);
@@ -219,7 +219,7 @@ impl FileStore {
     }
 
     /// Hard-delete a trashed note file. Returns true if a file was removed.
-    pub fn purge(&self, id: NoteId) -> Result<bool> {
+    pub fn purge(&self, id: MemoId) -> Result<bool> {
         let trash = self.paths.trash_path(id);
         if trash.exists() {
             std::fs::remove_file(&trash)?;
@@ -230,8 +230,8 @@ impl FileStore {
     }
 
     /// Walk the live notes tree, yielding every `.md` file.
-    pub fn list_note_files(&self) -> Vec<PathBuf> {
-        walk_md(&self.paths.notes_root())
+    pub fn list_memo_files(&self) -> Vec<PathBuf> {
+        walk_md(&self.paths.memos_root())
     }
 
     /// Walk the trash directory.
@@ -362,16 +362,16 @@ fn walk_md_into(dir: &Path, out: &mut Vec<PathBuf>) {
 mod tests {
     use super::*;
     use crate::hash;
-    use crate::note::NoteId;
+    use crate::note::MemoId;
 
-    fn sample_note(body: &str) -> Note {
-        let id = NoteId::now();
+    fn sample_note(body: &str) -> Memo {
+        let id = MemoId::now();
         let now = OffsetDateTime::now_utc();
-        Note {
+        Memo {
             id,
             created_at: now,
             updated_at: now,
-            hash: hash::hash_note(body.as_bytes(), false, "todo"),
+            hash: hash::hash_memo(body.as_bytes(), false, "todo"),
             pinned: false,
             category: "todo".to_string(),
             tags: vec!["idea".into()],
@@ -387,7 +387,7 @@ mod tests {
         assert!(text.starts_with("+++\n"));
         let parsed = FileStore::parse(&text).unwrap();
         match parsed {
-            ParsedFile::Note { fm, body } => {
+            ParsedFile::Memo { fm, body } => {
                 assert_eq!(fm.id, note.id);
                 assert_eq!(body, note.body);
             }
@@ -415,7 +415,7 @@ mod tests {
         let text = FileStore::serialize(&note).unwrap();
         let parsed = FileStore::parse(&text).unwrap();
         match parsed {
-            ParsedFile::Note { body, .. } => assert_eq!(body, note.body),
+            ParsedFile::Memo { body, .. } => assert_eq!(body, note.body),
             _ => panic!("expected note"),
         }
     }

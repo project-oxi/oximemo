@@ -19,11 +19,11 @@ use crate::error::Result;
 pub type OnChange = Arc<dyn Fn(PathBuf) + Send + Sync>;
 
 /// Holds the underlying watcher alive. Dropping stops watching.
-pub struct NoteWatcher {
+pub struct MemoWatcher {
     _watcher: RecommendedWatcher,
 }
 
-impl NoteWatcher {
+impl MemoWatcher {
     /// Begin watching `roots` (recursively). Returns a handle that must be kept
     /// alive for the lifetime of the watch.
     pub fn spawn(roots: Vec<PathBuf>, debounce: Duration, on_change: OnChange) -> Result<Self> {

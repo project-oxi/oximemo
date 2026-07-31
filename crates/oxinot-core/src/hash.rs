@@ -10,7 +10,7 @@
 use blake3::Hasher;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::note::NoteHash;
+use crate::note::MemoHash;
 
 /// Normalize note body bytes before hashing.
 ///
@@ -52,19 +52,19 @@ pub fn normalize(input: &[u8]) -> String {
 }
 
 /// Hash normalized content, returning a prefixed `b3:` digest.
-pub fn hash_content(input: &[u8]) -> NoteHash {
+pub fn hash_content(input: &[u8]) -> MemoHash {
     let normalized = normalize(input);
     let mut hasher = Hasher::new();
     hasher.update(normalized.as_bytes());
-    NoteHash::new(hasher.finalize().to_hex().to_string())
+    MemoHash::new(hasher.finalize().to_hex().to_string())
 }
 
 /// Hash an already-normalized string. Used internally when the body has been
 /// produced by our own writer and is known-normal.
-pub fn hash_normalized(normalized: &str) -> NoteHash {
+pub fn hash_normalized(normalized: &str) -> MemoHash {
     let mut hasher = Hasher::new();
     hasher.update(normalized.as_bytes());
-    NoteHash::new(hasher.finalize().to_hex().to_string())
+    MemoHash::new(hasher.finalize().to_hex().to_string())
 }
 
 /// Hash a note's full meaningful state: body + tags + pinned + color (§5.3).
@@ -78,7 +78,7 @@ pub fn hash_normalized(normalized: &str) -> NoteHash {
 /// Because tags, pin, and color are part of the digest, editing any of them
 /// changes the hash and is correctly surfaced by the sync diff — closing the
 /// gap where a metadata-only edit would otherwise look "unchanged".
-pub fn hash_note(body: &[u8], pinned: bool, category: &str) -> NoteHash {
+pub fn hash_memo(body: &[u8], pinned: bool, category: &str) -> MemoHash {
     let normalized_body = normalize(body);
     let mut hasher = Hasher::new();
     hasher.update(normalized_body.as_bytes());
@@ -86,7 +86,7 @@ pub fn hash_note(body: &[u8], pinned: bool, category: &str) -> NoteHash {
     hasher.update(if pinned { b"1" } else { b"0" });
     hasher.update(b"\x1f");
     hasher.update(category.as_bytes());
-    NoteHash::new(hasher.finalize().to_hex().to_string())
+    MemoHash::new(hasher.finalize().to_hex().to_string())
 }
 
 #[cfg(test)]
@@ -132,24 +132,24 @@ mod tests {
     fn metadata_only_edit_changes_hash() {
         // Pin / color still change the hash (§9.2). Tags are derived from the
         // body now, so a tag change IS a body change — covered below.
-        let base = hash_note(b"body", false, "");
-        let pinned = hash_note(b"body", true, "");
-        let colored = hash_note(b"body", false, "todo");
+        let base = hash_memo(b"body", false, "");
+        let pinned = hash_memo(b"body", true, "");
+        let colored = hash_memo(b"body", false, "todo");
         assert_ne!(base, pinned);
         assert_ne!(base, colored);
     }
     #[test]
     fn tag_in_body_changes_hash() {
         // Adding `#x` to the body changes the digest (tags live in the body).
-        let a = hash_note(b"note", false, "");
-        let b = hash_note(b"note #x", false, "");
+        let a = hash_memo(b"note", false, "");
+        let b = hash_memo(b"note #x", false, "");
         assert_ne!(a, b);
     }
 
     #[test]
     fn identical_state_hashes_equal() {
-        let a = hash_note(b"body", true, "todo");
-        let b = hash_note(b"body", true, "todo");
+        let a = hash_memo(b"body", true, "todo");
+        let b = hash_memo(b"body", true, "todo");
         assert_eq!(a, b);
     }
 }

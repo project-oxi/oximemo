@@ -14,20 +14,20 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use crate::note::{Note, NoteHash, NoteId};
+use crate::note::{Memo, MemoHash, MemoId};
 
 /// Lightweight manifest entry: identity + content hash + timestamp + tombstone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestRecord {
-    pub id: NoteId,
-    pub hash: NoteHash,
+    pub id: MemoId,
+    pub hash: MemoHash,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
     pub deleted: bool,
 }
 
 impl ManifestRecord {
-    pub fn from_note(n: &Note) -> Self {
+    pub fn from_note(n: &Memo) -> Self {
         Self {
             id: n.id,
             hash: n.hash.clone(),
@@ -40,12 +40,12 @@ impl ManifestRecord {
 /// Full note payload, returned for ids flagged by the diff.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullRecord {
-    pub id: NoteId,
+    pub id: MemoId,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
-    pub hash: NoteHash,
+    pub hash: MemoHash,
     pub pinned: bool,
     pub category: String,
     pub tags: Vec<String>,
@@ -54,7 +54,7 @@ pub struct FullRecord {
 }
 
 impl FullRecord {
-    pub fn from_note(n: &Note) -> Self {
+    pub fn from_note(n: &Memo) -> Self {
         Self {
             id: n.id,
             created_at: n.created_at,
@@ -73,9 +73,9 @@ impl FullRecord {
 #[derive(Debug, Clone, Default)]
 pub struct ManifestDiff {
     /// New or content-changed ids the caller should fetch in full.
-    pub to_fetch: Vec<NoteId>,
+    pub to_fetch: Vec<MemoId>,
     /// Tombstoned ids the caller should drop from its local cache.
-    pub to_drop: Vec<NoteId>,
+    pub to_drop: Vec<MemoId>,
     /// Max `updated_at` across the manifest, for advancing the cursor.
     pub max_updated_at: Option<OffsetDateTime>,
 }
@@ -110,14 +110,14 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    fn note(body: &str, hash: &str) -> Note {
-        let id = NoteId::now();
+    fn note(body: &str, hash: &str) -> Memo {
+        let id = MemoId::now();
         let now = OffsetDateTime::now_utc();
-        Note {
+        Memo {
             id,
             created_at: now,
             updated_at: now,
-            hash: NoteHash::from_stored(hash),
+            hash: MemoHash::from_stored(hash),
             pinned: false,
             category: String::new(),
             tags: vec![],

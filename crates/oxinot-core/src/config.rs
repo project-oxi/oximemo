@@ -87,12 +87,14 @@ impl Default for AppearanceConfig {
         }
     }
 }
-/// Six default category color stops (OKLCH). The order and ids are the
+/// Five default category color stops (OKLCH). The order and ids are the
 /// canonical built-in palette; `CategoriesConfig::default` ships them as the
-/// initial `items` so a fresh vault inherits a usable sidebar.
+/// initial `items` so a fresh vault inherits a usable sidebar. The previous
+/// sixth entry, the `note` (blue) category, was retired: orphan refs (memos
+/// with `category = "note"`) fall back to the default card surface via
+/// [`resolve_category_color`] because the id is no longer in `items`.
 pub const AUTO_COLORS: &[&str] = &[
     "",                       // inbox — transparent (renders default card surface)
-    "oklch(0.75 0.13 250)", // note — blue
     "oklch(0.78 0.15 75)",  // todo — amber
     "oklch(0.72 0.15 310)", // idea — purple
     "oklch(0.75 0.12 195)", // bookmark — teal
@@ -126,7 +128,7 @@ pub struct CategoriesConfig {
 
 impl Default for CategoriesConfig {
     fn default() -> Self {
-        let ids = ["inbox", "note", "todo", "idea", "bookmark", "snippet"];
+        let ids = ["inbox", "todo", "idea", "bookmark", "snippet"];
         let items = ids
             .iter()
             .zip(AUTO_COLORS.iter())

@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use oxinot_core::note::NoteSummary;
+use oxinot_core::note::MemoSummary;
 use oxinot_core::sync::{FullRecord, ManifestRecord};
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -27,7 +27,7 @@ impl Format {
 }
 
 /// Print a slice of summaries in the chosen format.
-pub fn print_summaries(items: &[NoteSummary], fmt: Format) -> anyhow::Result<()> {
+pub fn print_summaries(items: &[MemoSummary], fmt: Format) -> anyhow::Result<()> {
     let stdout = io::stdout();
     match fmt {
         Format::Json => println!("{}", serde_json::to_string_pretty(items)?),
@@ -92,7 +92,7 @@ pub fn print_full(items: &[FullRecord], fmt: Format) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_summary_table(items: &[NoteSummary]) -> anyhow::Result<()> {
+fn print_summary_table(items: &[MemoSummary]) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut h = stdout.lock();
     if items.is_empty() {
