@@ -5,19 +5,170 @@
  * sidebar is open; the collapse toggle lives here, the expand toggle in the
  * main header.
  */
-import { useQuery } from "@tanstack/react-query";
-import { Layers, PanelLeftClose, Pin } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Layers, PanelLeftClose, Pin, Pencil, Palette, Trash2 } from "lucide-react";
+import { useRef, useState, type KeyboardEvent } from "react";
 
-import { listFacets, memoStats, listCategories } from "../lib/api";
-import { colorForCategory } from "../lib/color";
+import { listFacets, memoStats, listCategories, renameCategory, updateCategory, deleteCategory } from "../lib/api";
+import { colorForCategory, COLOR_PRESETS, presetToString } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI, type TagState } from "../stores/ui";
+import type { CategoryDef } from "../lib/types";
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, CtxSubmenu } from "./ContextMenu";
 
 const STATE_CLASS: Record<TagState, string> = {
   off: "bg-zinc-200/70 text-zinc-600 hover:bg-zinc-300/70 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700/70",
   in: "bg-[var(--tag)] font-semibold text-white",
   out: "border border-[var(--tag)] text-[var(--tag)] line-through",
 };
+/** One category row: click filters, right-click opens a context menu
+ *  (rename / recolor / delete). Rename is inline, reusing the commit/Escape
+ *  single-path guard from SettingsMenu's CategoriesSection. */
+function CategoryRow({
+  def,
+  count,
+  selected,
+  catDefs,
+}: {
+  def: CategoryDef;
+  count: number | undefined;
+  selected: boolean;
+  catDefs: CategoryDef[];
+}) {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const setCategory = useUI((s) => s.setCategory);
+  const setToast = useUI((s) => s.setToast);
+  const setError = useUI((s) => s.setError);
+  const isInbox = def.id === "inbox";
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(def.id);
+  const cancelRef = useRef(false);
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["categories"] });
+    qc.invalidateQueries({ queryKey: ["facets"] });
+    qc.invalidateQueries({ queryKey: ["memos"] });
+  };
+
+  // Enter blurs → onBlur commits; Escape sets a flag so the induced blur cancels
+  // rather than committing (otherwise both keys would double-fire renameCategory).
+  const commit = async () => {
+    if (cancelRef.current) {
+      cancelRef.current = false;
+      setEditing(false);
+      return;
+    }
+    const next = draft.trim();
+    setEditing(false);
+    if (!next || next === def.id) return;
+    if (catDefs.some((c) => c.id === next)) {
+      setError(`"${next}" already exists`);
+      return;
+    }
+    try {
+      const moved = await renameCategory(def.id, next);
+      setToast(`${moved} ${moved === 1 ? "memo moved" : "memos moved"}`);
+      invalidate();
+    } catch (e) {
+      setError(String(e).split("\n")[0]);
+    }
+  };
+
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      (e.currentTarget as HTMLInputElement).blur();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelRef.current = true;
+      (e.currentTarget as HTMLInputElement).blur();
+    }
+  };
+
+  const btnCls = `flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm ${
+    selected ? "bg-zinc-200/70 font-semibold dark:bg-zinc-700" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+  }`;
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={onKey}
+        className="min-w-0 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+      />
+    );
+  }
+
+  return (
+    <CtxRoot>
+      <CtxTrigger
+        render={
+          <button type="button" className={btnCls} onClick={() => setCategory(selected ? null : def.id)} />
+        }
+      >
+        <span
+          className="inline-block h-2.5 w-2.5 rounded-full"
+          style={{ backgroundColor: colorForCategory(def.id, catDefs) }}
+        />
+        <span>{def.id}</span>
+        {count !== undefined && <span className="ml-auto text-[11px] text-zinc-400">{count}</span>}
+        <CtxMenu>
+          <CtxItem
+            icon={Pencil}
+            label={t.action_rename}
+            disabled={isInbox}
+            onClick={() => {
+              setDraft(def.id);
+              setEditing(true);
+            }}
+          />
+          <CtxSubmenu icon={Palette} label={t.color}>
+            {COLOR_PRESETS.map((p) => (
+              <CtxItem
+                key={p.id}
+                swatch={presetToString(p)}
+                label={p.id}
+                active={def.color === presetToString(p)}
+                onClick={() =>
+                  void updateCategory(def.id, presetToString(p))
+                    .then(invalidate)
+                    .catch((e) => setError(String(e).split("\n")[0]))
+                }
+              />
+            ))}
+            <CtxSeparator />
+            <CtxItem
+              label={t.no_color}
+              active={def.color === ""}
+              onClick={() =>
+                void updateCategory(def.id, "")
+                  .then(invalidate)
+                  .catch((e) => setError(String(e).split("\n")[0]))
+              }
+            />
+          </CtxSubmenu>
+          <CtxSeparator />
+          <CtxItem
+            icon={Trash2}
+            label={t.action_delete}
+            danger
+            disabled={isInbox}
+            onClick={() =>
+              void deleteCategory(def.id)
+                .then(invalidate)
+                .catch((e) => setError(String(e).split("\n")[0]))
+            }
+          />
+        </CtxMenu>
+      </CtxTrigger>
+    </CtxRoot>
+  );
+}
 
 export function Sidebar() {
   const { t } = useI18n();
@@ -131,29 +282,15 @@ export function Sidebar() {
             <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-400" />
             <span>All</span>
           </button>
-          {catDefs.map((c) => {
-            const count = categories.find(([id]) => id === c.id)?.[1];
-            return (
-              <button
-                key={c.id}
-                className={`flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm ${
-                  categoryFilter === c.id
-                    ? "bg-zinc-200/70 font-semibold dark:bg-zinc-700"
-                    : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                }`}
-                onClick={() => setCategory(categoryFilter === c.id ? null : c.id)}
-              >
-                <span
-                  className="inline-block h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: colorForCategory(c.id, catDefs) }}
-                />
-                <span>{c.id}</span>
-                {count !== undefined && (
-                  <span className="ml-auto text-[11px] text-zinc-400">{count}</span>
-                )}
-              </button>
-            );
-          })}
+          {catDefs.map((c) => (
+            <CategoryRow
+              key={c.id}
+              def={c}
+              catDefs={catDefs}
+              count={categories.find(([id]) => id === c.id)?.[1]}
+              selected={categoryFilter === c.id}
+            />
+          ))}
         </div>
       </div>
 

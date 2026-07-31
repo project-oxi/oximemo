@@ -11,7 +11,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Plus, Search } from "lucide-react";
 
-import { createMemo, deleteMemo, listMemos, memoStats, searchMemos, updateMemo, listCategories } from "../lib/api";
+import { createMemo, deleteMemo, getMemo, listMemos, memoStats, searchMemos, updateMemo, listCategories } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
 import { useUI } from "../stores/ui";
@@ -191,6 +191,21 @@ export function CardGrid() {
       .catch((e) => setError(String(e).split("\n")[0]));
   };
 
+  const onMoveCategory = (id: string, category: string) => {
+    void updateMemo(id, null, null, category)
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["memos"] });
+        qc.invalidateQueries({ queryKey: ["facets"] });
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+
+  const onCopyBody = (id: string) => {
+    void getMemo(id)
+      .then((m) => navigator.clipboard.writeText(m.body))
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+
   const onNewNote = useCallback(() => {
     // Never re-seed over an open editor: the seed effect would clobber a
     // pending draft and cancel its autosave flush.
@@ -329,6 +344,8 @@ export function CardGrid() {
                           categories={catDefs}
                           onSelect={select}
                           onTogglePin={(id) => onTogglePin(id, n.pinned)}
+                          onMoveCategory={onMoveCategory}
+                          onCopyBody={onCopyBody}
                           onDelete={onDelete}
                         />
                       ))}

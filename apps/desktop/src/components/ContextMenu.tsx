@@ -16,7 +16,7 @@
  * `render` element to merge the trigger onto the existing node (no wrapper div).
  */
 import { ContextMenu } from "@base-ui-components/react";
-import type { LucideIcon } from "lucide-react";
+import { Check, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 /** Context provider — renders no HTML. Must wrap a Trigger + its CtxMenu. */
@@ -46,12 +46,18 @@ export function CtxItem({
   onClick,
   disabled,
   danger,
+  swatch,
+  active,
 }: {
   icon?: LucideIcon;
   label: string;
   onClick?: () => void;
   disabled?: boolean;
   danger?: boolean;
+  /** CSS color rendered as a leading dot (takes precedence over `icon`). */
+  swatch?: string;
+  /** Show a trailing check (e.g. the currently-selected value). */
+  active?: boolean;
 }) {
   return (
     <ContextMenu.Item
@@ -62,8 +68,16 @@ export function CtxItem({
         (danger ? "text-red-600 dark:text-red-400" : "")
       }
     >
-      {Icon && <Icon size={14} className="shrink-0" />}
+      {swatch !== undefined ? (
+        <span
+          className="h-3.5 w-3.5 shrink-0 rounded-full border border-black/10 dark:border-white/15"
+          style={{ backgroundColor: swatch }}
+        />
+      ) : Icon ? (
+        <Icon size={14} className="shrink-0" />
+      ) : null}
       <span className="flex-1">{label}</span>
+      {active && <Check size={14} className="shrink-0 text-zinc-400" />}
     </ContextMenu.Item>
   );
 }
