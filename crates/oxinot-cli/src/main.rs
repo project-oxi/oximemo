@@ -100,7 +100,7 @@ enum Cmd {
     /// Soft-delete a note (moves to trash).
     Delete { id: String },
 
-    /// Hard-delete trashed notes older than the retention.
+    /// Hard-delete trashed memos older than the retention.
     Purge {
         #[arg(long, default_value = "30d")]
         older_than: String,

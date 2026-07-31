@@ -1,9 +1,9 @@
 //! Synchronization records and the dedup algorithm (§9.2).
 //!
-//! Two projections of a note:
+//! Two projections of a memo:
 //! - [`ManifestRecord`]: lightweight (no body) — the agent diffs against its
 //!   local `id → hash` cache to decide what changed.
-//! - [`FullRecord`]: the complete note body, requested only for ids the diff
+//! - [`FullRecord`]: the complete memo body, requested only for ids the diff
 //!   flagged as "needs fetch".
 //!
 //! [`diff_manifest`] implements the agent-side dedup so callers (and tests) can
@@ -27,7 +27,7 @@ pub struct ManifestRecord {
 }
 
 impl ManifestRecord {
-    pub fn from_note(n: &Memo) -> Self {
+    pub fn from_memo(n: &Memo) -> Self {
         Self {
             id: n.id,
             hash: n.hash.clone(),
@@ -37,7 +37,7 @@ impl ManifestRecord {
     }
 }
 
-/// Full note payload, returned for ids flagged by the diff.
+/// Full memo payload, returned for ids flagged by the diff.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullRecord {
     pub id: MemoId,
@@ -54,7 +54,7 @@ pub struct FullRecord {
 }
 
 impl FullRecord {
-    pub fn from_note(n: &Memo) -> Self {
+    pub fn from_memo(n: &Memo) -> Self {
         Self {
             id: n.id,
             created_at: n.created_at,
@@ -110,7 +110,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    fn note(body: &str, hash: &str) -> Memo {
+    fn memo(body: &str, hash: &str) -> Memo {
         let id = MemoId::now();
         let now = OffsetDateTime::now_utc();
         Memo {
@@ -128,9 +128,9 @@ mod tests {
 
     #[test]
     fn unchanged_skipped_changed_fetched() {
-        let a = note("a", "b3:1");
-        let b = note("b", "b3:2");
-        let manifest = vec![ManifestRecord::from_note(&a), ManifestRecord::from_note(&b)];
+        let a = memo("a", "b3:1");
+        let b = memo("b", "b3:2");
+        let manifest = vec![ManifestRecord::from_memo(&a), ManifestRecord::from_memo(&b)];
         let mut known = HashMap::new();
         known.insert(a.id.to_string(), "b3:1".to_string()); // a unchanged
         known.insert(b.id.to_string(), "b3:OLD".to_string()); // b changed
@@ -141,9 +141,9 @@ mod tests {
 
     #[test]
     fn deleted_dropped() {
-        let mut n = note("c", "b3:3");
+        let mut n = memo("c", "b3:3");
         n.deleted_at = Some(OffsetDateTime::now_utc());
-        let manifest = vec![ManifestRecord::from_note(&n)];
+        let manifest = vec![ManifestRecord::from_memo(&n)];
         let known = HashMap::from([(n.id.to_string(), "b3:3".to_string())]);
         let diff = diff_manifest(&manifest, &known);
         assert!(diff.to_fetch.is_empty());

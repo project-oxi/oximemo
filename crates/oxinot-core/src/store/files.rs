@@ -39,7 +39,7 @@ pub struct Frontmatter {
 }
 
 impl Frontmatter {
-    pub fn from_note(n: &Memo) -> Self {
+    pub fn from_memo(n: &Memo) -> Self {
         Self {
             id: n.id,
             created_at: n.created_at,
@@ -56,7 +56,7 @@ impl Frontmatter {
 /// Result of parsing a single file.
 #[derive(Debug)]
 pub enum ParsedFile {
-    /// A well-formed note: valid frontmatter + body.
+    /// A well-formed memo: valid frontmatter + body.
     Memo { fm: Frontmatter, body: String },
     /// A file with no frontmatter (first line was not `+++`). External/legacy.
     BodyOnly { body: String },
@@ -85,15 +85,15 @@ impl FileStore {
         &self.paths
     }
 
-    /// Serialize a note to its on-disk representation (frontmatter + body).
-    pub fn serialize(note: &Memo) -> Result<String> {
-        let fm = Frontmatter::from_note(note);
+    /// Serialize a memo to its on-disk representation (frontmatter + body).
+    pub fn serialize(memo: &Memo) -> Result<String> {
+        let fm = Frontmatter::from_memo(memo);
         let toml = toml::to_string(&fm)?;
-        let mut out = String::with_capacity(toml.len() + note.body.len() + 16);
+        let mut out = String::with_capacity(toml.len() + memo.body.len() + 16);
         out.push_str("+++\n");
         out.push_str(&toml);
         out.push_str("+++\n\n");
-        out.push_str(&note.body);
+        out.push_str(&memo.body);
         Ok(out)
     }
 
@@ -142,7 +142,7 @@ impl FileStore {
             ParsedFile::BodyOnly { .. } => Ok(None),
             ParsedFile::Memo { fm, body } => {
                 let tags = crate::tags::extract_tags(&body);
-                let note = Memo {
+                let memo = Memo {
                     id: fm.id,
                     created_at: fm.created_at,
                     updated_at: fm.updated_at,
@@ -153,30 +153,30 @@ impl FileStore {
                     body,
                     deleted_at: fm.deleted_at,
                 };
-                Ok(Some(note))
+                Ok(Some(memo))
             }
         }
     }
 
-    /// Atomically write a note to its sharded path (or trash path when
+    /// Atomically write a memo to its sharded path (or trash path when
     /// `deleted_at` is set). Returns the path written.
-    pub fn write(&self, note: &Memo) -> Result<PathBuf> {
-        let path = if note.deleted_at.is_some() {
-            self.paths.trash_path(note.id)
+    pub fn write(&self, memo: &Memo) -> Result<PathBuf> {
+        let path = if memo.deleted_at.is_some() {
+            self.paths.trash_path(memo.id)
         } else {
-            self.paths.memo_path(note.id, note.created_at)
+            self.paths.memo_path(memo.id, memo.created_at)
         };
-        let text = Self::serialize(note)?;
+        let text = Self::serialize(memo)?;
         atomic_write(&path, text.as_bytes())?;
         Ok(path)
     }
 
-    /// Move a note's file from the live tree into the trash. Idempotent if the
+    /// Move a memo's file from the live tree into the trash. Idempotent if the
     /// file is already trashed. Returns the trash path.
-    pub fn move_to_trash(&self, note: &Memo) -> Result<PathBuf> {
+    pub fn move_to_trash(&self, memo: &Memo) -> Result<PathBuf> {
         std::fs::create_dir_all(self.paths.trash_root())?;
-        let live = self.paths.memo_path(note.id, note.created_at);
-        let trash = self.paths.trash_path(note.id);
+        let live = self.paths.memo_path(memo.id, memo.created_at);
+        let trash = self.paths.trash_path(memo.id);
         if trash.exists() {
             return Ok(trash);
         }
@@ -194,10 +194,10 @@ impl FileStore {
         Ok(trash)
     }
 
-    /// Restore a note from the trash back to its live path.
-    pub fn restore_from_trash(&self, note: &Memo) -> Result<PathBuf> {
-        let live = self.paths.memo_path(note.id, note.created_at);
-        let trash = self.paths.trash_path(note.id);
+    /// Restore a memo from the trash back to its live path.
+    pub fn restore_from_trash(&self, memo: &Memo) -> Result<PathBuf> {
+        let live = self.paths.memo_path(memo.id, memo.created_at);
+        let trash = self.paths.trash_path(memo.id);
         if live.exists() {
             return Ok(live);
         }
@@ -218,7 +218,7 @@ impl FileStore {
         Ok(live)
     }
 
-    /// Hard-delete a trashed note file. Returns true if a file was removed.
+    /// Hard-delete a trashed memo file. Returns true if a file was removed.
     pub fn purge(&self, id: MemoId) -> Result<bool> {
         let trash = self.paths.trash_path(id);
         if trash.exists() {
@@ -229,7 +229,7 @@ impl FileStore {
         }
     }
 
-    /// Walk the live notes tree, yielding every `.md` file.
+    /// Walk the live memos tree, yielding every `.md` file.
     pub fn list_memo_files(&self) -> Vec<PathBuf> {
         walk_md(&self.paths.memos_root())
     }
@@ -294,7 +294,7 @@ fn split_frontmatter(content: &str) -> FrontmatterSplit<'_> {
 /// fsync'd so the rename survives power loss — otherwise a crash can leave the
 /// new content written but the directory entry pointing at the old (or no)
 /// name. Collision safety (C3): the temp name embeds pid + a per-process
-/// counter so two processes writing the same note concurrently cannot stomp
+/// counter so two processes writing the same memo concurrently cannot stomp
 /// each other's temp file.
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
@@ -313,7 +313,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 
 /// Build a unique sibling temp path for `target`: `<target>.tmp.<pid>.<n>`.
 /// The extension is not `md`, so a stale temp file is never picked up by the
-/// note walker (`walk_md`).
+/// memo walker (`walk_md`).
 fn unique_temp(target: &Path) -> PathBuf {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -364,7 +364,7 @@ mod tests {
     use crate::hash;
     use crate::memo::MemoId;
 
-    fn sample_note(body: &str) -> Memo {
+    fn sample_memo(body: &str) -> Memo {
         let id = MemoId::now();
         let now = OffsetDateTime::now_utc();
         Memo {
@@ -381,17 +381,17 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_note() {
-        let note = sample_note("hello world\nsecond line");
-        let text = FileStore::serialize(&note).unwrap();
+    fn roundtrip_memo() {
+        let memo = sample_memo("hello world\nsecond line");
+        let text = FileStore::serialize(&memo).unwrap();
         assert!(text.starts_with("+++\n"));
         let parsed = FileStore::parse(&text).unwrap();
         match parsed {
             ParsedFile::Memo { fm, body } => {
-                assert_eq!(fm.id, note.id);
-                assert_eq!(body, note.body);
+                assert_eq!(fm.id, memo.id);
+                assert_eq!(body, memo.body);
             }
-            _ => panic!("expected note"),
+            _ => panic!("expected memo"),
         }
     }
 
@@ -411,12 +411,12 @@ mod tests {
 
     #[test]
     fn body_with_plus_plus_plus_line() {
-        let note = sample_note("text\n+++\nmore text");
-        let text = FileStore::serialize(&note).unwrap();
+        let memo = sample_memo("text\n+++\nmore text");
+        let text = FileStore::serialize(&memo).unwrap();
         let parsed = FileStore::parse(&text).unwrap();
         match parsed {
-            ParsedFile::Memo { body, .. } => assert_eq!(body, note.body),
-            _ => panic!("expected note"),
+            ParsedFile::Memo { body, .. } => assert_eq!(body, memo.body),
+            _ => panic!("expected memo"),
         }
     }
 }

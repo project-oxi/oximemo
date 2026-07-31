@@ -288,7 +288,7 @@ impl Vault {
         Ok(note)
     }
 
-    /// Hard-delete trashed notes whose `deleted_at` is older than `retention`.
+    /// Hard-delete trashed memos whose `deleted_at` is older than `retention`.
     /// Returns the number purged.
     pub fn purge(&self, retention: Duration) -> Result<u64> {
         let cutoff = OffsetDateTime::now_utc() - retention;
@@ -419,7 +419,7 @@ impl Vault {
         let mut out = Vec::with_capacity(ids.len());
         for id in ids {
             match self.get_memo(*id) {
-                Ok(n) => out.push(FullRecord::from_note(&n)),
+                Ok(n) => out.push(FullRecord::from_memo(&n)),
                 Err(CoreError::NotFound(_)) => { /* skip missing */ }
                 Err(e) => return Err(e),
             }
@@ -600,7 +600,7 @@ impl Vault {
                         hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
                     if recomputed != note.hash {
                         // Report only *unresolved* mismatches. When --fix
-                        // rewrites successfully the note is no longer a
+                        // rewrites successfully the memo is no longer a
                         // mismatch; a failed rewrite is counted separately.
                         let repaired = if fix {
                             note.hash = recomputed;
@@ -769,7 +769,7 @@ const MAX_TAG_LEN: usize = 64;
 fn validate_note_input(body: &str, tags: &[String]) -> Result<()> {
     if body.len() > MAX_BODY_BYTES {
         return Err(CoreError::other(format!(
-            "note body too large: {} bytes (max {})",
+            "memo body too large: {} bytes (max {})",
             body.len(),
             MAX_BODY_BYTES
         )));
@@ -932,7 +932,7 @@ mod tests {
         // Tags are derived from the body, normalized + lowercased.
         assert_eq!(got.tags, vec!["work", "urgent"]);
 
-        // include filter (AND) matches a note carrying the tag.
+        // include filter (AND) matches a memo carrying the tag.
         let inc = v
             .list_memos(
                 None,
@@ -946,7 +946,7 @@ mod tests {
             .unwrap();
         assert_eq!(inc.items.len(), 1);
 
-        // exclude removes the note that also carries the excluded tag.
+        // exclude removes the memo that also carries the excluded tag.
         let exc = v
             .list_memos(
                 None,

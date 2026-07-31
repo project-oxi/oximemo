@@ -96,7 +96,7 @@ fn print_summary_table(items: &[MemoSummary]) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut h = stdout.lock();
     if items.is_empty() {
-        writeln!(h, "(no notes)")?;
+        writeln!(h, "(no memos)")?;
         return Ok(());
     }
     writeln!(

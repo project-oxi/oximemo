@@ -7,7 +7,7 @@
 //! - **shared** for reads (multiple readers allowed),
 //! - **exclusive** for writes (mutates the index).
 //!
-//! The note files themselves are never locked — atomic rename keeps them safe,
+//! The memo files themselves are never locked — atomic rename keeps them safe,
 //! and external editors/agents may read and write them freely.
 
 use std::fs::{File, OpenOptions};

@@ -128,7 +128,7 @@ pub fn cmd_delete(vault: &Vault, id: MemoId) -> Result<()> {
     Ok(())
 }
 
-/// `oxinot purge` — hard-delete trashed notes older than the retention.
+/// `oxinot purge` — hard-delete trashed memos older than the retention.
 pub fn cmd_purge(vault: &Vault, older_than: Duration) -> Result<()> {
     let n = vault.purge(older_than)?;
     println!("purged {}", n);
@@ -139,7 +139,7 @@ pub fn cmd_purge(vault: &Vault, older_than: Duration) -> Result<()> {
 pub fn cmd_reindex(vault: &Vault) -> Result<()> {
     let stats = vault.reindex()?;
     println!(
-        "notes={} trashed={} added={} updated={} unchanged={} failed={}",
+        "memos={} trashed_memos={} added={} updated={} unchanged={} failed={}",
         stats.memos, stats.trashed_memos, stats.added, stats.updated, stats.unchanged, stats.failed
     );
     Ok(())

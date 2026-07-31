@@ -60,10 +60,10 @@ pub enum CoreError {
     #[error("uuid error: {0}")]
     Uuid(#[from] uuid::Error),
 
-    #[error("note not found: {0}")]
+    #[error("memo not found: {0}")]
     NotFound(String),
 
-    #[error("invalid note id: {0}")]
+    #[error("invalid memo id: {0}")]
     InvalidMemoId(String),
 
     /// A file existed but its frontmatter could not be parsed. The watcher and

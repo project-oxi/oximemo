@@ -1,9 +1,9 @@
 //! Content hashing with deterministic normalization (§5.3).
 //!
-//! The hash covers a note's full *meaningful state* — body, tags, pin flag,
+//! The hash covers a memo's full *meaningful state* — body, tags, pin flag,
 //! and color — so the sync diff (§9.2) detects metadata-only edits (tag/pin/
 //! color changes), not just body edits. The digest must be stable regardless
-//! of how a note was written — vim's atomic-rename, a shell redirect, or
+//! of how a memo was written — vim's atomic-rename, a shell redirect, or
 //! oxinot's own writer must all produce the same digest for identical state.
 //! Normalization therefore precedes hashing.
 
@@ -67,7 +67,7 @@ pub fn hash_normalized(normalized: &str) -> MemoHash {
     MemoHash::new(hasher.finalize().to_hex().to_string())
 }
 
-/// Hash a note's full meaningful state: body + tags + pinned + color (§5.3).
+/// Hash a memo's full meaningful state: body + tags + pinned + color (§5.3).
 ///
 /// Deliberately excluded from the input:
 /// - `hash` (avoids a self-referential cycle),

@@ -2,7 +2,7 @@
 //!
 //! These types are the shared contract between the file store, the metadata
 //! index, the search index, the CLI and the Tauri commands. Keeping them in one
-//! place means every subsystem agrees on what a "note" is.
+//! place means every subsystem agrees on what a "memo" is.
 
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::error::{CoreError, Result};
 
-/// Permanent identifier of a note. A UUIDv7 encodes its creation instant, so
+/// Permanent identifier of a memo. A UUIDv7 encodes its creation instant, so
 /// ids are time-ordered and usable as a synchronization tie-breaker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -78,7 +78,7 @@ impl std::fmt::Display for MemoHash {
 pub const DEFAULT_CATEGORY: &str = "inbox";
 
 /// Synchronization cursor: `(updated_at, id)`. Stable across reindex because
-/// both components live in the note file's frontmatter (§5.3).
+/// both components live in the memo file's frontmatter (§5.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cursor {
     #[serde(with = "time::serde::rfc3339")]
