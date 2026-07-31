@@ -45,7 +45,7 @@ v1에서 카테고리가 핵심 분류로 자리잡았지만 관리·UX가 미�
 - **진단(임시):** `notes:changed` 리스너에 `console.log("[oxinot] notes:changed received")`, `create_note`/`update_note`에 `tracing::info!` 추가.
 - **검증 보류(사용자 실행 필요):** 
   1. ＋/편집 → 즉시 표시되는지(동일 윈도우 수정 확인).
-  2. **캡처(Cmd+Shift+N) 후 메인 그리드 갱신 + devtools 콘솔에 `[oxinot] notes:changed received` 출력 + Rust 로그에 `create_note: emitted notes:changed` 출력 확인.** 이 결과가 §8(이벤트 vs refetchOnWindowFocus)를 결정한다.
+  2. **캡처 진단은 §6.2 라우팅 수정 후에만 실행 가능** (현재 CaptureOverlay 미마운트). 수정 후: ⌘⇧N 캡처 → 메인 그리드 갱신 + devtools 콘솔 `[oxinot] notes:changed received` + Rust 로그 `create_note: emitted notes:changed` 확인 → §8 결정.
 
 > capture→main 교차윈도우 경로는 동일 윈도우 수정으로는 해결 안 됨(캡처 창이 메인의 쿼리 캐시를 직접 무효화 불가). 이벤트 인프라는 캡처 재설계 후에도 잔존하므로, 근본 고장이라면 재설계 캡처까지 영향 → 위 진단으로 반드시 규명.
 
@@ -174,9 +174,13 @@ flowchart TB
 - **저장 흐름:** `createNote(body, category||"inbox")` → 성공 → 창 숨김(park). 메인 그리드는 §8(refetchOnWindowFocus, 조건부)로 갱신.
 - **자동 해산:** 저장 직후 blur 자동 숨김.
 
-### 6.2 `/capture` 라우팅 해결 (선행 확인 필요)
+### 6.2 `/capture` 라우팅 — 확정된 결함 (캡처가 동작하지 않음)
 
-- 현재 capture 윈도우 config에 `url` 없음 → 기본 `/` 로드. `isRouteCapture()`가 `pathname.startsWith("/capture")`로 분기하므로, **capture 윈도우가 실제로 `/capture`를 로드하는 경로를 확인·보정** 필요(tauri.conf `url` 지정 또는 라벨 기반 분기로 전환). 본 스펙 구현 첫 단계에서 규명.
+**결함(정적 분석으로 확정):** capture 윈도우 config에 `url` 없음(tauri.conf.json) → `/` 로드. `show_capture`(lib.rs)는 size/position/show/focus만 수행하고 url/navigate 설정은 없음. `isRouteCapture()`(window.ts)가 `pathname.startsWith("/capture")`로 분기하므로 **capture 윈도우의 pathname은 `/` → false → `<Shell/>`(CardGrid) 렌더, `<CaptureOverlay/>`는 마운트되지 않음**. 즉 ⌘⇧N은 잘린 그리드를 보여줄 뿐 입력창이 아님 — 이것이 "캡처를 처음부터 다시"의 진짜 원인.
+
+**수정(라벨 기반 분기, 더 견고):** `isRouteCapture()`를 창 라벨로 판단 — Tauri 모드 `getCurrentWindow().label === "capture"`, 브라우저 모드 폴백으로 `pathname.startsWith("/capture")` 유지. config의 url에 의존 않고 라벨로 확정 분기. (대안: tauri.conf capture 윈도우에 `"url": "capture"` 추가 — 덜 견고, config 결합.)
+
+> **순서 의존:** 본 결함 때문에 §2의 캡처 진단(이벤트 도달 여부)은 §6.2 수정 전에 **실행 불가** — CaptureOverlay가 마운트되지 않으니 캡처 저장 자체를 테스트할 수 없음. 따라서 §6.2 수정이 §8 진단에 선행. (사용자 런타임 확인 권장: ⌘⇧N이 실제로 무엇을 보여주는지 — 정적 분석은 견고하나 시각 확정이 유익.)
 
 ### 6.3 컴포넌트 변경
 
@@ -198,7 +202,7 @@ CategoryCombobox:
 - 키보드 우선, search-as-you-type, capped scroll, 즉시 생성. `@base-ui` 프리미티브 활용 가능(구현 시 확인).
 - NoteEditorForm: `<select>` → `<CategoryCombobox>`. 캡처: 슬래시 메뉴가 동일 리스트 렌더링/필터 로직 공유(컴포넌트 분리 또는 훅 추출).
 
-## 8. capture→main 갱신 (§2 진단 결과에 따라 조건부)
+## 8. capture→main 갱신 (§6.2 라우팅 수정 후 진단, 결과에 따라 조건부)
 
 - **진단 결과가 "이벤트 도달 안 됨":** `App.tsx` QueryClient 기본 `refetchOnWindowFocus: false` → **notes 쿼리만 `refetchOnWindowFocus: true`** 오버라이드. 캡처 창 숨김 후 메인이 포커스 되찾을 때 `["notes"]` 재패치 → 캡처 노출. 이벤트 의존 제거.
 - **진단 결과가 "이벤트 정상 도달":** §8 불필요. 이벤트 경로 그대로 사용(캡처→메인 자동 갱신). 이 경우 진단 로그(console.log/tracing) 제거.
