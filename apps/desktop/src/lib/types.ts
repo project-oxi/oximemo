@@ -33,7 +33,7 @@ export interface Page<T> {
 
 export interface IndexStats {
   memos: number;
-  trashed: number;
+  trashed_memos: number;
   added: number;
   updated: number;
   unchanged: number;
