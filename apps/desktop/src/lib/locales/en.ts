@@ -61,5 +61,9 @@ export const dict: Record<keyof typeof ko, string> = {
   hide_sidebar: "Hide sidebar",
   show_sidebar: "Show sidebar",
   filter_summary: "{tags} tags · {notes} notes",
+  load_error: "Couldn't load notes.",
+  retry: "Retry",
+  no_match_hint: "No notes match this filter.",
+  clear_filters: "Clear all filters",
   filter_none: "All · {notes} notes",
 };

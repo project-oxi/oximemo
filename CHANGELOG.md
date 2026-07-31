@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Empty note grid in the desktop app** — `list_notes` was the only Tauri
+  command with multi-word parameters, and the frontend sent them as snake_case
+  keys; Tauri v2 binds invoke args in camelCase by default, so every call
+  rejected while the zero-arg count commands (`note_stats`/`list_facets`) kept
+  working — the grid showed "start capturing" with notes present. Now sends
+  camelCase keys, and listing queries surface their error so a silent IPC
+  failure can't masquerade as an empty vault.
+- **`oxinot` CLI did not compile** — `format.rs` still referenced the removed
+  `color` field after the category refactor; updated to `category`.
+
 ## [0.3.0] — 2026-07-30
 
 ### Added

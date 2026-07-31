@@ -120,11 +120,11 @@ async function browserFallback(
     case "list_notes": {
       const after = (args?.after as string | null | undefined) ?? null;
       const limit = (args?.limit as number | undefined) ?? 50;
-      const include = (args?.include_tags as string[] | undefined) ?? [];
-      const exclude = (args?.exclude_tags as string[] | undefined) ?? [];
-      const matchAll = (args?.match_all as boolean | undefined) ?? false;
+      const include = (args?.includeTags as string[] | undefined) ?? [];
+      const exclude = (args?.excludeTags as string[] | undefined) ?? [];
+      const matchAll = (args?.matchAll as boolean | undefined) ?? false;
       const categories = (args?.categories as string[] | undefined) ?? [];
-      const pinnedOnly = (args?.pinned_only as boolean | undefined) ?? false;
+      const pinnedOnly = (args?.pinnedOnly as boolean | undefined) ?? false;
       const has = (n: Note, t: string) =>
         n.tags.some((x) => x.toLowerCase() === t.toLowerCase());
       const notes = liveSorted(loadStore()).filter((n) => {

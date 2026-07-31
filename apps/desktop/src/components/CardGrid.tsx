@@ -11,7 +11,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Plus, Search } from "lucide-react";
 
-import { createNote, deleteNote, listNotes, searchNotes, updateNote, listCategories } from "../lib/api";
+import { createNote, deleteNote, listNotes, noteStats, searchNotes, updateNote, listCategories } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
 import { useUI } from "../stores/ui";
@@ -40,6 +40,16 @@ export function CardGrid() {
   const toggleSidebar = useUI((s) => s.toggleSidebar);
   const setError = useUI((s) => s.setError);
   const setDraftId = useUI((s) => s.setDraftId);
+  const clearTagFilter = useUI((s) => s.clearTagFilter);
+  const setCategory = useUI((s) => s.setCategory);
+  const setPinnedOnly = useUI((s) => s.setPinnedOnly);
+  const stats = useQuery({ queryKey: ["stats"], queryFn: noteStats });
+  const hasNotes = (stats.data?.notes ?? 0) > 0;
+  const clearAllFilters = () => {
+    clearTagFilter();
+    setCategory(null);
+    setPinnedOnly(false);
+  };
 
   const categoriesQ = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const catDefs = categoriesQ.data ?? [];
@@ -255,16 +265,38 @@ export function CardGrid() {
           <SettingsMenu />
         </header>
         <div ref={scrollerRef} className="flex-1 overflow-y-auto p-2">
-          {items.length === 0 ? (
-            <div className="mt-24 flex flex-col items-center gap-4 text-center">
-              <p className="text-sm text-zinc-400">{t.empty_hint}</p>
+          {listing.isError ? (
+            <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
+              <p className="text-sm font-medium text-red-500">{t.load_error}</p>
+              <p className="max-w-md break-words text-xs text-zinc-400">{String(listing.error)}</p>
               <button
                 type="button"
-                onClick={onNewNote}
-                className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                onClick={() => listing.refetch()}
+                className="mt-1 inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
               >
-                <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
+                {t.retry}
               </button>
+            </div>
+          ) : items.length === 0 ? (
+            <div className="mt-24 flex flex-col items-center gap-4 text-center">
+              <p className="text-sm text-zinc-400">{hasNotes ? t.no_match_hint : t.empty_hint}</p>
+              {hasNotes ? (
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                >
+                  {t.clear_filters}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onNewNote}
+                  className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                >
+                  <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
+                </button>
+              )}
             </div>
           ) : (
             <div style={{ height: virtualizer.getTotalSize() }} className="relative w-full">

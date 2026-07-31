@@ -61,6 +61,10 @@ export const dict = {
   show_sidebar: "사이드바 보기",
   filter_summary: "{tags}개 태그 선택 · {notes}개의 메모",
   filter_none: "전체 · {notes}개의 메모",
+  load_error: "메모를 불러오지 못했어요.",
+  retry: "다시 시도",
+  no_match_hint: "이 조건에 맞는 메모가 없어요.",
+  clear_filters: "필터 모두 지우기",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

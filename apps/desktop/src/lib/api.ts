@@ -21,11 +21,12 @@ export async function listNotes(
   return invoke<{ items: NoteSummary[]; next_cursor: string | null }>("list_notes", {
     after,
     limit,
-    include_tags: filter.include_tags ?? [],
-    exclude_tags: filter.exclude_tags ?? [],
-    match_all: filter.match_all ?? false,
+    // Tauri v2 binds invoke args by Rust param name in camelCase by default.
+    includeTags: filter.include_tags ?? [],
+    excludeTags: filter.exclude_tags ?? [],
+    matchAll: filter.match_all ?? false,
     categories: filter.categories ?? [],
-    pinned_only: filter.pinned_only ?? false,
+    pinnedOnly: filter.pinned_only ?? false,
   });
 }
 
