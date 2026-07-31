@@ -29,7 +29,7 @@ Keep it that way: domain logic belongs in the core.
 ## Setup
 
 ```bash
-git clone https://github.com/a7garden/oxinot.git
+git clone https://github.com/project-oxi/oxinot.git
 cd oxinot
 
 # Rust checks
