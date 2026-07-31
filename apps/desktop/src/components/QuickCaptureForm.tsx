@@ -25,6 +25,7 @@ import {
   type TextareaHTMLAttributes,
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -61,20 +62,21 @@ export interface QuickCaptureFormProps {
  */
 function SlashCategoryMenu({
   query,
-  categories,
+  filtered,
+  isNew,
+  sel,
+  onSelChange,
   onSelect,
   onCreate,
 }: {
   query: string;
-  categories: CategoryDef[];
+  filtered: CategoryDef[];
+  isNew: boolean;
+  sel: number;
+  onSelChange: (i: number) => void;
   onSelect: (id: string) => void;
   onCreate: (id: string) => void;
 }) {
-  const filtered = categories.filter((c) =>
-    c.id.includes(query.toLowerCase()),
-  );
-  const [sel, setSel] = useState(0);
-  const isNew = query.length > 0 && !categories.some((c) => c.id === query);
 
   return (
     <div className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-32 overflow-y-auto rounded-xl bg-white/80 px-1 py-1 shadow-lg ring-1 ring-black/5 backdrop-blur-xl dark:bg-zinc-800/80 dark:ring-white/10">
@@ -83,7 +85,7 @@ function SlashCategoryMenu({
           key={c.id}
           className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-zinc-800 dark:text-zinc-100 ${i === sel ? "bg-zinc-900/5 dark:bg-white/10" : ""}`}
           onClick={() => onSelect(c.id)}
-          onMouseEnter={() => setSel(i)}
+          onMouseEnter={() => onSelChange(i)}
         >
           <span
             className="inline-block h-3 w-3 rounded-full"
@@ -99,7 +101,7 @@ function SlashCategoryMenu({
         <button
           className={`mt-0.5 flex w-full items-center gap-2 rounded-md border-t border-black/5 px-2.5 py-1.5 text-left text-sm text-purple-600 dark:border-white/10 dark:text-purple-400 ${filtered.length === sel ? "bg-zinc-900/5 dark:bg-white/10" : ""}`}
           onClick={() => onCreate(query)}
-          onMouseEnter={() => setSel(filtered.length)}
+          onMouseEnter={() => onSelChange(filtered.length)}
         >
           <span>✨</span>
           <span className="truncate">'{query}' 만들기</span>
@@ -171,12 +173,21 @@ export function QuickCaptureForm({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState("");
+  const [sel, setSel] = useState(0);
+  const filtered = useMemo(
+    () => categories.filter((c) => c.id.includes(slashQuery.toLowerCase())),
+    [categories, slashQuery],
+  );
+  const isNew =
+    slashQuery.length > 0 &&
+    !categories.some((c) => c.id === slashQuery);
 
   const handleChange = useCallback(
     (v: string) => {
       if (menuOpen) {
         // 메뉴가 열린 상태에서는 입력값이 곧 검색어.
         setSlashQuery(v);
+        setSel(0); // 검색어 변경 → 하이라이트 리셋
         if (v === "") {
           setMenuOpen(false);
         }
@@ -186,6 +197,7 @@ export function QuickCaptureForm({
       if (v === "/" && !category) {
         setMenuOpen(true);
         setSlashQuery("");
+        setSel(0);
         onBodyChange("");
         return;
       }
@@ -225,19 +237,49 @@ export function QuickCaptureForm({
     [onBodyChange, onCategoryChange],
   );
 
-  // 슬래시 메뉴가 떠있을 때 외부 클릭/스크롤 등으로 닫히지 않도록
-  // textarea keyDown에서 Escape로 닫기.
+  // 슬래시 메뉴가 떠있으면 키보드로 조작: ↑↓ 이동, Enter 선택(또는 생성),
+  // Esc 닫기. 본문 입력(Enter 저장 등)은 메뉴가 닫혔을 때만.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (menuOpen && e.key === "Escape") {
-        setMenuOpen(false);
-        setSlashQuery("");
-        e.preventDefault();
+      if (!menuOpen) {
+        bodyProps?.onKeyDown?.(e);
         return;
       }
-      bodyProps?.onKeyDown?.(e);
+      const count = filtered.length + (isNew ? 1 : 0);
+      switch (e.key) {
+        case "Escape":
+          setMenuOpen(false);
+          setSlashQuery("");
+          e.preventDefault();
+          return;
+        case "ArrowDown":
+          e.preventDefault();
+          setSel((s) => (count === 0 ? 0 : Math.min(s + 1, count - 1)));
+          return;
+        case "ArrowUp":
+          e.preventDefault();
+          setSel((s) => Math.max(s - 1, 0));
+          return;
+        case "Enter":
+          e.preventDefault();
+          if (sel < filtered.length) handleSlashSelect(filtered[sel].id);
+          else if (isNew && sel === filtered.length)
+            void handleSlashCreate(slashQuery);
+          return;
+        default:
+          bodyProps?.onKeyDown?.(e);
+      }
     },
-    [menuOpen, bodyProps],
+    [
+      menuOpen,
+      filtered,
+      isNew,
+      sel,
+      slashQuery,
+      handleSlashSelect,
+      handleSlashCreate,
+      bodyProps,
+    ],
   );
 
   return (
@@ -274,7 +316,10 @@ export function QuickCaptureForm({
           {menuOpen && (
             <SlashCategoryMenu
               query={slashQuery}
-              categories={categories}
+              filtered={filtered}
+              isNew={isNew}
+              sel={sel}
+              onSelChange={setSel}
               onSelect={handleSlashSelect}
               onCreate={handleSlashCreate}
             />
