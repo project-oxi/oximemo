@@ -12,7 +12,7 @@ version = "0.3.0"
 edition = "2024"
 rust-version = "1.89"
 authors = ["oxinot"]
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/a7garden/oxinot"
 homepage = "https://github.com/a7garden/oxinot"
 
