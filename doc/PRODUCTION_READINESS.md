@@ -84,7 +84,7 @@
 
 ### C3. 동일 노트 동시 쓰기 임시파일 충돌
 - **위치**: `crates/oxinot-core/src/store/files.rs:279`
-- **현상**: `let tmp = path.with_extension("md.tmp")` — 임시파일 이름이 타깃 경로에서만 결정된다. 두 프로세스(CLI `update` + 데스크톱 `update_note`)가 같은 노트를 동시에 쓰면 같은 `<id>.md.tmp`를 사용해 서로의 임시파일을 덮어쓴다.
+- **현상**: `let tmp = path.with_extension("md.tmp")` — 임시파일 이름이 타깃 경로에서만 결정된다. 두 프로세스(CLI `update` + 데스크톱 `update_memo`)가 같은 노트를 동시에 쓰면 같은 `<id>.md.tmp`를 사용해 서로의 임시파일을 덮어쓴다.
 - **영향**: 파일 쓰기는 인덱스 락 대상이 아니다(DESIGN §5.7 규칙 5: "파일 스토어는 락 대상이 아닙니다"). 따라서 이 경쟁은 실제로 발생 가능하며, 한 쪽의 쓰기가 손상되거나 rename이 실패할 수 있다.
 - **해결**: 임시파일에 고유 접미사(프로세스 ID + 카운터, 또는 `tempfile` 크레이트의 난수 접미사)를 붙인다.
 
@@ -103,8 +103,8 @@
 - **현상**:
   ```rust
   if fix {
-      note.hash = recomputed;
-      let _ = self.files.write(&note);   // ← 에러 무시
+      memo.hash = recomputed;
+      let _ = self.files.write(&memo);   // ← 에러 무시
   }
   ```
   이후 `report.hash_mismatches.clear()` (line 484)가 "전부 고쳤다"고 가정하지만, 실제로는 쓰기가 실패한 파일이 남아 있다.
@@ -132,8 +132,8 @@
 - **해결**: CI에 데스크톱 크레이트 `cargo check`/`clippy` 스텝 추가 (프론트 `dist/`가 필요하므로 `--no-default-features` 또는 `check`만). 또는 릴리스 빌드 전 단계로 `cargo build` 추가.
 
 ### H6. IPC 입력 검증 부재
-- **위치**: `apps/desktop/src-tauri/src/lib.rs` (`mod commands`), `crates/oxinot-core/src/vault.rs` (`create_note`/`update_note`)
-- **현상**: `create_note(body, tags, color)`가 본문 길이·태그 수·태그 길이 제한 없이 코어로 전달. `body`에 수 MB 문자열, `tags`에 수만 개를 넣어도 처리 시도.
+- **위치**: `apps/desktop/src-tauri/src/lib.rs` (`mod commands`), `crates/oxinot-core/src/vault.rs` (`create_memo`/`update_memo`)
+- **현상**: `create_memo(body, tags, color)`가 본문 길이·태그 수·태그 길이 제한 없이 코어로 전달. `body`에 수 MB 문자열, `tags`에 수만 개를 넣어도 처리 시도.
 - **영향**: 의도치 않은/악성 입력이 인덱스와 파일 시스템을 비대하게 만들 수 있다. (단일 로컬 사용자 가정이므로 보안 위협보다 안정성 문제.)
 - **해결**: 코어 진입점에서 소프트 상한 검증 (예: 본문 64KB, 태그 64개, 태그당 64자). 초과 시 `CoreError` 반환.
 
@@ -147,7 +147,7 @@
 | M2 | Medium | `vault.rs:89-97` | `with_redb_and_search`가 호출마다 redb+tantivy 재오픈. CLI는 무해하나 GUI에서 매 노트 저장 시 오픈 비용. (의도적 설계, 트레이드오프 문서화됨.) |
 | M3 | Medium | `watcher.rs:31` | debounce 스레드가 무감독. 패닉 시 워처가 조용히 죽어 외부 변경 감지 중단. |
 | M4 | Medium | `Cargo.toml:61` | `panic = "abort"` — 패닉 시 즉시 프로세스 종료, 에러 다이얼로그 없음. 워처 스레드 패닉이 전체 앱을 죽임. |
-| M5 | Medium | `NoteDetail.tsx:25-29` | `get_note` 실패 시 영구 stuck-loading. 에러 상태 분기 없음. |
+| M5 | Medium | `NoteDetail.tsx:25-29` | `get_memo` 실패 시 영구 stuck-loading. 에러 상태 분기 없음. |
 | M6 | Medium | `CardGrid.tsx:57-63` | 검색 최소 길이 미적용 → 1자 검색도 tantivy 쿼리 발생. |
 | M7 | Medium | `CardGrid.tsx:109-114` | 빠른 필터 변경 시 infinite-scroll fetch 경쟁. |
 | M8 | Low | `tauri.conf.json:43` | `macOSPrivateApi: true` (vibrancy용) — Hardened Runtime에서 엔타이틀먼트 필요. C1과 함께 해결. |
@@ -212,7 +212,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 
 ```rust
 // SearchIndex 트레이트에 배치 진입점 추가
-fn upsert_batch(&self, notes: &[(NoteId, &str, &[String])]) -> Result<()> {
+fn upsert_batch(&self, notes: &[(MemoId, &str, &[String])]) -> Result<()> {
     let mut guard = self.ensure_writer()?;
     let writer = guard.as_mut().expect("writer initialized");
     for (id, body, tags) in notes {
@@ -233,14 +233,14 @@ fn upsert_batch(&self, notes: &[(NoteId, &str, &[String])]) -> Result<()> {
 
 ### 6.5 입력 검증 (H6)
 
-`vault.create_note`/`update_note` 진입점에서:
+`vault.create_memo`/`update_memo` 진입점에서:
 - 본문 ≤ 64 KiB
 - 태그 ≤ 64개, 각 ≤ 64자
 - 초과 시 `CoreError::other("… too large")`
 
 ### 6.6 doctor 쓰기 에러 수집 (H2)
 
-`let _ = self.files.write(&note)` → 결과를 카운트해 `report.hash_repair_failed`에 반영.
+`let _ = self.files.write(&memo)` → 결과를 카운트해 `report.hash_repair_failed`에 반영.
 
 ---
 

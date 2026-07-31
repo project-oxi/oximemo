@@ -64,12 +64,12 @@ bare   ::= resolved per-mode (Knowledge → capture, Console → go, Chat → ru
 2. **Verb catalog for oxinot.** oxios's six verbs are agent-OS-shaped
    (`run`/`switch`/`control`/…). oxinot has none of those nouns. Candidate
    oxinot verbs are unstaged: color shortcuts (`/r` `/g` `/b` …), pin
-   (`/p`), tag/category routing, "append to last note" (`+`). The set — and
+   (`/p`), tag/category routing, "append to last memo" (`+`). The set — and
    whether categories even exist as first-class destinations — is undecided.
 
 3. **Category model.** oxinot today has color + inline `#tag` extraction, no
    checklist/category files. Do we introduce destinations at all (à la
-   files.md's `Later.md`), or keep capture as "one note, attributes inline"?
+   files.md's `Later.md`), or keep capture as "one memo, attributes inline"?
    This gates #2.
 
 4. **Ranking & recency.** If we adopt a palette, do we replicate oxios's

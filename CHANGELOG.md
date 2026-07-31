@@ -7,14 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`note` → `memo` terminology** — every identifier, IPC surface, file
+  path, and JSON key previously spelled `note` is now `memo`, for parity
+  with the user-facing Korean UI which already used "메모". This is a
+  breaking change for external agents consuming the Tauri command/event
+  surface or the CLI's JSON output.
+  - Types: `Note` → `Memo`, `NoteId` → `MemoId`, `NoteHash` → `MemoHash`,
+    `NoteSummary` → `MemoSummary`, `NoteFilter` → `MemoFilter`,
+    `NoteStats` → `MemoStats`, `NoteWatcher` → `MemoWatcher`,
+    `NoteIndex` → `MemoIndex`
+  - Vault methods: `create_note` / `get_note` / `update_note` /
+    `delete_note` / `list_notes` / `search_notes` / `note_stats` /
+    `restore_note` / `read_note` all renamed
+  - Tauri commands and event: `notes:changed` → `memos:changed`
+  - Disk directory: `<vault>/notes/` → `<vault>/memos/`
+    (auto-renamed on first `Vault::open` by `Vault::migrate`)
+  - JSON keys: `IndexStats.notes` / `trashed` → `memos` / `trashed_memos`
+
+### Removed
+- **Builtin `note` category** — the `note` (blue) category is no longer
+  a default. Existing memos with `category = "note"` fall back to the
+  inbox/transparent color through the existing `resolve_category_color`
+  orphan rule (no per-file rewrite required).
+
 ### Fixed
-- **Empty note grid in the desktop app** — `list_notes` was the only Tauri
-  command with multi-word parameters, and the frontend sent them as snake_case
-  keys; Tauri v2 binds invoke args in camelCase by default, so every call
-  rejected while the zero-arg count commands (`note_stats`/`list_facets`) kept
-  working — the grid showed "start capturing" with notes present. Now sends
-  camelCase keys, and listing queries surface their error so a silent IPC
-  failure can't masquerade as an empty vault.
+
 - **`oxinot` CLI did not compile** — `format.rs` still referenced the removed
   `color` field after the category refactor; updated to `category`.
 

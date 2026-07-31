@@ -1,11 +1,11 @@
 ---
 name: oxinot
-description: Read, write, and search the user's oxinot note vault from the shell. Use when the user wants to capture a thought, recall a note, list/search their notes, sync the vault, or operate the oxinot CLI. Triggers on phrases like "save a note", "create a memo", "list my notes", "search notes for X", "what did I write about Y", "purge the trash", "show the vault path", or any direct invocation of the `oxinot` binary.
+description: Read, write, and search the user's oxinot memo vault from the shell. Use when the user wants to capture a thought, recall a memo, list/search their notes, sync the vault, or operate the oxinot CLI. Triggers on phrases like "save a memo", "create a memo", "list my notes", "search memos for X", "what did I write about Y", "purge the trash", "show the vault path", or any direct invocation of the `oxinot` binary.
 ---
 
 # oxinot
 
-`oxinot` is a fast, minimal card-based note capture app. The CLI is the
+`oxinot` is a fast, minimal card-based memo capture app. The CLI is the
 authoritative agent interface: human/agent parity — every operation the GUI
 can do, the CLI can do, and vice versa. The vault is a directory of plain
 `.md` files (the source of truth), backed by an in-process redb + tantivy
@@ -15,10 +15,10 @@ index that the CLI reads/writes transparently.
 
 - The user wants to **capture a thought quickly** (one line, no formatting
   friction) — `oxinot new`.
-- The user wants to **list recent notes** — `oxinot list`.
+- The user wants to **list recent memos** — `oxinot list`.
 - The user wants to **search notes** by keyword — `oxinot search` (BM25 over
   body and tags).
-- The user wants to **read a specific note** — `oxinot get <id>`.
+- The user wants to **read a specific memo** — `oxinot get <id>`.
 - The user wants to **sync the vault** with an external cache (read manifest
   → diff hashes → fetch changed bodies) — `oxinot export`.
 - The user wants to **soft-delete** (`oxinot delete`) or **purge the trash**
@@ -33,13 +33,13 @@ excludes rich text, AI features, and wikilinks (§3 of `doc/DESIGN.md`).
 
 - The vault path is the user vault under `~/Library/Application Support/com.oxinot.app/vault/` by default. Override with `--vault <PATH>` (also see the env var `OXINOT_VAULT`).
 - Quick check: `oxinot vault path` prints the resolved root.
-- A note's `id` is a UUIDv7 string (e.g. `019fa927-a897-7e12-9102-8a8c7ebbb594`).
+- A memo's `id` is a UUIDv7 string (e.g. `019fa927-a897-7e12-9102-8a8c7ebbb594`).
 
 ## Command reference
 
 ```bash
 oxinot new [TEXT] [--tag TAG]… [--color "oklch(0.75 0.15 75)"]
-  # TEXT may be omitted: stdin is read. Empty notes are rejected.
+  # TEXT may be omitted: stdin is read. Empty memos are rejected.
 
 oxinot list [--limit N] [--tag T] [--pinned]
             [--format table|json|ndjson]   # default: table (human)
@@ -54,7 +54,7 @@ oxinot export [--since RFC3339]
               [--full]
               [--format ndjson|json]
   # Without --full: emits a manifest of {id, hash, updated_at, deleted}.
-  # With --full:    emits full note bodies (id, body, tags, color, ...).
+  # With --full:    emits full memo bodies (id, body, tags, color, ...).
   # Default format is NDJSON (line-delimited JSON, streaming-friendly).
 
 oxinot delete <ID>            # soft-delete (moves to .trash/)
@@ -80,7 +80,7 @@ This is the sync cursor format; do not assume the space-separated variant.
 ## Synchronization algorithm (§9.2 of `doc/DESIGN.md`)
 
 The manifest is a stream of `{"id", "hash", "updated_at", "deleted"}` lines.
-The body-less design keeps the manifest cheap regardless of note size.
+The body-less design keeps the manifest cheap regardless of memo size.
 
 1. **Fetch the manifest since your last cursor:**
    ```bash
@@ -91,7 +91,7 @@ The body-less design keeps the manifest cheap regardless of note size.
    - `id.hash` differs from your cache → **fetch** (metadata changes are
      reflected in the hash, so tag/pin/color edits are detected).
    - `deleted: true` → **drop** from your cache.
-3. **Fetch changed notes in bulk.** For small batches:
+3. **Fetch changed memos in bulk.** For small batches:
    ```bash
    oxinot export --ids a,b,c --full --format ndjson
    ```
@@ -102,7 +102,7 @@ The body-less design keeps the manifest cheap regardless of note size.
    ```
 4. **Advance your cursor** to the max `updated_at` you saw. Repeat.
 
-The hash is `b3:<blake3-hex>` and covers the note's body **plus** its
+The hash is `b3:<blake3-hex>` and covers the memo's body **plus** its
 tags, pin flag, and color (§5.3 of `doc/DESIGN.md` — extended from
 body-only to include meaningful metadata). A pure metadata edit (add a tag,
 change a color) bumps the hash, so the diff correctly flags it.
@@ -118,7 +118,7 @@ indexer):
 2. Frontmatter runs from line 1 to the **second** `+++` line.
 3. After the second `+++` line, everything is the body.
 4. A file whose first line is not `+++` is treated as body-only (no
-   identity; not indexed as a note).
+   identity; not indexed as a memo).
 5. Frontmatter must parse as TOML. The fields `id`, `created_at`,
    `updated_at`, `hash`, `pinned`, `color`, `tags` are well-known; the
    indexer preserves unknown fields. `deleted_at` is optional and signals

@@ -131,7 +131,7 @@ flowchart TB
 
 **왜 3단인가:**  인덱스 계층(redb, tantivy)은 언제든 Vault 폴더를 다시 스캔해서 100% 재생성할 수 있는 "파생 데이터"로 설계합니다. 이렇게 하면 인덱스가 손상되거나 앱 버전이 바뀌어 스키마가 달라져도 `oxinot reindex` 한 번으로 복구됩니다. 반대로 Vault 폴더는 절대 자동으로 손댈 필요가 없는 순수 텍스트 뭉치이므로, 에이전트가 CLI 없이 `grep`이나 `cat`으로 직접 들여다봐도 안전합니다.
 
-**"순수 Rust" 원칙과의 관계:**  SQLite(FTS5)는 성숙하고 검증된 선택지지만 C 라이브러리를 번들링합니다. 이번 프로젝트는 명시적으로 "순수 Rust"를 요구했고, 트렌드도 부합하므로 `redb`(임베디드 KV, lmdb에 영감을 받은 순수 Rust 구현) + `tantivy`(Lucene에 영감을 받은 순수 Rust 검색 엔진, Quickwit 팀이 유지)를 기본값으로 채택합니다. 둘 다 활발히 유지보수되고 있고 실사용 벤치마크에서 lmdb/rocksdb에 준하는 성능을 보입니다. 다만 이 인덱스 계층은 언제든 SQLite+FTS5로 교체 가능하도록 `oxinot-core` 내부에 `trait NoteIndex`, `trait SearchIndex` 경계를 두어 스토리지 구현을 갈아끼울 수 있게 설계합니다.
+**"순수 Rust" 원칙과의 관계:**  SQLite(FTS5)는 성숙하고 검증된 선택지지만 C 라이브러리를 번들링합니다. 이번 프로젝트는 명시적으로 "순수 Rust"를 요구했고, 트렌드도 부합하므로 `redb`(임베디드 KV, lmdb에 영감을 받은 순수 Rust 구현) + `tantivy`(Lucene에 영감을 받은 순수 Rust 검색 엔진, Quickwit 팀이 유지)를 기본값으로 채택합니다. 둘 다 활발히 유지보수되고 있고 실사용 벤치마크에서 lmdb/rocksdb에 준하는 성능을 보입니다. 다만 이 인덱스 계층은 언제든 SQLite+FTS5로 교체 가능하도록 `oxinot-core` 내부에 `trait MemoIndex`, `trait SearchIndex` 경계를 두어 스토리지 구현을 갈아끼울 수 있게 설계합니다.
 
 ### 5.2 노트 파일 포맷
 
@@ -343,7 +343,7 @@ macOS에서 "수정자 키 단독 두 번 탭"은 표준 전역 단축키 API( `
 
 - 인터랙션: 자동 포커스된 단일 텍스트 영역. `Enter` = 저장 후 닫기, `Shift+Enter` = 줄바꿈, `Esc` = 취소 후 닫기. 저장 시 짧은 체크마크 피드백 후 오버레이가 사라집니다.
 
-- 저장은 `create_note` 커맨드를 그대로 재사용합니다(§8) — 오버레이와 메인 창이 노트 생성 경로를 공유합니다.
+- 저장은 `create_memo` 커맨드를 그대로 재사용합니다(§8) — 오버레이와 메인 창이 노트 생성 경로를 공유합니다.
 
 ### 6.4 상시 접근 (메뉴바 & 대체 단축키)
 
@@ -379,22 +379,22 @@ macOS에서 "수정자 키 단독 두 번 탭"은 표준 전역 단축키 API( `
 
 - CSS Grid( `repeat(auto-fill, minmax(240px, 1fr))`)로 반응형 컬럼을 구성하고, `@tanstack/react-virtual`의 행 가상화로 화면 밖 카드는 렌더링하지 않습니다.
 - **카드 높이는 균일하게 고정**합니다(Pinterest식 masonry는 미관상 매력적이지만 가상화 계산이 복잡해지고 대량 데이터에서 스크롤 성능이 떨어집니다). 본문이 길면 카드 안에서 말줄임 처리하고, 클릭 시 상세 보기에서 전체를 봅니다.
-- 데이터는 `useInfiniteQuery`로 `list_notes(cursor, limit, filter)`를 커서 기반 페이징하며, 가상화 스크롤 위치가 끝에 가까워지면 다음 페이지를 요청합니다.
+- 데이터는 `useInfiniteQuery`로 `list_memos(cursor, limit, filter)`를 커서 기반 페이징하며, 가상화 스크롤 위치가 끝에 가까워지면 다음 페이지를 요청합니다.
 
 ### 7.3 카드 컴포넌트
 
 - 표시 요소: 본문 미리보기(제한된 인라인 서식만 — 굵게/기울임/체크박스 정도. 전체 마크다운 AST 렌더링은 하지 않음, §2 참고), 상대 시각("3분 전"), 핀 아이콘, 색상 라벨(왼쪽 얇은 바), 태그 칩(최대 2\~3개 + "+N"), 호버 시 빠른 액션(핀/삭제/복사).
-- 클릭 시 Base UI `Dialog`로 확대 편집 뷰를 열고, 편집은 디바운스 자동저장(500ms) 후 `update_note`를 호출합니다.
+- 클릭 시 Base UI `Dialog`로 확대 편집 뷰를 열고, 편집은 디바운스 자동저장(500ms) 후 `update_memo`를 호출합니다.
 
 ### 7.4 상태관리
 
 - **서버 상태**(노트 목록, 검색 결과, 개별 노트)는 전부 TanStack Query 캐시에만 존재합니다. Zustand에 노트 데이터를 복제하지 않습니다.
 - **UI 상태**(현재 검색어, 활성 태그 필터, 선택된 카드, 오버레이 표시 여부)만 Zustand 스토어에 둡니다.
-- 다른 창(캡처 오버레이)이나 파일 워처(§5.5)로 인한 변경은 Rust가 `notes:changed` 이벤트를 브로드캐스트하면 React 쪽에서 관련 쿼리를 무효화(invalidate)하는 방식으로 동기화합니다.
+- 다른 창(캡처 오버레이)이나 파일 워처(§5.5)로 인한 변경은 Rust가 `memos:changed` 이벤트를 브로드캐스트하면 React 쪽에서 관련 쿼리를 무효화(invalidate)하는 방식으로 동기화합니다.
 
 ### 7.5 검색/필터
 
-- 상단 검색창: 200ms 디바운스 후 `search_notes(query, limit)` 호출(tantivy BM25).
+- 상단 검색창: 200ms 디바운스 후 `search_memos(query, limit)` 호출(tantivy BM25).
 - 태그/핀 필터는 좌측 또는 상단 최소한의 칩 UI로 제공.
 - `Cmd+K`로 Base UI `Combobox` 기반 커맨드 팔레트(빠른 이동/새 노트/태그 이동)를 여는 것은 Phase 2 후보로 남겨둡니다(MVP 필수는 아님).
 
@@ -475,12 +475,12 @@ impl NoteColor {
 대표 Tauri 커맨드 목록(시그니처 수준, 실제 구현 시 세부 타입 확정):
 
 ```rust
-list_notes(cursor: Option<Cursor>, limit: u32, tag: Option<String>, query: Option<String>) -> Page<NoteSummary>
-get_note(id: NoteId) -> Note
-create_note(body: String, tags: Vec<String>, color: Option<String>) -> NoteSummary
-update_note(id: NoteId, body: Option<String>, tags: Option<Vec<String>>, pinned: Option<bool>, color: Option<String>) -> NoteSummary
-delete_note(id: NoteId) -> ()
-search_notes(query: String, limit: u32) -> Vec<NoteSummary>
+list_memos(cursor: Option<Cursor>, limit: u32, tag: Option<String>, query: Option<String>) -> Page<MemoSummary>
+get_memo(id: MemoId) -> Memo
+create_memo(body: String, tags: Vec<String>, color: Option<String>) -> MemoSummary
+update_memo(id: MemoId, body: Option<String>, tags: Option<Vec<String>>, pinned: Option<bool>, color: Option<String>) -> MemoSummary
+delete_memo(id: MemoId) -> ()
+search_memos(query: String, limit: u32) -> Vec<MemoSummary>
 reindex() -> IndexStats
 ```
 
@@ -488,9 +488,9 @@ Rust → React 이벤트:
 
 - `capture:show` — Option 더블탭/단축키/메뉴바 클릭으로 오버레이를 열어야 할 때
 - `capture:reset` — 오버레이 입력창 초기화
-- `notes:changed` — 파일 워처나 다른 창에서의 변경을 반영해 쿼리 무효화
+- `memos:changed` — 파일 워처나 다른 창에서의 변경을 반영해 쿼리 무효화
 
-`create_note`/ `update_note`/ `delete_note`는 CLI와 GUI, 오버레이가 모두 동일한 `oxinot-core` 함수를 호출하므로 동작이 항상 일관됩니다.
+`create_memo`/ `update_memo`/ `delete_memo`는 CLI와 GUI, 오버레이가 모두 동일한 `oxinot-core` 함수를 호출하므로 동작이 항상 일관됩니다.
 
 ---
 
@@ -617,7 +617,7 @@ skills/oxinot/
 
 ### 10.3 향후 MCP 확장 (Phase 3 후보)
 
-CLI 셸아웃은 가장 이식성이 높은 통합 방식이라 MVP 기본값으로 유지하되, 여러 에이전트가 실시간으로 동일 볼트를 폴링해야 하는 상황이 잦아지면 `oxinot-core`를 감싸는 MCP 서버( `oxinot mcp serve`)를 추가해 `list_notes`/ `get_note`/ `search_notes`/ `create_note`를 MCP 툴로 노출할 수 있습니다. 코어 로직을 이미 크레이트로 분리해 두었으므로(§4) 이 확장은 새 얇은 어댑터 하나를 추가하는 작업에 가깝습니다.
+CLI 셸아웃은 가장 이식성이 높은 통합 방식이라 MVP 기본값으로 유지하되, 여러 에이전트가 실시간으로 동일 볼트를 폴링해야 하는 상황이 잦아지면 `oxinot-core`를 감싸는 MCP 서버( `oxinot mcp serve`)를 추가해 `list_memos`/ `get_memo`/ `search_memos`/ `create_memo`를 MCP 툴로 노출할 수 있습니다. 코어 로직을 이미 크레이트로 분리해 두었으므로(§4) 이 확장은 새 얇은 어댑터 하나를 추가하는 작업에 가깝습니다.
 
 ---
 
@@ -668,7 +668,7 @@ oxinot/
 ├── crates/
 │   ├── oxinot-core/                 # 순수 Rust 코어 라이브러리
 │   │   ├── src/
-│   │   │   ├── note.rs              # Note, NoteSummary, NoteColor, Cursor 등 도메인 타입
+│   │   │   ├── memo.rs              # Memo, MemoSummary, Cursor 등 도메인 타입
 │   │   │   ├── store/
 │   │   │   │   ├── files.rs         # TOML frontmatter 파일 I/O (엄격 파싱 §5.2)
 │   │   │   │   ├── index.rs         # redb 메타데이터 인덱스 + fs2 락

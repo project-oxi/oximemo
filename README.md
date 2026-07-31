@@ -4,7 +4,7 @@
 
 **Capture a thought before it's gone.**
 
-A fast, minimal, card-based note app for macOS (Apple Silicon).
+A fast, minimal, card-based memo app for macOS (Apple Silicon).
 
 Where a human hits `Option` twice and a coding agent reads the same vault over a CLI — with parity, no cloud, and plain-text files as the source of truth.
 
@@ -19,7 +19,7 @@ Where a human hits `Option` twice and a coding agent reads the same vault over a
 
 ---
 
-> **oxinot** is optimized for the *speed of catching a thought*. Every note is a **card**; cards live on a **grid**. There is no AI summary, no auto-tagging, no chatbot — those trade away the capture speed and reliability this project exists to protect.
+> **oxinot** is optimized for the *speed of catching a thought*. Every memo is a **card**; cards live on a **grid**. There is no AI summary, no auto-tagging, no chatbot — those trade away the capture speed and reliability this project exists to protect.
 
 Two core scenarios, one vault:
 
@@ -93,7 +93,7 @@ oxinot new "Ship the redb bump before the freeze" --tag backlog --color "oklch(0
 oxinot list --limit 10
 oxinot list --pinned --format ndjson
 
-# Read one note (JSON by default; --md for the raw file)
+# Read one memo (JSON by default; --md for the raw file)
 oxinot get 019fa927-a897-7e12-9102-8a8c7ebbb594 --md
 
 # Full-text search (BM25 over body + tags)
@@ -139,15 +139,15 @@ Notes are plain text — humans and agents can read them with anything.
 
 ```plain
 vault/
-├── notes/
+├── memos/
 │   └── 2026/07/
 │       ├── 01991a2e-7c3f-7c91-9f3e-6b1a2e8f9c10.md
 │       └── 01991a31-9b10-70aa-8c2e-4f0a1d2b3c44.md
-├── .trash/          # soft-deleted notes
+├── .trash/          # soft-deleted memos
 └── config.toml      # optional vault settings
 ```
 
-Each note is one file with TOML frontmatter delimited by `+++`:
+Each memo is one file with TOML frontmatter delimited by `+++`:
 
 ```markdown
 +++
@@ -206,7 +206,7 @@ flowchart TB
 
 | Layer | Role | Tech |
 | :--- | :--- | :--- |
-| Source of truth | Human-readable note bodies | `.md` files + TOML frontmatter |
+| Source of truth | Human-readable memo bodies | `.md` files + TOML frontmatter |
 | Metadata index | Fast pagination, filters, sync cursor | `redb` |
 | Full-text index | BM25 keyword search | `tantivy` |
 
