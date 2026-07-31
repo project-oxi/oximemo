@@ -75,6 +75,10 @@ export function CardGrid() {
         pinned_only: pinnedOnly,
       }),
     initialPageParam: null as string | null,
+    // §8: capture→main refresh — the cross-window `notes:changed` event is
+    // unreliable; refetch on focus so a freshly-captured note surfaces when
+    // the capture overlay hides and the main window regains focus.
+    refetchOnWindowFocus: true,
     getNextPageParam: (last) => last.next_cursor,
   });
 
@@ -143,8 +147,6 @@ export function CardGrid() {
   useEffect(() => {
     let un: (() => void) | undefined;
     void listen("notes:changed", () => {
-      // DIAGNOSTIC (P0): confirm event delivery at runtime — remove once fixed.
-      console.log("[oxinot] notes:changed received");
       qc.invalidateQueries({ queryKey: ["notes"] });
       qc.invalidateQueries({ queryKey: ["search"] });
       qc.invalidateQueries({ queryKey: ["facets"] });
