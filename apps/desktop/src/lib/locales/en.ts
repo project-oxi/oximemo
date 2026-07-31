@@ -36,6 +36,7 @@ export const dict: Record<keyof typeof ko, string> = {
   empty_cta: "Write your first memo",
   copy_failed: "Copy failed",
   done: "Done",
+  set_category: "Set category",
   close: "Close",
   empty_memo: "Empty",
   action_pin: "Pin",

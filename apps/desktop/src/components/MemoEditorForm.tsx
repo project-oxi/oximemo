@@ -8,18 +8,21 @@
  * 않고 의도적으로 분리함.
  */
 import { Check } from "lucide-react";
+import { type Ref, useRef } from "react";
 
 import { createCategory } from "../lib/api";
-import { CategoryCombobox } from "./CategoryCombobox";
+import { useI18n } from "../lib/i18n";
+import { CategoryCombobox, type CategoryComboboxHandle } from "./CategoryCombobox";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { TagChipRow } from "./TagChipRow";
+import type { AtomicCodeMirrorEditorHandle } from "@atomic-editor/editor";
 import type { CategoryDef } from "../lib/types";
 
 const cx = (...xs: (string | false | null | undefined)[]) =>
   xs.filter(Boolean).join(" ");
 
 
-export interface NoteEditorFormProps {
+export interface MemoEditorFormProps {
   body: string;
   onBodyChange: (v: string) => void;
   documentId: string;
@@ -32,6 +35,9 @@ export interface NoteEditorFormProps {
   confirmDisabled?: boolean;
   /** Keyboard hint rendered inside the confirm button (e.g. "⌘⏎"). */
   confirmKbd?: string;
+  /** Optional ref to the category picker so a parent shortcut (⌘L) can
+   *  open it imperatively. */
+  categoryPickerRef?: Ref<CategoryComboboxHandle>;
   className?: string;
 }
 
@@ -46,22 +52,30 @@ export function MemoEditorForm({
   confirmLabel,
   confirmDisabled,
   confirmKbd,
+  categoryPickerRef,
   className,
-}: NoteEditorFormProps) {
+}: MemoEditorFormProps) {
+  const { t } = useI18n();
+  const editorHandleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null);
+
   return (
     <div className={cx("flex flex-col gap-2.5", className)}>
       <MarkdownEditor
         body={body}
         onChange={onBodyChange}
         documentId={documentId}
+        editorHandleRef={editorHandleRef}
         className="max-h-[55vh] overflow-y-auto"
       />
       <TagChipRow body={body} />
       <div className="flex flex-wrap items-center gap-2.5">
         <CategoryCombobox
+          ref={categoryPickerRef}
           value={category || "inbox"}
           onValueChange={onCategoryChange}
           categories={categories}
+          triggerAriaLabel={t.set_category}
+          onClose={() => editorHandleRef.current?.focus()}
           onCreate={async (id) => {
             try {
               const def = await createCategory(id, null);

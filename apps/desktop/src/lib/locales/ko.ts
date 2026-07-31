@@ -35,6 +35,7 @@ export const dict = {
   empty_cta: "첫 메모 작성",
   copy_failed: "복사 실패",
   done: "완료",
+  set_category: "카테고리 설정",
   close: "닫기",
   empty_memo: "빈 메모",
   action_pin: "고정",
