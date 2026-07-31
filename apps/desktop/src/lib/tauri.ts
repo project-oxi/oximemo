@@ -287,6 +287,39 @@ async function browserFallback(
       return { id, color, builtin: false };
     }
 
+    case "update_category": {
+      const id = String(args?.id ?? "").trim().toLowerCase();
+      if (!id) throw new Error("category id must not be empty");
+      emitBrowser("notes:changed");
+      return null;
+    }
+
+    case "rename_category": {
+      const oldId = String(args?.old ?? "").trim().toLowerCase();
+      const newId = String(args?.new ?? "").trim().toLowerCase();
+      if (!oldId || !newId) throw new Error("category id must not be empty");
+      const store = loadStore();
+      let migrated = 0;
+      for (const n of Object.values(store)) {
+        if (n.category === oldId) {
+          n.category = newId;
+          n.updated_at = new Date().toISOString();
+          n.hash = fakeHash();
+          migrated++;
+        }
+      }
+      if (migrated > 0) saveStore(store);
+      emitBrowser("notes:changed");
+      return migrated;
+    }
+
+    case "delete_category": {
+      const id = String(args?.id ?? "").trim().toLowerCase();
+      if (!id) throw new Error("category id must not be empty");
+      emitBrowser("notes:changed");
+      return null;
+    }
+
     default:
       return null;
   }

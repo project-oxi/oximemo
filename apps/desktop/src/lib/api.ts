@@ -82,9 +82,20 @@ export async function listCategories(): Promise<CategoryDef[]> {
   return invoke<CategoryDef[]>("list_categories");
 }
 
-/** Create a session-scoped category. Persists for the lifetime of the app
- *  process but is **not** saved to disk — categories are lost on restart.
+/** Create a persistent category. Persists in core config (survives restarts).
  *  Duplicate IDs (builtin or user-created) return an error. */
 export async function createCategory(id: string, color: string | null): Promise<CategoryDef> {
   return invoke<CategoryDef>("create_category", { id, color });
+}
+
+export async function updateCategory(id: string, color: string) {
+  return invoke<void>("update_category", { id, color });
+}
+
+export async function renameCategory(oldId: string, newId: string) {
+  return invoke<number>("rename_category", { old: oldId, new: newId });
+}
+
+export async function deleteCategory(id: string) {
+  return invoke<void>("delete_category", { id });
 }
