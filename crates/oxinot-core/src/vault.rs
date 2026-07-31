@@ -180,7 +180,7 @@ impl Vault {
             created_at: now,
             updated_at: now,
             hash: hash::hash_memo(body.as_bytes(), false, &category),
-            pinned: false,
+            favorite: false,
             category,
             tags,
             body,
@@ -233,7 +233,7 @@ impl Vault {
         &self,
         id: MemoId,
         body: Option<String>,
-        pinned: Option<bool>,
+        favorite: Option<bool>,
         category: Option<String>,
     ) -> Result<Memo> {
         let mut note = self.get_memo(id)?;
@@ -241,15 +241,15 @@ impl Vault {
             note.body = b;
             note.tags = extract_tags(&note.body);
         }
-        if let Some(p) = pinned {
-            note.pinned = p;
+        if let Some(p) = favorite {
+            note.favorite = p;
         }
         if let Some(c) = category {
             note.category = c;
         }
         validate_note_input(&note.body, &note.tags)?;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
             idx.upsert(&record_of(&note))?;
@@ -264,7 +264,7 @@ impl Vault {
         let now = OffsetDateTime::now_utc();
         note.deleted_at = Some(now);
         note.updated_at = now;
-        note.hash = hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
         self.files.move_to_trash(&note)?;
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
@@ -278,7 +278,7 @@ impl Vault {
         let mut note = self.get_memo(id)?;
         note.deleted_at = None;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
         self.files.restore_from_trash(&note)?;
         self.files.write(&note)?;
         self.with_redb_and_search(|idx, search| {
@@ -366,8 +366,8 @@ impl Vault {
                     continue;
                 }
                 stats.memos += 1;
-                if r.pinned {
-                    stats.pinned += 1;
+                if r.favorite {
+                    stats.favorites += 1;
                 }
             }
             Ok(stats)
@@ -597,7 +597,7 @@ impl Vault {
                     // Categories have no format validity — only orphan/index
                     // consistency is checked here.
                     let recomputed =
-                        hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
+                        hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
                     if recomputed != note.hash {
                         // Report only *unresolved* mismatches. When --fix
                         // rewrites successfully the memo is no longer a
@@ -714,7 +714,7 @@ impl Vault {
                     .ok_or_else(|| CoreError::NotFound(rec.id.to_string()))?;
                 note.category = new.clone();
                 note.updated_at = OffsetDateTime::now_utc();
-                note.hash = hash::hash_memo(note.body.as_bytes(), note.pinned, &note.category);
+                note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
                 self.files.write(&note)?;
                 idx.upsert(&record_of(&note))?;
                 search.upsert(note.id, &note.body, &note.tags)?;
@@ -745,7 +745,7 @@ fn record_of(n: &Memo) -> IndexRecord {
         created_at: n.created_at,
         updated_at: n.updated_at,
         hash: n.hash.clone(),
-        pinned: n.pinned,
+        favorite: n.favorite,
         category: n.category.clone(),
         tags: n.tags.clone(),
         deleted: n.deleted_at.is_some(),
@@ -850,7 +850,7 @@ mod tests {
         let updated = v
             .update_memo(n.id, Some("edited".into()), Some(true), None)
             .unwrap();
-        assert!(updated.pinned);
+        assert!(updated.favorite);
         assert_ne!(updated.hash, n.hash);
 
         v.delete_memo(n.id).unwrap();

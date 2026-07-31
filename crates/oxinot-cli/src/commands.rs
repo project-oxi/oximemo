@@ -57,13 +57,13 @@ pub fn cmd_list(
     vault: &Vault,
     limit: u32,
     tag: Vec<String>,
-    pinned: bool,
+    favorites: bool,
     fmt: Format,
 ) -> Result<()> {
     let filter = MemoFilter {
         include_tags: tag,
         match_all: false,
-        pinned_only: pinned,
+        favorites_only: favorites,
         ..Default::default()
     };
     let page = vault.list_memos(None, limit, filter)?;

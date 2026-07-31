@@ -219,7 +219,7 @@ mod commands {
         exclude_tags: Vec<String>,
         match_all: bool,
         categories: Vec<String>,
-        pinned_only: bool,
+        favorites_only: bool,
     ) -> Result<oxinot_core::Page<oxinot_core::MemoSummary>, String> {
         let after = match after {
             Some(s) => Some(Cursor::parse(&s).map_err(|e| e.to_string())?),
@@ -230,7 +230,7 @@ mod commands {
             exclude_tags,
             match_all,
             categories,
-            pinned_only,
+            favorites_only,
             include_deleted: false,
         };
         state
@@ -266,13 +266,13 @@ mod commands {
         app: AppHandle,
         id: String,
         body: Option<String>,
-        pinned: Option<bool>,
+        favorite: Option<bool>,
         category: Option<String>,
     ) -> Result<oxinot_core::Memo, String> {
         let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
         let memo = state
             .vault
-            .update_memo(id, body, pinned, category)
+            .update_memo(id, body, favorite, category)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(memo)

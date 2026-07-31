@@ -121,7 +121,7 @@ pub struct Memo {
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
     pub hash: MemoHash,
-    pub pinned: bool,
+    pub favorite: bool,
     #[serde(default = "default_category")]
     pub category: String,
     pub tags: Vec<String>,
@@ -147,7 +147,7 @@ pub struct MemoSummary {
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
     pub hash: MemoHash,
-    pub pinned: bool,
+    pub favorite: bool,
     #[serde(default = "default_category")]
     pub category: String,
     pub tags: Vec<String>,
@@ -168,7 +168,7 @@ impl From<Memo> for MemoSummary {
             created_at: n.created_at,
             updated_at: n.updated_at,
             hash: n.hash,
-            pinned: n.pinned,
+            favorite: n.favorite,
             category: n.category,
             tags: n.tags,
             preview: make_preview(&n.body),
@@ -208,7 +208,7 @@ pub struct Page<T> {
 }
 
 /// Filter applied to listings (§4.3, §7.5). Composite: include-tag set
-/// (AND or OR), exclude-tag set, category set (OR membership), pin, deleted.
+/// (AND or OR), exclude-tag set, category set (OR membership), favorite, deleted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemoFilter {
     /// Memo must contain these tags. Empty = no constraint.
@@ -219,7 +219,7 @@ pub struct MemoFilter {
     pub match_all: bool,
     /// Non-empty = note's category must equal one of these (OR membership).
     pub categories: Vec<String>,
-    pub pinned_only: bool,
+    pub favorites_only: bool,
     /// When false, soft-deleted notes are excluded.
     pub include_deleted: bool,
 }
@@ -229,7 +229,7 @@ impl MemoFilter {
         if !self.include_deleted && s.deleted {
             return false;
         }
-        if self.pinned_only && !s.pinned {
+        if self.favorites_only && !s.favorite {
             return false;
         }
         if !self.categories.is_empty()
@@ -276,7 +276,7 @@ pub struct IndexStats {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemoStats {
     pub memos: u64,
-    pub pinned: u64,
+    pub favorites: u64,
 }
 
 /// Tag + category counts across the (non-deleted) vault, for the sidebar (§4.2).
@@ -310,13 +310,13 @@ mod filter_tests {
     use super::*;
     use time::OffsetDateTime;
 
-    fn sum(tags: &[&str], category: &str, pinned: bool) -> MemoSummary {
+    fn sum(tags: &[&str], category: &str, favorite: bool) -> MemoSummary {
         MemoSummary {
             id: MemoId::now(),
             created_at: OffsetDateTime::now_utc(),
             updated_at: OffsetDateTime::now_utc(),
             hash: MemoHash::new("h"),
-            pinned,
+            favorite,
             category: category.to_string(),
             tags: tags.iter().map(|t| t.to_string()).collect(),
             preview: String::new(),

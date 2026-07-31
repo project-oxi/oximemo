@@ -1,7 +1,7 @@
 //! Content hashing with deterministic normalization (§5.3).
 //!
-//! The hash covers a memo's full *meaningful state* — body, tags, pin flag,
-//! and color — so the sync diff (§9.2) detects metadata-only edits (tag/pin/
+//! The hash covers a memo's full *meaningful state* — body, tags, favorite flag,
+//! and color — so the sync diff (§9.2) detects metadata-only edits (tag/favorite/
 //! color changes), not just body edits. The digest must be stable regardless
 //! of how a memo was written — vim's atomic-rename, a shell redirect, or
 //! oxinot's own writer must all produce the same digest for identical state.
@@ -67,7 +67,7 @@ pub fn hash_normalized(normalized: &str) -> MemoHash {
     MemoHash::new(hasher.finalize().to_hex().to_string())
 }
 
-/// Hash a memo's full meaningful state: body + tags + pinned + color (§5.3).
+/// Hash a memo's full meaningful state: body + tags + favorite + color (§5.3).
 ///
 /// Deliberately excluded from the input:
 /// - `hash` (avoids a self-referential cycle),
@@ -75,15 +75,15 @@ pub fn hash_normalized(normalized: &str) -> MemoHash {
 /// - `updated_at` (it is the sync *cursor*, not content),
 /// - `deleted_at` (tombstones travel via the manifest's `deleted` flag).
 ///
-/// Because tags, pin, and color are part of the digest, editing any of them
+/// Because tags, favorite, and color are part of the digest, editing any of them
 /// changes the hash and is correctly surfaced by the sync diff — closing the
 /// gap where a metadata-only edit would otherwise look "unchanged".
-pub fn hash_memo(body: &[u8], pinned: bool, category: &str) -> MemoHash {
+pub fn hash_memo(body: &[u8], favorite: bool, category: &str) -> MemoHash {
     let normalized_body = normalize(body);
     let mut hasher = Hasher::new();
     hasher.update(normalized_body.as_bytes());
     hasher.update(b"\x1f"); // unit separator between fields
-    hasher.update(if pinned { b"1" } else { b"0" });
+    hasher.update(if favorite { b"1" } else { b"0" });
     hasher.update(b"\x1f");
     hasher.update(category.as_bytes());
     MemoHash::new(hasher.finalize().to_hex().to_string())
@@ -130,12 +130,12 @@ mod tests {
 
     #[test]
     fn metadata_only_edit_changes_hash() {
-        // Pin / color still change the hash (§9.2). Tags are derived from the
+        // Favorite / color still change the hash (§9.2). Tags are derived from the
         // body now, so a tag change IS a body change — covered below.
         let base = hash_memo(b"body", false, "");
-        let pinned = hash_memo(b"body", true, "");
+        let favorite = hash_memo(b"body", true, "");
         let colored = hash_memo(b"body", false, "todo");
-        assert_ne!(base, pinned);
+        assert_ne!(base, favorite);
         assert_ne!(base, colored);
     }
     #[test]

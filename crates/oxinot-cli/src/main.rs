@@ -52,7 +52,7 @@ enum Cmd {
         #[arg(long = "tag", value_name = "TAG")]
         tag: Vec<String>,
         #[arg(long)]
-        pinned: bool,
+        favorites: bool,
         /// table | json | ndjson
         #[arg(long, default_value = "table")]
         format: String,
@@ -152,12 +152,12 @@ fn run() -> Result<()> {
         Cmd::List {
             limit,
             tag,
-            pinned,
+            favorites,
             format,
         } => {
             let fmt = format::Format::from_arg(&format)
                 .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
-            commands::cmd_list(&vault, limit, tag, pinned, fmt)
+            commands::cmd_list(&vault, limit, tag, favorites, fmt)
         }
         Cmd::Get { id, md } => commands::cmd_get(&vault, parse_id(&id)?, md),
         Cmd::Search {

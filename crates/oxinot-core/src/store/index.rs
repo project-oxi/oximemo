@@ -30,7 +30,7 @@ pub struct IndexRecord {
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
     pub hash: MemoHash,
-    pub pinned: bool,
+    pub favorite: bool,
     #[serde(default = "crate::memo::default_category")]
     pub category: String,
     #[serde(default)]
@@ -49,7 +49,7 @@ impl IndexRecord {
             created_at: self.created_at,
             updated_at: self.updated_at,
             hash: self.hash.clone(),
-            pinned: self.pinned,
+            favorite: self.favorite,
             category: self.category.clone(),
             tags: self.tags.clone(),
             preview: self.preview.clone(),
@@ -264,7 +264,7 @@ mod tests {
             created_at: ts,
             updated_at: ts,
             hash: MemoHash::new("deadbeef"),
-            pinned: false,
+            favorite: false,
             category: "inbox".to_string(),
             tags: vec![],
             deleted: false,

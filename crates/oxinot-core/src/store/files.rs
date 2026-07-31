@@ -29,7 +29,7 @@ pub struct Frontmatter {
     pub updated_at: OffsetDateTime,
     pub hash: crate::memo::MemoHash,
     #[serde(default)]
-    pub pinned: bool,
+    pub favorite: bool,
     #[serde(default = "crate::memo::default_category")]
     pub category: String,
     #[serde(default)]
@@ -45,7 +45,7 @@ impl Frontmatter {
             created_at: n.created_at,
             updated_at: n.updated_at,
             hash: n.hash.clone(),
-            pinned: n.pinned,
+            favorite: n.favorite,
             category: n.category.clone(),
             tags: n.tags.clone(),
             deleted_at: n.deleted_at,
@@ -146,8 +146,8 @@ impl FileStore {
                     id: fm.id,
                     created_at: fm.created_at,
                     updated_at: fm.updated_at,
-                    hash: hash::hash_memo(body.as_bytes(), fm.pinned, &fm.category),
-                    pinned: fm.pinned,
+                    hash: hash::hash_memo(body.as_bytes(), fm.favorite, &fm.category),
+                    favorite: fm.favorite,
                     category: fm.category,
                     tags,
                     body,
@@ -372,7 +372,7 @@ mod tests {
             created_at: now,
             updated_at: now,
             hash: hash::hash_memo(body.as_bytes(), false, "todo"),
-            pinned: false,
+            favorite: false,
             category: "todo".to_string(),
             tags: vec!["idea".into()],
             body: body.into(),

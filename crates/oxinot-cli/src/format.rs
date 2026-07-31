@@ -102,12 +102,12 @@ fn print_summary_table(items: &[MemoSummary]) -> anyhow::Result<()> {
     writeln!(
         h,
         "{:<10} {:<19} {:<3} {:<10}  PREVIEW",
-        "ID", "UPDATED", "PIN", "CAT"
+        "ID", "UPDATED", "FAV", "CAT"
     )?;
     for s in items {
         let id = s.id.to_string();
         let short = &id[..8.min(id.len())];
-        let pin = if s.pinned { "*" } else { "" };
+        let star = if s.favorite { "*" } else { "" };
         let cat = if s.category.is_empty() { "-" } else { &s.category };
         let preview: String = s.preview.chars().take(60).collect();
         writeln!(
@@ -115,7 +115,7 @@ fn print_summary_table(items: &[MemoSummary]) -> anyhow::Result<()> {
             "{:<10} {:<19} {:<3} {:<10}  {}",
             short,
             rfc3339(s.updated_at),
-            pin,
+            star,
             cat,
             preview
         )?;
