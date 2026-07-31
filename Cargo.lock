@@ -2656,6 +2656,7 @@ dependencies = [
  "blake3",
  "fs2",
  "notify",
+ "parking_lot",
  "redb",
  "serde",
  "serde_json",
