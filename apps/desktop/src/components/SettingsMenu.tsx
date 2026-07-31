@@ -1,8 +1,9 @@
 /**
- * Settings modal: a full Dialog (not a popover) with grouped sections —
- * appearance, language, capture, storage/vault, and about. Every action maps
- * onto an existing IPC command (theme/locale are local state; reindex/doctor
- * hit the vault). Anchored to the gear button in the CardGrid header.
+ * Settings drawer: a right-anchored Dialog panel that slides in from the
+ * right edge. Stacks vertical sections — Appearance, Categories (placeholder
+ * until Task 8 fills it), Storage/Vault, and About. Every action maps onto an
+ * existing IPC command (theme/locale are local state; reindex/doctor hit the
+ * vault). Triggered by the gear button in the CardGrid header.
  */
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,10 +11,9 @@ import { type ReactNode, useState } from "react";
 import {
   Check,
   Copy,
-  Globe,
+  FolderTree,
   HardDrive,
   Info,
-  Languages,
   Palette,
   RefreshCw,
   Settings,
@@ -155,7 +155,7 @@ export function SettingsMenu() {
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
         <Dialog.Popup
-          className="fixed left-1/2 top-1/2 z-50 flex max-h-[82vh] w-[min(600px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+          className="fixed right-0 top-0 z-50 flex h-full w-[380px] max-w-[92vw] translate-x-full flex-col overflow-hidden border-l border-zinc-200 bg-white shadow-xl transition-transform duration-200 ease-out data-[open]:translate-x-0 dark:border-zinc-800 dark:bg-zinc-950"
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3.5 dark:border-zinc-800">
@@ -182,28 +182,23 @@ export function SettingsMenu() {
                   { value: "dark", label: t.theme_dark },
                 ]}
               />
-            </Section>
-
-            <Section icon={<Languages size={12} />} title={t.language}>
-              <Segmented
-                value={locale}
-                onChange={setLocale}
-                options={[
-                  { value: "ko", label: t.locale_ko },
-                  { value: "en", label: t.locale_en },
-                ]}
-              />
-            </Section>
-
-            <Section icon={<Globe size={12} />} title={t.section_capture}>
-              <div className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/50">
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {t.capture_shortcut}
-                </span>
-                <kbd className="rounded-md border border-zinc-200 bg-white px-2 py-1 font-mono text-[11px] text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                  ⌘⇧N
-                </kbd>
+              <div className="mt-2.5">
+                <Segmented
+                  value={locale}
+                  onChange={setLocale}
+                  options={[
+                    { value: "ko", label: t.locale_ko },
+                    { value: "en", label: t.locale_en },
+                  ]}
+                />
               </div>
+            </Section>
+
+            {/* TODO(Task 8): populate Categories management UI. */}
+            <Section icon={<FolderTree size={12} />} title="Categories">
+              <p className="rounded-lg bg-zinc-50 px-3 py-2 text-[11px] text-zinc-400 dark:bg-zinc-800/50 dark:text-zinc-500">
+                —
+              </p>
             </Section>
 
             <Section icon={<HardDrive size={12} />} title={t.section_storage}>
