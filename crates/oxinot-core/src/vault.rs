@@ -21,7 +21,7 @@ use time::OffsetDateTime;
 
 use parking_lot::RwLock;
 
-use crate::config::VaultConfig;
+use crate::config::{AUTO_COLORS, CategoryDef, VaultConfig};
 use crate::error::{CoreError, Result};
 use crate::hash;
 use crate::lock::{FileLock, LockKind, acquire};
@@ -69,6 +69,60 @@ impl Vault {
     /// Snapshot of the current category list (cloned under the read guard).
     pub fn categories(&self) -> Vec<crate::config::CategoryDef> {
         self.config.read().categories.items.clone()
+    }
+
+    /// Create a user-defined category. `id` is normalized (trimmed + lowercased);
+    /// rejects empty ids and collisions (including the built-in `inbox`).
+    /// `color = None` picks the first unused entry from `AUTO_COLORS`.
+    pub fn create_category(&self, id: String, color: Option<String>) -> Result<CategoryDef> {
+        let id = normalize_id(&id);
+        if id.is_empty() {
+            return Err(CoreError::other("category id empty"));
+        }
+        let mut cfg = self.config.write();
+        if cfg.categories.items.iter().any(|c| c.id == id) {
+            return Err(CoreError::other(format!("category '{id}' exists")));
+        }
+        let color = color.unwrap_or_else(|| pick_auto_color(&cfg.categories.items));
+        let def = CategoryDef {
+            id: id.clone(),
+            color,
+            builtin: false,
+        };
+        cfg.categories.items.push(def.clone());
+        cfg.save(&self.paths)?;
+        Ok(def)
+    }
+
+    /// Update an existing category's color. Errors if the id doesn't match any
+    /// known category. `inbox` (and any other built-in) can be re-colored; only
+    /// deletion is restricted.
+    pub fn update_category(&self, id: String, color: String) -> Result<()> {
+        let id = normalize_id(&id);
+        let mut cfg = self.config.write();
+        let def = cfg
+            .categories
+            .items
+            .iter_mut()
+            .find(|c| c.id == id)
+            .ok_or_else(|| CoreError::other(format!("category '{id}' not found")))?;
+        def.color = color;
+        cfg.save(&self.paths)
+    }
+
+    /// Remove a user-defined category. The built-in `inbox` cannot be deleted.
+    pub fn delete_category(&self, id: String) -> Result<()> {
+        let id = normalize_id(&id);
+        if id == crate::note::DEFAULT_CATEGORY {
+            return Err(CoreError::other("inbox cannot be deleted"));
+        }
+        let mut cfg = self.config.write();
+        let before = cfg.categories.items.len();
+        cfg.categories.items.retain(|c| c.id != id);
+        if cfg.categories.items.len() == before {
+            return Err(CoreError::other(format!("category '{id}' not found")));
+        }
+        cfg.save(&self.paths)
     }
 
     pub fn paths(&self) -> &Paths {
@@ -644,6 +698,25 @@ pub struct DoctorReport {
     pub vault_ok: bool,
 }
 
+/// Normalize a category id: trim surrounding whitespace and lowercase. ASCII
+/// slugs are the canonical form (brief §Task 3 — "ASCII slugs suffice"). If
+/// non-ASCII ids ever ship, prepend `.nfc().collect::<String>()` from
+/// `unicode-normalization` (already a dep).
+fn normalize_id(id: &str) -> String {
+    id.trim().to_lowercase()
+}
+
+/// Pick the first `AUTO_COLORS` entry not already used by an existing item;
+/// falls back to the first entry when every palette stop is in use. Used as
+/// the default color when `Vault::create_category` is called with `color=None`.
+fn pick_auto_color(items: &[CategoryDef]) -> String {
+    AUTO_COLORS
+        .iter()
+        .find(|c| !items.iter().any(|item| &item.color == *c))
+        .map(|s| (*s).to_string())
+        .unwrap_or_else(|| AUTO_COLORS[0].to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -793,5 +866,41 @@ mod tests {
                 .map(|(_, c)| *c),
             Some(1)
         );
+    }
+
+    #[test]
+    fn category_crud_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = Vault::open(Some(dir.path())).unwrap();
+        v.ensure_initialized().unwrap();
+
+        // create
+        let c = v.create_category("urgent".into(), None).unwrap();
+        assert_eq!(c.id, "urgent");
+        assert!(!c.color.is_empty());
+
+        // duplicate rejected
+        assert!(v.create_category("urgent".into(), None).is_err());
+        // empty rejected
+        assert!(v.create_category("  ".into(), None).is_err());
+        // inbox collision rejected
+        assert!(v.create_category("inbox".into(), None).is_err());
+
+        // update color
+        v.update_category("urgent".into(), "oklch(0.6 0.2 25)".into()).unwrap();
+        assert_eq!(v.categories().iter().find(|c| c.id == "urgent").unwrap().color, "oklch(0.6 0.2 25)");
+
+        // delete
+        v.delete_category("urgent".into()).unwrap();
+        assert!(v.categories().iter().all(|c| c.id != "urgent"));
+
+        // inbox not deletable
+        assert!(v.delete_category("inbox".into()).is_err());
+        // unknown update/rename target rejected
+        assert!(v.update_category("nope".into(), "x".into()).is_err());
+
+        // persists across reopen
+        let v2 = Vault::open(Some(dir.path())).unwrap();
+        assert!(v2.categories().iter().all(|c| c.id != "urgent"));
     }
 }
