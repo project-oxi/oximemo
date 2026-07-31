@@ -1,12 +1,12 @@
 /**
  * Markdown → HTML for card previews (§5).
  *
- * The card receives `note.preview` from the Rust `make_preview` helper
+ * The card receives `memo.preview` from the Rust `make_preview` helper
  * (already trimmed to a non-empty first 160 chars). We re-parse it here as
  * markdown and render the first block (up to `maxLen` chars) to HTML so
  * users see headings, lists, code spans, etc. in the grid.
  *
- * External input never reaches this function — note bodies are the user's
+ * External input never reaches this function — memo bodies are the user's
  * own typing — so `dangerouslySetInnerHTML` in Card.tsx is safe given
  * marked's default HTML escaping.
  */

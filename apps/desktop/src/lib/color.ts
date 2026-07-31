@@ -51,7 +51,7 @@ export function isValidOklch(s: string): boolean {
 }
 
 /**
- * Post-it paper fill: the note color mixed toward the card surface so the
+ * Post-it paper fill: the memo color mixed toward the card surface so the
  * card reads as colored paper — a clear pastel in light mode, a muted tint
  * in dark. Mixed at 60% (not a faint wash) so the picked color actually
  * reads, and the ColorPicker swatches preview this exact value (WYSIWYG).

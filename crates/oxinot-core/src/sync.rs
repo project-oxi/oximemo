@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use crate::note::{Memo, MemoHash, MemoId};
+use crate::memo::{Memo, MemoHash, MemoId};
 
 /// Lightweight manifest entry: identity + content hash + timestamp + tombstone.
 #[derive(Debug, Clone, Serialize, Deserialize)]

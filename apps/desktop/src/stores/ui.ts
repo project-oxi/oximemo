@@ -34,8 +34,8 @@ interface UIState {
   /** Transient neutral toast message. `null` = none. */
   toast: string | null;
   setToast: (msg: string | null) => void;
-  /** Id of a note minted by "new note" this session; discarded on close
-   * while still empty so no orphan notes accumulate. */
+  /** Id of a note minted by "new memo" this session; discarded on close
+   * while still empty so no orphan memos accumulate. */
   draftId: string | null;
   setDraftId: (id: string | null) => void;
 }

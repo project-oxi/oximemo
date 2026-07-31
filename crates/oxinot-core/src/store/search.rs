@@ -13,7 +13,7 @@ use tantivy::schema::{Field, STORED, STRING, Schema, TEXT};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term, doc};
 
 use crate::error::{CoreError, Result};
-use crate::note::MemoId;
+use crate::memo::MemoId;
 
 /// A single search upsert, used for batched reindex commits (§5.6).
 pub struct Upsert<'a> {

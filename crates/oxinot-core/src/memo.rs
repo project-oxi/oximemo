@@ -264,8 +264,8 @@ impl MemoFilter {
 /// Statistics produced by `reindex`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IndexStats {
-    pub notes: u64,
-    pub trashed: u64,
+    pub memos: u64,
+    pub trashed_memos: u64,
     pub added: u64,
     pub updated: u64,
     pub unchanged: u64,
@@ -275,7 +275,7 @@ pub struct IndexStats {
 /// Live vault statistics (excludes soft-deleted tombstones).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemoStats {
-    pub notes: u64,
+    pub memos: u64,
     pub pinned: u64,
 }
 

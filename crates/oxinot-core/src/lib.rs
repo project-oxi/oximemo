@@ -13,7 +13,7 @@
 pub mod config;
 pub mod error;
 pub mod hash;
-pub mod note;
+pub mod memo;
 pub mod paths;
 pub mod tags;
 
@@ -25,7 +25,7 @@ pub mod watcher;
 
 pub use config::{Theme, VaultConfig};
 pub use error::{CoreError, Result};
-pub use note::{
+pub use memo::{
     Cursor, Facets, IndexStats, Memo, MemoFilter, MemoHash, MemoId, MemoStats,
     MemoSummary, Page,
 };

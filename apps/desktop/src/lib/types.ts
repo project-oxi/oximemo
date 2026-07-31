@@ -1,9 +1,9 @@
 /** Shared types mirroring the Rust core. */
 
-export type NoteId = string;
+export type MemoId = string;
 
-export interface Note {
-  id: NoteId;
+export interface Memo {
+  id: MemoId;
   created_at: string;
   updated_at: string;
   hash: string;
@@ -14,8 +14,8 @@ export interface Note {
   deleted_at: string | null;
 }
 
-export interface NoteSummary {
-  id: NoteId;
+export interface MemoSummary {
+  id: MemoId;
   created_at: string;
   updated_at: string;
   hash: string;
@@ -32,7 +32,7 @@ export interface Page<T> {
 }
 
 export interface IndexStats {
-  notes: number;
+  memos: number;
   trashed: number;
   added: number;
   updated: number;
@@ -51,8 +51,8 @@ export interface DoctorReport {
   vault_ok: boolean;
 }
 
-export interface NoteStats {
-  notes: number;
+export interface MemoStats {
+  memos: number;
   pinned: number;
 }
 

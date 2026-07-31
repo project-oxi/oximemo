@@ -2,8 +2,8 @@
  * React wrapper around `@atomic-editor/editor` (§4.1).
  *
  * The wrapper:
- *  - forces a `documentId` prop so swapping notes remounts the CM6 view
- *    (undo/cursor state from the previous note never leaks into the next)
+ *  - forces a `documentId` prop so swapping memos remounts the CM6 view
+ *    (undo/cursor state from the previous memo never leaks into the next)
  *  - forwards link clicks to the optional handler, falling back to a plain
  *    `window.open` so external links work in both browser-dev and Tauri.
  *
@@ -21,7 +21,7 @@ import "@atomic-editor/editor/styles.css";
 interface Props {
   body: string;
   onChange: (v: string) => void;
-  /** Note identity — change it to swap documents (forces remount). */
+  /** Memo identity — change it to swap documents (forces remount). */
   documentId: string;
   className?: string;
   onLinkClick?: (url: string) => void;

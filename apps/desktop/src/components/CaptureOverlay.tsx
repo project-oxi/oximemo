@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { createNote, listCategories } from "../lib/api";
+import { createMemo, listCategories } from "../lib/api";
 import { listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import { closeCurrentWindow, showCurrentWindow } from "../lib/window";
@@ -56,12 +56,12 @@ export function CaptureOverlay() {
     try {
       // Dismiss optimistically: the capture window is parked (hidden, not
       // destroyed), so hide it the instant the user confirms and let the
-      // write finish behind the curtain. The note surfaces in the grid via
-      // the watcher's `notes:changed` broadcast. We deliberately do NOT
+      // write finish behind the curtain. The memo surfaces in the grid via
+      // the watcher's `memos:changed` broadcast. We deliberately do NOT
       // reset form state on success — `capture:show` owns that, which also
       // avoids wiping text if the user re-captures mid-write.
       await closeCurrentWindow();
-      await createNote(body, category || null);
+      await createMemo(body, category || null);
     } catch (e) {
       // Surface the failure (H4) and restore the window with the text
       // intact so the user can fix and retry — the write didn't land.

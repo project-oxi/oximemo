@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use oxinot_core::Vault;
-use oxinot_core::note::{MemoFilter, MemoId};
+use oxinot_core::memo::{MemoFilter, MemoId};
 use oxinot_core::store::files::FileStore;
 
 use crate::format::{self, Format};
@@ -77,7 +77,7 @@ pub fn cmd_get(vault: &Vault, id: MemoId, md: bool) -> Result<()> {
         // Emit the exact on-disk representation (frontmatter + body).
         println!("{}", FileStore::serialize(&note)?);
     } else {
-        let summary: oxinot_core::note::MemoSummary = oxinot_core::note::MemoSummary::from(note);
+        let summary: oxinot_core::memo::MemoSummary = oxinot_core::memo::MemoSummary::from(note);
         println!("{}", serde_json::to_string_pretty(&summary)?);
     }
     Ok(())
@@ -140,7 +140,7 @@ pub fn cmd_reindex(vault: &Vault) -> Result<()> {
     let stats = vault.reindex()?;
     println!(
         "notes={} trashed={} added={} updated={} unchanged={} failed={}",
-        stats.notes, stats.trashed, stats.added, stats.updated, stats.unchanged, stats.failed
+        stats.memos, stats.trashed_memos, stats.added, stats.updated, stats.unchanged, stats.failed
     );
     Ok(())
 }

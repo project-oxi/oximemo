@@ -5,9 +5,9 @@
  * standalone.
  */
 import { invoke } from "./tauri";
-import type { Note, NoteSummary, IndexStats, DoctorReport, NoteStats, Facets, CategoryDef } from "./types";
+import type { Memo, MemoSummary, IndexStats, DoctorReport, MemoStats, Facets, CategoryDef } from "./types";
 
-export async function listNotes(
+export async function listMemos(
   after: string | null,
   limit = 50,
   filter: {
@@ -18,7 +18,7 @@ export async function listNotes(
     pinned_only?: boolean;
   } = {},
 ) {
-  return invoke<{ items: NoteSummary[]; next_cursor: string | null }>("list_notes", {
+  return invoke<{ items: MemoSummary[]; next_cursor: string | null }>("list_memos", {
     after,
     limit,
     // Tauri v2 binds invoke args by Rust param name in camelCase by default.
@@ -30,33 +30,33 @@ export async function listNotes(
   });
 }
 
-export async function getNote(id: string) {
-  return invoke<Note>("get_note", { id });
+export async function getMemo(id: string) {
+  return invoke<Memo>("get_memo", { id });
 }
 
-export async function createNote(body: string, category: string | null) {
-  return invoke<Note>("create_note", { body, category });
+export async function createMemo(body: string, category: string | null) {
+  return invoke<Memo>("create_memo", { body, category });
 }
 
-export async function updateNote(
+export async function updateMemo(
   id: string,
   body: string | null,
   pinned: boolean | null,
   category: string | null,
 ) {
-  return invoke<Note>("update_note", { id, body, pinned, category });
+  return invoke<Memo>("update_memo", { id, body, pinned, category });
 }
 
 export async function listFacets() {
   return invoke<Facets>("list_facets");
 }
 
-export async function deleteNote(id: string) {
-  return invoke<void>("delete_note", { id });
+export async function deleteMemo(id: string) {
+  return invoke<void>("delete_memo", { id });
 }
 
-export async function searchNotes(query: string, limit = 20) {
-  return invoke<NoteSummary[]>("search_notes", { query, limit });
+export async function searchMemos(query: string, limit = 20) {
+  return invoke<MemoSummary[]>("search_memos", { query, limit });
 }
 
 export async function exportManifest(since: string | null) {
@@ -75,8 +75,8 @@ export async function vaultPath() {
   return invoke<string>("vault_path");
 }
 
-export async function noteStats() {
-  return invoke<NoteStats>("note_stats");
+export async function memoStats() {
+  return invoke<MemoStats>("memo_stats");
 }
 
 export async function listCategories(): Promise<CategoryDef[]> {

@@ -1,23 +1,23 @@
 /**
- * Card grid (§7.2–7.5): a virtualized, responsive multi-column grid of note
+ * Card grid (§7.2–7.5): a virtualized, responsive multi-column grid of memo
  * cards. Cursor-paged listing (with composite tag/color filters) or BM25
- * search; the title-bar header holds the search field, new-note button, and a
+ * search; the title-bar header holds the search field, new-memo button, and a
  * theme toggle. A collapsible left Sidebar owns navigation + filtering.
- * Selecting a card opens the NoteDetail editor; the grid refreshes on
- * `notes:changed` from the file watcher / other windows (§7.4).
+ * Selecting a card opens the MemoDetail editor; the grid refreshes on
+ * `memos:changed` from the file watcher / other windows (§7.4).
  */
 import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Plus, Search } from "lucide-react";
 
-import { createNote, deleteNote, listNotes, noteStats, searchNotes, updateNote, listCategories } from "../lib/api";
+import { createMemo, deleteMemo, listMemos, memoStats, searchMemos, updateMemo, listCategories } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
 import { useUI } from "../stores/ui";
-import type { NoteSummary } from "../lib/types";
+import type { MemoSummary } from "../lib/types";
 import { Card } from "./Card";
-import { NoteDetail } from "./NoteDetail";
+import { MemoDetail } from "./MemoDetail";
 import { SettingsMenu } from "./SettingsMenu";
 import { Sidebar } from "./Sidebar";
 
@@ -43,8 +43,8 @@ export function CardGrid() {
   const clearTagFilter = useUI((s) => s.clearTagFilter);
   const setCategory = useUI((s) => s.setCategory);
   const setPinnedOnly = useUI((s) => s.setPinnedOnly);
-  const stats = useQuery({ queryKey: ["stats"], queryFn: noteStats });
-  const hasNotes = (stats.data?.notes ?? 0) > 0;
+  const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
+  const hasMemos = (stats.data?.memos ?? 0) > 0;
   const clearAllFilters = () => {
     clearTagFilter();
     setCategory(null);
@@ -75,9 +75,9 @@ export function CardGrid() {
   }, [localSearch]);
 
   const listing = useInfiniteQuery({
-    queryKey: ["notes", includeTags, excludeTags, matchAll, categoryFilter, pinnedOnly],
+    queryKey: ["memos", includeTags, excludeTags, matchAll, categoryFilter, pinnedOnly],
     queryFn: ({ pageParam }) =>
-      listNotes(pageParam, PAGE_SIZE, {
+      listMemos(pageParam, PAGE_SIZE, {
         include_tags: includeTags,
         exclude_tags: excludeTags,
         match_all: matchAll,
@@ -85,8 +85,8 @@ export function CardGrid() {
         pinned_only: pinnedOnly,
       }),
     initialPageParam: null as string | null,
-    // §8: capture→main refresh — the cross-window `notes:changed` event is
-    // unreliable; refetch on focus so a freshly-captured note surfaces when
+    // §8: capture→main refresh — the cross-window `memos:changed` event is
+    // unreliable; refetch on focus so a freshly-captured memo surfaces when
     // the capture overlay hides and the main window regains focus.
     refetchOnWindowFocus: true,
     getNextPageParam: (last) => last.next_cursor,
@@ -94,14 +94,14 @@ export function CardGrid() {
 
   const searching = useInfiniteQuery({
     queryKey: ["search", debounced],
-    queryFn: () => searchNotes(debounced, 100),
+    queryFn: () => searchMemos(debounced, 100),
     initialPageParam: null,
     getNextPageParam: () => null,
     enabled: debounced.length > 0,
   });
 
   const inSearch = debounced.length > 0;
-  const items: NoteSummary[] = useMemo(() => {
+  const items: MemoSummary[] = useMemo(() => {
     const base = inSearch
       ? searching.data?.pages.flat() ?? []
       : listing.data?.pages.flatMap((p) => p.items) ?? [];
@@ -156,8 +156,8 @@ export function CardGrid() {
   // Refresh when another window or the file watcher changes the vault (§7.4).
   useEffect(() => {
     let un: (() => void) | undefined;
-    void listen("notes:changed", () => {
-      qc.invalidateQueries({ queryKey: ["notes"] });
+    void listen("memos:changed", () => {
+      qc.invalidateQueries({ queryKey: ["memos"] });
       qc.invalidateQueries({ queryKey: ["search"] });
       qc.invalidateQueries({ queryKey: ["facets"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
@@ -173,9 +173,9 @@ export function CardGrid() {
   }, [includeTags, excludeTags, categoryFilter, pinnedOnly, matchAll]);
 
   const onDelete = (id: string) => {
-    void deleteNote(id)
+    void deleteMemo(id)
       .then(() => {
-        qc.invalidateQueries({ queryKey: ["notes"] });
+        qc.invalidateQueries({ queryKey: ["memos"] });
         qc.invalidateQueries({ queryKey: ["search"] });
         qc.invalidateQueries({ queryKey: ["facets"] });
       })
@@ -183,9 +183,9 @@ export function CardGrid() {
   };
 
   const onTogglePin = (id: string, pinned: boolean) => {
-    void updateNote(id, null, !pinned, null)
+    void updateMemo(id, null, !pinned, null)
       .then(() => {
-        qc.invalidateQueries({ queryKey: ["notes"] });
+        qc.invalidateQueries({ queryKey: ["memos"] });
         qc.invalidateQueries({ queryKey: ["facets"] });
       })
       .catch((e) => setError(String(e).split("\n")[0]));
@@ -195,20 +195,20 @@ export function CardGrid() {
     // Never re-seed over an open editor: the seed effect would clobber a
     // pending draft and cancel its autosave flush.
     if (useUI.getState().selectedId) return;
-    void createNote("", null)
+    void createMemo("", null)
       .then((n) => {
         setDraftId(n.id);
         select(n.id);
-        // Refresh the grid directly. `create_note` emits `notes:changed`, but
+        // Refresh the grid directly. `create_note` emits `memos:changed`, but
         // that event has proven an unreliable refresh channel in this app —
-        // invalidate here like delete/pin do so a new note always surfaces.
-        qc.invalidateQueries({ queryKey: ["notes"] });
+        // invalidate here like delete/pin do so a new memo always surfaces.
+        qc.invalidateQueries({ queryKey: ["memos"] });
         qc.invalidateQueries({ queryKey: ["facets"] });
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   }, [select, setDraftId, setError, qc]);
 
-  // ⌘N mints a new note in the editor (the capture window keeps ⌘⇧N).
+  // ⌘N mints a new memo in the editor (the capture window keeps ⌘⇧N).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
@@ -257,7 +257,7 @@ export function CardGrid() {
           <button
             type="button"
             onClick={onNewNote}
-            aria-label={t.new_note}
+            aria-label={t.new_memo}
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             <Plus size={15} strokeWidth={2.5} />
@@ -279,8 +279,8 @@ export function CardGrid() {
             </div>
           ) : items.length === 0 ? (
             <div className="mt-24 flex flex-col items-center gap-4 text-center">
-              <p className="text-sm text-zinc-400">{hasNotes ? t.no_match_hint : t.empty_hint}</p>
-              {hasNotes ? (
+              <p className="text-sm text-zinc-400">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
+              {hasMemos ? (
                 <button
                   type="button"
                   onClick={clearAllFilters}
@@ -325,7 +325,7 @@ export function CardGrid() {
                       {row.map((n) => (
                         <Card
                           key={n.id}
-                          note={n}
+                          memo={n}
                           categories={catDefs}
                           onSelect={select}
                           onTogglePin={(id) => onTogglePin(id, n.pinned)}
@@ -340,7 +340,7 @@ export function CardGrid() {
           )}
         </div>
       </div>
-      <NoteDetail />
+      <MemoDetail />
     </div>
   );
 }

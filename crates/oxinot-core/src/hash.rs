@@ -10,7 +10,7 @@
 use blake3::Hasher;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::note::MemoHash;
+use crate::memo::MemoHash;
 
 /// Normalize note body bytes before hashing.
 ///

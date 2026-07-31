@@ -1,5 +1,5 @@
 /**
- * Note detail + editor (§7.3). Opens (controlled by the `selectedId` UI state)
+ * Memo detail + editor (§7.3). Opens (controlled by the `selectedId` UI state)
  * as a Base UI Dialog, loads the full note via `get_note`, and debounces edits
  * into `update_note` (500ms autosave). A pending edit is flushed on close so no
  * input is lost.
@@ -9,14 +9,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Pin } from "lucide-react";
 
-import { deleteNote, getNote, updateNote, listCategories } from "../lib/api";
+import { deleteMemo, getMemo, updateMemo, listCategories } from "../lib/api";
 import { colorForCategory, paperFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
-import { NoteEditorForm } from "./NoteEditorForm";
+import { MemoEditorForm } from "./MemoEditorForm";
 import type { CategoryDef } from "../lib/types";
 
-export function NoteDetail() {
+export function MemoDetail() {
   const { t } = useI18n();
   const selectedId = useUI((s) => s.selectedId);
   const select = useUI((s) => s.select);
@@ -26,9 +26,9 @@ export function NoteDetail() {
   const open = selectedId !== null;
   const qc = useQueryClient();
 
-  const note = useQuery({
-    queryKey: ["note", selectedId],
-    queryFn: () => getNote(selectedId!),
+  const memo = useQuery({
+    queryKey: ["memo", selectedId],
+    queryFn: () => getMemo(selectedId!),
     enabled: open,
   });
 
@@ -43,27 +43,27 @@ export function NoteDetail() {
     listCategories().then(setCategories).catch(() => {});
   }, []);
 
-  // Seed the draft exactly once per loaded note; reset when the dialog closes.
+  // Seed the draft exactly once per loaded memo; reset when the dialog closes.
   useEffect(() => {
-    if (open && note.data && seededId !== note.data.id) {
-      setBody(note.data.body);
-      setCategory(note.data.category);
-      setPinned(note.data.pinned);
+    if (open && memo.data && seededId !== memo.data.id) {
+      setBody(memo.data.body);
+      setCategory(memo.data.category);
+      setPinned(memo.data.pinned);
       setDirty(false);
-      setSeededId(note.data.id);
+      setSeededId(memo.data.id);
     }
     if (!open && seededId !== null) setSeededId(null);
-  }, [open, note.data, seededId]);
+  }, [open, memo.data, seededId]);
 
   // Debounced autosave (§7.3, 500ms).
   useEffect(() => {
     if (!dirty || !selectedId) return;
     const h = window.setTimeout(() => {
-      void updateNote(selectedId, body, pinned, category)
+      void updateMemo(selectedId, body, pinned, category)
         .then((n) => {
-          qc.setQueryData(["note", selectedId], n);
+          qc.setQueryData(["memo", selectedId], n);
           setDirty(false);
-          qc.invalidateQueries({ queryKey: ["notes"] });
+          qc.invalidateQueries({ queryKey: ["memos"] });
           qc.invalidateQueries({ queryKey: ["facets"] });
         })
         .catch((e) => {
@@ -76,11 +76,11 @@ export function NoteDetail() {
   }, [dirty, body, pinned, category, selectedId, qc]);
 
   const close = () => {
-    // A note minted by "new note" this session is discarded while still
+    // A note minted by "new memo" this session is discarded while still
     // empty, so cancelled drafts don't accumulate as orphan files.
     if (selectedId && selectedId === draftId && !body.trim()) {
-      void deleteNote(selectedId)
-        .then(() => qc.invalidateQueries({ queryKey: ["notes"] }))
+      void deleteMemo(selectedId)
+        .then(() => qc.invalidateQueries({ queryKey: ["memos"] }))
         .catch((e) => setError(String(e).split("\n")[0]));
       setDraftId(null);
       select(null);
@@ -88,10 +88,10 @@ export function NoteDetail() {
     }
     // Flush a pending edit before dismissing.
     if (dirty && selectedId) {
-      void updateNote(selectedId, body, pinned, category)
+      void updateMemo(selectedId, body, pinned, category)
         .then((n) => {
-          qc.setQueryData(["note", selectedId], n);
-          qc.invalidateQueries({ queryKey: ["notes"] });
+          qc.setQueryData(["memo", selectedId], n);
+          qc.invalidateQueries({ queryKey: ["memos"] });
           qc.invalidateQueries({ queryKey: ["facets"] });
         })
         .catch((e) => setError(String(e).split("\n")[0]));
@@ -125,13 +125,13 @@ export function NoteDetail() {
               style={{ backgroundColor: paperFor(colorForCategory(category, categories)) }}
             />
           )}
-          {note.isLoading || !note.data || seededId !== note.data.id ? (
+          {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
             <div className="py-10 text-center text-sm text-zinc-400">…</div>
           ) : (
             <>
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-[10px] uppercase tracking-wide text-zinc-400">
-                  {note.data.id.slice(0, 8)}
+                  {memo.data.id.slice(0, 8)}
                 </span>
                 <button
                   type="button"
@@ -145,10 +145,10 @@ export function NoteDetail() {
                   <Pin size={12} /> {t.pinned}
                 </button>
               </div>
-              <NoteEditorForm
+              <MemoEditorForm
                 body={body}
                 onBodyChange={edit(setBody)}
-                documentId={note.data.id}
+                documentId={memo.data.id}
                 category={category}
                 onCategoryChange={edit(setCategory)}
                 categories={categories}

@@ -25,7 +25,7 @@ use crate::config::{AUTO_COLORS, CategoryDef, VaultConfig};
 use crate::error::{CoreError, Result};
 use crate::hash;
 use crate::lock::{FileLock, LockKind, acquire};
-use crate::note::{
+use crate::memo::{
     Cursor, IndexStats, Memo, MemoFilter, MemoId, MemoSummary, Page, make_preview,
 };
 use crate::paths::Paths;
@@ -118,7 +118,7 @@ impl Vault {
     /// Remove a user-defined category. The built-in `inbox` cannot be deleted.
     pub fn delete_category(&self, id: String) -> Result<()> {
         let id = normalize_id(&id);
-        if id == crate::note::DEFAULT_CATEGORY {
+        if id == crate::memo::DEFAULT_CATEGORY {
             return Err(CoreError::other("inbox cannot be deleted"));
         }
         let mut cfg = self.config.write();
@@ -174,7 +174,7 @@ impl Vault {
         validate_note_input(&body, &tags)?;
         let now = OffsetDateTime::now_utc();
         let id = MemoId::now();
-        let category = category.unwrap_or_else(|| crate::note::DEFAULT_CATEGORY.to_string());
+        let category = category.unwrap_or_else(|| crate::memo::DEFAULT_CATEGORY.to_string());
         let note = Memo {
             id,
             created_at: now,
@@ -357,15 +357,15 @@ impl Vault {
     }
 
     /// Live note counts (soft-deleted tombstones excluded).
-    pub fn memo_stats(&self) -> Result<crate::note::MemoStats> {
+    pub fn memo_stats(&self) -> Result<crate::memo::MemoStats> {
         self.with_redb(|idx| {
             let recs = idx.export_since(None)?;
-            let mut stats = crate::note::MemoStats::default();
+            let mut stats = crate::memo::MemoStats::default();
             for r in &recs {
                 if r.deleted {
                     continue;
                 }
-                stats.notes += 1;
+                stats.memos += 1;
                 if r.pinned {
                     stats.pinned += 1;
                 }
@@ -375,7 +375,7 @@ impl Vault {
     }
 
     /// Tag + color counts over live (non-deleted) notes for the sidebar (§4.2).
-    pub fn list_facets(&self) -> Result<crate::note::Facets> {
+    pub fn list_facets(&self) -> Result<crate::memo::Facets> {
         self.with_redb(|idx| {
             let recs = idx.export_since(None)?;
             let mut tag_map: std::collections::BTreeMap<String, u32> = Default::default();
@@ -391,7 +391,7 @@ impl Vault {
                     *cat_map.entry(r.category.clone()).or_insert(0) += 1;
                 }
             }
-            Ok(crate::note::Facets {
+            Ok(crate::memo::Facets {
                 tags: tag_map.into_iter().collect(),
                 categories: cat_map.into_iter().collect(),
             })
@@ -456,7 +456,7 @@ impl Vault {
                                 stats.updated += 1;
                             }
                         }
-                        stats.notes += 1;
+                        stats.memos += 1;
                     }
                     Ok(None) => {}
                     Err(e) => {
@@ -470,7 +470,7 @@ impl Vault {
                     let rec = record_of(&note);
                     idx.upsert(&rec)?;
                     search_owned.push((note.id, note.body, note.tags));
-                    stats.trashed += 1;
+                    stats.trashed_memos += 1;
                 }
             }
             // One tantivy commit for everything that changed.
@@ -683,7 +683,7 @@ impl Vault {
     pub fn rename_category(&self, old: String, new: String) -> Result<u64> {
         let old = normalize_id(&old);
         let new = normalize_id(&new);
-        if old == crate::note::DEFAULT_CATEGORY || new == crate::note::DEFAULT_CATEGORY {
+        if old == crate::memo::DEFAULT_CATEGORY || new == crate::memo::DEFAULT_CATEGORY {
             return Err(CoreError::other("inbox id is immutable"));
         }
         if old == new {

@@ -36,7 +36,7 @@ import {
   deleteCategory,
   doctor,
   listCategories,
-  noteStats,
+  memoStats,
   reindex,
   renameCategory,
   updateCategory,
@@ -104,7 +104,7 @@ function Section({
  * Categories management section. Reads the category list via TanStack Query
  * and wires mutations (create / update color / rename / delete) to the IPC
  * bridge defined in `lib/api.ts`. Every mutation invalidates the three
- * downstream caches (categories, facets, notes) so the sidebar chips and
+ * downstream caches (categories, facets, memos) so the sidebar chips and
  * grid recolor / move without a manual refresh.
  */
 function CategoriesSection() {
@@ -129,7 +129,7 @@ function CategoriesSection() {
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["categories"] });
     qc.invalidateQueries({ queryKey: ["facets"] });
-    qc.invalidateQueries({ queryKey: ["notes"] });
+    qc.invalidateQueries({ queryKey: ["memos"] });
   };
 
   const onAdd = async () => {
@@ -179,7 +179,7 @@ function CategoriesSection() {
     }
     try {
       const moved = await renameCategory(oldId, next);
-      setToast(`${moved} ${moved === 1 ? "note moved" : "notes moved"}`);
+      setToast(`${moved} ${moved === 1 ? "memo moved" : "memos moved"}`);
       invalidateAll();
     } catch (e) {
       setError(String(e).split("\n")[0]);
@@ -420,7 +420,7 @@ export function SettingsMenu() {
     staleTime: Infinity,
   });
 
-  const stats = useQuery({ queryKey: ["stats"], queryFn: noteStats });
+  const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
 
   const onTheme = (v: Theme) => {
     setTheme(v);
@@ -442,9 +442,9 @@ export function SettingsMenu() {
     setBusy("reindex");
     reindex()
       .then((s) => {
-        setToast(`${t.reindex_done} · ${s.notes}`);
+        setToast(`${t.reindex_done} · ${s.memos}`);
         qc.invalidateQueries({ queryKey: ["stats"] });
-        qc.invalidateQueries({ queryKey: ["notes"] });
+        qc.invalidateQueries({ queryKey: ["memos"] });
       })
       .catch((e) => setError(String(e).split("\n")[0]))
       .finally(() => setBusy(null));
@@ -545,7 +545,7 @@ export function SettingsMenu() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800/50 dark:text-zinc-400">
-                  <span>{t.note_count.replace("{n}", String(stats.data?.notes ?? 0))}</span>
+                  <span>{t.memo_count.replace("{n}", String(stats.data?.memos ?? 0))}</span>
                   <span>{t.pinned_count.replace("{n}", String(stats.data?.pinned ?? 0))}</span>
                 </div>
                 <div className="flex gap-2 pt-0.5">

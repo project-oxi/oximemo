@@ -16,7 +16,7 @@ use time::OffsetDateTime;
 
 use crate::error::{CoreError, Result};
 use crate::hash;
-use crate::note::{Memo, MemoId};
+use crate::memo::{Memo, MemoId};
 use crate::paths::Paths;
 
 /// TOML frontmatter payload. Field order matches the on-disk example in §5.2.
@@ -27,10 +27,10 @@ pub struct Frontmatter {
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
-    pub hash: crate::note::MemoHash,
+    pub hash: crate::memo::MemoHash,
     #[serde(default)]
     pub pinned: bool,
-    #[serde(default = "crate::note::default_category")]
+    #[serde(default = "crate::memo::default_category")]
     pub category: String,
     #[serde(default)]
     pub tags: Vec<String>,
@@ -362,7 +362,7 @@ fn walk_md_into(dir: &Path, out: &mut Vec<PathBuf>) {
 mod tests {
     use super::*;
     use crate::hash;
-    use crate::note::MemoId;
+    use crate::memo::MemoId;
 
     fn sample_note(body: &str) -> Memo {
         let id = MemoId::now();

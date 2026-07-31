@@ -1,5 +1,5 @@
 /**
- * Collapsible left sidebar (§7): All notes / Pinned navigation, the tag list
+ * Collapsible left sidebar (§7): All memos / Pinned navigation, the tag list
  * with 3-state filter chips + AND/OR toggle, and the color filter swatches.
  * Counts come from `list_facets` (page-independent). Rendered only when the
  * sidebar is open; the collapse toggle lives here, the expand toggle in the
@@ -8,7 +8,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Layers, PanelLeftClose, Pin } from "lucide-react";
 
-import { listFacets, noteStats, listCategories } from "../lib/api";
+import { listFacets, memoStats, listCategories } from "../lib/api";
 import { colorForCategory } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI, type TagState } from "../stores/ui";
@@ -22,7 +22,7 @@ const STATE_CLASS: Record<TagState, string> = {
 export function Sidebar() {
   const { t } = useI18n();
   const facets = useQuery({ queryKey: ["facets"], queryFn: listFacets });
-  const stats = useQuery({ queryKey: ["stats"], queryFn: noteStats });
+  const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
   const tagFilter = useUI((s) => s.tagFilter);
   const cycleTag = useUI((s) => s.cycleTag);
   const clearTagFilter = useUI((s) => s.clearTagFilter);
@@ -38,7 +38,7 @@ export function Sidebar() {
   const categories = facets.data?.categories ?? [];
   const catQuery = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const catDefs = catQuery.data ?? [];
-  const total = stats.data?.notes ?? 0;
+  const total = stats.data?.memos ?? 0;
   const pinnedCount = stats.data?.pinned ?? 0;
 
   return (
@@ -65,7 +65,7 @@ export function Sidebar() {
             : "text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300"
         }`}
       >
-        <span className="flex items-center gap-2"><Layers size={14} /> {t.all_notes}</span>
+        <span className="flex items-center gap-2"><Layers size={14} /> {t.all_memos}</span>
         <span className="text-[11px] text-zinc-400">{total}</span>
       </button>
       <button

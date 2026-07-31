@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 use oxinot_core::Vault;
-use oxinot_core::note::MemoId;
+use oxinot_core::memo::MemoId;
 
 mod commands;
 mod format;

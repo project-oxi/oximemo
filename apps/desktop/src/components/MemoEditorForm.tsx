@@ -1,10 +1,10 @@
 /**
- * NoteDetail 전용 편집 폼 (§4.3). 본문은 atomic-editor 기반
+ * MemoDetail 전용 편집 폼 (§4.3). 본문은 atomic-editor 기반
  * `MarkdownEditor`, 추출된 `#태그`는 `TagChipRow`, 하단에 컬러 + 완료.
  *
- * 기존 `NoteComposeForm`에서 textarea+mirror 오버레이 분기를 떼어내고
+ * 기존 `MemoComposeForm`에서 textarea+mirror 오버레이 분기를 떼어내고
  * 본문 영역을 atomic-editor로 교체한 형태. 두 폼이 사용 의도가 다르므로
- * (NoteDetail=본격 편집, CaptureOverlay=빠른 캡처) 공통 컴포넌트로 묶지
+ * (MemoDetail=본격 편집, CaptureOverlay=빠른 캡처) 공통 컴포넌트로 묶지
  * 않고 의도적으로 분리함.
  */
 import { Check } from "lucide-react";
@@ -26,7 +26,7 @@ export interface NoteEditorFormProps {
   category: string;
   onCategoryChange: (c: string) => void;
   categories: CategoryDef[];
-  /** Primary action — "done" in NoteDetail. */
+  /** Primary action — "done" in MemoDetail. */
   onConfirm: () => void;
   confirmLabel: string;
   confirmDisabled?: boolean;
@@ -35,7 +35,7 @@ export interface NoteEditorFormProps {
   className?: string;
 }
 
-export function NoteEditorForm({
+export function MemoEditorForm({
   body,
   onBodyChange,
   documentId,

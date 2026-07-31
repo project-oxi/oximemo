@@ -1,13 +1,13 @@
 /**
  * `invoke`/`listen` shim. In a Tauri shell it calls the native bridge; in plain
  * browser dev (e.g. `vite dev` without `tauri dev`) it falls back to a
- * localStorage-backed store so the full note flow (create → list → edit →
+ * localStorage-backed store so the full memo flow (create → list → edit →
  * delete → search) is exercisable standalone. The browser store is a dev
  * convenience only — it never touches the real vault and is single-user.
  */
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Note, NoteSummary } from "./types";
+import type { Memo, MemoSummary } from "./types";
 import { extractTags } from "./tags";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -20,7 +20,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
 }
 
 // --- Browser-mode event bus ------------------------------------------------
-// Mirrors the Rust `app.emit("notes:changed")` → JS `listen` path so the grid
+// Mirrors the Rust `app.emit("memos:changed")` → JS `listen` path so the grid
 // refreshes after a create/update/delete even without the Tauri shell.
 const browserListeners = new Map<string, Set<(payload: unknown) => void>>();
 
@@ -54,19 +54,19 @@ export async function listen<T>(
 }
 
 // --- Browser-mode localStorage store --------------------------------------
-const STORE_KEY = "oxinot:notes:v1";
+const STORE_KEY = "oxinot:memos:v1";
 const PREVIEW_MAX = 160;
 
-function loadStore(): Record<string, Note> {
+function loadStore(): Record<string, Memo> {
   try {
-    return JSON.parse(localStorage.getItem(STORE_KEY) ?? "{}") as Record<string, Note>;
+    return JSON.parse(localStorage.getItem(STORE_KEY) ?? "{}") as Record<string, Memo>;
   } catch {
     return {};
   }
 }
 
-function saveStore(notes: Record<string, Note>): void {
-  localStorage.setItem(STORE_KEY, JSON.stringify(notes));
+function saveStore(memos: Record<string, Memo>): void {
+  localStorage.setItem(STORE_KEY, JSON.stringify(memos));
 }
 
 /** Match core's `make_preview`: non-empty trimmed lines joined by one space,
@@ -82,7 +82,7 @@ function makePreview(body: string): string {
   return chars.slice(0, PREVIEW_MAX - 1).join("") + "\u2026";
 }
 
-function summaryOf(n: Note): NoteSummary {
+function summaryOf(n: Memo): MemoSummary {
   return {
     id: n.id,
     created_at: n.created_at,
@@ -104,8 +104,8 @@ function fakeHash(): string {
 }
 
 /** Live notes, newest-first (updated_at desc, id desc as a stable tie-break). */
-function liveSorted(notes: Record<string, Note>): Note[] {
-  return Object.values(notes)
+function liveSorted(memos: Record<string, Memo>): Memo[] {
+  return Object.values(memos)
     .filter((n) => n.deleted_at === null)
     .sort(
       (a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id),
@@ -117,7 +117,7 @@ async function browserFallback(
   args?: Record<string, unknown>,
 ): Promise<unknown> {
   switch (cmd) {
-    case "list_notes": {
+    case "list_memos": {
       const after = (args?.after as string | null | undefined) ?? null;
       const limit = (args?.limit as number | undefined) ?? 50;
       const include = (args?.includeTags as string[] | undefined) ?? [];
@@ -125,9 +125,9 @@ async function browserFallback(
       const matchAll = (args?.matchAll as boolean | undefined) ?? false;
       const categories = (args?.categories as string[] | undefined) ?? [];
       const pinnedOnly = (args?.pinnedOnly as boolean | undefined) ?? false;
-      const has = (n: Note, t: string) =>
+      const has = (n: Memo, t: string) =>
         n.tags.some((x) => x.toLowerCase() === t.toLowerCase());
-      const notes = liveSorted(loadStore()).filter((n) => {
+      const memos = liveSorted(loadStore()).filter((n) => {
         if (pinnedOnly && !n.pinned) return false;
         if (categories.length && !categories.includes(n.category)) return false;
         if (exclude.some((t) => has(n, t))) return false;
@@ -144,38 +144,38 @@ async function browserFallback(
         const sep = after.indexOf("|");
         const t = sep === -1 ? after : after.slice(0, sep);
         const id = sep === -1 ? "" : after.slice(sep + 1);
-        const idx = notes.findIndex((n) => n.updated_at === t && n.id === id);
-        start = idx === -1 ? notes.length : idx + 1;
+        const idx = memos.findIndex((n) => n.updated_at === t && n.id === id);
+        start = idx === -1 ? memos.length : idx + 1;
       }
-      const page = notes.slice(start, start + limit);
+      const page = memos.slice(start, start + limit);
       const last = page.at(-1);
       const next_cursor =
-        page.length > 0 && start + limit < notes.length && last
+        page.length > 0 && start + limit < memos.length && last
           ? `${last.updated_at}|${last.id}`
           : null;
       return { items: page.map(summaryOf), next_cursor };
     }
 
-    case "search_notes": {
+    case "search_memos": {
       const q = ((args?.query as string | undefined) ?? "").toLowerCase();
       const limit = (args?.limit as number | undefined) ?? 20;
-      const notes = liveSorted(loadStore()).filter((n) =>
+      const memos = liveSorted(loadStore()).filter((n) =>
         n.body.toLowerCase().includes(q),
       );
-      return notes.slice(0, limit).map(summaryOf);
+      return memos.slice(0, limit).map(summaryOf);
     }
 
-    case "get_note": {
+    case "get_memo": {
       const id = args?.id as string;
       const n = loadStore()[id];
-      if (!n) throw new Error(`note not found: ${id}`);
+      if (!n) throw new Error(`memo not found: ${id}`);
       return n;
     }
 
-    case "create_note": {
+    case "create_memo": {
       const now = new Date().toISOString();
       const body = (args?.body as string | undefined) ?? "";
-      const note: Note = {
+      const memo: Memo = {
         id: crypto.randomUUID(),
         created_at: now,
         updated_at: now,
@@ -187,17 +187,17 @@ async function browserFallback(
         deleted_at: null,
       };
       const store = loadStore();
-      store[note.id] = note;
+      store[memo.id] = memo;
       saveStore(store);
-      emitBrowser("notes:changed");
-      return note;
+      emitBrowser("memos:changed");
+      return memo;
     }
 
-    case "update_note": {
+    case "update_memo": {
       const id = args?.id as string;
       const store = loadStore();
       const n = store[id];
-      if (!n) throw new Error(`note not found: ${id}`);
+      if (!n) throw new Error(`memo not found: ${id}`);
       if (typeof args?.body === "string") {
         n.body = args.body;
         n.tags = extractTags(n.body);
@@ -208,24 +208,24 @@ async function browserFallback(
       n.hash = fakeHash();
       store[id] = n;
       saveStore(store);
-      emitBrowser("notes:changed");
+      emitBrowser("memos:changed");
       return n;
     }
 
-    case "delete_note": {
+    case "delete_memo": {
       const id = args?.id as string;
       const store = loadStore();
       if (store[id]) {
         store[id].deleted_at = new Date().toISOString();
         saveStore(store);
-        emitBrowser("notes:changed");
+        emitBrowser("memos:changed");
       }
       return null;
     }
 
-    case "note_stats": {
+    case "memo_stats": {
       const live = liveSorted(loadStore());
-      return { notes: live.length, pinned: live.filter((n) => n.pinned).length };
+      return { memos: live.length, pinned: live.filter((n) => n.pinned).length };
     }
     case "list_facets": {
       const live = liveSorted(loadStore());
@@ -245,7 +245,7 @@ async function browserFallback(
       return "(browser preview · localStorage)";
 
     case "reindex":
-      return { notes: 0, trashed: 0, added: 0, updated: 0, unchanged: 0, failed: 0 };
+      return { memos: 0, trashed_memos: 0, added: 0, updated: 0, unchanged: 0, failed: 0 };
 
     case "doctor":
       return {
@@ -262,7 +262,6 @@ async function browserFallback(
     case "list_categories":
       return [
         { id: "inbox", color: "oklch(0.78 0.02 250)", builtin: true },
-        { id: "note", color: "oklch(0.75 0.13 250)", builtin: true },
         { id: "todo", color: "oklch(0.78 0.15 75)", builtin: true },
         { id: "idea", color: "oklch(0.72 0.15 310)", builtin: true },
         { id: "bookmark", color: "oklch(0.75 0.12 195)", builtin: true },
@@ -275,7 +274,6 @@ async function browserFallback(
       // Builtins from list_categories
       const builtins: Array<{ id: string }> = [
         { id: "inbox" },
-        { id: "note" },
         { id: "todo" },
         { id: "idea" },
         { id: "bookmark" },
@@ -290,7 +288,7 @@ async function browserFallback(
     case "update_category": {
       const id = String(args?.id ?? "").trim().toLowerCase();
       if (!id) throw new Error("category id must not be empty");
-      emitBrowser("notes:changed");
+      emitBrowser("memos:changed");
       return null;
     }
 
@@ -309,14 +307,14 @@ async function browserFallback(
         }
       }
       if (migrated > 0) saveStore(store);
-      emitBrowser("notes:changed");
+      emitBrowser("memos:changed");
       return migrated;
     }
 
     case "delete_category": {
       const id = String(args?.id ?? "").trim().toLowerCase();
       if (!id) throw new Error("category id must not be empty");
-      emitBrowser("notes:changed");
+      emitBrowser("memos:changed");
       return null;
     }
 

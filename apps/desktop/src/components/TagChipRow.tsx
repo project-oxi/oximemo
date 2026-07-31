@@ -1,7 +1,7 @@
 /**
  * Visual row of `#태그` chips extracted from the current body (§4.2).
  *
- * Storage is unchanged — `Note.tags` is still derived from the body on save.
+ * Storage is unchanged — `Memo.tags` is still derived from the body on save.
  * This row is a read-only affordance so the user can see what tags their
  * current text would produce. Click-to-filter is intentionally not wired
  * (the sidebar owns filtering); `onTagClick` is provided as an escape hatch.

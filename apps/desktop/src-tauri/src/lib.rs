@@ -13,7 +13,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 pub struct AppState {
     pub vault: Arc<oxinot_core::Vault>,
     pub capture_monitor: Mutex<Option<oxinot_capture::CaptureMonitor>>,
-    pub watcher: Mutex<Option<oxinot_core::watcher::NoteWatcher>>,
+    pub watcher: Mutex<Option<oxinot_core::watcher::MemoWatcher>>,
 }
 
 impl AppState {
@@ -74,17 +74,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::list_notes,
-            commands::get_note,
-            commands::create_note,
-            commands::update_note,
-            commands::delete_note,
-            commands::search_notes,
+            commands::list_memos,
+            commands::get_memo,
+            commands::create_memo,
+            commands::update_memo,
+            commands::delete_memo,
+            commands::search_memos,
             commands::export_manifest,
             commands::reindex,
             commands::doctor,
             commands::vault_path,
-            commands::note_stats,
+            commands::memo_stats,
             commands::list_facets,
             commands::list_categories,
             commands::create_category,
@@ -111,7 +111,7 @@ fn default_shortcut() -> Shortcut {
 }
 
 /// Start the vault file watcher (§5.5, §7.4). On each settled change it
-/// re-indexes the file and broadcasts `notes:changed` so every window can
+/// re-indexes the file and broadcasts `memos:changed` so every window can
 /// refresh its query cache. The handle lives in `AppState` for the app
 /// lifetime — dropping it would stop watching.
 fn spawn_watcher(state: &AppState, handle: &AppHandle) {
@@ -122,11 +122,11 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
         if let Ok(v) = oxinot_core::Vault::open(Some(&vault_path)) {
             v.reindex_path(&path);
         }
-        let _ = emit_handle.emit("notes:changed", ());
+        let _ = emit_handle.emit("memos:changed", ());
     });
-    match oxinot_core::watcher::NoteWatcher::spawn(
+    match oxinot_core::watcher::MemoWatcher::spawn(
         vec![
-            state.vault.paths().notes_root(),
+            state.vault.paths().memos_root(),
             state.vault.paths().trash_root(),
         ],
         debounce,
@@ -202,7 +202,7 @@ fn init_tracing() {
 }
 
 mod commands {
-    use oxinot_core::note::{Cursor, NoteFilter, NoteId};
+    use oxinot_core::memo::{Cursor, MemoFilter, MemoId};
     use oxinot_core::sync::ManifestRecord;
     use tauri::{AppHandle, Emitter, State};
     use time::format_description::well_known::Rfc3339;
@@ -211,7 +211,7 @@ mod commands {
 
     #[tauri::command]
     #[allow(clippy::too_many_arguments)]
-    pub fn list_notes(
+    pub fn list_memos(
         state: State<'_, AppState>,
         after: Option<String>,
         limit: u32,
@@ -220,12 +220,12 @@ mod commands {
         match_all: bool,
         categories: Vec<String>,
         pinned_only: bool,
-    ) -> Result<oxinot_core::Page<oxinot_core::NoteSummary>, String> {
+    ) -> Result<oxinot_core::Page<oxinot_core::MemoSummary>, String> {
         let after = match after {
             Some(s) => Some(Cursor::parse(&s).map_err(|e| e.to_string())?),
             None => None,
         };
-        let filter = NoteFilter {
+        let filter = MemoFilter {
             include_tags,
             exclude_tags,
             match_all,
@@ -235,70 +235,70 @@ mod commands {
         };
         state
             .vault
-            .list_notes(after, limit, filter)
+            .list_memos(after, limit, filter)
             .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
-    pub fn get_note(state: State<'_, AppState>, id: String) -> Result<oxinot_core::Note, String> {
-        let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
-        state.vault.get_note(id).map_err(|e| e.to_string())
+    pub fn get_memo(state: State<'_, AppState>, id: String) -> Result<oxinot_core::Memo, String> {
+        let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
+        state.vault.get_memo(id).map_err(|e| e.to_string())
     }
 
     #[tauri::command]
-    pub fn create_note(
+    pub fn create_memo(
         state: State<'_, AppState>,
         app: AppHandle,
         body: String,
         category: Option<String>,
-    ) -> Result<oxinot_core::Note, String> {
-        let note = state
+    ) -> Result<oxinot_core::Memo, String> {
+        let memo = state
             .vault
-            .create_note(body, category)
+            .create_memo(body, category)
             .map_err(|e| e.to_string())?;
-        let _ = app.emit("notes:changed", ());
-        Ok(note)
+        let _ = app.emit("memos:changed", ());
+        Ok(memo)
     }
 
     #[tauri::command]
-    pub fn update_note(
+    pub fn update_memo(
         state: State<'_, AppState>,
         app: AppHandle,
         id: String,
         body: Option<String>,
         pinned: Option<bool>,
         category: Option<String>,
-    ) -> Result<oxinot_core::Note, String> {
-        let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
-        let note = state
+    ) -> Result<oxinot_core::Memo, String> {
+        let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
+        let memo = state
             .vault
-            .update_note(id, body, pinned, category)
+            .update_memo(id, body, pinned, category)
             .map_err(|e| e.to_string())?;
-        let _ = app.emit("notes:changed", ());
-        Ok(note)
+        let _ = app.emit("memos:changed", ());
+        Ok(memo)
     }
 
     #[tauri::command]
-    pub fn delete_note(
+    pub fn delete_memo(
         state: State<'_, AppState>,
         app: AppHandle,
         id: String,
     ) -> Result<(), String> {
-        let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
-        state.vault.delete_note(id).map_err(|e| e.to_string())?;
-        let _ = app.emit("notes:changed", ());
+        let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
+        state.vault.delete_memo(id).map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
         Ok(())
     }
 
     #[tauri::command]
-    pub fn search_notes(
+    pub fn search_memos(
         state: State<'_, AppState>,
         query: String,
         limit: u32,
-    ) -> Result<Vec<oxinot_core::NoteSummary>, String> {
+    ) -> Result<Vec<oxinot_core::MemoSummary>, String> {
         state
             .vault
-            .search_notes(&query, limit)
+            .search_memos(&query, limit)
             .map_err(|e| e.to_string())
     }
 
@@ -323,7 +323,7 @@ mod commands {
         app: AppHandle,
     ) -> Result<oxinot_core::IndexStats, String> {
         let stats = state.vault.reindex().map_err(|e| e.to_string())?;
-        let _ = app.emit("notes:changed", ());
+        let _ = app.emit("memos:changed", ());
         Ok(stats)
     }
 
@@ -339,8 +339,8 @@ mod commands {
     }
 
     #[tauri::command]
-    pub fn note_stats(state: State<'_, AppState>) -> Result<oxinot_core::NoteStats, String> {
-        state.vault.note_stats().map_err(|e| e.to_string())
+    pub fn memo_stats(state: State<'_, AppState>) -> Result<oxinot_core::MemoStats, String> {
+        state.vault.memo_stats().map_err(|e| e.to_string())
     }
     #[tauri::command]
     pub fn list_facets(state: State<'_, AppState>) -> Result<oxinot_core::Facets, String> {
@@ -365,7 +365,7 @@ mod commands {
             .vault
             .create_category(id, color)
             .map_err(|e| e.to_string())?;
-        let _ = app.emit("notes:changed", ());
+        let _ = app.emit("memos:changed", ());
         Ok(def)
     }
 
@@ -377,7 +377,7 @@ mod commands {
         color: String,
     ) -> Result<(), String> {
         state.vault.update_category(id, color).map_err(|e| e.to_string())?;
-        let _ = app.emit("notes:changed", ());
+        let _ = app.emit("memos:changed", ());
         Ok(())
     }
 
@@ -389,7 +389,7 @@ mod commands {
         new: String,
     ) -> Result<u64, String> {
         let n = state.vault.rename_category(old, new).map_err(|e| e.to_string())?;
-        let _ = app.emit("notes:changed", ());
+        let _ = app.emit("memos:changed", ());
         Ok(n)
     }
 
@@ -400,7 +400,7 @@ mod commands {
         id: String,
     ) -> Result<(), String> {
         state.vault.delete_category(id).map_err(|e| e.to_string())?;
-        let _ = app.emit("notes:changed", ());
+        let _ = app.emit("memos:changed", ());
         Ok(())
     }
 }

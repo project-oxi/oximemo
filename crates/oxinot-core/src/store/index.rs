@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::error::Result;
-use crate::note::{Cursor, MemoFilter, MemoHash, MemoId, MemoSummary};
+use crate::memo::{Cursor, MemoFilter, MemoHash, MemoId, MemoSummary};
 
 const BY_ID: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new("by_id");
 const BY_SORT: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new("by_sort");
@@ -31,7 +31,7 @@ pub struct IndexRecord {
     pub updated_at: OffsetDateTime,
     pub hash: MemoHash,
     pub pinned: bool,
-    #[serde(default = "crate::note::default_category")]
+    #[serde(default = "crate::memo::default_category")]
     pub category: String,
     #[serde(default)]
     pub tags: Vec<String>,

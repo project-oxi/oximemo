@@ -16,7 +16,7 @@
 use std::path::{Path, PathBuf};
 use time::{Month, OffsetDateTime};
 
-use crate::note::MemoId;
+use crate::memo::MemoId;
 
 pub const APP_SUPPORT_SUBDIR: &str = "com.oxinot.app";
 pub const VAULT_DEFAULT_SUBDIR: &str = "vault";
