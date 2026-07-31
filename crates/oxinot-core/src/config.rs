@@ -183,7 +183,13 @@ impl VaultConfig {
     /// to write user-defined categories back to disk so they survive restarts.
     pub fn save(&self, paths: &Paths) -> Result<()> {
         let text = self.to_toml()?;
-        std::fs::write(paths.config_path(), text)?;
+        let path = paths.config_path();
+        // Crash-safe: write to a temp sibling then atomically rename (APFS).
+        // A torn write would otherwise silently revert the user's category
+        // setup to built-ins on next load (load() degrades to defaults).
+        let tmp = path.with_extension("toml.tmp");
+        std::fs::write(&tmp, text)?;
+        std::fs::rename(&tmp, path)?;
         Ok(())
     }
 }

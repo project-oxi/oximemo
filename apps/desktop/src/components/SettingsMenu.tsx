@@ -589,6 +589,10 @@ export function SettingsMenu() {
                 <span className="text-xs text-zinc-500 dark:text-zinc-400">oxinot</span>
                 <span className="font-mono text-xs text-zinc-400">v{APP_VERSION}</span>
               </div>
+              <div className="mt-1.5 flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/50">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">{t.capture_shortcut}</span>
+                <kbd className="font-mono text-xs text-zinc-400">⌘⇧N</kbd>
+              </div>
             </Section>
           </div>
         </Dialog.Popup>
