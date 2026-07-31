@@ -492,6 +492,7 @@ impl Vault {
     /// 2. Rebuild the index when the cached preview format lags the current
     ///    `make_preview` (or the marker is absent), so existing memos' card
     ///    previews pick up line-break preservation.
+    ///
     /// Idempotent: subsequent calls are no-ops once both markers are current.
     pub fn migrate(&self) -> Result<()> {
         // Rename the legacy live tree to its new name BEFORE ensure_initialized,
