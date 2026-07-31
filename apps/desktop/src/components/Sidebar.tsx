@@ -1,12 +1,12 @@
 /**
- * Collapsible left sidebar (§7): All memos / Pinned navigation, the tag list
+ * Collapsible left sidebar (§7): All memos / Favorites navigation, the tag list
  * with 3-state filter chips + AND/OR toggle, and the color filter swatches.
  * Counts come from `list_facets` (page-independent). Rendered only when the
  * sidebar is open; the collapse toggle lives here, the expand toggle in the
  * main header.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layers, PanelLeftClose, Pin, Pencil, Palette, Trash2 } from "lucide-react";
+import { Layers, PanelLeftClose, Star, Pencil, Palette, Trash2 } from "lucide-react";
 import { useRef, useState, type KeyboardEvent } from "react";
 
 import { listFacets, memoStats, listCategories, renameCategory, updateCategory, deleteCategory } from "../lib/api";
@@ -181,8 +181,8 @@ export function Sidebar() {
   const toggleMatchAll = useUI((s) => s.toggleMatchAll);
   const categoryFilter = useUI((s) => s.categoryFilter);
   const setCategory = useUI((s) => s.setCategory);
-  const pinnedOnly = useUI((s) => s.pinnedOnly);
-  const setPinnedOnly = useUI((s) => s.setPinnedOnly);
+  const favoritesOnly = useUI((s) => s.favoritesOnly);
+  const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
 
   const tags = facets.data?.tags ?? [];
@@ -190,7 +190,7 @@ export function Sidebar() {
   const catQuery = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const catDefs = catQuery.data ?? [];
   const total = stats.data?.memos ?? 0;
-  const pinnedCount = stats.data?.pinned ?? 0;
+  const favoritesCount = stats.data?.favorites ?? 0;
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50/60 dark:border-zinc-800 dark:bg-zinc-950/40">
@@ -209,9 +209,9 @@ export function Sidebar() {
 
       <button
         type="button"
-        onClick={() => setPinnedOnly(false)}
+        onClick={() => setFavoritesOnly(false)}
         className={`mx-2 flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] ${
-          !pinnedOnly
+          !favoritesOnly
             ? "bg-zinc-200/70 font-semibold dark:bg-zinc-800"
             : "text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300"
         }`}
@@ -221,15 +221,15 @@ export function Sidebar() {
       </button>
       <button
         type="button"
-        onClick={() => setPinnedOnly(true)}
+        onClick={() => setFavoritesOnly(true)}
         className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
-          pinnedOnly
+          favoritesOnly
             ? "bg-amber-100 font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
             : "text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300"
         }`}
       >
-        <Pin size={14} /> {t.pinned}
-        {pinnedCount > 0 && <span className="ml-auto text-[11px] text-zinc-400">{pinnedCount}</span>}
+        <Star size={14} /> {t.favorite}
+        {favoritesCount > 0 && <span className="ml-auto text-[11px] text-zinc-400">{favoritesCount}</span>}
       </button>
 
       <div className="mt-3 flex items-center justify-between px-3">

@@ -15,7 +15,7 @@ export async function listMemos(
     exclude_tags?: string[];
     match_all?: boolean;
     categories?: string[];
-    pinned_only?: boolean;
+    favorites_only?: boolean;
   } = {},
 ) {
   return invoke<{ items: MemoSummary[]; next_cursor: string | null }>("list_memos", {
@@ -26,7 +26,7 @@ export async function listMemos(
     excludeTags: filter.exclude_tags ?? [],
     matchAll: filter.match_all ?? false,
     categories: filter.categories ?? [],
-    pinnedOnly: filter.pinned_only ?? false,
+    favoritesOnly: filter.favorites_only ?? false,
   });
 }
 
@@ -41,10 +41,10 @@ export async function createMemo(body: string, category: string | null) {
 export async function updateMemo(
   id: string,
   body: string | null,
-  pinned: boolean | null,
+  favorite: boolean | null,
   category: string | null,
 ) {
-  return invoke<Memo>("update_memo", { id, body, pinned, category });
+  return invoke<Memo>("update_memo", { id, body, favorite, category });
 }
 
 export async function listFacets() {

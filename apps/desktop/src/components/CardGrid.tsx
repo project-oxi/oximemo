@@ -35,20 +35,20 @@ export function CardGrid() {
   const tagFilter = useUI((s) => s.tagFilter);
   const matchAll = useUI((s) => s.matchAll);
   const categoryFilter = useUI((s) => s.categoryFilter);
-  const pinnedOnly = useUI((s) => s.pinnedOnly);
+  const favoritesOnly = useUI((s) => s.favoritesOnly);
   const sidebarCollapsed = useUI((s) => s.sidebarCollapsed);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
   const setError = useUI((s) => s.setError);
   const setDraftId = useUI((s) => s.setDraftId);
   const clearTagFilter = useUI((s) => s.clearTagFilter);
   const setCategory = useUI((s) => s.setCategory);
-  const setPinnedOnly = useUI((s) => s.setPinnedOnly);
+  const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
   const hasMemos = (stats.data?.memos ?? 0) > 0;
   const clearAllFilters = () => {
     clearTagFilter();
     setCategory(null);
-    setPinnedOnly(false);
+    setFavoritesOnly(false);
   };
 
   const categoriesQ = useQuery({ queryKey: ["categories"], queryFn: listCategories });
@@ -75,14 +75,14 @@ export function CardGrid() {
   }, [localSearch]);
 
   const listing = useInfiniteQuery({
-    queryKey: ["memos", includeTags, excludeTags, matchAll, categoryFilter, pinnedOnly],
+    queryKey: ["memos", includeTags, excludeTags, matchAll, categoryFilter, favoritesOnly],
     queryFn: ({ pageParam }) =>
       listMemos(pageParam, PAGE_SIZE, {
         include_tags: includeTags,
         exclude_tags: excludeTags,
         match_all: matchAll,
         categories: categoryFilter ? [categoryFilter] : [],
-        pinned_only: pinnedOnly,
+        favorites_only: favoritesOnly,
       }),
     initialPageParam: null as string | null,
     // §8: capture→main refresh — the cross-window `memos:changed` event is
@@ -109,7 +109,7 @@ export function CardGrid() {
     // client-side so filters stay meaningful during a search.
     if (!inSearch) return base;
     return base.filter((n) => {
-      if (pinnedOnly && !n.pinned) return false;
+      if (favoritesOnly && !n.favorite) return false;
       if (categoryFilter && n.category !== categoryFilter) return false;
       if (excludeTags.some((tag) => n.tags.includes(tag))) return false;
       if (includeTags.length) {
@@ -120,7 +120,7 @@ export function CardGrid() {
       }
       return true;
     });
-  }, [inSearch, includeTags, excludeTags, matchAll, categoryFilter, pinnedOnly, listing.data, searching.data]);
+  }, [inSearch, includeTags, excludeTags, matchAll, categoryFilter, favoritesOnly, listing.data, searching.data]);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(1);
@@ -170,7 +170,7 @@ export function CardGrid() {
   // Reset scroll to top when the active filter changes.
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: 0 });
-  }, [includeTags, excludeTags, categoryFilter, pinnedOnly, matchAll]);
+  }, [includeTags, excludeTags, categoryFilter, favoritesOnly, matchAll]);
 
   const onDelete = (id: string) => {
     void deleteMemo(id)
@@ -182,8 +182,8 @@ export function CardGrid() {
       .catch((e) => setError(String(e).split("\n")[0]));
   };
 
-  const onTogglePin = (id: string, pinned: boolean) => {
-    void updateMemo(id, null, !pinned, null)
+  const onToggleFavorite = (id: string, favorite: boolean) => {
+    void updateMemo(id, null, !favorite, null)
       .then(() => {
         qc.invalidateQueries({ queryKey: ["memos"] });
         qc.invalidateQueries({ queryKey: ["facets"] });
@@ -215,8 +215,7 @@ export function CardGrid() {
         setDraftId(n.id);
         select(n.id);
         // Refresh the grid directly. `create_note` emits `memos:changed`, but
-        // that event has proven an unreliable refresh channel in this app —
-        // invalidate here like delete/pin do so a new memo always surfaces.
+        // invalidate here like delete/favorite do so a new memo always surfaces.
         qc.invalidateQueries({ queryKey: ["memos"] });
         qc.invalidateQueries({ queryKey: ["facets"] });
       })
@@ -343,7 +342,7 @@ export function CardGrid() {
                           memo={n}
                           categories={catDefs}
                           onSelect={select}
-                          onTogglePin={(id) => onTogglePin(id, n.pinned)}
+                          onToggleFavorite={(id) => onToggleFavorite(id, n.favorite)}
                           onMoveCategory={onMoveCategory}
                           onCopyBody={onCopyBody}
                           onDelete={onDelete}

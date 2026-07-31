@@ -2,9 +2,9 @@
  * Card component for a memo summary. The memo's color fills the whole card as
  * colored "paper" (post-it), not just a side accent — see `paperFor` in
  * lib/color.ts, which washes the OKLCH color toward the theme's card surface.
- * Renders the preview text, tags, and hover actions (pin/delete/copy).
+ * Renders the preview text, tags, and hover actions (favorite/delete/copy).
  */
-import { Pin, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
+import { Star, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { edgeFor, paperFor } from "../lib/color";
@@ -19,13 +19,13 @@ interface Props {
   memo: MemoSummary;
   categories: CategoryDef[];
   onSelect: (id: string) => void;
-  onTogglePin: (id: string) => void;
+  onToggleFavorite: (id: string) => void;
   onMoveCategory: (id: string, category: string) => void;
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-export function Card({ memo, categories, onSelect, onTogglePin, onMoveCategory, onCopyBody, onDelete }: Props) {
+export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCategory, onCopyBody, onDelete }: Props) {
   const { t, locale } = useI18n();
   const [copied, setCopied] = useState(false);
   const shortId = memo.id.slice(0, 8);
@@ -57,9 +57,9 @@ export function Card({ memo, categories, onSelect, onTogglePin, onMoveCategory, 
         <span className="font-mono text-[10px] text-zinc-400/90 dark:text-zinc-500">
           {shortId}
         </span>
-        {memo.pinned && (
+        {memo.favorite && (
           <span className="ml-auto inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-            <Pin size={10} /> {t.pinned}
+            <Star size={10} /> {t.favorite}
           </span>
         )}
       </div>
@@ -106,14 +106,14 @@ export function Card({ memo, categories, onSelect, onTogglePin, onMoveCategory, 
         </button>
         <button
           type="button"
-          aria-label={t.action_pin}
+          aria-label={t.action_favorite}
           className="rounded-md p-1.5 text-zinc-500 hover:bg-black/5 hover:text-amber-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-amber-400"
           onClick={(e) => {
             e.stopPropagation();
-            onTogglePin(memo.id);
+            onToggleFavorite(memo.id);
           }}
         >
-          <Pin size={14} />
+          <Star size={14} />
         </button>
         <button
           type="button"
@@ -129,9 +129,9 @@ export function Card({ memo, categories, onSelect, onTogglePin, onMoveCategory, 
       </div>
         <CtxMenu>
           <CtxItem
-            icon={Pin}
-            label={memo.pinned ? t.action_unpin : t.action_pin}
-            onClick={() => onTogglePin(memo.id)}
+            icon={Star}
+            label={memo.favorite ? t.action_unfavorite : t.action_favorite}
+            onClick={() => onToggleFavorite(memo.id)}
           />
           <CtxSubmenu icon={FolderInput} label={t.action_move_category}>
             {categories.map((c) => (

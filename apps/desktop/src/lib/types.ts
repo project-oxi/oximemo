@@ -7,7 +7,7 @@ export interface Memo {
   created_at: string;
   updated_at: string;
   hash: string;
-  pinned: boolean;
+  favorite: boolean;
   category: string;
   tags: string[];
   body: string;
@@ -19,7 +19,7 @@ export interface MemoSummary {
   created_at: string;
   updated_at: string;
   hash: string;
-  pinned: boolean;
+  favorite: boolean;
   category: string;
   tags: string[];
   preview: string;
@@ -53,7 +53,7 @@ export interface DoctorReport {
 
 export interface MemoStats {
   memos: number;
-  pinned: number;
+  favorites: number;
 }
 
 export interface Facets {

@@ -7,7 +7,7 @@
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Pin } from "lucide-react";
+import { Star } from "lucide-react";
 
 import { deleteMemo, getMemo, updateMemo, listCategories } from "../lib/api";
 import { colorForCategory, paperFor } from "../lib/color";
@@ -36,7 +36,7 @@ export function MemoDetail() {
   const [body, setBody] = useState("");
   const [category, setCategory] = useState("");
   const [categories, setCategories] = useState<CategoryDef[]>([]);
-  const [pinned, setPinned] = useState(false);
+  const [favorite, setFavorite] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [seededId, setSeededId] = useState<string | null>(null);
   const categoryPickerRef = useRef<CategoryComboboxHandle>(null);
@@ -50,7 +50,7 @@ export function MemoDetail() {
     if (open && memo.data && seededId !== memo.data.id) {
       setBody(memo.data.body);
       setCategory(memo.data.category);
-      setPinned(memo.data.pinned);
+      setFavorite(memo.data.favorite);
       setDirty(false);
       setSeededId(memo.data.id);
     }
@@ -61,7 +61,7 @@ export function MemoDetail() {
   useEffect(() => {
     if (!dirty || !selectedId) return;
     const h = window.setTimeout(() => {
-      void updateMemo(selectedId, body, pinned, category)
+      void updateMemo(selectedId, body, favorite, category)
         .then((n) => {
           qc.setQueryData(["memo", selectedId], n);
           setDirty(false);
@@ -75,7 +75,7 @@ export function MemoDetail() {
         });
     }, 500);
     return () => window.clearTimeout(h);
-  }, [dirty, body, pinned, category, selectedId, qc]);
+  }, [dirty, body, favorite, category, selectedId, qc]);
 
   const close = () => {
     // A note minted by "new memo" this session is discarded while still
@@ -90,7 +90,7 @@ export function MemoDetail() {
     }
     // Flush a pending edit before dismissing.
     if (dirty && selectedId) {
-      void updateMemo(selectedId, body, pinned, category)
+      void updateMemo(selectedId, body, favorite, category)
         .then((n) => {
           qc.setQueryData(["memo", selectedId], n);
           qc.invalidateQueries({ queryKey: ["memos"] });
@@ -141,14 +141,14 @@ export function MemoDetail() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => edit(setPinned)(!pinned)}
+                  onClick={() => edit(setFavorite)(!favorite)}
                   className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] transition-colors ${
-                    pinned
+                    favorite
                       ? "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400"
                       : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
                   }`}
                 >
-                  <Pin size={12} /> {t.pinned}
+                  <Star size={12} /> {t.favorite}
                 </button>
               </div>
               <MemoEditorForm

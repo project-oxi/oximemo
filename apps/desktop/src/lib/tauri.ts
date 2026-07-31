@@ -88,7 +88,7 @@ function summaryOf(n: Memo): MemoSummary {
     created_at: n.created_at,
     updated_at: n.updated_at,
     hash: n.hash,
-    pinned: n.pinned,
+    favorite: n.favorite,
     category: n.category,
     tags: n.tags,
     preview: makePreview(n.body),
@@ -124,11 +124,11 @@ async function browserFallback(
       const exclude = (args?.excludeTags as string[] | undefined) ?? [];
       const matchAll = (args?.matchAll as boolean | undefined) ?? false;
       const categories = (args?.categories as string[] | undefined) ?? [];
-      const pinnedOnly = (args?.pinnedOnly as boolean | undefined) ?? false;
+      const favoritesOnly = (args?.favoritesOnly as boolean | undefined) ?? false;
       const has = (n: Memo, t: string) =>
         n.tags.some((x) => x.toLowerCase() === t.toLowerCase());
       const memos = liveSorted(loadStore()).filter((n) => {
-        if (pinnedOnly && !n.pinned) return false;
+        if (favoritesOnly && !n.favorite) return false;
         if (categories.length && !categories.includes(n.category)) return false;
         if (exclude.some((t) => has(n, t))) return false;
         if (include.length) {
@@ -180,7 +180,7 @@ async function browserFallback(
         created_at: now,
         updated_at: now,
         hash: fakeHash(),
-        pinned: false,
+        favorite: false,
         category: (args?.category as string | null | undefined) ?? "",
         tags: extractTags(body),
         body,
@@ -202,7 +202,7 @@ async function browserFallback(
         n.body = args.body;
         n.tags = extractTags(n.body);
       }
-      if (typeof args?.pinned === "boolean") n.pinned = args.pinned;
+      if (typeof args?.favorite === "boolean") n.favorite = args.favorite;
       if (typeof args?.category === "string") n.category = args.category;
       n.updated_at = new Date().toISOString();
       n.hash = fakeHash();
@@ -225,7 +225,7 @@ async function browserFallback(
 
     case "memo_stats": {
       const live = liveSorted(loadStore());
-      return { memos: live.length, pinned: live.filter((n) => n.pinned).length };
+      return { memos: live.length, favorites: live.filter((n) => n.favorite).length };
     }
     case "list_facets": {
       const live = liveSorted(loadStore());

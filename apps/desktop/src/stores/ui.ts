@@ -23,8 +23,8 @@ interface UIState {
   categoryFilter: string | null;
   setCategory: (c: string | null) => void;
   clearCategoryFilter: () => void;
-  pinnedOnly: boolean;
-  setPinnedOnly: (b: boolean) => void;
+  favoritesOnly: boolean;
+  setFavoritesOnly: (b: boolean) => void;
   /** Sidebar collapsed? Persisted to localStorage. */
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -69,8 +69,8 @@ export const useUI = create<UIState>((set) => ({
   categoryFilter: null,
   setCategory: (c) => set({ categoryFilter: c }),
   clearCategoryFilter: () => set({ categoryFilter: null }),
-  pinnedOnly: false,
-  setPinnedOnly: (b) => set({ pinnedOnly: b }),
+  favoritesOnly: false,
+  setFavoritesOnly: (b) => set({ favoritesOnly: b }),
   sidebarCollapsed: loadCollapsed(),
   toggleSidebar: () =>
     set((s) => {
