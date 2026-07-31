@@ -91,7 +91,7 @@ impl Default for AppearanceConfig {
 /// canonical built-in palette; `CategoriesConfig::default` ships them as the
 /// initial `items` so a fresh vault inherits a usable sidebar.
 pub const AUTO_COLORS: &[&str] = &[
-    "oklch(0.78 0.02 250)", // inbox — neutral gray-blue
+    "",                       // inbox — transparent (renders default card surface)
     "oklch(0.75 0.13 250)", // note — blue
     "oklch(0.78 0.15 75)",  // todo — amber
     "oklch(0.72 0.15 310)", // idea — purple
@@ -100,8 +100,9 @@ pub const AUTO_COLORS: &[&str] = &[
 ];
 
 /// Resolve a category id to its OKLCH color string. Returns the inbox color
-/// when the id is empty or not in `items`, so an unknown / legacy category
-/// never crashes rendering — it falls back to the neutral inbox color.
+/// (empty/transparent) when the id is empty or not in `items`, so an unknown
+/// / legacy category never crashes rendering — it falls back to the default
+/// card surface (no tint).
 pub fn resolve_category_color(id: &str, items: &[CategoryDef]) -> String {
     if let Some(def) = items.iter().find(|c| c.id == id) {
         return def.color.clone();

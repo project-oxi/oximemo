@@ -8,7 +8,7 @@
 import type { CategoryDef } from "./types";
 
 /** Inbox neutral fallback. */
-const INBOX_NEUTRAL = "oklch(0.72 0.01 250)";
+const INBOX_NEUTRAL = ""; // transparent → paperFor/edgeFor return the default card surface
 
 /** Look up a category id's color from the registry. Orphan → inbox fallback. */
 export function colorForCategory(id: string, cats: CategoryDef[]): string {

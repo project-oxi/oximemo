@@ -774,15 +774,18 @@ fn normalize_id(id: &str) -> String {
     id.trim().to_lowercase()
 }
 
-/// Pick the first `AUTO_COLORS` entry not already used by an existing item;
-/// falls back to the first entry when every palette stop is in use. Used as
-/// the default color when `Vault::create_category` is called with `color=None`.
+/// Pick the first non-transparent `AUTO_COLORS` entry not already used by an
+/// existing item; falls back to the first real entry when every stop is in
+/// use. The inbox slot (`AUTO_COLORS[0]`, empty/transparent) is deliberately
+/// skipped so a new category always gets a real tint, never the transparent
+/// default. Used when `Vault::create_category` is called with `color=None`.
 fn pick_auto_color(items: &[CategoryDef]) -> String {
     AUTO_COLORS
         .iter()
+        .skip(1) // skip inbox's transparent slot
         .find(|c| !items.iter().any(|item| &item.color == *c))
         .map(|s| (*s).to_string())
-        .unwrap_or_else(|| AUTO_COLORS[0].to_string())
+        .unwrap_or_else(|| AUTO_COLORS[1].to_string())
 }
 
 #[cfg(test)]
