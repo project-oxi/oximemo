@@ -6,7 +6,7 @@
  */
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pin } from "lucide-react";
 
 import { deleteMemo, getMemo, updateMemo, listCategories } from "../lib/api";
@@ -14,6 +14,7 @@ import { colorForCategory, paperFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { MemoEditorForm } from "./MemoEditorForm";
+import type { CategoryComboboxHandle } from "./CategoryCombobox";
 import type { CategoryDef } from "../lib/types";
 
 export function MemoDetail() {
@@ -38,6 +39,7 @@ export function MemoDetail() {
   const [pinned, setPinned] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [seededId, setSeededId] = useState<string | null>(null);
+  const categoryPickerRef = useRef<CategoryComboboxHandle>(null);
 
   useEffect(() => {
     listCategories().then(setCategories).catch(() => {});
@@ -111,9 +113,13 @@ export function MemoDetail() {
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
         <Dialog.Popup
           onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            const mod = e.metaKey || e.ctrlKey;
+            if (mod && e.key === "Enter") {
               e.preventDefault();
               close();
+            } else if (mod && e.key.toLowerCase() === "l") {
+              e.preventDefault();
+              categoryPickerRef.current?.open();
             }
           }}
           className="fixed left-1/2 top-1/2 z-50 isolate flex max-h-[80vh] w-[min(640px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
@@ -155,6 +161,7 @@ export function MemoDetail() {
                 onConfirm={close}
                 confirmLabel={t.done}
                 confirmKbd="⌘⏎"
+                categoryPickerRef={categoryPickerRef}
               />
             </>
           )}
