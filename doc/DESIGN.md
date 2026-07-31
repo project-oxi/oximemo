@@ -46,7 +46,7 @@
 
 ### MVP에 포함
 
-- 카드 그리드 메인 창 (검색, 태그, 핀, OKLCH 색상 라벨)
+- 카드 그리드 메인 창 (검색, 태그, 즐겨찾기, OKLCH 색상 라벨)
 - `Option` 더블탭 전역 캡처 오버레이 (+ 대체 단축키, 메뉴바 아이콘)
 - 노트 CRUD, 소프트 삭제(휴지통)
 - 로컬 전문 검색 (BM25)
@@ -158,7 +158,7 @@ id = "01991a2e-7c3f-7c91-9f3e-6b1a2e8f9c10"
 created_at = "2026-07-28T10:15:03+09:00"
 updated_at = "2026-07-28T10:15:03+09:00"
 hash = "b3:6f2a9e1d4c7b8a90f1e2d3c4b5a6978..."
-pinned = false
+favorite = false
 color = "oklch(0.75 0.15 75)"
 tags = ["idea", "oxinot"]
 +++
@@ -383,7 +383,7 @@ macOS에서 "수정자 키 단독 두 번 탭"은 표준 전역 단축키 API( `
 
 ### 7.3 카드 컴포넌트
 
-- 표시 요소: 본문 미리보기(제한된 인라인 서식만 — 굵게/기울임/체크박스 정도. 전체 마크다운 AST 렌더링은 하지 않음, §2 참고), 상대 시각("3분 전"), 핀 아이콘, 색상 라벨(왼쪽 얇은 바), 태그 칩(최대 2\~3개 + "+N"), 호버 시 빠른 액션(핀/삭제/복사).
+- 표시 요소: 본문 미리보기(제한된 인라인 서식만 — 굵게/기울임/체크박스 정도. 전체 마크다운 AST 렌더링은 하지 않음, §2 참고), 상대 시각("3분 전"), 별 아이콘, 색상 라벨(왼쪽 얇은 바), 태그 칩(최대 2\~3개 + "+N"), 호버 시 빠른 액션(즐겨찾기/삭제/복사).
 - 클릭 시 Base UI `Dialog`로 확대 편집 뷰를 열고, 편집은 디바운스 자동저장(500ms) 후 `update_memo`를 호출합니다.
 
 ### 7.4 상태관리
@@ -395,7 +395,7 @@ macOS에서 "수정자 키 단독 두 번 탭"은 표준 전역 단축키 API( `
 ### 7.5 검색/필터
 
 - 상단 검색창: 200ms 디바운스 후 `search_memos(query, limit)` 호출(tantivy BM25).
-- 태그/핀 필터는 좌측 또는 상단 최소한의 칩 UI로 제공.
+- 태그/즐겨찾기 필터는 좌측 또는 상단 최소한의 칩 UI로 제공.
 - `Cmd+K`로 Base UI `Combobox` 기반 커맨드 팔레트(빠른 이동/새 노트/태그 이동)를 여는 것은 Phase 2 후보로 남겨둡니다(MVP 필수는 아님).
 
 ### 7.6 창 크롬 & 다크모드
@@ -478,7 +478,7 @@ impl NoteColor {
 list_memos(cursor: Option<Cursor>, limit: u32, tag: Option<String>, query: Option<String>) -> Page<MemoSummary>
 get_memo(id: MemoId) -> Memo
 create_memo(body: String, tags: Vec<String>, color: Option<String>) -> MemoSummary
-update_memo(id: MemoId, body: Option<String>, tags: Option<Vec<String>>, pinned: Option<bool>, color: Option<String>) -> MemoSummary
+update_memo(id: MemoId, body: Option<String>, tags: Option<Vec<String>>, favorite: Option<bool>, color: Option<String>) -> MemoSummary
 delete_memo(id: MemoId) -> ()
 search_memos(query: String, limit: u32) -> Vec<MemoSummary>
 reindex() -> IndexStats
@@ -733,7 +733,7 @@ oxinot/
 ## 14. 로드맵
 
 **MVP (v0.1)**
-카드 그리드, 3단 저장소, Option 더블탭 캡처(+대체 단축키·메뉴바), CLI 핵심 명령, `SKILL.md`, 라이트/다크모드, 핀·태그·OKLCH 색상 라벨.
+카드 그리드, 3단 저장소, Option 더블탭 캡처(+대체 단축키·메뉴바), CLI 핵심 명령, `SKILL.md`, 라이트/다크모드, 즐겨찾기·태그·OKLCH 색상 라벨.
 
 **v0.2**
 휴지통/퍼지 안정화, 온보딩(권한 요청 플로우), Homebrew 배포 자동화, `oxinot doctor`/ `reindex` UX 개선, 붙여넣기 이미지 첨부(선택).

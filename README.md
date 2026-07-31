@@ -91,7 +91,7 @@ oxinot new "Ship the redb bump before the freeze" --tag backlog --color "oklch(0
 
 # List recent notes — table for humans (default), JSON/NDJSON for agents
 oxinot list --limit 10
-oxinot list --pinned --format ndjson
+oxinot list --favorites --format ndjson
 
 # Read one memo (JSON by default; --md for the raw file)
 oxinot get 019fa927-a897-7e12-9102-8a8c7ebbb594 --md
@@ -108,7 +108,7 @@ oxinot vault path
 
 ```bash
 oxinot new [TEXT] [--tag TAG]… [--color "oklch(...)"]      # arg or stdin; empty rejected
-oxinot list [--limit N] [--tag T] [--pinned] [--format table|json|ndjson]
+oxinot list [--limit N] [--tag T] [--favorites] [--format table|json|ndjson]
 oxinot get <ID> [--md]
 oxinot search <QUERY> [--limit N] [--format json|ndjson]
 oxinot export [--since RFC3339] [--ids a,b,c | --ids-file PATH | --ids-stdin]
@@ -128,7 +128,7 @@ Global: `--vault <PATH>` (or `OXINOT_VAULT`) selects a non-default vault. Output
 <summary><strong>Global capture & desktop app</strong></summary>
 
 - **Capture overlay:** double-tap `Option` (needs Accessibility / Input Monitoring permission), or the always-available `Cmd+Shift+N`, or the menu-bar icon. `Enter` saves & dismisses, `Shift+Enter` newline, `Esc` cancels.
-- **Card grid:** search, tag/pin filters, OKLCH color labels, virtualized for large vaults.
+- **Card grid:** search, tag/favorite filters, OKLCH color labels, virtualized for large vaults.
 - Light/dark follows the macOS system appearance.
 
 </details>
@@ -155,7 +155,7 @@ id = "01991a2e-7c3f-7c91-9f3e-6b1a2e8f9c10"
 created_at = "2026-07-28T10:15:03+09:00"
 updated_at = "2026-07-28T10:15:03+09:00"
 hash = "b3:6f2a9e1d4c7b8a90f1e2d3c4b5a6978…"
-pinned = false
+favorite = false
 color = "oklch(0.75 0.15 75)"
 tags = ["idea", "oxinot"]
 +++
@@ -163,7 +163,7 @@ tags = ["idea", "oxinot"]
 The capture overlay must appear in under one frame.
 ```
 
-The `id` is a time-sortable **UUIDv7**; the `hash` is **`b3:` + BLAKE3** over the normalized body, tags, pin flag, and color — so a pure metadata edit (add a tag, change a color) bumps the hash and is detected by sync. Full parsing rules and the safe-writing guide are in [`doc/DESIGN.md`](doc/DESIGN.md) §5 and [`skills/oxinot/SKILL.md`](skills/oxinot/SKILL.md).
+The `id` is a time-sortable **UUIDv7**; the `hash` is **`b3:` + BLAKE3** over the normalized body, tags, favorite flag, and color — so a pure metadata edit (add a tag, change a color) bumps the hash and is detected by sync. Full parsing rules and the safe-writing guide are in [`doc/DESIGN.md`](doc/DESIGN.md) §5 and [`skills/oxinot/SKILL.md`](skills/oxinot/SKILL.md).
 
 ## Architecture
 
@@ -237,7 +237,7 @@ The manifest is cheap on purpose — bodies are omitted, so it stays light for t
    ```
 2. **Diff against your local `id → hash` cache** (in your code):
    - `id` unseen → **fetch**
-   - `hash` differs → **fetch** (covers tag/pin/color edits too)
+   - `hash` differs → **fetch** (covers tag/favorite/color edits too)
    - `deleted: true` → **drop**
 3. **Fetch changed bodies in bulk** (use `--ids-file`/`--ids-stdin` past `ARG_MAX`):
    ```bash

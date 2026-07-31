@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Disk directory: `<vault>/notes/` → `<vault>/memos/`
     (auto-renamed on first `Vault::open` by `Vault::migrate`)
   - JSON keys: `IndexStats.notes` / `trashed` → `memos` / `trashed_memos`
+- **`pin` → `favorites` terminology** — the pinned-memo concept is renamed to favorites: the `favorite` frontmatter field (was `pinned`), `MemoFilter.favorites_only`, the `--favorites` CLI flag (was `--pinned`), the `favoritesOnly` / `favorite` Tauri IPC keys, the Star icon, and "즐겨찾기" / "Favorites" UI labels. Pre-release: existing vaults must be reset.
 
 ### Removed
 - **Builtin `note` category** — the `note` (blue) category is no longer

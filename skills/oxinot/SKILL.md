@@ -41,7 +41,7 @@ excludes rich text, AI features, and wikilinks (§3 of `doc/DESIGN.md`).
 oxinot new [TEXT] [--tag TAG]… [--color "oklch(0.75 0.15 75)"]
   # TEXT may be omitted: stdin is read. Empty memos are rejected.
 
-oxinot list [--limit N] [--tag T] [--pinned]
+oxinot list [--limit N] [--tag T] [--favorites]
             [--format table|json|ndjson]   # default: table (human)
 
 oxinot get <ID> [--md]
@@ -89,7 +89,7 @@ The body-less design keeps the manifest cheap regardless of memo size.
 2. **Diff against your local `id → hash` cache** (do this in your code):
    - `id` not in your cache → **fetch**.
    - `id.hash` differs from your cache → **fetch** (metadata changes are
-     reflected in the hash, so tag/pin/color edits are detected).
+     reflected in the hash, so tag/favorite/color edits are detected).
    - `deleted: true` → **drop** from your cache.
 3. **Fetch changed memos in bulk.** For small batches:
    ```bash
@@ -103,7 +103,7 @@ The body-less design keeps the manifest cheap regardless of memo size.
 4. **Advance your cursor** to the max `updated_at` you saw. Repeat.
 
 The hash is `b3:<blake3-hex>` and covers the memo's body **plus** its
-tags, pin flag, and color (§5.3 of `doc/DESIGN.md` — extended from
+tags, favorite flag, and color (§5.3 of `doc/DESIGN.md` — extended from
 body-only to include meaningful metadata). A pure metadata edit (add a tag,
 change a color) bumps the hash, so the diff correctly flags it.
 
@@ -120,7 +120,7 @@ indexer):
 4. A file whose first line is not `+++` is treated as body-only (no
    identity; not indexed as a memo).
 5. Frontmatter must parse as TOML. The fields `id`, `created_at`,
-   `updated_at`, `hash`, `pinned`, `color`, `tags` are well-known; the
+   `updated_at`, `hash`, `favorite`, `color`, `tags` are well-known; the
    indexer preserves unknown fields. `deleted_at` is optional and signals
    a tombstone.
 
@@ -138,9 +138,9 @@ metadata index stays consistent.
   ```bash
   echo "Bump redb to 2.6 next sprint" | oxinot new --tag backlog
   ```
-- **List pinned notes:**
+- **List favorite memos:**
   ```bash
-  oxinot list --pinned --limit 10 --format ndjson
+  oxinot list --favorites --limit 10 --format ndjson
   ```
 - **Search for a term and pull the top hit's body:**
   ```bash
