@@ -8,9 +8,9 @@ A fast, minimal, card-based note app for macOS (Apple Silicon).
 
 Where a human hits `Option` twice and a coding agent reads the same vault over a CLI — with parity, no cloud, and plain-text files as the source of truth.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/a7garden/oxinot/ci.yml?branch=main&logo=github&label=CI)](https://github.com/a7garden/oxinot/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/a7garden/oxinot?include_prereleases&logo=github)](https://github.com/a7garden/oxinot/releases)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![CI](https://img.shields.io/github/actions/workflow/status/project-oxi/oxinot/ci.yml?branch=main&logo=github&label=CI)](https://github.com/project-oxi/oxinot/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/project-oxi/oxinot?include_prereleases&logo=github)](https://github.com/project-oxi/oxinot/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.89%2B-dea584?logo=rust&logoColor=000)](https://www.rust-lang.org)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24c8d8?logo=tauri&logoColor=000)](https://v2.tauri.app)
 [![macOS](https://img.shields.io/badge/platform-macOS%20%7C%20Apple%20Silicon-000000?logo=apple&logoColor=fff)](#system-requirements)
@@ -62,7 +62,7 @@ Windows, Linux, and mobile are intentionally out of scope for the MVP. See the [
 ### From a release
 
 Download the prebuilt `oxinot` binary and `.dmg` from the
-[latest release](https://github.com/a7garden/oxinot/releases), then:
+[latest release](https://github.com/project-oxi/oxinot/releases), then:
 
 ```bash
 tar -xzf oxinot-aarch64-apple-darwin.tar.gz
@@ -73,7 +73,7 @@ oxinot --version
 ### From source
 
 ```bash
-git clone https://github.com/a7garden/oxinot.git
+git clone https://github.com/project-oxi/oxinot.git
 cd oxinot
 cargo build --release -p oxinot-cli
 # binary: target/release/oxinot
@@ -292,5 +292,5 @@ Licensed under either of
 at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in this project by you, as defined in the Apache-2.0 license, shall
-be dual licensed as above, without any additional terms or conditions.
+for inclusion in this project by you shall be licensed under the MIT License,
+without any additional terms or conditions.
