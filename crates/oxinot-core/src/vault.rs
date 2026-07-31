@@ -19,7 +19,9 @@ use std::time::Duration;
 
 use time::OffsetDateTime;
 
-use crate::config::VaultConfig;
+use parking_lot::RwLock;
+
+use crate::config::{AUTO_COLORS, CategoryDef, VaultConfig};
 use crate::error::{CoreError, Result};
 use crate::hash;
 use crate::lock::{FileLock, LockKind, acquire};
@@ -38,7 +40,7 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct Vault {
     paths: Paths,
-    config: VaultConfig,
+    config: RwLock<VaultConfig>,
     files: FileStore,
 }
 
@@ -52,17 +54,79 @@ impl Vault {
         let files = FileStore::new(paths.clone());
         Ok(Self {
             paths,
-            config,
+            config: RwLock::new(config),
             files,
         })
     }
 
-    pub fn paths(&self) -> &Paths {
-        &self.paths
+    /// Read config under a read guard. Use [`Self::categories`] when you only
+    /// need the list of categories — that helper already takes the guard and
+    /// clones for you.
+    pub fn with_config<R>(&self, f: impl FnOnce(&VaultConfig) -> R) -> R {
+        f(&self.config.read())
     }
 
-    pub fn config(&self) -> &VaultConfig {
-        &self.config
+    /// Snapshot of the current category list (cloned under the read guard).
+    pub fn categories(&self) -> Vec<crate::config::CategoryDef> {
+        self.config.read().categories.items.clone()
+    }
+
+    /// Create a user-defined category. `id` is normalized (trimmed + lowercased);
+    /// rejects empty ids and collisions (including the built-in `inbox`).
+    /// `color = None` picks the first unused entry from `AUTO_COLORS`.
+    pub fn create_category(&self, id: String, color: Option<String>) -> Result<CategoryDef> {
+        let id = normalize_id(&id);
+        if id.is_empty() {
+            return Err(CoreError::other("category id empty"));
+        }
+        let mut cfg = self.config.write();
+        if cfg.categories.items.iter().any(|c| c.id == id) {
+            return Err(CoreError::other(format!("category '{id}' exists")));
+        }
+        let color = color.unwrap_or_else(|| pick_auto_color(&cfg.categories.items));
+        let def = CategoryDef {
+            id: id.clone(),
+            color,
+            builtin: false,
+        };
+        cfg.categories.items.push(def.clone());
+        cfg.save(&self.paths)?;
+        Ok(def)
+    }
+
+    /// Update an existing category's color. Errors if the id doesn't match any
+    /// known category. `inbox` (and any other built-in) can be re-colored; only
+    /// deletion is restricted.
+    pub fn update_category(&self, id: String, color: String) -> Result<()> {
+        let id = normalize_id(&id);
+        let mut cfg = self.config.write();
+        let def = cfg
+            .categories
+            .items
+            .iter_mut()
+            .find(|c| c.id == id)
+            .ok_or_else(|| CoreError::other(format!("category '{id}' not found")))?;
+        def.color = color;
+        cfg.save(&self.paths)
+    }
+
+    /// Remove a user-defined category. The built-in `inbox` cannot be deleted.
+    pub fn delete_category(&self, id: String) -> Result<()> {
+        let id = normalize_id(&id);
+        if id == crate::note::DEFAULT_CATEGORY {
+            return Err(CoreError::other("inbox cannot be deleted"));
+        }
+        let mut cfg = self.config.write();
+        let before = cfg.categories.items.len();
+        cfg.categories.items.retain(|c| c.id != id);
+        if cfg.categories.items.len() == before {
+            return Err(CoreError::other(format!("category '{id}' not found")));
+        }
+        cfg.save(&self.paths)
+    }
+
+    pub fn paths(&self) -> &Paths {
+        &self.paths
     }
 
     /// Create the vault + index directories if missing.
@@ -448,7 +512,7 @@ impl Vault {
     /// Start the background file watcher (§5.5). The returned handle must be
     /// kept alive for the lifetime of the watch.
     pub fn watch(&self) -> Result<crate::watcher::NoteWatcher> {
-        let debounce = Duration::from_millis(self.config.index.watcher_debounce_ms as u64);
+        let debounce = Duration::from_millis(self.config.read().index.watcher_debounce_ms as u64);
         let vault_path = self.paths.vault.clone();
         // Re-open a Vault per callback: each op takes its own lock, so the
         // watcher coordinates with concurrent CLI/GUI access naturally.
@@ -551,7 +615,7 @@ impl Vault {
 
         // Trash purge estimate.
         let cutoff = OffsetDateTime::now_utc()
-            - Duration::from_secs(86400 * self.config.general.trash_retention_days as u64);
+            - Duration::from_secs(86400 * self.config.read().general.trash_retention_days as u64);
         for path in self.files.list_trash_files() {
             if let Ok(Some(n)) = self.files.read_note(&path)
                 && n.deleted_at.is_some_and(|t| t < cutoff)
@@ -563,6 +627,74 @@ impl Vault {
         report.vault_ok = self.paths.vault.is_dir();
         Ok(report)
     }
+
+    /// Rename a category, migrating every note whose `category` matches `old`
+    /// to `new`. Each migrated note is rewritten (category, updated_at, hash),
+    /// re-added to the redb index and the tantivy search index, and the
+    /// category registry is updated and persisted. Returns the number of
+    /// notes migrated.
+    ///
+    /// Rules:
+    /// - `old` and `new` are normalized (trimmed + lowercased).
+    /// - Neither side may be the built-in `inbox` (immutable).
+    /// - `old` must exist in the registry; `new` must not collide.
+    /// - `old == new` is rejected.
+    pub fn rename_category(&self, old: String, new: String) -> Result<u64> {
+        let old = normalize_id(&old);
+        let new = normalize_id(&new);
+        if old == crate::note::DEFAULT_CATEGORY || new == crate::note::DEFAULT_CATEGORY {
+            return Err(CoreError::other("inbox id is immutable"));
+        }
+        if old == new {
+            return Err(CoreError::other("old == new"));
+        }
+
+        // validate + mutate registry under write lock, but defer save until after migration
+        {
+            let cfg = self.config.read();
+            if !cfg.categories.items.iter().any(|c| c.id == old) {
+                return Err(CoreError::other(format!("category '{old}' not found")));
+            }
+            if cfg.categories.items.iter().any(|c| c.id == new) {
+                return Err(CoreError::other(format!("category '{new}' exists")));
+            }
+        }
+
+        let mut migrated = 0u64;
+        self.with_redb_and_search(|idx, search| {
+            for rec in idx.export_since(None)? {
+                if rec.category != old {
+                    continue;
+                }
+                let path = self.paths.note_path(rec.id, rec.created_at);
+                let mut note = self
+                    .files
+                    .read_note(&path)?
+                    .ok_or_else(|| CoreError::NotFound(rec.id.to_string()))?;
+                note.category = new.clone();
+                note.updated_at = OffsetDateTime::now_utc();
+                note.hash = hash::hash_note(note.body.as_bytes(), note.pinned, &note.category);
+                self.files.write(&note)?;
+                idx.upsert(&record_of(&note))?;
+                search.upsert(note.id, &note.body, &note.tags)?;
+                migrated += 1;
+            }
+            Ok(())
+        })?;
+
+        // update registry + persist
+        {
+            let mut cfg = self.config.write();
+            for def in cfg.categories.items.iter_mut() {
+                if def.id == old {
+                    def.id = new.clone();
+                }
+            }
+            cfg.save(&self.paths)?;
+        }
+        Ok(migrated)
+    }
+
 }
 
 /// Build an [`IndexRecord`] from a [`Note`], deriving the card preview.
@@ -632,6 +764,28 @@ pub struct DoctorReport {
     pub index_locked: bool,
     pub trash_expiring: u64,
     pub vault_ok: bool,
+}
+
+/// Normalize a category id: trim surrounding whitespace and lowercase. ASCII
+/// slugs are the canonical form (brief §Task 3 — "ASCII slugs suffice"). If
+/// non-ASCII ids ever ship, prepend `.nfc().collect::<String>()` from
+/// `unicode-normalization` (already a dep).
+fn normalize_id(id: &str) -> String {
+    id.trim().to_lowercase()
+}
+
+/// Pick the first non-transparent `AUTO_COLORS` entry not already used by an
+/// existing item; falls back to the first real entry when every stop is in
+/// use. The inbox slot (`AUTO_COLORS[0]`, empty/transparent) is deliberately
+/// skipped so a new category always gets a real tint, never the transparent
+/// default. Used when `Vault::create_category` is called with `color=None`.
+fn pick_auto_color(items: &[CategoryDef]) -> String {
+    AUTO_COLORS
+        .iter()
+        .skip(1) // skip inbox's transparent slot
+        .find(|c| !items.iter().any(|item| &item.color == *c))
+        .map(|s| (*s).to_string())
+        .unwrap_or_else(|| AUTO_COLORS[1].to_string())
 }
 
 #[cfg(test)]
@@ -784,4 +938,69 @@ mod tests {
             Some(1)
         );
     }
+
+    #[test]
+    fn category_crud_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = Vault::open(Some(dir.path())).unwrap();
+        v.ensure_initialized().unwrap();
+
+        // create
+        let c = v.create_category("urgent".into(), None).unwrap();
+        assert_eq!(c.id, "urgent");
+        assert!(!c.color.is_empty());
+
+        // duplicate rejected
+        assert!(v.create_category("urgent".into(), None).is_err());
+        // empty rejected
+        assert!(v.create_category("  ".into(), None).is_err());
+        // inbox collision rejected
+        assert!(v.create_category("inbox".into(), None).is_err());
+
+        // update color
+        v.update_category("urgent".into(), "oklch(0.6 0.2 25)".into()).unwrap();
+        assert_eq!(v.categories().iter().find(|c| c.id == "urgent").unwrap().color, "oklch(0.6 0.2 25)");
+
+        // delete
+        v.delete_category("urgent".into()).unwrap();
+        assert!(v.categories().iter().all(|c| c.id != "urgent"));
+
+        // inbox not deletable
+        assert!(v.delete_category("inbox".into()).is_err());
+        // unknown update/rename target rejected
+        assert!(v.update_category("nope".into(), "x".into()).is_err());
+
+        // persists across reopen
+        let v2 = Vault::open(Some(dir.path())).unwrap();
+        assert!(v2.categories().iter().all(|c| c.id != "urgent"));
+    }
+
+    #[test]
+    fn rename_category_migrates_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = Vault::open(Some(dir.path())).unwrap();
+        v.ensure_initialized().unwrap();
+
+        let a = v.create_note("note A".into(), Some("todo".into())).unwrap();
+        let b = v.create_note("note B".into(), Some("todo".into())).unwrap();
+        let c = v.create_note("note C".into(), Some("idea".into())).unwrap();
+
+        let n = v.rename_category("todo".into(), "tasks".into()).unwrap();
+        assert_eq!(n, 2);
+
+        // migrated
+        assert_eq!(v.get_note(a.id).unwrap().category, "tasks");
+        assert_eq!(v.get_note(b.id).unwrap().category, "tasks");
+        // unaffected
+        assert_eq!(v.get_note(c.id).unwrap().category, "idea");
+        // registry updated
+        assert!(v.categories().iter().any(|c| c.id == "tasks"));
+        assert!(v.categories().iter().all(|c| c.id != "todo"));
+
+        // inbox not renameable
+        assert!(v.rename_category("inbox".into(), "x".into()).is_err());
+        // collision
+        assert!(v.rename_category("tasks".into(), "idea".into()).is_err());
+    }
+
 }

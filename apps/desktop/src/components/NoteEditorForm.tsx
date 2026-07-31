@@ -9,12 +9,15 @@
  */
 import { Check } from "lucide-react";
 
+import { createCategory } from "../lib/api";
+import { CategoryCombobox } from "./CategoryCombobox";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { TagChipRow } from "./TagChipRow";
 import type { CategoryDef } from "../lib/types";
 
 const cx = (...xs: (string | false | null | undefined)[]) =>
   xs.filter(Boolean).join(" ");
+
 
 export interface NoteEditorFormProps {
   body: string;
@@ -55,17 +58,19 @@ export function NoteEditorForm({
       />
       <TagChipRow body={body} />
       <div className="flex flex-wrap items-center gap-2.5">
-        <select
+        <CategoryCombobox
           value={category || "inbox"}
-          onChange={(e) => onCategoryChange(e.target.value)}
-          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-        >
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.id}
-            </option>
-          ))}
-        </select>
+          onValueChange={onCategoryChange}
+          categories={categories}
+          onCreate={async (id) => {
+            try {
+              const def = await createCategory(id, null);
+              onCategoryChange(def.id);
+            } catch {
+              // Rejected (e.g. duplicate id) — leave selection unchanged.
+            }
+          }}
+        />
         <button
           type="button"
           onClick={onConfirm}

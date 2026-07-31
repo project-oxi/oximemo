@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::Result;
 use crate::paths::Paths;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,7 +91,7 @@ impl Default for AppearanceConfig {
 /// canonical built-in palette; `CategoriesConfig::default` ships them as the
 /// initial `items` so a fresh vault inherits a usable sidebar.
 pub const AUTO_COLORS: &[&str] = &[
-    "oklch(0.78 0.02 250)", // inbox — neutral gray-blue
+    "",                       // inbox — transparent (renders default card surface)
     "oklch(0.75 0.13 250)", // note — blue
     "oklch(0.78 0.15 75)",  // todo — amber
     "oklch(0.72 0.15 310)", // idea — purple
@@ -99,8 +100,9 @@ pub const AUTO_COLORS: &[&str] = &[
 ];
 
 /// Resolve a category id to its OKLCH color string. Returns the inbox color
-/// when the id is empty or not in `items`, so an unknown / legacy category
-/// never crashes rendering — it falls back to the neutral inbox color.
+/// (empty/transparent) when the id is empty or not in `items`, so an unknown
+/// / legacy category never crashes rendering — it falls back to the default
+/// card surface (no tint).
 pub fn resolve_category_color(id: &str, items: &[CategoryDef]) -> String {
     if let Some(def) = items.iter().find(|c| c.id == id) {
         return def.color.clone();
@@ -176,6 +178,20 @@ impl VaultConfig {
     pub fn to_toml(&self) -> Result<String, toml::ser::Error> {
         toml::to_string_pretty(self)
     }
+
+    /// Persist this config to `<vault>/config.toml`. Used after category CRUD
+    /// to write user-defined categories back to disk so they survive restarts.
+    pub fn save(&self, paths: &Paths) -> Result<()> {
+        let text = self.to_toml()?;
+        let path = paths.config_path();
+        // Crash-safe: write to a temp sibling then atomically rename (APFS).
+        // A torn write would otherwise silently revert the user's category
+        // setup to built-ins on next load (load() degrades to defaults).
+        let tmp = path.with_extension("toml.tmp");
+        std::fs::write(&tmp, text)?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -200,5 +216,19 @@ unknown_future_field = true
 "#;
         let c: VaultConfig = toml::from_str(t).unwrap();
         assert_eq!(c.general.trash_retention_days, 7);
+    }
+    #[test]
+    fn save_roundtrips_categories() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::resolve(Some(dir.path()));
+        let mut cfg = VaultConfig::default();
+        cfg.categories.items.push(CategoryDef {
+            id: "custom".into(),
+            color: "oklch(0.7 0.1 200)".into(),
+            builtin: false,
+        });
+        cfg.save(&paths).unwrap();
+        let reloaded = VaultConfig::load(&paths);
+        assert!(reloaded.categories.items.iter().any(|c| c.id == "custom"));
     }
 }

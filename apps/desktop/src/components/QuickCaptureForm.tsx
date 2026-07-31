@@ -1,8 +1,14 @@
 /**
- * 캡처 입력창 형태 — 본문은 메시지 버블 안에 auto-grow textarea,
- * 그 아래에 Enter 저장 액션이 한 줄로 모인다. 윈도우는 200pt 고정이고
- * 카드만 콘텐츠 높이를 따라가며, 짧은 카드 위의 빈 공간은 투명한
- * 윈도우 배경으로 보이지 않는다.
+ * 캡처 입력창 셸 (§6.1) — 보더리스 유리 캡슐, 단일 auto-grow 입력,
+ * 카테고리 칩은 입력 위, `/` 슬래시 메뉴도 입력 위 부양. 키보드 전용
+ * (버튼 없음) — `Enter` 저장 · `Shift+Enter` 줄바꿈 · `Esc` 닫기 ·
+ * `/` 카테고리. 하단에 희미한 힌트(`hint` prop, caller가 i18n 합성).
+ *
+ * 윈도우는 200pt 고정이고 캡슐은 콘텐츠 높이를 따라간다. 슬래시 메뉴는
+ * 입력창이 비어있을 때(`!category` && `v === "/"`)만 열리며, 열리는
+ * 순간 본문이 비워지므로 menu-open ⟹ 캡슐은 최소 높이(1줄). 5줄로
+ * 자란 상태에서는 메뉴가 닫혀 있으므로 두 극단 상태가 동시에 최대로
+ * 되지 않아 200pt 안에 들어간다.
  *
  * 카테고리는 `/` 슬래시 메뉴로 선택 — 입력창이 비어있을 때 `/`를
  * 치면 카테고리 드롭다운이 떠오르고, 선택하면 본문 위에 칩으로 표시.
@@ -19,10 +25,10 @@ import {
   type TextareaHTMLAttributes,
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
-import { Check } from "lucide-react";
 
 import { colorForCategory, paperFor } from "../lib/color";
 import { createCategory } from "../lib/api";
@@ -43,12 +49,10 @@ export interface QuickCaptureFormProps {
   category: string;
   onCategoryChange: (v: string) => void;
   categories: CategoryDef[];
-  /** Primary action — "save" in CaptureOverlay. */
-  onConfirm: () => void;
-  confirmLabel: string;
-  confirmDisabled?: boolean;
-  /** Keyboard hint rendered inside the confirm button (e.g. "↵"). */
-  confirmKbd?: string;
+  /** Pre-localised keyboard hint rendered faint at the bottom of the
+   *  capsule (e.g. `↵ ${t.capture_save} · esc ${t.close}`). The caller
+   *  composes i18n so this component stays i18n-free. */
+  hint: string;
   className?: string;
 }
 
@@ -58,35 +62,36 @@ export interface QuickCaptureFormProps {
  */
 function SlashCategoryMenu({
   query,
-  categories,
+  filtered,
+  isNew,
+  sel,
+  onSelChange,
   onSelect,
   onCreate,
 }: {
   query: string;
-  categories: CategoryDef[];
+  filtered: CategoryDef[];
+  isNew: boolean;
+  sel: number;
+  onSelChange: (i: number) => void;
   onSelect: (id: string) => void;
   onCreate: (id: string) => void;
 }) {
-  const filtered = categories.filter((c) =>
-    c.id.includes(query.toLowerCase()),
-  );
-  const [sel, setSel] = useState(0);
-  const isNew = query.length > 0 && !categories.some((c) => c.id === query);
 
   return (
-    <div className="absolute bottom-full left-0 z-50 mb-1 w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
+    <div className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-32 overflow-y-auto rounded-xl bg-white/80 px-1 py-1 shadow-lg ring-1 ring-black/5 backdrop-blur-xl dark:bg-zinc-800/80 dark:ring-white/10">
       {filtered.map((c, i) => (
         <button
           key={c.id}
-          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${i === sel ? "bg-zinc-100 dark:bg-zinc-700" : ""}`}
+          className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-zinc-800 dark:text-zinc-100 ${i === sel ? "bg-zinc-900/5 dark:bg-white/10" : ""}`}
           onClick={() => onSelect(c.id)}
-          onMouseEnter={() => setSel(i)}
+          onMouseEnter={() => onSelChange(i)}
         >
           <span
             className="inline-block h-3 w-3 rounded-full"
             style={{ backgroundColor: c.color }}
           />
-          <span>{c.id}</span>
+          <span className="truncate">{c.id}</span>
           {c.builtin && (
             <span className="ml-auto text-[10px] text-zinc-400">built-in</span>
           )}
@@ -94,11 +99,12 @@ function SlashCategoryMenu({
       ))}
       {isNew && (
         <button
-          className={`flex w-full items-center gap-2 border-t border-zinc-100 px-3 py-1.5 text-left text-sm text-purple-600 dark:border-zinc-700 dark:text-purple-400 ${filtered.length === sel ? "bg-zinc-100 dark:bg-zinc-700" : ""}`}
+          className={`mt-0.5 flex w-full items-center gap-2 rounded-md border-t border-black/5 px-2.5 py-1.5 text-left text-sm text-purple-600 dark:border-white/10 dark:text-purple-400 ${filtered.length === sel ? "bg-zinc-900/5 dark:bg-white/10" : ""}`}
           onClick={() => onCreate(query)}
-          onMouseEnter={() => setSel(filtered.length)}
+          onMouseEnter={() => onSelChange(filtered.length)}
         >
-          ✨ '{query}' 만들기
+          <span>✨</span>
+          <span className="truncate">'{query}' 만들기</span>
         </button>
       )}
     </div>
@@ -144,10 +150,7 @@ export function QuickCaptureForm({
   category,
   onCategoryChange,
   categories,
-  onConfirm,
-  confirmLabel,
-  confirmDisabled,
-  confirmKbd,
+  hint,
   className,
 }: QuickCaptureFormProps) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -170,12 +173,21 @@ export function QuickCaptureForm({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState("");
+  const [sel, setSel] = useState(0);
+  const filtered = useMemo(
+    () => categories.filter((c) => c.id.includes(slashQuery.toLowerCase())),
+    [categories, slashQuery],
+  );
+  const isNew =
+    slashQuery.length > 0 &&
+    !categories.some((c) => c.id === slashQuery);
 
   const handleChange = useCallback(
     (v: string) => {
       if (menuOpen) {
         // 메뉴가 열린 상태에서는 입력값이 곧 검색어.
         setSlashQuery(v);
+        setSel(0); // 검색어 변경 → 하이라이트 리셋
         if (v === "") {
           setMenuOpen(false);
         }
@@ -185,6 +197,7 @@ export function QuickCaptureForm({
       if (v === "/" && !category) {
         setMenuOpen(true);
         setSlashQuery("");
+        setSel(0);
         onBodyChange("");
         return;
       }
@@ -224,30 +237,61 @@ export function QuickCaptureForm({
     [onBodyChange, onCategoryChange],
   );
 
-  // 슬래시 메뉴가 떠있을 때 외부 클릭/스크롤 등으로 닫히지 않도록
-  // textarea keyDown에서 Escape로 닫기.
+  // 슬래시 메뉴가 떠있으면 키보드로 조작: ↑↓ 이동, Enter 선택(또는 생성),
+  // Esc 닫기. 본문 입력(Enter 저장 등)은 메뉴가 닫혔을 때만.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (menuOpen && e.key === "Escape") {
-        setMenuOpen(false);
-        setSlashQuery("");
-        e.preventDefault();
+      if (!menuOpen) {
+        bodyProps?.onKeyDown?.(e);
         return;
       }
-      bodyProps?.onKeyDown?.(e);
+      const count = filtered.length + (isNew ? 1 : 0);
+      switch (e.key) {
+        case "Escape":
+          setMenuOpen(false);
+          setSlashQuery("");
+          e.preventDefault();
+          return;
+        case "ArrowDown":
+          e.preventDefault();
+          setSel((s) => (count === 0 ? 0 : Math.min(s + 1, count - 1)));
+          return;
+        case "ArrowUp":
+          e.preventDefault();
+          setSel((s) => Math.max(s - 1, 0));
+          return;
+        case "Enter":
+          e.preventDefault();
+          if (sel < filtered.length) handleSlashSelect(filtered[sel].id);
+          else if (isNew && sel === filtered.length)
+            void handleSlashCreate(slashQuery);
+          return;
+        default:
+          bodyProps?.onKeyDown?.(e);
+      }
     },
-    [menuOpen, bodyProps],
+    [
+      menuOpen,
+      filtered,
+      isNew,
+      sel,
+      slashQuery,
+      handleSlashSelect,
+      handleSlashCreate,
+      bodyProps,
+    ],
   );
 
   return (
-    <div className={cx("flex w-full flex-col gap-2", className)}>
-      {/* 메시지 버블 — 카테고리가 선택되면 paper tint로 동일 색조. */}
+    <div className={cx("flex w-full flex-col", className)}>
+      {/* 보더리스 유리 캡슐 (§6.1) — 반투명 블러 + 연한 그림자, 크루마 없음.
+          카테고리가 선택되면 paperFor로 카테고리 색조로 톤 다운. */}
       <div
         className={cx(
-          "relative rounded-2xl border px-3 pb-2 pt-1 shadow-sm backdrop-blur transition-colors",
+          "relative rounded-2xl px-3 py-2.5 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.18)] ring-1 ring-black/5 backdrop-blur-xl transition-colors",
           category
-            ? "border-black/5"
-            : "border-zinc-200/80 bg-white/70 dark:border-zinc-700/80 dark:bg-zinc-800/70",
+            ? "dark:ring-white/10"
+            : "bg-white/70 dark:bg-zinc-900/70 dark:ring-white/10",
         )}
         style={
           category
@@ -255,8 +299,9 @@ export function QuickCaptureForm({
             : undefined
         }
       >
+        {/* 선택된 카테고리 칩 — 입력 위. */}
         {category && (
-          <div className="mb-1 flex items-center gap-1">
+          <div className="mb-1.5 flex items-center gap-1">
             <CategoryChip
               id={category}
               categories={categories}
@@ -264,58 +309,48 @@ export function QuickCaptureForm({
             />
           </div>
         )}
-        {menuOpen && (
-          <SlashCategoryMenu
-            query={slashQuery}
-            categories={categories}
-            onSelect={handleSlashSelect}
-            onCreate={handleSlashCreate}
-          />
-        )}
-        <textarea
-          ref={setRef}
-          value={body}
-          onChange={(e) => handleChange(e.target.value)}
-          spellCheck={false}
-          rows={1}
-          {...bodyProps}
-          // Wrapper keydown MUST come after `{...bodyProps}` — later JSX
-          // props win, so this overrides the caller's onKeyDown. The wrapper
-          // itself calls `bodyProps?.onKeyDown?.(e)` to delegate, which gives
-          // us the menu-Escape intercept BEFORE CaptureOverlay's window-close
-          // branch fires.
-          onKeyDown={handleKeyDown}
-          className={cx(
-            "block w-full resize-none border-0 bg-transparent p-0 text-sm leading-relaxed text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-0 dark:text-zinc-100 dark:placeholder:text-zinc-500",
-            // 한 줄 기본, max 8줄. 그 이상은 내부 스크롤로 흡수.
-            "min-h-[1.625rem] max-h-[13rem] overflow-y-auto",
-            bodyClassName,
+        {/* 입력 영역 — 슬래시 메뉴는 입력 wrapper 기준 bottom-full로
+            캡슐 안에서 입력 바로 위에 부양. 메뉴는 항상 `!category` 상태에서만
+            열리므로(아래 handleChange 참조) 칩과 동시 표시되지 않는다. */}
+        <div className="relative">
+          {menuOpen && (
+            <SlashCategoryMenu
+              query={slashQuery}
+              filtered={filtered}
+              isNew={isNew}
+              sel={sel}
+              onSelChange={setSel}
+              onSelect={handleSlashSelect}
+              onCreate={handleSlashCreate}
+            />
           )}
-        />
-      </div>
-
-      {/* 액션 행 — Enter 저장. 카테고리는 `/` 슬래시 메뉴로 선택하므로
-          컬러 스왓치는 제거. 한 줄로 압축. */}
-      <div className="flex items-center justify-end gap-2 px-1">
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={confirmDisabled}
-          aria-label={confirmLabel}
-          title={confirmLabel}
-          className="group ml-auto inline-flex h-7 items-center gap-1.5 rounded-md bg-zinc-900 px-2 text-white shadow-sm transition-all hover:bg-zinc-800 active:scale-95 disabled:pointer-events-none disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
-          <Check
-            size={14}
-            strokeWidth={2.5}
-            className="transition-transform group-hover:scale-110"
+          <textarea
+            ref={setRef}
+            value={body}
+            onChange={(e) => handleChange(e.target.value)}
+            spellCheck={false}
+            rows={1}
+            {...bodyProps}
+            // Wrapper keydown MUST come after `{...bodyProps}` — later JSX
+            // props win, so this overrides the caller's onKeyDown. The wrapper
+            // itself calls `bodyProps?.onKeyDown?.(e)` to delegate, which gives
+            // us the menu-Escape intercept BEFORE CaptureOverlay's window-close
+            // branch fires.
+            onKeyDown={handleKeyDown}
+            className={cx(
+              "block w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-relaxed text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-0 dark:text-zinc-100 dark:placeholder:text-zinc-500",
+              // 한 줄 시작, ~5줄까지 자동 성장 후 내부 스크롤.
+              "min-h-[1.5rem] max-h-[7.5rem] overflow-y-auto",
+              bodyClassName,
+            )}
           />
-          {confirmKbd && (
-            <kbd className="font-mono text-[10px] leading-none text-white/60 dark:text-zinc-500">
-              {confirmKbd}
-            </kbd>
-          )}
-        </button>
+        </div>
+        {/* 하단 희미한 키보드 힌트 — 캡슐 안, 입력 아래 한 줄. */}
+        <div className="mt-1 flex items-center justify-end">
+          <span className="font-mono text-[10px] tracking-tight text-zinc-400/70 dark:text-zinc-500/70">
+            {hint}
+          </span>
+        </div>
       </div>
     </div>
   );

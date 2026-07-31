@@ -279,17 +279,12 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow, and [`doc/DESIGN
 
 Contributions are welcome! Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) first.
 
-By contributing, you agree your contributions will be dual-licensed under the
-[MIT](LICENSE-MIT) and [Apache 2.0](LICENSE-APACHE) licenses.
+By contributing, you agree your contributions will be licensed under the
+[MIT License](LICENSE).
 
 ## License
 
-Licensed under either of
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
-
-at your option.
+Licensed under the [MIT License](LICENSE).
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in this project by you shall be licensed under the MIT License,

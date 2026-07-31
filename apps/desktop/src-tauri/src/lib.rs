@@ -14,7 +14,6 @@ pub struct AppState {
     pub vault: Arc<oxinot_core::Vault>,
     pub capture_monitor: Mutex<Option<oxinot_capture::CaptureMonitor>>,
     pub watcher: Mutex<Option<oxinot_core::watcher::NoteWatcher>>,
-    pub user_categories: Mutex<Vec<oxinot_core::config::CategoryDef>>,
 }
 
 impl AppState {
@@ -23,7 +22,6 @@ impl AppState {
             vault: Arc::new(vault),
             capture_monitor: Mutex::new(None),
             watcher: Mutex::new(None),
-            user_categories: Mutex::new(vec![]),
         }
     }
 }
@@ -56,7 +54,7 @@ pub fn run() {
 
             let capture_state = app.state::<AppState>();
             let monitor = oxinot_capture::CaptureMonitor::start(
-                capture_state.vault.config().capture.double_tap_threshold_ms,
+                capture_state.vault.with_config(|c| c.capture.double_tap_threshold_ms),
                 Box::new({
                     let h = app.handle().clone();
                     move || show_capture(&h)
@@ -85,6 +83,9 @@ pub fn run() {
             commands::list_facets,
             commands::list_categories,
             commands::create_category,
+            commands::update_category,
+            commands::rename_category,
+            commands::delete_category,
         ])
         .run(tauri::generate_context!())
         .expect("error while running oxinot desktop app");
@@ -110,7 +111,7 @@ fn default_shortcut() -> Shortcut {
 /// lifetime — dropping it would stop watching.
 fn spawn_watcher(state: &AppState, handle: &AppHandle) {
     let vault_path = state.vault.paths().vault.clone();
-    let debounce = Duration::from_millis(state.vault.config().index.watcher_debounce_ms as u64);
+    let debounce = Duration::from_millis(state.vault.with_config(|c| c.index.watcher_debounce_ms) as u64);
     let emit_handle = handle.clone();
     let on_change: oxinot_core::watcher::OnChange = Arc::new(move |path| {
         if let Ok(v) = oxinot_core::Vault::open(Some(&vault_path)) {
@@ -345,37 +346,56 @@ mod commands {
     pub fn list_categories(
         state: State<'_, AppState>,
     ) -> Result<Vec<oxinot_core::config::CategoryDef>, String> {
-        let mut items = state.vault.config().categories.items.clone();
-        items.extend(state.user_categories.lock().iter().cloned());
-        Ok(items)
+        Ok(state.vault.categories())
     }
 
     #[tauri::command]
     pub fn create_category(
         state: State<'_, AppState>,
+        app: AppHandle,
         id: String,
         color: Option<String>,
     ) -> Result<oxinot_core::config::CategoryDef, String> {
-        let id = id.trim().to_lowercase();
-        if id.is_empty() {
-            return Err("category id must not be empty".into());
-        }
-        if state.vault.config().categories.items.iter().any(|c| c.id == id) {
-            return Err(format!("category '{id}' already exists"));
-        }
-        {
-            let user = state.user_categories.lock();
-            if user.iter().any(|c| c.id == id) {
-                return Err(format!("category '{id}' already exists"));
-            }
-        }
-        let color = color.unwrap_or_else(|| oxinot_core::config::AUTO_COLORS[0].to_string());
-        let def = oxinot_core::config::CategoryDef {
-            id,
-            color,
-            builtin: false,
-        };
-        state.user_categories.lock().push(def.clone());
+        let def = state
+            .vault
+            .create_category(id, color)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("notes:changed", ());
         Ok(def)
+    }
+
+    #[tauri::command]
+    pub fn update_category(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        id: String,
+        color: String,
+    ) -> Result<(), String> {
+        state.vault.update_category(id, color).map_err(|e| e.to_string())?;
+        let _ = app.emit("notes:changed", ());
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub fn rename_category(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        old: String,
+        new: String,
+    ) -> Result<u64, String> {
+        let n = state.vault.rename_category(old, new).map_err(|e| e.to_string())?;
+        let _ = app.emit("notes:changed", ());
+        Ok(n)
+    }
+
+    #[tauri::command]
+    pub fn delete_category(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        id: String,
+    ) -> Result<(), String> {
+        state.vault.delete_category(id).map_err(|e| e.to_string())?;
+        let _ = app.emit("notes:changed", ());
+        Ok(())
     }
 }

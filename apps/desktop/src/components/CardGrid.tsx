@@ -75,6 +75,10 @@ export function CardGrid() {
         pinned_only: pinnedOnly,
       }),
     initialPageParam: null as string | null,
+    // §8: capture→main refresh — the cross-window `notes:changed` event is
+    // unreliable; refetch on focus so a freshly-captured note surfaces when
+    // the capture overlay hides and the main window regains focus.
+    refetchOnWindowFocus: true,
     getNextPageParam: (last) => last.next_cursor,
   });
 
@@ -185,9 +189,14 @@ export function CardGrid() {
       .then((n) => {
         setDraftId(n.id);
         select(n.id);
+        // Refresh the grid directly. `create_note` emits `notes:changed`, but
+        // that event has proven an unreliable refresh channel in this app —
+        // invalidate here like delete/pin do so a new note always surfaces.
+        qc.invalidateQueries({ queryKey: ["notes"] });
+        qc.invalidateQueries({ queryKey: ["facets"] });
       })
       .catch((e) => setError(String(e).split("\n")[0]));
-  }, [select, setDraftId, setError]);
+  }, [select, setDraftId, setError, qc]);
 
   // ⌘N mints a new note in the editor (the capture window keeps ⌘⇧N).
   useEffect(() => {

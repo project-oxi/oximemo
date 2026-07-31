@@ -63,6 +63,8 @@ export function NoteDetail() {
         .then((n) => {
           qc.setQueryData(["note", selectedId], n);
           setDirty(false);
+          qc.invalidateQueries({ queryKey: ["notes"] });
+          qc.invalidateQueries({ queryKey: ["facets"] });
         })
         .catch((e) => {
           setError(String(e).split("\n")[0]);
@@ -71,7 +73,7 @@ export function NoteDetail() {
         });
     }, 500);
     return () => window.clearTimeout(h);
-  }, [dirty, body, pinned, category, selectedId]);
+  }, [dirty, body, pinned, category, selectedId, qc]);
 
   const close = () => {
     // A note minted by "new note" this session is discarded while still
@@ -87,7 +89,11 @@ export function NoteDetail() {
     // Flush a pending edit before dismissing.
     if (dirty && selectedId) {
       void updateNote(selectedId, body, pinned, category)
-        .then((n) => qc.setQueryData(["note", selectedId], n))
+        .then((n) => {
+          qc.setQueryData(["note", selectedId], n);
+          qc.invalidateQueries({ queryKey: ["notes"] });
+          qc.invalidateQueries({ queryKey: ["facets"] });
+        })
         .catch((e) => setError(String(e).split("\n")[0]));
     }
     if (selectedId === draftId) setDraftId(null);
