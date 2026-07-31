@@ -19,6 +19,8 @@ use std::time::Duration;
 
 use time::OffsetDateTime;
 
+use parking_lot::RwLock;
+
 use crate::config::VaultConfig;
 use crate::error::{CoreError, Result};
 use crate::hash;
@@ -38,7 +40,7 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct Vault {
     paths: Paths,
-    config: VaultConfig,
+    config: RwLock<VaultConfig>,
     files: FileStore,
 }
 
@@ -52,17 +54,25 @@ impl Vault {
         let files = FileStore::new(paths.clone());
         Ok(Self {
             paths,
-            config,
+            config: RwLock::new(config),
             files,
         })
     }
 
-    pub fn paths(&self) -> &Paths {
-        &self.paths
+    /// Read config under a read guard. Use [`Self::categories`] when you only
+    /// need the list of categories — that helper already takes the guard and
+    /// clones for you.
+    pub fn with_config<R>(&self, f: impl FnOnce(&VaultConfig) -> R) -> R {
+        f(&self.config.read())
     }
 
-    pub fn config(&self) -> &VaultConfig {
-        &self.config
+    /// Snapshot of the current category list (cloned under the read guard).
+    pub fn categories(&self) -> Vec<crate::config::CategoryDef> {
+        self.config.read().categories.items.clone()
+    }
+
+    pub fn paths(&self) -> &Paths {
+        &self.paths
     }
 
     /// Create the vault + index directories if missing.
@@ -448,7 +458,7 @@ impl Vault {
     /// Start the background file watcher (§5.5). The returned handle must be
     /// kept alive for the lifetime of the watch.
     pub fn watch(&self) -> Result<crate::watcher::NoteWatcher> {
-        let debounce = Duration::from_millis(self.config.index.watcher_debounce_ms as u64);
+        let debounce = Duration::from_millis(self.config.read().index.watcher_debounce_ms as u64);
         let vault_path = self.paths.vault.clone();
         // Re-open a Vault per callback: each op takes its own lock, so the
         // watcher coordinates with concurrent CLI/GUI access naturally.
@@ -551,7 +561,7 @@ impl Vault {
 
         // Trash purge estimate.
         let cutoff = OffsetDateTime::now_utc()
-            - Duration::from_secs(86400 * self.config.general.trash_retention_days as u64);
+            - Duration::from_secs(86400 * self.config.read().general.trash_retention_days as u64);
         for path in self.files.list_trash_files() {
             if let Ok(Some(n)) = self.files.read_note(&path)
                 && n.deleted_at.is_some_and(|t| t < cutoff)

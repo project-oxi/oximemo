@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::Result;
 use crate::paths::Paths;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,6 +177,14 @@ impl VaultConfig {
     pub fn to_toml(&self) -> Result<String, toml::ser::Error> {
         toml::to_string_pretty(self)
     }
+
+    /// Persist this config to `<vault>/config.toml`. Used after category CRUD
+    /// to write user-defined categories back to disk so they survive restarts.
+    pub fn save(&self, paths: &Paths) -> Result<()> {
+        let text = self.to_toml()?;
+        std::fs::write(paths.config_path(), text)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -200,5 +209,19 @@ unknown_future_field = true
 "#;
         let c: VaultConfig = toml::from_str(t).unwrap();
         assert_eq!(c.general.trash_retention_days, 7);
+    }
+    #[test]
+    fn save_roundtrips_categories() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::resolve(Some(dir.path()));
+        let mut cfg = VaultConfig::default();
+        cfg.categories.items.push(CategoryDef {
+            id: "custom".into(),
+            color: "oklch(0.7 0.1 200)".into(),
+            builtin: false,
+        });
+        cfg.save(&paths).unwrap();
+        let reloaded = VaultConfig::load(&paths);
+        assert!(reloaded.categories.items.iter().any(|c| c.id == "custom"));
     }
 }

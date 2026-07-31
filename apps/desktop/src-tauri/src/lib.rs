@@ -56,7 +56,7 @@ pub fn run() {
 
             let capture_state = app.state::<AppState>();
             let monitor = oxinot_capture::CaptureMonitor::start(
-                capture_state.vault.config().capture.double_tap_threshold_ms,
+                capture_state.vault.with_config(|c| c.capture.double_tap_threshold_ms),
                 Box::new({
                     let h = app.handle().clone();
                     move || show_capture(&h)
@@ -110,7 +110,7 @@ fn default_shortcut() -> Shortcut {
 /// lifetime — dropping it would stop watching.
 fn spawn_watcher(state: &AppState, handle: &AppHandle) {
     let vault_path = state.vault.paths().vault.clone();
-    let debounce = Duration::from_millis(state.vault.config().index.watcher_debounce_ms as u64);
+    let debounce = Duration::from_millis(state.vault.with_config(|c| c.index.watcher_debounce_ms) as u64);
     let emit_handle = handle.clone();
     let on_change: oxinot_core::watcher::OnChange = Arc::new(move |path| {
         if let Ok(v) = oxinot_core::Vault::open(Some(&vault_path)) {
@@ -347,7 +347,7 @@ mod commands {
     pub fn list_categories(
         state: State<'_, AppState>,
     ) -> Result<Vec<oxinot_core::config::CategoryDef>, String> {
-        let mut items = state.vault.config().categories.items.clone();
+        let mut items = state.vault.categories();
         items.extend(state.user_categories.lock().iter().cloned());
         Ok(items)
     }
@@ -362,7 +362,7 @@ mod commands {
         if id.is_empty() {
             return Err("category id must not be empty".into());
         }
-        if state.vault.config().categories.items.iter().any(|c| c.id == id) {
+        if state.vault.with_config(|c| c.categories.items.iter().any(|c| c.id == id)) {
             return Err(format!("category '{id}' already exists"));
         }
         {
