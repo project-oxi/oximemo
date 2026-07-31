@@ -251,6 +251,7 @@ mod commands {
             .create_note(body, category)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("notes:changed", ());
+        tracing::info!(note_id = %note.id, "create_note: emitted notes:changed");
         Ok(note)
     }
 
@@ -269,6 +270,7 @@ mod commands {
             .update_note(id, body, pinned, category)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("notes:changed", ());
+        tracing::info!(note_id = %note.id, "update_note: emitted notes:changed");
         Ok(note)
     }
 

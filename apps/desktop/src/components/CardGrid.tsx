@@ -143,6 +143,8 @@ export function CardGrid() {
   useEffect(() => {
     let un: (() => void) | undefined;
     void listen("notes:changed", () => {
+      // DIAGNOSTIC (P0): confirm event delivery at runtime — remove once fixed.
+      console.log("[oxinot] notes:changed received");
       qc.invalidateQueries({ queryKey: ["notes"] });
       qc.invalidateQueries({ queryKey: ["search"] });
       qc.invalidateQueries({ queryKey: ["facets"] });
@@ -185,9 +187,14 @@ export function CardGrid() {
       .then((n) => {
         setDraftId(n.id);
         select(n.id);
+        // Refresh the grid directly. `create_note` emits `notes:changed`, but
+        // that event has proven an unreliable refresh channel in this app —
+        // invalidate here like delete/pin do so a new note always surfaces.
+        qc.invalidateQueries({ queryKey: ["notes"] });
+        qc.invalidateQueries({ queryKey: ["facets"] });
       })
       .catch((e) => setError(String(e).split("\n")[0]));
-  }, [select, setDraftId, setError]);
+  }, [select, setDraftId, setError, qc]);
 
   // ⌘N mints a new note in the editor (the capture window keeps ⌘⇧N).
   useEffect(() => {
