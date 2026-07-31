@@ -96,7 +96,7 @@ pub struct CategoryDef {
 ### 4.3 Vault / Tauri 명령 / api.ts
 
 - `Vault::create_note(body, color)` → `create_note(body, category: &str)`.
-  - `Vault::update_note(id, body, pinned, color)` → `update_note(id, body, favorite, category)`.
+  - `Vault::update_note(id, body, favorite, color)` → `update_note(id, body, favorite, category)`.
 - Tauri `create_note`/`update_note` 인자 동기화. `api.ts` 시그니처 동기화(`createNote(body, category)`, `updateNote(id, body, favorite, category)`).
 - **카테고리 레지스트리 명령 신규**:
   - `list_categories() -> Vec<CategoryDef>` — 레지스트리 반환(캡처 메뉴·사이드바용).
