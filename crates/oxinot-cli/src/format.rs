@@ -101,22 +101,22 @@ fn print_summary_table(items: &[NoteSummary]) -> anyhow::Result<()> {
     }
     writeln!(
         h,
-        "{:<10} {:<19} {:<7} {:<7}  PREVIEW",
-        "ID", "UPDATED", "PIN", "COLOR"
+        "{:<10} {:<19} {:<3} {:<10}  PREVIEW",
+        "ID", "UPDATED", "PIN", "CAT"
     )?;
     for s in items {
         let id = s.id.to_string();
         let short = &id[..8.min(id.len())];
         let pin = if s.pinned { "*" } else { "" };
-        let color = if s.color.0.is_empty() { "" } else { "(c)" };
+        let cat = if s.category.is_empty() { "-" } else { &s.category };
         let preview: String = s.preview.chars().take(60).collect();
         writeln!(
             h,
-            "{:<10} {:<19} {:<7} {:<7}  {}",
+            "{:<10} {:<19} {:<3} {:<10}  {}",
             short,
             rfc3339(s.updated_at),
             pin,
-            color,
+            cat,
             preview
         )?;
     }
