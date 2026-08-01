@@ -12,16 +12,6 @@
   "app": {
     "windows": [
       {
-        "label": "main",
-        "title": "oxinot",
-        "width": 1100,
-        "height": 720,
-        "minWidth": 720,
-        "minHeight": 480,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true
-      },
-      {
         "label": "capture",
         "title": "Capture",
         "width": 560,
