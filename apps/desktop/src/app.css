@@ -163,3 +163,58 @@ body {
   text-decoration: line-through;
   opacity: 0.7;
 }
+
+/* Memo embed blocks (lib/embeds.ts: `![[memo-id]]` transclusion). */
+.ox-embed {
+  border: 1px solid var(--atomic-editor-border);
+  border-radius: 8px;
+  background: var(--atomic-editor-bg-panel);
+  margin: 0.4rem 0;
+  overflow: hidden;
+}
+.ox-embed-hdr {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--atomic-editor-blockquote-fg);
+  padding: 0.3rem 0.6rem;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.ox-embed-hdr:hover {
+  color: var(--atomic-editor-link);
+}
+.ox-embed-body {
+  padding: 0 0.6rem 0.4rem;
+  font-size: 0.85rem;
+  color: var(--atomic-editor-fg);
+}
+.ox-embed-body p {
+  margin: 0.15rem 0;
+}
+.ox-embed-missing {
+  color: var(--atomic-editor-blockquote-fg);
+  font-style: italic;
+}
+.ox-embed-loading .ox-embed-body {
+  color: var(--atomic-editor-blockquote-fg);
+}
+
+/* Wiki-link chips (wikiLinks(): `[[memo-id]]` inline). */
+.cm-atomic-wiki-link {
+  color: var(--atomic-editor-link);
+  background: var(--atomic-editor-bg-panel);
+  border-radius: 4px;
+  padding: 0 0.25rem;
+  cursor: pointer;
+}
+.cm-atomic-wiki-link-missing {
+  color: var(--atomic-editor-blockquote-fg);
+  text-decoration: line-through;
+}
+.cm-atomic-wiki-link-loading {
+  color: var(--atomic-editor-blockquote-fg);
+}

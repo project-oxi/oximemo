@@ -25,9 +25,15 @@ export function renderPreviewMarkdown(body: string, maxLen = 200): string {
   if (!trimmed) return "";
   // First block: everything up to the first blank line.
   const firstBlock = trimmed.split(/\n\s*\n/, 1)[0];
-  const head =
+  const raw =
     firstBlock.length <= maxLen
       ? firstBlock
       : firstBlock.slice(0, maxLen).trimEnd() + "\u2026";
+  // Collapse wiki-link / embed syntax so the card preview never shows raw
+  // memo UUIDs. Embed first (it contains a link), then labeled, then bare.
+  const head = raw
+    .replace(/!\[\[([^\]\n|]+)(?:\|[^\]\n|]+)?\]\]/g, "▢ 임베드")
+    .replace(/\[\[([^\]\n|]+)\|([^\]\n|]+)\]\]/g, "$2")
+    .replace(/\[\[([^\]\n|]+)\]\]/g, "◆");
   return marked.parse(head, { async: false }) as string;
 }

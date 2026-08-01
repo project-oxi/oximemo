@@ -191,7 +191,6 @@ pub fn run() {
             commands::delete_category,
             commands::set_menu_locale,
             commands::save_image_bytes,
-            commands::save_image_from_path,
             commands::list_assets,
             commands::gc_assets,
         ])
@@ -600,18 +599,6 @@ mod commands {
         state
             .vault
             .save_asset(&bytes, &ext)
-            .map_err(|e| e.to_string())
-    }
-
-    /// File-picker path: store an image referenced by an absolute path.
-    #[tauri::command]
-    pub fn save_image_from_path(
-        state: State<'_, AppState>,
-        path: String,
-    ) -> Result<oxinot_core::AssetRef, String> {
-        state
-            .vault
-            .save_asset_from_path(std::path::Path::new(&path))
             .map_err(|e| e.to_string())
     }
 

@@ -75,6 +75,19 @@ export const dict = {
   action_copy_body: "본문 복사",
   action_copy_id: "ID 복사",
   inbox_immutable: "Inbox는 변경할 수 없어요",
+  focus_mode: "몰입 모드",
+  compact_mode: "기본 화면",
+  gallery: "갤러리",
+  insert_image: "이미지 삽입",
+  adding_image: "이미지 추가 중…",
+  gallery_empty: "아직 이미지가 없어요. 메모에 이미지를 붙여넣어 보세요.",
+  gallery_count: "이미지 {n}개",
+  clean_unused: "미사용 이미지 정리",
+  cleaned_n: "이미지 {n}개 정리됨",
+  image_hint: "드롭 · ⌘V 붙여넣기 · ⌘I 로 삽입",
+  missing_link: "삭제된 링크",
+  embed_loading: "메모 불러오는 중…",
+  deleted_memo: "삭제된 메모",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

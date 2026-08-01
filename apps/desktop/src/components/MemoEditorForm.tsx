@@ -7,16 +7,20 @@
  * (MemoDetail=본격 편집, CaptureOverlay=빠른 캡처) 공통 컴포넌트로 묶지
  * 않고 의도적으로 분리함.
  */
-import { Check } from "lucide-react";
-import { type Ref, useRef } from "react";
+import { Check, Image as ImageIcon } from "lucide-react";
+import { type Ref, useEffect, useMemo, useRef } from "react";
 
 import { createCategory } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { CategoryCombobox, type CategoryComboboxHandle } from "./CategoryCombobox";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { TagChipRow } from "./TagChipRow";
-import type { AtomicCodeMirrorEditorHandle } from "@atomic-editor/editor";
+import { insertImagesAt, type ImageViewHandle } from "../lib/cm6Images";
+import { wikiLinks, type AtomicCodeMirrorEditorHandle } from "@atomic-editor/editor";
 import type { CategoryDef } from "../lib/types";
+import { buildWikiLinksConfig } from "../lib/memoLinks";
+import { embedExtension } from "../lib/embeds";
+import { useUI } from "../stores/ui";
 
 const cx = (...xs: (string | false | null | undefined)[]) =>
   xs.filter(Boolean).join(" ");
@@ -39,6 +43,8 @@ export interface MemoEditorFormProps {
    *  open it imperatively. */
   categoryPickerRef?: Ref<CategoryComboboxHandle>;
   className?: string;
+  /** Immersive (long-form) mode: grow the editor to fill available height. */
+  immersive?: boolean;
 }
 
 export function MemoEditorForm({
@@ -54,18 +60,51 @@ export function MemoEditorForm({
   confirmKbd,
   categoryPickerRef,
   className,
+  immersive,
 }: MemoEditorFormProps) {
   const { t } = useI18n();
+  const select = useUI((s) => s.select);
+  // Wiki-links ([[memo-id]]) + embeds (![[memo-id]]) layered into the editor.
+  const linkExtensions = useMemo(
+    () => [wikiLinks(buildWikiLinksConfig({ onOpen: select })), ...embedExtension({ onOpen: select })],
+    [select],
+  );
   const editorHandleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null);
+  const viewHandleRef = useRef<ImageViewHandle | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Autofocus the body when the editor mounts (or swaps documents) so input
+  // works immediately without an extra click.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => editorHandleRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [documentId]);
+
+  // Insert image files picked from the native chooser (or dragged, pasted) at
+  // the editor cursor. Shared by the toolbar button, ⌘I, and the hidden input.
+  const insertPicked = (list: FileList | null) => {
+    const view = viewHandleRef.current?.view;
+    if (!view || !list?.length) return;
+    void insertImagesAt(Array.from(list), view.state.selection.main.from, view);
+  };
 
   return (
-    <div className={cx("flex flex-col gap-2.5", className)}>
+    <div
+      className={cx("flex flex-col gap-2.5", immersive && "flex-1 min-h-0", className)}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "i") {
+          e.preventDefault();
+          fileInputRef.current?.click();
+        }
+      }}
+    >
       <MarkdownEditor
         body={body}
         onChange={onBodyChange}
         documentId={documentId}
         editorHandleRef={editorHandleRef}
-        className="max-h-[55vh] overflow-y-auto"
+        viewHandleRef={viewHandleRef}
+        className={immersive ? "flex-1 min-h-0 overflow-y-auto" : "max-h-[55vh] overflow-y-auto"}
+        extensions={linkExtensions}
       />
       <TagChipRow body={body} />
       <div className="flex flex-wrap items-center gap-2.5">
@@ -83,6 +122,26 @@ export function MemoEditorForm({
             } catch {
               // Rejected (e.g. duplicate id) — leave selection unchanged.
             }
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          aria-label={t.insert_image}
+          title={`${t.insert_image} (⌘I)`}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        >
+          <ImageIcon size={15} />
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            insertPicked(e.target.files);
+            e.target.value = "";
           }}
         />
         <button
