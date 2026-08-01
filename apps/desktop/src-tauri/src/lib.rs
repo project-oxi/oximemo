@@ -160,11 +160,13 @@ pub fn run() {
                     }
                 }
                 WindowEvent::Focused(false) => {
-                    if let Some(s) = window.app_handle().try_state::<AppState>() {
-                        if s.capture_focused.swap(false, Ordering::Relaxed) {
-                            let _ = window.hide();
-                            let _ = window.app_handle().emit("capture:hide", ());
-                        }
+                    let hide = window
+                        .app_handle()
+                        .try_state::<AppState>()
+                        .is_some_and(|s| s.capture_focused.swap(false, Ordering::Relaxed));
+                    if hide {
+                        let _ = window.hide();
+                        let _ = window.app_handle().emit("capture:hide", ());
                     }
                 }
                 _ => {}
