@@ -232,9 +232,7 @@ impl MemoFilter {
         if self.favorites_only && !s.favorite {
             return false;
         }
-        if !self.categories.is_empty()
-            && !self.categories.iter().any(|c| c == &s.category)
-        {
+        if !self.categories.is_empty() && !self.categories.iter().any(|c| c == &s.category) {
             return false;
         }
         if !self.exclude_tags.is_empty()

@@ -108,7 +108,11 @@ fn print_summary_table(items: &[MemoSummary]) -> anyhow::Result<()> {
         let id = s.id.to_string();
         let short = &id[..8.min(id.len())];
         let star = if s.favorite { "*" } else { "" };
-        let cat = if s.category.is_empty() { "-" } else { &s.category };
+        let cat = if s.category.is_empty() {
+            "-"
+        } else {
+            &s.category
+        };
         let preview: String = s.preview.chars().take(60).collect();
         writeln!(
             h,

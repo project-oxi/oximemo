@@ -7,7 +7,7 @@ use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
 use objc2_foundation::{NSDate, NSRunLoop};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -108,10 +108,9 @@ fn worker(
         }
     });
 
-    let Some(monitor) = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
-        NSEventMask::FlagsChanged,
-        &handler,
-    ) else {
+    let Some(monitor) =
+        NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::FlagsChanged, &handler)
+    else {
         let _ = ready_tx.send(Err(CaptureError::PermissionDenied));
         return;
     };

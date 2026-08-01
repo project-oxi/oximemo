@@ -3,8 +3,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use parking_lot::Mutex;
@@ -61,7 +61,10 @@ pub fn run() {
                 Some((bytes, mime)) => tauri::http::Response::builder()
                     .status(tauri::http::StatusCode::OK)
                     .header(tauri::http::header::CONTENT_TYPE, mime)
-                    .header(tauri::http::header::CACHE_CONTROL, "max-age=31536000, immutable")
+                    .header(
+                        tauri::http::header::CACHE_CONTROL,
+                        "max-age=31536000, immutable",
+                    )
                     .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
                     .body(bytes)
                     .unwrap(),
@@ -116,7 +119,9 @@ pub fn run() {
 
             let capture_state = app.state::<AppState>();
             let monitor = oximemo_capture::CaptureMonitor::start(
-                capture_state.vault.with_config(|c| c.capture.double_tap_threshold_ms),
+                capture_state
+                    .vault
+                    .with_config(|c| c.capture.double_tap_threshold_ms),
                 Box::new({
                     let h = app.handle().clone();
                     move || show_capture(&h)
@@ -134,7 +139,9 @@ pub fn run() {
             let tray_handle = app.handle().clone();
             let tray_menu = build_tray_menu(&tray_handle)?;
             let tray = TrayIconBuilder::with_id("main-tray")
-                .icon(Image::from_bytes(include_bytes!("../icons/tray-template.png"))?)
+                .icon(Image::from_bytes(include_bytes!(
+                    "../icons/tray-template.png"
+                ))?)
                 .icon_as_template(true)
                 .menu(&tray_menu)
                 .show_menu_on_left_click(true)
@@ -221,7 +228,8 @@ fn default_shortcut() -> Shortcut {
 /// lifetime — dropping it would stop watching.
 fn spawn_watcher(state: &AppState, handle: &AppHandle) {
     let vault_path = state.vault.paths().vault.clone();
-    let debounce = Duration::from_millis(state.vault.with_config(|c| c.index.watcher_debounce_ms) as u64);
+    let debounce =
+        Duration::from_millis(state.vault.with_config(|c| c.index.watcher_debounce_ms) as u64);
     let emit_handle = handle.clone();
     let on_change: oximemo_core::watcher::OnChange = Arc::new(move |path| {
         if let Ok(v) = oximemo_core::Vault::open(Some(&vault_path)) {
@@ -292,7 +300,12 @@ fn show_capture(handle: &AppHandle) {
     // bottom edge on every resize.
     let x = pos.x as f64 / sf + mw / 2.0 - W / 2.0;
     let y = pos.y as f64 / sf + mh - H - BOTTOM_GAP;
-    tracing::info!(target_x = x, target_y = y, sf, "capture: positioning overlay");
+    tracing::info!(
+        target_x = x,
+        target_y = y,
+        sf,
+        "capture: positioning overlay"
+    );
     if let Err(e) = win.set_size(LogicalSize::new(W, H)) {
         tracing::warn!(error = ?e, "capture: set_size failed");
     }
@@ -344,10 +357,28 @@ fn build_tray_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .unwrap_or_else(default_locale);
     let (cap, show, quit) = tray_labels(&locale);
     let menu = Menu::new(handle)?;
-    menu.append(&MenuItem::with_id(handle, "capture", cap, true, None::<&str>)?)?;
-    menu.append(&MenuItem::with_id(handle, "show", show, true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(
+        handle,
+        "capture",
+        cap,
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        handle,
+        "show",
+        show,
+        true,
+        None::<&str>,
+    )?)?;
     menu.append(&PredefinedMenuItem::separator(handle)?)?;
-    menu.append(&MenuItem::with_id(handle, "quit", quit, true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(
+        handle,
+        "quit",
+        quit,
+        true,
+        None::<&str>,
+    )?)?;
     Ok(menu)
 }
 
@@ -541,7 +572,10 @@ mod commands {
         id: String,
         color: String,
     ) -> Result<(), String> {
-        state.vault.update_category(id, color).map_err(|e| e.to_string())?;
+        state
+            .vault
+            .update_category(id, color)
+            .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(())
     }
@@ -553,7 +587,10 @@ mod commands {
         old: String,
         new: String,
     ) -> Result<u64, String> {
-        let n = state.vault.rename_category(old, new).map_err(|e| e.to_string())?;
+        let n = state
+            .vault
+            .rename_category(old, new)
+            .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(n)
     }
@@ -621,7 +658,10 @@ mod commands {
 
     /// First memo whose body references asset `name` (gallery "open memo").
     #[tauri::command]
-    pub fn memo_for_asset(state: State<'_, AppState>, name: String) -> Result<Option<String>, String> {
+    pub fn memo_for_asset(
+        state: State<'_, AppState>,
+        name: String,
+    ) -> Result<Option<String>, String> {
         Ok(state
             .vault
             .find_memo_by_asset(&name)

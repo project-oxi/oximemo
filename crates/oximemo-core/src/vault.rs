@@ -25,9 +25,7 @@ use crate::config::{AUTO_COLORS, CategoryDef, VaultConfig};
 use crate::error::{CoreError, Result};
 use crate::hash;
 use crate::lock::{FileLock, LockKind, acquire};
-use crate::memo::{
-    Cursor, IndexStats, Memo, MemoFilter, MemoId, MemoSummary, Page, make_preview,
-};
+use crate::memo::{Cursor, IndexStats, Memo, MemoFilter, MemoId, MemoSummary, Page, make_preview};
 use crate::paths::Paths;
 use crate::store::files::FileStore;
 use crate::store::index::{IndexRecord, MemoIndex, RedbIndex};
@@ -184,7 +182,9 @@ impl Vault {
         }
         let ext = crate::assets::ext_of(name)?;
         let path = self.paths.asset_path(name);
-        std::fs::read(&path).ok().map(|b| (b, crate::assets::mime_for_ext(ext)))
+        std::fs::read(&path)
+            .ok()
+            .map(|b| (b, crate::assets::mime_for_ext(ext)))
     }
 
     /// All assets on disk, newest-first (gallery). Cheap: a single dir read.
@@ -208,7 +208,10 @@ impl Vault {
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| OffsetDateTime::from_unix_timestamp(d.as_secs() as i64).unwrap_or_else(|_| OffsetDateTime::now_utc()))
+                .map(|d| {
+                    OffsetDateTime::from_unix_timestamp(d.as_secs() as i64)
+                        .unwrap_or_else(|_| OffsetDateTime::now_utc())
+                })
                 .unwrap_or_else(OffsetDateTime::now_utc);
             let ext = crate::assets::ext_of(&name).unwrap_or("").to_string();
             out.push(AssetInfo {
@@ -274,9 +277,7 @@ impl Vault {
     pub fn find_memo_by_asset(&self, name: &str) -> Result<Option<MemoId>> {
         for path in self.files.list_memo_files() {
             match self.files.read_memo(&path) {
-                Ok(Some(parsed))
-                    if crate::assets::refs_in_body(&parsed.body).contains(name) =>
-                {
+                Ok(Some(parsed)) if crate::assets::refs_in_body(&parsed.body).contains(name) => {
                     return Ok(Some(parsed.id));
                 }
                 _ => {}
@@ -661,7 +662,10 @@ impl Vault {
         {
             return Ok(());
         }
-        tracing::info!(version = INDEX_FORMAT_VERSION, "migrating index preview format");
+        tracing::info!(
+            version = INDEX_FORMAT_VERSION,
+            "migrating index preview format"
+        );
         self.reindex()?;
         std::fs::write(&marker, &wants)?;
         Ok(())
@@ -910,7 +914,6 @@ impl Vault {
             Ok(())
         })
     }
-
 }
 
 /// Build an [`IndexRecord`] from a [`Memo`], deriving the card preview.
@@ -1067,8 +1070,14 @@ mod tests {
         );
 
         let parsed = Cursor::parse(&cursor).expect("cursor must round-trip via Cursor::parse");
-        let page2 = v.list_memos(Some(parsed), 10, MemoFilter::default()).unwrap();
-        assert_eq!(page2.items.len(), 1, "page 2 must return the remaining note");
+        let page2 = v
+            .list_memos(Some(parsed), 10, MemoFilter::default())
+            .unwrap();
+        assert_eq!(
+            page2.items.len(),
+            1,
+            "page 2 must return the remaining note"
+        );
         // The cursor on page 2 still points past its last item; the pagination
         // terminator is the NEXT fetch returning an empty page with no cursor.
         let c2 = page2.next_cursor.expect("page 2 carries a cursor");
@@ -1076,7 +1085,10 @@ mod tests {
             .list_memos(Some(Cursor::parse(&c2).unwrap()), 10, MemoFilter::default())
             .unwrap();
         assert!(page3.items.is_empty(), "page 3 must be empty");
-        assert!(page3.next_cursor.is_none(), "empty page must carry no cursor");
+        assert!(
+            page3.next_cursor.is_none(),
+            "empty page must carry no cursor"
+        );
     }
 
     #[test]
@@ -1174,8 +1186,16 @@ mod tests {
         assert!(v.create_category("inbox".into(), None).is_err());
 
         // update color
-        v.update_category("urgent".into(), "oklch(0.6 0.2 25)".into()).unwrap();
-        assert_eq!(v.categories().iter().find(|c| c.id == "urgent").unwrap().color, "oklch(0.6 0.2 25)");
+        v.update_category("urgent".into(), "oklch(0.6 0.2 25)".into())
+            .unwrap();
+        assert_eq!(
+            v.categories()
+                .iter()
+                .find(|c| c.id == "urgent")
+                .unwrap()
+                .color,
+            "oklch(0.6 0.2 25)"
+        );
 
         // delete
         v.delete_category("urgent".into()).unwrap();
@@ -1295,7 +1315,8 @@ mod tests {
         let (_t, v) = tmp_vault();
         // Referenced: memo body cites this asset.
         let referenced = v.save_asset(&[1, 2, 3], "png").unwrap();
-        v.create_memo(format!("see ![]({})", referenced.url), None).unwrap();
+        v.create_memo(format!("see ![]({})", referenced.url), None)
+            .unwrap();
         // Orphan: saved but never cited.
         let orphan = v.save_asset(&[9, 9, 9], "gif").unwrap();
         assert_eq!(v.list_assets().unwrap().len(), 2);

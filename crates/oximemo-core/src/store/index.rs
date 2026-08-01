@@ -258,7 +258,6 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-
     fn rec(id: MemoId, ts: OffsetDateTime) -> IndexRecord {
         IndexRecord {
             id,

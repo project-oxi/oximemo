@@ -10,8 +10,8 @@
 //! addressed, so concurrent writers that produce the same bytes collide on the
 //! same filename harmlessly, and a partial write is simply overwritten.
 
-use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use time::OffsetDateTime;
 
