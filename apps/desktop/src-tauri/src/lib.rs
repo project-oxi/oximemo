@@ -88,7 +88,7 @@ pub fn run() {
             .min_inner_size(720.0, 480.0)
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true)
-            .traffic_light_position(tauri::LogicalPosition::new(20.0, 18.0))
+            .traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0))
             .build()?;
             let cli_vault = std::env::var("OXINOT_VAULT")
                 .ok()
