@@ -3,17 +3,32 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::image::Image;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 pub struct AppState {
     pub vault: Arc<oxinot_core::Vault>,
     pub capture_monitor: Mutex<Option<oxinot_capture::CaptureMonitor>>,
     pub watcher: Mutex<Option<oxinot_core::watcher::MemoWatcher>>,
+    /// Whether the capture overlay currently holds window focus. Drives the
+    /// click-outside-to-close behavior: a `Focused(false)` only hides the
+    /// overlay when it had previously gained focus, so the show→focus
+    /// sequence can't trip a spurious self-dismiss.
+    pub capture_focused: AtomicBool,
+    /// Active tray-menu language ("ko" / "en"). Updated from the renderer's
+    /// chosen locale via `set_menu_locale`; defaults to the system locale.
+    pub menu_locale: Mutex<String>,
+    /// Held for the app lifetime so the menu-bar tray icon is not reclaimed
+    /// (TrayIcon is reference-counted and removed when the last clone drops).
+    pub tray: Mutex<Option<tauri::tray::TrayIcon>>,
 }
 
 impl AppState {
@@ -22,6 +37,9 @@ impl AppState {
             vault: Arc::new(vault),
             capture_monitor: Mutex::new(None),
             watcher: Mutex::new(None),
+            capture_focused: AtomicBool::new(false),
+            menu_locale: Mutex::new(default_locale()),
+            tray: Mutex::new(None),
         }
     }
 }
@@ -32,7 +50,46 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .register_uri_scheme_protocol("oximg", |ctx, request| {
+            // Serve a content-addressed image from `<vault>/assets/`. The path is
+            // the bare `<hash>.<ext>` name; `read_asset` re-validates it (no
+            // traversal, whitelisted ext) before touching the filesystem, so a
+            // crafted URL cannot escape the assets dir.
+            let name = request.uri().path().trim_start_matches('/');
+            let vault = &ctx.app_handle().state::<AppState>().vault;
+            match vault.read_asset(name) {
+                Some((bytes, mime)) => tauri::http::Response::builder()
+                    .status(tauri::http::StatusCode::OK)
+                    .header(tauri::http::header::CONTENT_TYPE, mime)
+                    .header(tauri::http::header::CACHE_CONTROL, "max-age=31536000, immutable")
+                    .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                    .body(bytes)
+                    .unwrap(),
+                None => tauri::http::Response::builder()
+                    .status(tauri::http::StatusCode::NOT_FOUND)
+                    .header(tauri::http::header::CONTENT_TYPE, "text/plain")
+                    .body(Vec::new())
+                    .unwrap(),
+            }
+        })
         .setup(|app| {
+            // Build the main window in code rather than from tauri.conf.json so
+            // we can set the traffic-light inset: the config schema has no
+            // trafficLightPosition key, and only the builder reaches tao's
+            // resize-persistent positioning. Lowering the lights aligns them
+            // with the 48px header instead of the default top-of-window spot.
+            tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("oxinot")
+            .inner_size(1100.0, 720.0)
+            .min_inner_size(720.0, 480.0)
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
+            .traffic_light_position(tauri::LogicalPosition::new(20.0, 18.0))
+            .build()?;
             let cli_vault = std::env::var("OXINOT_VAULT")
                 .ok()
                 .map(PathBuf::from)
@@ -71,7 +128,47 @@ pub fn run() {
                 tracing::info!("option double-tap monitor not available; using global shortcut");
             }
 
+            // Menu bar (status bar) tray icon. Left-click opens the dropdown
+            // menu (show_menu_on_left_click); the icon is a monochrome template
+            // so it adapts to light/dark. Held in AppState for the app lifetime.
+            let tray_handle = app.handle().clone();
+            let tray_menu = build_tray_menu(&tray_handle)?;
+            let tray = TrayIconBuilder::with_id("main-tray")
+                .icon(Image::from_bytes(include_bytes!("../icons/tray-template.png"))?)
+                .icon_as_template(true)
+                .menu(&tray_menu)
+                .show_menu_on_left_click(true)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "capture" => show_capture(app),
+                    "show" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(&tray_handle)?;
+            app.state::<AppState>().tray.lock().replace(tray);
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != "capture" {
+                return;
+            }
+            match event {
+                WindowEvent::Focused(true) => {
+                    if let Some(s) = window.app_handle().try_state::<AppState>() {
+                        s.capture_focused.store(true, Ordering::Relaxed);
+                    }
+                }
+                WindowEvent::Focused(false) => {
+                    if let Some(s) = window.app_handle().try_state::<AppState>() {
+                        if s.capture_focused.swap(false, Ordering::Relaxed) {
+                            let _ = window.hide();
+                            let _ = window.app_handle().emit("capture:hide", ());
+                        }
+                    }
+                }
+                _ => {}
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_memos,
@@ -79,6 +176,7 @@ pub fn run() {
             commands::create_memo,
             commands::update_memo,
             commands::delete_memo,
+            commands::reset_vault,
             commands::search_memos,
             commands::export_manifest,
             commands::reindex,
@@ -91,6 +189,11 @@ pub fn run() {
             commands::update_category,
             commands::rename_category,
             commands::delete_category,
+            commands::set_menu_locale,
+            commands::save_image_bytes,
+            commands::save_image_from_path,
+            commands::list_assets,
+            commands::gc_assets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running oxinot desktop app");
@@ -144,6 +247,16 @@ fn show_capture(handle: &AppHandle) {
         return;
     };
 
+    // Toggle: a repeated trigger (shortcut, Option double-tap, or the tray
+    // "Quick Capture" item) dismisses an already-visible overlay instead of
+    // repositioning/refreshing it. The window is parked (hidden), never
+    // destroyed, mirroring Escape.
+    if win.is_visible().unwrap_or(false) {
+        let _ = win.hide();
+        let _ = handle.emit("capture:hide", ());
+        return;
+    }
+
     // Anchor the overlay to the monitor the main window sits on — that's the
     // screen the user runs the app on and expects the overlay to appear. The
     // capture window's own `current_monitor()` is None (it is parked off-screen
@@ -191,6 +304,47 @@ fn show_capture(handle: &AppHandle) {
     }
     let _ = win.set_focus();
     let _ = handle.emit("capture:show", ());
+}
+
+fn show_main_window(handle: &AppHandle) {
+    if let Some(win) = handle.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+/// Detect the tray-menu locale from the environment. The renderer overrides
+/// this within ~300ms of load via `set_menu_locale`, so the value only labels
+/// the (lazy, click-opened) menu before that — and the app is Korean-first.
+fn default_locale() -> String {
+    let lang = std::env::var("LANG").unwrap_or_default();
+    if lang.starts_with("en") {
+        "en".into()
+    } else {
+        "ko".into()
+    }
+}
+
+fn tray_labels(locale: &str) -> (&'static str, &'static str, &'static str) {
+    if locale == "en" {
+        ("Quick Capture", "Show Main Window", "Quit oxinot")
+    } else {
+        ("빠른 캡처", "메인 창 보기", "종료")
+    }
+}
+
+fn build_tray_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let locale = handle
+        .try_state::<AppState>()
+        .map(|s| s.menu_locale.lock().clone())
+        .unwrap_or_else(default_locale);
+    let (cap, show, quit) = tray_labels(&locale);
+    let menu = Menu::new(handle)?;
+    menu.append(&MenuItem::with_id(handle, "capture", cap, true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(handle, "show", show, true, None::<&str>)?)?;
+    menu.append(&PredefinedMenuItem::separator(handle)?)?;
+    menu.append(&MenuItem::with_id(handle, "quit", quit, true, None::<&str>)?)?;
+    Ok(menu)
 }
 
 fn init_tracing() {
@@ -286,6 +440,13 @@ mod commands {
     ) -> Result<(), String> {
         let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
         state.vault.delete_memo(id).map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub fn reset_vault(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+        state.vault.reset().map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(())
     }
@@ -402,5 +563,67 @@ mod commands {
         state.vault.delete_category(id).map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(())
+    }
+
+    #[tauri::command]
+    pub fn set_menu_locale(
+        app: AppHandle,
+        state: State<'_, AppState>,
+        locale: String,
+    ) -> Result<(), String> {
+        {
+            let mut g = state.menu_locale.lock();
+            if *g == locale {
+                return Ok(());
+            }
+            *g = locale;
+        }
+        let menu = super::build_tray_menu(&app).map_err(|e| e.to_string())?;
+        if let Some(tray) = app.tray_by_id("main-tray") {
+            tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    // -- image assets ----------------------------------------------------
+
+    #[tauri::command]
+    pub fn save_image_bytes(
+        state: State<'_, AppState>,
+        base64_data: String,
+        ext: String,
+    ) -> Result<oxinot_core::AssetRef, String> {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(base64_data.as_bytes())
+            .map_err(|e| e.to_string())?;
+        state
+            .vault
+            .save_asset(&bytes, &ext)
+            .map_err(|e| e.to_string())
+    }
+
+    /// File-picker path: store an image referenced by an absolute path.
+    #[tauri::command]
+    pub fn save_image_from_path(
+        state: State<'_, AppState>,
+        path: String,
+    ) -> Result<oxinot_core::AssetRef, String> {
+        state
+            .vault
+            .save_asset_from_path(std::path::Path::new(&path))
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn list_assets(state: State<'_, AppState>) -> Result<Vec<oxinot_core::AssetInfo>, String> {
+        state.vault.list_assets().map_err(|e| e.to_string())
+    }
+
+    /// Delete assets referenced by no memo (gallery "clean up"). Returns the
+    /// count removed.
+    #[tauri::command]
+    pub fn gc_assets(state: State<'_, AppState>) -> Result<u64, String> {
+        state.vault.gc_assets().map_err(|e| e.to_string())
     }
 }

@@ -19,7 +19,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon", "custom-protocol"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "custom-protocol", "image-png"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 serde = { workspace = true }
@@ -29,6 +29,7 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 parking_lot = "0.12"
+base64 = "0.22"
 
 oxinot-core = { workspace = true }
 oxinot-capture = { workspace = true }

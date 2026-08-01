@@ -9,6 +9,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 
 import { dict as ko } from "./locales/ko";
 import { dict as en } from "./locales/en";
+import { invoke } from "./tauri";
 
 type KoDict = typeof ko;
 export type Dict = KoDict;
@@ -41,6 +42,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, locale);
     document.documentElement.lang = locale;
+    void invoke("set_menu_locale", { locale }).catch(() => {});
   }, [locale]);
 
   const t = ALL[locale] as unknown as Dict;
