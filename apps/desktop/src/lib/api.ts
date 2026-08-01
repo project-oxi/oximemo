@@ -55,6 +55,10 @@ export async function deleteMemo(id: string) {
   return invoke<void>("delete_memo", { id });
 }
 
+export async function resetVault() {
+  return invoke<null>("reset_vault");
+}
+
 export async function searchMemos(query: string, limit = 20) {
   return invoke<MemoSummary[]>("search_memos", { query, limit });
 }

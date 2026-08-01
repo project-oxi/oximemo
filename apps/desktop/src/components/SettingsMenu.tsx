@@ -38,6 +38,7 @@ import {
   listCategories,
   memoStats,
   reindex,
+  resetVault,
   renameCategory,
   updateCategory,
   vaultPath,
@@ -410,7 +411,9 @@ export function SettingsMenu() {
   const setError = useUI((s) => s.setError);
   const qc = useQueryClient();
 
-  const [busy, setBusy] = useState<"reindex" | "doctor" | null>(null);
+  const [busy, setBusy] = useState<"reindex" | "doctor" | "reset" | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const resetTimer = useRef<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [issues, setIssues] = useState<number | null>(null);
 
@@ -462,6 +465,29 @@ export function SettingsMenu() {
           r.hash_repair_failed;
         setIssues(n);
         setToast(n === 0 ? t.vault_ok : `${t.vault_issues}: ${n}`);
+      })
+      .catch((e) => setError(String(e).split("\n")[0]))
+      .finally(() => setBusy(null));
+  };
+
+  const onResetClick = () => {
+    if (!confirmReset) {
+      // Two-click confirm: first click arms, second within 4s commits.
+      // window.confirm is unreliable in Tauri's WKWebView, so we inline it.
+      setConfirmReset(true);
+      if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      resetTimer.current = window.setTimeout(() => setConfirmReset(false), 4000);
+      return;
+    }
+    setConfirmReset(false);
+    if (resetTimer.current) window.clearTimeout(resetTimer.current);
+    setBusy("reset");
+    resetVault()
+      .then(() => {
+        setToast(t.reset_done);
+        qc.invalidateQueries({ queryKey: ["stats"] });
+        qc.invalidateQueries({ queryKey: ["memos"] });
+        qc.invalidateQueries({ queryKey: ["facets"] });
       })
       .catch((e) => setError(String(e).split("\n")[0]))
       .finally(() => setBusy(null));
@@ -581,6 +607,20 @@ export function SettingsMenu() {
                     {issues === 0 ? t.vault_ok : `${t.vault_issues}: ${issues}`}
                   </p>
                 )}
+                <button
+                  type="button"
+                  onClick={onResetClick}
+                  disabled={busy !== null}
+                  className={
+                    "mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors disabled:opacity-50 " +
+                    (confirmReset
+                      ? "border-red-500 bg-red-500 text-white hover:bg-red-600 dark:border-red-500 dark:bg-red-500 dark:hover:bg-red-600"
+                      : "border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30")
+                  }
+                >
+                  <Trash2 size={13} />
+                  {busy === "reset" ? "…" : confirmReset ? t.reset_confirm : t.reset}
+                </button>
               </div>
             </Section>
 
