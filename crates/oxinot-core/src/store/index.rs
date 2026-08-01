@@ -30,6 +30,7 @@ pub struct IndexRecord {
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
     pub hash: MemoHash,
+    #[serde(default, alias = "pinned")]
     pub favorite: bool,
     #[serde(default = "crate::memo::default_category")]
     pub category: String,
@@ -308,5 +309,21 @@ mod tests {
         };
         let next = idx.list(Some(cursor), 3, &MemoFilter::default()).unwrap();
         assert_eq!(next.len(), 2);
+    }
+    #[test]
+    fn deserializes_legacy_pinned_and_missing_favorite() {
+        // Pre-release vaults stored the favorite flag as `pinned`; redb index
+        // records were serialized as JSON with a `pinned` field, which made
+        // serde reject them with "missing field `favorite`" (the save-time
+        // crash). The #[serde(default, alias = "pinned")] on IndexRecord makes
+        // old records load: the alias maps `pinned`, and a missing field
+        // defaults to false.
+        let legacy_pinned = r#"{"id":"019fa927-a897-7e12-9102-8a8c7ebbb594","created_at":"2026-07-01T00:00:00Z","updated_at":"2026-07-01T00:00:00Z","hash":"b3:abc","pinned":true,"category":"inbox","tags":[],"deleted":false,"deleted_at":null,"preview":""}"#;
+        let rec: IndexRecord = serde_json::from_str(legacy_pinned).unwrap();
+        assert!(rec.favorite);
+
+        let no_flag = r#"{"id":"019fa927-a897-7e12-9102-8a8c7ebbb594","created_at":"2026-07-01T00:00:00Z","updated_at":"2026-07-01T00:00:00Z","hash":"b3:abc","category":"inbox","tags":[],"deleted":false,"deleted_at":null,"preview":""}"#;
+        let rec: IndexRecord = serde_json::from_str(no_flag).unwrap();
+        assert!(!rec.favorite);
     }
 }

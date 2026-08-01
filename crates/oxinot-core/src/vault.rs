@@ -41,7 +41,7 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 /// Indexed preview format version. Bump when `make_preview`'s output changes;
 /// [`Vault::migrate`] reindexes once per bump so cached card previews are
 /// regenerated. Stored in `<index_dir>/index-fmt`.
-const INDEX_FORMAT_VERSION: u32 = 2;
+const INDEX_FORMAT_VERSION: u32 = 3;
 
 pub struct Vault {
     paths: Paths,
