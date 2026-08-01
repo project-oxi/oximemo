@@ -3,8 +3,9 @@
  *
  * Assets live content-addressed in the vault (see `lib/assets.ts`); this view
  * lists them via `list_assets` and renders each thumbnail from its `oximg://`
- * URL (native in Tauri, blob-swapped in browser-dev). Click opens a lightbox;
- * the header has a "clean unused" action that GCs assets no memo references.
+ * URL (native in Tauri, blob-swapped in browser-dev). Click opens the memo
+ * that contains the image (lightbox fallback for orphan assets); the header
+ * has a "clean unused" action that GCs assets no memo references.
  *
  * Refreshes on `memos:changed` so an image pasted into a memo surfaces here.
  */
@@ -13,6 +14,7 @@ import { useEffect, useState } from "react";
 import { Images, Trash2, X } from "lucide-react";
 
 import { gcAssets, listAssets, resolveImageUrl, type AssetInfo } from "../lib/assets";
+import { memoForAsset } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
 import { useUI } from "../stores/ui";
@@ -46,6 +48,7 @@ function Thumb({ asset, onOpen }: { asset: AssetInfo; onOpen: (a: AssetInfo) => 
 export function GalleryView() {
   const { t } = useI18n();
   const setView = useUI((s) => s.setView);
+  const select = useUI((s) => s.select);
   const setToast = useUI((s) => s.setToast);
   const qc = useQueryClient();
   const [lightbox, setLightbox] = useState<AssetInfo | null>(null);
@@ -70,6 +73,18 @@ export function GalleryView() {
       })
       .catch(() => {})
       .finally(() => setCleaning(false));
+  };
+
+  // Open the memo that references this image; fall back to the lightbox for
+  // orphan assets (no live memo references them).
+  const openAsset = async (a: AssetInfo) => {
+    const id = await memoForAsset(a.name);
+    if (id) {
+      select(id);
+      setView("memos");
+    } else {
+      setLightbox(a);
+    }
   };
 
   const items = assets.data ?? [];
@@ -119,7 +134,7 @@ export function GalleryView() {
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
             {items.map((a) => (
-              <Thumb key={a.name} asset={a} onOpen={setLightbox} />
+              <Thumb key={a.name} asset={a} onOpen={openAsset} />
             ))}
           </div>
         )}

@@ -193,6 +193,7 @@ pub fn run() {
             commands::save_image_bytes,
             commands::list_assets,
             commands::gc_assets,
+            commands::memo_for_asset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running oxinot desktop app");
@@ -612,5 +613,15 @@ mod commands {
     #[tauri::command]
     pub fn gc_assets(state: State<'_, AppState>) -> Result<u64, String> {
         state.vault.gc_assets().map_err(|e| e.to_string())
+    }
+
+    /// First memo whose body references asset `name` (gallery "open memo").
+    #[tauri::command]
+    pub fn memo_for_asset(state: State<'_, AppState>, name: String) -> Result<Option<String>, String> {
+        Ok(state
+            .vault
+            .find_memo_by_asset(&name)
+            .map_err(|e| e.to_string())?
+            .map(|id| id.0.to_string()))
     }
 }

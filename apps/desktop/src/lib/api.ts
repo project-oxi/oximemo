@@ -34,6 +34,11 @@ export async function getMemo(id: string) {
   return invoke<Memo>("get_memo", { id });
 }
 
+/** First memo whose body references an asset (gallery "open containing memo"). */
+export async function memoForAsset(name: string): Promise<string | null> {
+  return invoke<string | null>("memo_for_asset", { name });
+}
+
 export async function createMemo(body: string, category: string | null) {
   return invoke<Memo>("create_memo", { body, category });
 }

@@ -269,6 +269,22 @@ impl Vault {
         Ok(live)
     }
 
+    /// First live memo whose body references asset `name`, or `None`. Powers
+    /// the gallery's "open the memo containing this image".
+    pub fn find_memo_by_asset(&self, name: &str) -> Result<Option<MemoId>> {
+        for path in self.files.list_memo_files() {
+            match self.files.read_memo(&path) {
+                Ok(Some(parsed))
+                    if crate::assets::refs_in_body(&parsed.body).contains(name) =>
+                {
+                    return Ok(Some(parsed.id));
+                }
+                _ => {}
+            }
+        }
+        Ok(None)
+    }
+
     // -- locking helpers --------------------------------------------------
 
     fn lock(&self, kind: LockKind) -> Result<FileLock> {
