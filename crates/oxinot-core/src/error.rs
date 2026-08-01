@@ -83,9 +83,6 @@ pub enum CoreError {
     #[error("image rejected: {0}")]
     AssetRejected(String),
 
-    #[error("invalid asset name: {0}")]
-    AssetInvalid(String),
-
     #[error("{0}")]
     Other(String),
 }

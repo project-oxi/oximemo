@@ -219,7 +219,7 @@ impl Vault {
                 modified,
             });
         }
-        out.sort_by(|a, b| b.modified.cmp(&a.modified));
+        out.sort_by_key(|b| std::cmp::Reverse(b.modified));
         Ok(out)
     }
 
@@ -252,10 +252,18 @@ impl Vault {
     fn asset_refs_in_bodies(&self) -> Result<std::collections::HashSet<String>> {
         let mut live = std::collections::HashSet::new();
         for path in self.files.list_memo_files() {
-            if let Ok(Some(parsed)) = self.files.read_memo(&path) {
-                for name in crate::assets::refs_in_body(&parsed.body) {
-                    live.insert(name);
+            match self.files.read_memo(&path) {
+                Ok(Some(parsed)) => {
+                    for name in crate::assets::refs_in_body(&parsed.body) {
+                        live.insert(name);
+                    }
                 }
+                Ok(None) => {}
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "gc: skipping unparseable memo; its image refs are not counted"
+                ),
             }
         }
         Ok(live)
