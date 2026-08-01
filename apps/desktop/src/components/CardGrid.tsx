@@ -9,7 +9,7 @@
 import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeft, Plus, Search } from "lucide-react";
+import { PanelLeft, PanelLeftClose, Plus, Search } from "lucide-react";
 
 import { createMemo, deleteMemo, getMemo, listMemos, memoStats, searchMemos, updateMemo, listCategories } from "../lib/api";
 import { useI18n } from "../lib/i18n";
@@ -236,9 +236,26 @@ export function CardGrid() {
     return () => window.removeEventListener("keydown", onKey);
   }, [onNewNote]);
 
+  // A single always-present toggle fixed at the top-left. Because it never
+  // re-mounts between open/collapsed states, it cannot drift — the icon simply
+  // swaps in place. z-30 sits above the sidebar/header (z-auto) but below the
+  // z-40 modal backdrops so dialogs cover it correctly.
+  const sidebarToggle = (
+    <div className="fixed left-[82px] top-0 z-30 flex h-12 items-center">
+      <button
+        type="button"
+        onClick={toggleSidebar}
+        aria-label={sidebarCollapsed ? t.show_sidebar : t.hide_sidebar}
+        className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-200/60 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+      >
+        {sidebarCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
+      </button>
+    </div>
+  );
   if (view === "gallery") {
     return (
       <div className="flex h-full">
+        {sidebarToggle}
         {!sidebarCollapsed && <Sidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           <GalleryView />
@@ -249,24 +266,13 @@ export function CardGrid() {
   }
   return (
     <div className="flex h-full">
+      {sidebarToggle}
       {!sidebarCollapsed && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           data-tauri-drag-region="deep"
-          className={`flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/80 pr-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80 ${
-            sidebarCollapsed ? "pl-[76px]" : "pl-4"
-          }`}
+          className="flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/80 pl-4 pr-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80"
         >
-          {sidebarCollapsed && (
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              aria-label={t.show_sidebar}
-              className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            >
-              <PanelLeft size={15} />
-            </button>
-          )}
           <div className="flex-1" />
           <div className="relative w-56">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
