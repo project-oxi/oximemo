@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>[Oxi Ecosystem] 2026-08-01 통합 작업 보고서</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;color:#1a1d21;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f5f7;">
+<tr><td align="center" style="padding:24px 12px;">
+
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e3e6ea;">
+
+  <!-- Header -->
+  <tr>
+    <td style="padding:28px 32px 20px 32px;background-color:#0f1115;border-bottom:3px solid #4f8cff;">
+      <div style="font-size:12px;letter-spacing:1.5px;color:#7d8590;text-transform:uppercase;margin-bottom:6px;">Oxi Ecosystem</div>
+      <div style="font-size:22px;font-weight:700;color:#ffffff;line-height:1.3;">2026-08-01 통합 작업 보고서</div>
+      <div style="font-size:13px;color:#9aa4b2;margin-top:8px;">모델 zai/glm-5.2 · 총 6건 · 완료 5 · 부분 1</div>
+    </td>
+  </tr>
+
+  <!-- Notice banner -->
+  <tr>
+    <td style="padding:16px 32px;background-color:#fff8e1;border-bottom:1px solid #ffe08a;">
+      <div style="font-size:13px;color:#7a5b00;line-height:1.55;">
+        <strong>ℹ 이메일 미발송 안내:</strong> 본 환경에 이메일 자격증명이 없습니다
+        (<code style="background:#f0e6c8;padding:1px 4px;border-radius:3px;font-size:12px;">RESEND_API_KEY</code> /
+        Cloudflare 토큰 모두 unset, <code style="background:#f0e6c8;padding:1px 4px;border-radius:3px;font-size:12px;">resend</code> CLI 미설치).
+        본 보고서는 파일(<code style="background:#f0e6c8;padding:1px 4px;border-radius:3px;font-size:12px;">/tmp/oxi-reports/master-report.md</code>)로만 전달됩니다.
+      </div>
+    </td>
+  </tr>
+
+  <!-- Summary table -->
+  <tr>
+    <td style="padding:24px 32px 8px 32px;">
+      <div style="font-size:16px;font-weight:700;color:#1a1d21;margin-bottom:14px;">종합 요약</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background-color:#f0f2f5;">
+            <th align="left" style="padding:9px 10px;border:1px solid #e3e6ea;font-weight:600;color:#424a57;">프로젝트</th>
+            <th align="left" style="padding:9px 10px;border:1px solid #e3e6ea;font-weight:600;color:#424a57;">작업</th>
+            <th align="center" style="padding:9px 10px;border:1px solid #e3e6ea;font-weight:600;color:#424a57;width:64px;">상태</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:600;">oxios</td>
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;color:#424a57;">Scheduled Task 기능</td>
+            <td align="center" style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:700;color:#1a7f37;">✅</td>
+          </tr>
+          <tr style="background-color:#fbfcfd;">
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:600;">oxinot / oxipage / oxios</td>
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;color:#424a57;">통합 DESIGN.md</td>
+            <td align="center" style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:700;color:#1a7f37;">✅</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:600;">oxi</td>
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;color:#424a57;">TUI 레이아웃 (grok-build)</td>
+            <td align="center" style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:700;color:#9a6700;">⚠️</td>
+          </tr>
+          <tr style="background-color:#fbfcfd;">
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:600;">oxipage</td>
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;color:#424a57;">Console 개선</td>
+            <td align="center" style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:700;color:#1a7f37;">✅</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:600;">oxiline</td>
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;color:#424a57;">UI 리디자인 (Flat Premium)</td>
+            <td align="center" style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:700;color:#1a7f37;">✅</td>
+          </tr>
+          <tr style="background-color:#fbfcfd;">
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:600;">oxinot</td>
+            <td style="padding:8px 10px;border:1px solid #e3e6ea;color:#424a57;">앱 개선 (검증 중심)</td>
+            <td align="center" style="padding:8px 10px;border:1px solid #e3e6ea;font-weight:700;color:#1a7f37;">✅</td>
+          </tr>
+        </tbody>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Section: oxios -->
+  <tr><td style="padding:18px 32px 0 32px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-left:3px solid #1a7f37;">
+      <tr><td style="padding:4px 0 4px 14px;">
+        <div style="font-size:11px;color:#1a7f37;font-weight:700;letter-spacing:0.5px;">02:00 · ✅ 완료</div>
+        <div style="font-size:15px;font-weight:700;color:#1a1d21;margin-top:2px;">Oxios — 예약 작업(Scheduled Task) 기능</div>
+        <div style="font-size:13px;color:#424a57;line-height:1.6;margin-top:6px;">
+          CronScheduler가 부팅 시 자동 실행되고 Task 실행/예약 API가 실제 동작. 공유 실행 프리미티브 <code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">run_goal</code>로 cron·task·POST run이 동일 경로 사용. <code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">POST /api/tasks/:id/run</code> 스텁 → 실제 구현, 실행 기록 엔드포인트 추가, automation 미저장 버그 수정. 프론트에 스케줄 설정 + 실행 기록 타임라인.
+        </div>
+        <div style="font-size:12px;color:#6a737d;margin-top:6px;">검증: cargo test <strong>795 passed</strong> · clippy/tsc/build/biome 클린 · 부팅 E2E 스모크 · 커밋 4건</div>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Section: design -->
+  <tr><td style="padding:14px 32px 0 32px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-left:3px solid #4f8cff;">
+      <tr><td style="padding:4px 0 4px 14px;">
+        <div style="font-size:11px;color:#4f8cff;font-weight:700;letter-spacing:0.5px;">03:00 · ✅ 완료</div>
+        <div style="font-size:15px;font-weight:700;color:#1a1d21;margin-top:2px;">Oxi Ecosystem — 통합 디자인 시스템</div>
+        <div style="font-size:13px;color:#424a57;line-height:1.6;margin-top:6px;">
+          3 프로젝트 분석 → <code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">UNIFIED-DESIGN.md</code> (25.9KB, 11섹션) 생성. OKLCH 3-tier (primitive→semantic→component) 단일 체계, 6-hue 라벨 팔레트, SUIT/SUITE/Geist Mono, <code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">.dark</code> 단일 트리거. oxinot이 정규 원천, oxios가 가장 완성된 구현체.
+        </div>
+        <div style="font-size:12px;color:#6a737d;margin-top:6px;">산출물: oxinot/oxipage/oxios 각 UNIFIED-DESIGN.md · 우선순위 oxinot&gt;oxipage&gt;oxios</div>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Section: oxi -->
+  <tr><td style="padding:14px 32px 0 32px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-left:3px solid #9a6700;">
+      <tr><td style="padding:4px 0 4px 14px;">
+        <div style="font-size:11px;color:#9a6700;font-weight:700;letter-spacing:0.5px;">04:00 · ⚠️ 부분 완료</div>
+        <div style="font-size:15px;font-weight:700;color:#1a1d21;margin-top:2px;">Oxi — TUI 레이아웃 (grok-build 포팅)</div>
+        <div style="font-size:13px;color:#424a57;line-height:1.6;margin-top:6px;">
+          <strong>정정:</strong> 작업 문서의 <code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">oxi-tui</code>는 고아 크레이트 — 실제 프로덕션은 <code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">oxi-vtui</code>. grok-build 레이아웃을 <code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">oxi-vtui/src/design/layout/</code>에 포팅 (단일 파일→디렉토리 분할, too-many-args 버그 방지 개선). 라이브러리는 커밋(<code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">7e0ee3cf</code>).
+        </div>
+        <div style="font-size:12px;color:#9a6700;margin-top:6px;"><strong>주의:</strong> 프로덕션 통합(<code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">frame_layout.rs</code> 등)은 워크스페이스 WIP(47파일) 의존성으로 <strong>미커밋</strong>. 781 테스트 + clippy로는 검증됨. 비컴파일 커밋 회피 목적.</div>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Section: oxipage -->
+  <tr><td style="padding:14px 32px 0 32px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-left:3px solid #1a7f37;">
+      <tr><td style="padding:4px 0 4px 14px;">
+        <div style="font-size:11px;color:#1a7f37;font-weight:700;letter-spacing:0.5px;">05:00 · ✅ 완료</div>
+        <div style="font-size:15px;font-weight:700;color:#1a1d21;margin-top:2px;">Oxipage — Console 개선</div>
+        <div style="font-size:13px;color:#424a57;line-height:1.6;margin-top:6px;">
+          문서 전제가 stale — 5개 중 3개(라우팅·미리보기·GitHub Pages)는 이미 완료 상태. 실제 결함은 <strong>테마 라우팅 버그</strong>(ThemeBootstrap이 Routes 밖이라 per-site 테마 미적용 → F1로 ConsoleShell로 이동) + 콘텐츠 데이터 결함(BooksTab cover 누락·ProjectsTab 썸네일 broken → F4–F7).
+        </div>
+        <div style="font-size:12px;color:#6a737d;margin-top:6px;">검증: tsc + cargo build(SPA re-embed) · 서버/브라우저 스모크 · Release v0.8.0 · 커밋 3건</div>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Section: oxiline -->
+  <tr><td style="padding:14px 32px 0 32px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-left:3px solid #8957e5;">
+      <tr><td style="padding:4px 0 4px 14px;">
+        <div style="font-size:11px;color:#8957e5;font-weight:700;letter-spacing:0.5px;">05:30 · ✅ 완료</div>
+        <div style="font-size:15px;font-weight:700;color:#1a1d21;margin-top:2px;">OxiLine — UI 리디자인 (Flat Premium)</div>
+        <div style="font-size:13px;color:#424a57;line-height:1.6;margin-top:6px;">
+          미니멀/평면 방향 (Linear·Cron·Amie 계열). flat tinted fill + 헤어라인 + 좌측 3px 카테고리 accent rail("color is data") + 3단계 elevation. 다크 모드 block fill이 카드에 묻히는 문제 → <code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">--color-block-bg</code> 24%→28% L 보정. 실제 DOM + 스크린샷으로 검증.
+        </div>
+        <div style="font-size:12px;color:#6a737d;margin-top:6px;">배포: OxiLine.app (6.8M) 빌드 + /Applications 설치 + 실행 확인 (PID 53093) · 커밋 5건</div>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Section: oxinot -->
+  <tr><td style="padding:14px 32px 0 32px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-left:3px solid #1a7f37;">
+      <tr><td style="padding:4px 0 4px 14px;">
+        <div style="font-size:11px;color:#1a7f37;font-weight:700;letter-spacing:0.5px;">06:00 · ✅ 완료 (검증 중심)</div>
+        <div style="font-size:15px;font-weight:700;color:#1a1d21;margin-top:2px;">Oxinot — 앱 개선</div>
+        <div style="font-size:13px;color:#424a57;line-height:1.6;margin-top:6px;">
+          스펙 전 기능(P0 + 작업 1~4)은 <strong>이미 구현·커밋됨</strong>. 식별자는 Note→Memo 리네임 전 구식. P0 버그 근본 원인: Tauri v2의 camelCase invoke 바인딩(<code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">7d6cddc</code>로 수정됨). 본 실행은 Tauri CLI 복구 + CI 플래그 충돌 해결 + 릴리스 빌드(DMG 7.4MB) + /Applications 설치 + 코드/데이터 스모크 검증.
+        </div>
+        <div style="font-size:12px;color:#9a6700;margin-top:6px;"><strong>제약:</strong> 자동 실행 환경의 macOS Screen Recording/Accessibility 권한 거부로 대화형 GUI 스모크는 미실행 (코드 경로로는 입증됨).</div>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Insights -->
+  <tr><td style="padding:22px 32px 6px 32px;">
+    <div style="font-size:15px;font-weight:700;color:#1a1d21;margin-bottom:10px;">공통 인사이트 &amp; 후속 항목</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;color:#424a57;line-height:1.6;">
+      <tr><td style="padding:4px 0;">
+        <span style="color:#4f8cff;font-weight:700;">·</span> 3건(oxipage·oxiline·oxinot)이 "이미 구현됨" 상태에서 시작 — 태스크 문서가 코드보다 stale. 실사가 최대 가치.
+      </td></tr>
+      <tr><td style="padding:4px 0;">
+        <span style="color:#4f8cff;font-weight:700;">·</span> 정직한 커밋 원칙 준수 — oxi는 비컴파일 커밋 회피, oxinot은 소스 변경 없음 명시.
+      </td></tr>
+      <tr><td style="padding:4px 0;">
+        <span style="color:#4f8cff;font-weight:700;">·</span> 이메일 인프라 미구축이 전체 파이프라인 병목 — 6 보고서 모두 파일로만 존재.
+      </td></tr>
+      <tr><td style="padding:4px 0;">
+        <span style="color:#9a6700;font-weight:700;">→</span> 후속: oxi 통합 커밋(WIP 확정 후) · oxinot GUI 스모크(권한 부여) · oxipage EditorPreviewDrawer 일반화 · 이메일 인프라(DKIM 충돌 해소 또는 mail.oxinot.dev).
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="padding:18px 32px 26px 32px;background-color:#fbfcfd;border-top:1px solid #e3e6ea;">
+      <div style="font-size:12px;color:#6a737d;line-height:1.6;">
+        본 메일은 자동 실행 태스크(<code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">.omp/auto-master-report-2026-07-31.md</code>)에 의해 취합되었습니다.<br>
+        상세 내용은 첨부된 6개 요약 파일(<code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">/tmp/oxi-reports/*.md</code>) 및 <code style="background:#f0f2f5;padding:1px 4px;border-radius:3px;">master-report.md</code> 참조.
+      </div>
+    </td>
+  </tr>
+
+</table>
+
+</td></tr>
+</table>
+</body>
+</html>
