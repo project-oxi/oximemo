@@ -2,7 +2,8 @@
  * Card component for a memo summary. The memo's color fills the whole card as
  * colored "paper" (post-it), not just a side accent — see `paperFor` in
  * lib/color.ts, which washes the OKLCH color toward the theme's card surface.
- * Renders the preview text, tags, and hover actions (favorite/delete/copy).
+ * Renders the preview text, tags, the favorite star (pinned top-right, always
+ * yellow when favorited), and hover actions (copy/delete).
  */
 import { Star, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -49,7 +50,7 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
           />
         }
       >
-      <div className="flex items-center gap-1.5 text-zinc-500/90 dark:text-zinc-400">
+      <div className="flex items-center gap-1.5 pr-7 text-zinc-500/90 dark:text-zinc-400">
         <span className="text-[11px]">{relativeTime(memo.updated_at, locale)}</span>
         <span aria-hidden className="text-zinc-400/50 dark:text-zinc-600">
           ·
@@ -57,12 +58,23 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
         <span className="font-mono text-[10px] text-zinc-400/90 dark:text-zinc-500">
           {shortId}
         </span>
-        {memo.favorite && (
-          <span className="ml-auto inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-            <Star size={10} /> {t.favorite}
-          </span>
-        )}
       </div>
+      <button
+        type="button"
+        aria-label={memo.favorite ? t.action_unfavorite : t.action_favorite}
+        title={memo.favorite ? t.action_unfavorite : t.action_favorite}
+        className={`absolute right-2 top-2 z-10 rounded-md p-1.5 transition-all duration-150 ${
+          memo.favorite
+            ? "text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300"
+            : "text-zinc-400 opacity-0 hover:bg-black/5 hover:text-amber-600 group-hover:opacity-100 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-amber-400"
+        }`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleFavorite(memo.id);
+        }}
+      >
+        <Star size={14} className={memo.favorite ? "fill-amber-400 dark:fill-amber-400" : undefined} />
+      </button>
       {memo.preview ? (
         <div
           className="md-preview mt-2 line-clamp-4 flex-1 text-sm leading-relaxed text-zinc-700 dark:text-zinc-200"
@@ -103,17 +115,6 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
         >
           <Copy size={14} />
           {copied && <span className="ml-1 text-[10px]">{t.copied}</span>}
-        </button>
-        <button
-          type="button"
-          aria-label={t.action_favorite}
-          className="rounded-md p-1.5 text-zinc-500 hover:bg-black/5 hover:text-amber-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-amber-400"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleFavorite(memo.id);
-          }}
-        >
-          <Star size={14} />
         </button>
         <button
           type="button"

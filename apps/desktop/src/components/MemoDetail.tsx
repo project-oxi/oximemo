@@ -151,13 +151,15 @@ export function MemoDetail() {
                   <button
                     type="button"
                     onClick={() => edit(setFavorite)(!favorite)}
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] transition-colors ${
+                    aria-label={favorite ? t.action_unfavorite : t.action_favorite}
+                    title={favorite ? t.action_unfavorite : t.action_favorite}
+                    className={`rounded-full p-1.5 transition-colors ${
                       favorite
-                        ? "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400"
-                        : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                        ? "text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300"
+                        : "text-zinc-400 hover:text-amber-600 dark:text-zinc-400 dark:hover:text-amber-400"
                     }`}
                   >
-                    <Star size={12} /> {t.favorite}
+                    <Star size={13} className={favorite ? "fill-amber-400 dark:fill-amber-400" : undefined} />
                   </button>
                   <button
                     type="button"
