@@ -870,24 +870,29 @@ impl Vault {
     /// config is preserved. Backs the settings "reset" action.
     pub fn reset(&self) -> Result<()> {
         self.ensure_initialized()?;
+        // Wipe under the exclusive index lock so a concurrent reader never
+        // observes an empty index pointing at files that still exist (or vice
+        // versa). Source-of-truth files go first; any removal error aborts the
+        // reset (indexes stay consistent with the surviving files) instead of
+        // being swallowed into a half-wiped vault.
+        let roots = [self.paths.memos_root(), self.paths.trash_root()];
         self.with_redb_and_search(|idx, search| {
-            idx.clear()?;
-            search.clear()?;
-            Ok(())
-        })?;
-        for root in [self.paths.memos_root(), self.paths.trash_root()] {
-            if root.exists() {
-                for entry in std::fs::read_dir(&root)? {
-                    let path = entry?.path();
-                    if path.is_dir() {
-                        let _ = std::fs::remove_dir_all(&path);
-                    } else {
-                        let _ = std::fs::remove_file(&path);
+            for root in roots {
+                if root.exists() {
+                    for entry in std::fs::read_dir(&root)? {
+                        let path = entry?.path();
+                        if path.is_dir() {
+                            std::fs::remove_dir_all(&path)?;
+                        } else {
+                            std::fs::remove_file(&path)?;
+                        }
                     }
                 }
             }
-        }
-        Ok(())
+            idx.clear()?;
+            search.clear()?;
+            Ok(())
+        })
     }
 
 }
@@ -1233,6 +1238,19 @@ mod tests {
         assert!(live.exists());
         assert!(legacy.exists());
         assert!(v.get_memo(new_id.id).is_ok());
+    }
+
+    #[test]
+    fn reset_clears_memos_and_indexes() {
+        let (_t, v) = tmp_vault();
+        v.create_memo("one".into(), None).unwrap();
+        v.create_memo("two".into(), None).unwrap();
+        assert_eq!(v.memo_stats().unwrap().memos, 2);
+        v.reset().unwrap();
+        // Live memos + derived indexes are gone; the vault stays usable.
+        assert_eq!(v.memo_stats().unwrap().memos, 0);
+        v.create_memo("three".into(), None).unwrap();
+        assert_eq!(v.memo_stats().unwrap().memos, 1);
     }
 
     #[test]
