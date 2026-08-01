@@ -29,6 +29,14 @@ import { marked } from "marked";
 
 import { getMemo } from "./api";
 
+/** Localized strings the embed widgets render. Passed in from the editor
+ *  host (which owns the i18n dict) — `embeds.ts` is a pure lib, no React. */
+export interface EmbedLabels {
+  embed_loading: string;
+  deleted_memo: string;
+  open_memo: string;
+}
+
 const EMBED_RE = /^\s*!\[\[([^\]\n|]+)\]\]\s*$/;
 
 interface EmbedEntry {
@@ -48,9 +56,9 @@ function statusOf(entry: EmbedEntry | undefined): WidgetStatus {
   return entry ? entry.status : "loading";
 }
 
-function renderEmbedBody(el: HTMLElement, entry: EmbedEntry): void {
+function renderEmbedBody(el: HTMLElement, entry: EmbedEntry, labels: EmbedLabels): void {
   if (entry.status === "missing") {
-    el.textContent = "삭제된 메모";
+    el.textContent = labels.deleted_memo;
     el.classList.add("ox-embed-missing");
     return;
   }
@@ -58,7 +66,7 @@ function renderEmbedBody(el: HTMLElement, entry: EmbedEntry): void {
 }
 
 class EmbedWidget extends WidgetType {
-  constructor(readonly id: string, readonly entry: EmbedEntry | undefined, readonly onOpen: (id: string) => void) {
+  constructor(readonly id: string, readonly entry: EmbedEntry | undefined, readonly onOpen: (id: string) => void, readonly labels: EmbedLabels) {
     super();
   }
   // Recreate when the id or resolved-status changes (loading → resolved/missing)
@@ -72,15 +80,19 @@ class EmbedWidget extends WidgetType {
     const hdr = document.createElement("button");
     hdr.type = "button";
     hdr.className = "ox-embed-hdr";
-    hdr.textContent = "▢ " + this.id.slice(0, 8);
-    hdr.title = "메모 열기";
+    hdr.textContent =
+      "▢ " +
+      (this.entry?.status === "resolved"
+        ? (this.entry.body || "").replace(/\s+/g, " ").trim().slice(0, 60)
+        : this.id.slice(0, 8));
+    hdr.title = this.labels.open_memo;
     hdr.addEventListener("click", () => this.onOpen(this.id));
     const body = document.createElement("div");
     body.className = "ox-embed-body";
     wrap.append(hdr, body);
 
-    if (this.entry) renderEmbedBody(body, this.entry);
-    else body.textContent = "메모 불러오는 중…";
+    if (this.entry) renderEmbedBody(body, this.entry, this.labels);
+    else body.textContent = this.labels.embed_loading;
     return wrap;
   }
   ignoreEvent() {
@@ -92,6 +104,7 @@ function buildDecorations(
   state: EditorState,
   resolved: Map<string, EmbedEntry>,
   onOpen: (id: string) => void,
+  labels: EmbedLabels,
 ) {
   const decos: Range<Decoration>[] = [];
   for (let n = 1; n <= state.doc.lines; n++) {
@@ -100,7 +113,7 @@ function buildDecorations(
     if (m) {
       const id = m[1].trim();
       decos.push(
-        Decoration.replace({ block: true, widget: new EmbedWidget(id, resolved.get(id), onOpen) }).range(
+        Decoration.replace({ block: true, widget: new EmbedWidget(id, resolved.get(id), onOpen, labels) }).range(
           line.from,
           line.to,
         ),
@@ -164,9 +177,9 @@ interface EmbedField {
   decorations: DecorationSet;
 }
 
-export function embedExtension(opts: { onOpen: (id: string) => void }): Extension[] {
+export function embedExtension(opts: { onOpen: (id: string) => void; labels: EmbedLabels }): Extension[] {
   const field = StateField.define<EmbedField>({
-    create: (state) => ({ resolved: new Map(), decorations: buildDecorations(state, new Map(), opts.onOpen) }),
+    create: (state) => ({ resolved: new Map(), decorations: buildDecorations(state, new Map(), opts.onOpen, opts.labels) }),
     update: (value, tr) => {
       let resolved = value.resolved;
       let changed = false;
@@ -177,7 +190,7 @@ export function embedExtension(opts: { onOpen: (id: string) => void }): Extensio
         changed = true;
       }
       if (changed || tr.docChanged) {
-        return { resolved, decorations: buildDecorations(tr.state, resolved, opts.onOpen) };
+        return { resolved, decorations: buildDecorations(tr.state, resolved, opts.onOpen, opts.labels) };
       }
       return { resolved, decorations: value.decorations.map(tr.changes) };
     },

@@ -11,8 +11,8 @@
  * Non-image paste/drop returns `false`, so CodeMirror's normal text handling
  * (and the atomic-editor's own decorations) keep working untouched.
  */
-import { EditorView, ViewPlugin } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
+import { EditorView, ViewPlugin, keymap } from "@codemirror/view";
+import { Prec, type Extension } from "@codemirror/state";
 import { type MutableRefObject } from "react";
 
 import { markdownForImage, saveImageFromFile } from "./assets";
@@ -112,4 +112,28 @@ export function imageInsertionExtension(handle: MutableRefObject<ImageViewHandle
       },
     ),
   ];
+}
+
+/**
+ * CM6 keymap that opens the native file picker on `Mod-i`. Registered as an
+ * editor extension (not a parent <div> onKeyDown) so it preempts CM6's own
+ * `Mod-i` → `selectParentSyntax` (defaultKeymap) at the keymap layer: a
+ * wrapper-DOM handler fires only *after* CM6 has already handled the event,
+ * which both expanded the selection and shifted the insertion point. Wrapped
+ * in `Prec.highest` so it outranks `defaultKeymap` regardless of how the
+ * atomic-editor composes its base extensions.
+ */
+export function imagePickerKeymap(onPick: () => void): Extension {
+  return Prec.highest(
+    keymap.of([
+      {
+        key: "Mod-i",
+        preventDefault: true,
+        run: () => {
+          onPick();
+          return true;
+        },
+      },
+    ]),
+  );
 }

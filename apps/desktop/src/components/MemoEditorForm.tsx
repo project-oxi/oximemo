@@ -15,7 +15,7 @@ import { useI18n } from "../lib/i18n";
 import { CategoryCombobox, type CategoryComboboxHandle } from "./CategoryCombobox";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { TagChipRow } from "./TagChipRow";
-import { insertImagesAt, type ImageViewHandle } from "../lib/cm6Images";
+import { imagePickerKeymap, insertImagesAt, type ImageViewHandle } from "../lib/cm6Images";
 import { wikiLinks, type AtomicCodeMirrorEditorHandle } from "@atomic-editor/editor";
 import type { CategoryDef } from "../lib/types";
 import { buildWikiLinksConfig } from "../lib/memoLinks";
@@ -62,22 +62,33 @@ export function MemoEditorForm({
   className,
   immersive,
 }: MemoEditorFormProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const select = useUI((s) => s.select);
-  // Wiki-links ([[memo-id]]) + embeds (![[memo-id]]) layered into the editor.
-  const linkExtensions = useMemo(
-    () => [wikiLinks(buildWikiLinksConfig({ onOpen: select })), ...embedExtension({ onOpen: select })],
-    [select],
-  );
+  // Editor extensions: ⌘I image picker, [[memo-id]] wiki-links, ![[memo-id]]
+  // embeds — all CM6-layer so they engage inside the editor.
   const editorHandleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null);
   const viewHandleRef = useRef<ImageViewHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const linkExtensions = useMemo(
+    () => [
+      imagePickerKeymap(() => fileInputRef.current?.click()),
+      wikiLinks(buildWikiLinksConfig({ onOpen: select, locale })),
+      ...embedExtension({ onOpen: select, labels: t }),
+    ],
+    [select, locale, t],
+  );
   // Autofocus the body when the editor mounts (or swaps documents) so input
   // works immediately without an extra click.
   useEffect(() => {
     const id = requestAnimationFrame(() => editorHandleRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [documentId]);
+  // After the immersive toggle is flipped by a mouse click on the toolbar
+  // button, focus is stranded on the button — nudge it back to the editor.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => editorHandleRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [immersive]);
 
   // Insert image files picked from the native chooser (or dragged, pasted) at
   // the editor cursor. Shared by the toolbar button, ⌘I, and the hidden input.
@@ -88,15 +99,7 @@ export function MemoEditorForm({
   };
 
   return (
-    <div
-      className={cx("flex flex-col gap-2.5", immersive && "flex-1 min-h-0", className)}
-      onKeyDown={(e) => {
-        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "i") {
-          e.preventDefault();
-          fileInputRef.current?.click();
-        }
-      }}
-    >
+    <div className={cx("flex flex-col gap-2.5", immersive && "flex-1 min-h-0", className)}>
       <MarkdownEditor
         body={body}
         onChange={onBodyChange}

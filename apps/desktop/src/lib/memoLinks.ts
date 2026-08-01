@@ -15,6 +15,7 @@
 import type { WikiLinksConfig, WikiLinkSuggestion } from "@atomic-editor/editor";
 import { getMemo, listMemos, searchMemos } from "./api";
 import type { MemoSummary } from "./types";
+import { relativeTime } from "./time";
 
 /** Normalize a body/preview fragment to a single-line, 60-char chip label. */
 function previewLabel(text: string): string {
@@ -23,12 +24,14 @@ function previewLabel(text: string): string {
 
 export function buildWikiLinksConfig(opts: {
   onOpen: (id: string) => void;
+  locale: string;
 }): WikiLinksConfig {
   const toSuggestion = (m: MemoSummary): WikiLinkSuggestion => {
     const detail = [
       m.category && m.category !== "inbox" ? m.category : null,
+      relativeTime(m.updated_at, opts.locale) || null,
       m.favorite ? "★" : null,
-    ].filter(Boolean).join(" ");
+    ].filter(Boolean).join(" · ");
     return {
       target: m.id,
       label: previewLabel(m.preview) || m.id.slice(0, 8),

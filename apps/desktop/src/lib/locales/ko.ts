@@ -88,6 +88,7 @@ export const dict = {
   missing_link: "삭제된 링크",
   embed_loading: "메모 불러오는 중…",
   deleted_memo: "삭제된 메모",
+  open_memo: "메모 열기",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

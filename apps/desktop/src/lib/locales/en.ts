@@ -89,4 +89,5 @@ export const dict: Record<keyof typeof ko, string> = {
   missing_link: "Missing link",
   embed_loading: "Loading memo…",
   deleted_memo: "Deleted memo",
+  open_memo: "Open memo",
 };
