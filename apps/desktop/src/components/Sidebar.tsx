@@ -6,7 +6,7 @@
  * main header.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layers, PanelLeftClose, Star, Pencil, Palette, Trash2 } from "lucide-react";
+import { Layers, Images, PanelLeftClose, Star, Pencil, Palette, Trash2 } from "lucide-react";
 import { useRef, useState, type KeyboardEvent } from "react";
 
 import { listFacets, memoStats, listCategories, renameCategory, updateCategory, deleteCategory } from "../lib/api";
@@ -184,6 +184,8 @@ export function Sidebar() {
   const favoritesOnly = useUI((s) => s.favoritesOnly);
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
+  const view = useUI((s) => s.view);
+  const setView = useUI((s) => s.setView);
 
   const tags = facets.data?.tags ?? [];
   const categories = facets.data?.categories ?? [];
@@ -209,9 +211,9 @@ export function Sidebar() {
 
       <button
         type="button"
-        onClick={() => setFavoritesOnly(false)}
+        onClick={() => { setView("memos"); setFavoritesOnly(false); }}
         className={`mx-2 flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] ${
-          !favoritesOnly
+          view === "memos" && !favoritesOnly
             ? "bg-zinc-200/70 font-semibold dark:bg-zinc-800"
             : "text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300"
         }`}
@@ -221,15 +223,26 @@ export function Sidebar() {
       </button>
       <button
         type="button"
-        onClick={() => setFavoritesOnly(true)}
+        onClick={() => { setView("memos"); setFavoritesOnly(true); }}
         className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
-          favoritesOnly
+          view === "memos" && favoritesOnly
             ? "bg-amber-100 font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
             : "text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300"
         }`}
       >
         <Star size={14} /> {t.favorite}
         {favoritesCount > 0 && <span className="ml-auto text-[11px] text-zinc-400">{favoritesCount}</span>}
+      </button>
+      <button
+        type="button"
+        onClick={() => setView("gallery")}
+        className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
+          view === "gallery"
+            ? "bg-blue-100 font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+            : "text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300"
+        }`}
+      >
+        <Images size={14} /> {t.gallery}
       </button>
 
       <div className="mt-3 flex items-center justify-between px-3">

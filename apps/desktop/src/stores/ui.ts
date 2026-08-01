@@ -8,6 +8,9 @@ export type TagState = "off" | "in" | "out";
 interface UIState {
   search: string;
   setSearch: (s: string) => void;
+  /** Active top-level view. Gallery shows all images across memos. */
+  view: "memos" | "gallery";
+  setView: (v: "memos" | "gallery") => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
   selectedId: string | null;
@@ -49,6 +52,8 @@ function loadCollapsed(): boolean {
 export const useUI = create<UIState>((set) => ({
   search: "",
   setSearch: (s) => set({ search: s }),
+  view: "memos",
+  setView: (v) => set({ view: v }),
   theme: loadTheme(),
   setTheme: (t) => set({ theme: t }),
   selectedId: null,

@@ -20,6 +20,7 @@ import { Card } from "./Card";
 import { MemoDetail } from "./MemoDetail";
 import { SettingsMenu } from "./SettingsMenu";
 import { Sidebar } from "./Sidebar";
+import { GalleryView } from "./GalleryView";
 
 const PAGE_SIZE = 50;
 const MIN_COL_W = 240;
@@ -43,6 +44,7 @@ export function CardGrid() {
   const clearTagFilter = useUI((s) => s.clearTagFilter);
   const setCategory = useUI((s) => s.setCategory);
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
+  const view = useUI((s) => s.view);
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
   const hasMemos = (stats.data?.memos ?? 0) > 0;
   const clearAllFilters = () => {
@@ -234,6 +236,17 @@ export function CardGrid() {
     return () => window.removeEventListener("keydown", onKey);
   }, [onNewNote]);
 
+  if (view === "gallery") {
+    return (
+      <div className="flex h-full">
+        {!sidebarCollapsed && <Sidebar />}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <GalleryView />
+        </div>
+        <MemoDetail />
+      </div>
+    );
+  }
   return (
     <div className="flex h-full">
       {!sidebarCollapsed && <Sidebar />}
