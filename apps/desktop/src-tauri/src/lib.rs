@@ -313,15 +313,17 @@ fn show_main_window(handle: &AppHandle) {
     }
 }
 
-/// Detect the tray-menu locale from the environment. The renderer overrides
-/// this within ~300ms of load via `set_menu_locale`, so the value only labels
-/// the (lazy, click-opened) menu before that — and the app is Korean-first.
+/// Detect the tray-menu locale from the environment, mirroring the
+/// renderer's `detectInitial`: Korean when the system language is Korean,
+/// English otherwise. `LANG` is unreliable in macOS GUI launches, but the
+/// renderer reconciles via `set_menu_locale` within ~300ms — this only
+/// labels the (lazy, click-opened) menu before then.
 fn default_locale() -> String {
     let lang = std::env::var("LANG").unwrap_or_default();
-    if lang.starts_with("en") {
-        "en".into()
-    } else {
+    if lang.starts_with("ko") {
         "ko".into()
+    } else {
+        "en".into()
     }
 }
 
