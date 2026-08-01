@@ -80,6 +80,12 @@ pub enum CoreError {
     #[error("ids option conflict: only one of --ids/--ids-file/--ids-stdin may be used")]
     IdsOptionConflict,
 
+    #[error("image rejected: {0}")]
+    AssetRejected(String),
+
+    #[error("invalid asset name: {0}")]
+    AssetInvalid(String),
+
     #[error("{0}")]
     Other(String),
 }

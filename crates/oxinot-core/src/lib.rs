@@ -10,6 +10,7 @@
 // every redb variant.
 #![allow(clippy::result_large_err)]
 
+pub mod assets;
 pub mod config;
 pub mod error;
 pub mod hash;
@@ -25,9 +26,10 @@ pub mod watcher;
 
 pub use config::{Theme, VaultConfig};
 pub use error::{CoreError, Result};
+pub use assets::{AssetInfo, AssetRef};
 pub use memo::{
-    Cursor, Facets, IndexStats, Memo, MemoFilter, MemoHash, MemoId, MemoStats,
-    MemoSummary, Page,
+     Cursor, Facets, IndexStats, Memo, MemoFilter, MemoHash, MemoId, MemoStats,
+     MemoSummary, Page,
 };
 pub use paths::Paths;
 pub use vault::{DoctorReport, Vault};

@@ -4,6 +4,7 @@
 //! ```text
 //! <vault>/
 //! ├── memos/<YYYY>/<MM>/<id>.md
+//! ├── assets/<blake3hex>.<ext>   # images referenced as oximg://<name>
 //! ├── .trash/<id>.md
 //! └── config.toml
 //! <app_support>/index/
@@ -26,6 +27,7 @@ pub const META_LOCK_NAME: &str = "meta.redb.lock";
 pub const SEARCH_SUBDIR: &str = "search";
 pub const MEMOS_DIR: &str = "memos";
 pub const TRASH_DIR: &str = ".trash";
+pub const ASSETS_DIR: &str = "assets";
 pub const BY_VAULT_SUBDIR: &str = "by-vault";
 pub const CONFIG_NAME: &str = "config.toml";
 
@@ -73,6 +75,17 @@ impl Paths {
 
     pub fn trash_root(&self) -> PathBuf {
         self.vault.join(TRASH_DIR)
+    }
+
+    pub fn assets_root(&self) -> PathBuf {
+        self.vault.join(ASSETS_DIR)
+    }
+
+    /// Path of a single asset by its `<hash>.<ext>` name. Caller is
+    /// responsible for validating `name` (see `assets::valid_name`); this
+    /// only joins it.
+    pub fn asset_path(&self, name: &str) -> PathBuf {
+        self.assets_root().join(name)
     }
 
     pub fn config_path(&self) -> PathBuf {

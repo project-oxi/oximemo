@@ -138,8 +138,127 @@ impl Vault {
     pub fn ensure_initialized(&self) -> Result<()> {
         std::fs::create_dir_all(self.paths.memos_root())?;
         std::fs::create_dir_all(self.paths.trash_root())?;
+        std::fs::create_dir_all(self.paths.assets_root())?;
         std::fs::create_dir_all(&self.paths.index_dir)?;
         Ok(())
+    }
+
+    // -- assets ----------------------------------------------------------
+
+    /// Persist raw image bytes as a content-addressed asset and return the
+    /// `oximg://` reference to drop into markdown. Identical bytes dedup to
+    /// the same file (no rewrite). `ext` is normalized + whitelisted.
+    pub fn save_asset(&self, bytes: &[u8], ext: &str) -> Result<crate::assets::AssetRef> {
+        self.ensure_initialized()?;
+        let ext = crate::assets::normalize_ext(ext)?;
+        let name = crate::assets::asset_name(bytes, ext);
+        let path = self.paths.asset_path(&name);
+        if !path.exists() {
+            // Atomic write like memo files: temp + rename.
+            let tmp = path.with_extension("tmp");
+            std::fs::write(&tmp, bytes)?;
+            std::fs::rename(&tmp, &path)?;
+        }
+        Ok(crate::assets::AssetRef {
+            url: format!("oximg://localhost/{name}"),
+            name,
+        })
+    }
+
+    /// Read an image from an arbitrary path (file-picker) and store it. The
+    /// extension is taken from the source filename.
+    pub fn save_asset_from_path(&self, src: &Path) -> Result<crate::assets::AssetRef> {
+        let ext = src
+            .extension()
+            .and_then(|e| e.to_str())
+            .ok_or_else(|| CoreError::AssetRejected("source has no extension".into()))?;
+        let bytes = std::fs::read(src)?;
+        self.save_asset(&bytes, ext)
+    }
+
+    /// Serve an asset's bytes + content-type for the `oximg://` handler.
+    /// Returns `None` if the name is malformed or the file is absent.
+    pub fn read_asset(&self, name: &str) -> Option<(Vec<u8>, &'static str)> {
+        if !crate::assets::valid_name(name) {
+            return None;
+        }
+        let ext = crate::assets::ext_of(name)?;
+        let path = self.paths.asset_path(name);
+        std::fs::read(&path).ok().map(|b| (b, crate::assets::mime_for_ext(ext)))
+    }
+
+    /// All assets on disk, newest-first (gallery). Cheap: a single dir read.
+    pub fn list_assets(&self) -> Result<Vec<crate::assets::AssetInfo>> {
+        use crate::assets::{AssetInfo, valid_name};
+        let root = self.paths.assets_root();
+        if !root.exists() {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(&root)? {
+            let entry = entry?;
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            if !valid_name(&name) {
+                continue;
+            }
+            let meta = entry.metadata()?;
+            let modified = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| OffsetDateTime::from_unix_timestamp(d.as_secs() as i64).unwrap_or_else(|_| OffsetDateTime::now_utc()))
+                .unwrap_or_else(OffsetDateTime::now_utc);
+            let ext = crate::assets::ext_of(&name).unwrap_or("").to_string();
+            out.push(AssetInfo {
+                url: format!("oximg://localhost/{name}"),
+                name,
+                ext,
+                bytes: meta.len(),
+                modified,
+            });
+        }
+        out.sort_by(|a, b| b.modified.cmp(&a.modified));
+        Ok(out)
+    }
+
+    /// Delete assets referenced by no live memo. Returns the count removed.
+    /// Scans every memo body, so call from an explicit user action (gallery
+    /// "clean up"), not a hot path.
+    pub fn gc_assets(&self) -> Result<u64> {
+        let live = self.asset_refs_in_bodies()?;
+        let root = self.paths.assets_root();
+        if !root.exists() {
+            return Ok(0);
+        }
+        let mut removed = 0u64;
+        for entry in std::fs::read_dir(&root)? {
+            let entry = entry?;
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            if !crate::assets::valid_name(&name) || live.contains(&name) {
+                continue;
+            }
+            if std::fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
+    /// Collect every `oximg://<name>` referenced across all live memo bodies.
+    fn asset_refs_in_bodies(&self) -> Result<std::collections::HashSet<String>> {
+        let mut live = std::collections::HashSet::new();
+        for path in self.files.list_memo_files() {
+            if let Ok(Some(parsed)) = self.files.read_memo(&path) {
+                for name in crate::assets::refs_in_body(&parsed.body) {
+                    live.insert(name);
+                }
+            }
+        }
+        Ok(live)
     }
 
     // -- locking helpers --------------------------------------------------
@@ -1080,5 +1199,50 @@ mod tests {
         assert!(live.exists());
         assert!(legacy.exists());
         assert!(v.get_memo(new_id.id).is_ok());
+    }
+
+    #[test]
+    fn asset_save_dedup_read_list() {
+        let (_t, v) = tmp_vault();
+        let bytes = [1u8, 2, 3, 4, 5];
+        let r = v.save_asset(&bytes, "PNG").unwrap();
+        // Canonical scheme: name in the path, host is localhost.
+        assert_eq!(r.url, format!("oximg://localhost/{}", r.name));
+        assert!(r.name.ends_with(".png"));
+        // Dedup: identical bytes → identical name, no second file.
+        let r2 = v.save_asset(&bytes, "png").unwrap();
+        assert_eq!(r.name, r2.name);
+        // read_asset returns the bytes + mime.
+        let (got, mime) = v.read_asset(&r.name).unwrap();
+        assert_eq!(got, bytes);
+        assert_eq!(mime, "image/png");
+        // list_assets surfaces it.
+        let list = v.list_assets().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, r.name);
+    }
+
+    #[test]
+    fn asset_gc_removes_orphans_keeps_referenced() {
+        let (_t, v) = tmp_vault();
+        // Referenced: memo body cites this asset.
+        let referenced = v.save_asset(&[1, 2, 3], "png").unwrap();
+        v.create_memo(format!("see ![]({})", referenced.url), None).unwrap();
+        // Orphan: saved but never cited.
+        let orphan = v.save_asset(&[9, 9, 9], "gif").unwrap();
+        assert_eq!(v.list_assets().unwrap().len(), 2);
+
+        let removed = v.gc_assets().unwrap();
+        assert_eq!(removed, 1);
+        assert!(v.read_asset(&referenced.name).is_some());
+        assert!(v.read_asset(&orphan.name).is_none());
+    }
+
+    #[test]
+    fn read_asset_rejects_traversal() {
+        let (_t, v) = tmp_vault();
+        // Malformed names must never reach the filesystem.
+        assert!(v.read_asset("../../etc/passwd").is_none());
+        assert!(v.read_asset("deadbeefdeadbeef.exe").is_none());
     }
 }
