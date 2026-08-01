@@ -393,6 +393,8 @@ pub fn create_note(&self, body: String, category: Option<String>) -> Result<Note
         hash: hash::hash_note(body.as_bytes(), false, &category),
         favorite: false,
         category,
+        tags,
+        body,
         deleted_at: None,
     };
     self.files.write(&note)?;
@@ -428,6 +430,8 @@ pub fn update_note(
     validate_note_input(&note.body, &note.tags)?;
     note.updated_at = OffsetDateTime::now_utc();
     note.hash = hash::hash_note(note.body.as_bytes(), note.favorite, &note.category);
+    self.files.write(&note)?;
+    self.with_redb_and_search(|idx, search| {
         idx.upsert(&record_of(&note))?;
         search.upsert(note.id, &note.body, &note.tags)
     })?;
@@ -441,6 +445,9 @@ pub fn update_note(
 // delete_note — hash_note 호출:
 note.hash = hash::hash_note(note.body.as_bytes(), note.favorite, &note.category);
 // restore_note도 동일
+```
+
+- [ ] **Step 6: record_of 수정**
 
 ```rust
 fn record_of(n: &Note) -> IndexRecord {
@@ -611,6 +618,7 @@ pub fn update_note(
 ) -> Result<oxinot_core::Note, String> {
     let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
     let note = state.vault.update_note(id, body, favorite, category).map_err(|e| e.to_string())?;
+    let _ = app.emit("notes:changed", ());
     Ok(note)
 }
 ```

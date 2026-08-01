@@ -370,6 +370,8 @@ pub fn hash_note(body: &[u8], favorite: bool, color: &str) -> NoteHash {
 테스트 `metadata_only_edit_changes_hash`(137–146줄)를 다음으로 교체(태그⊥body 단언 제거, `#x` 포함 단언 추가):
 
 ```rust
+    #[test]
+    fn metadata_only_edit_changes_hash() {
         // Favorite / color still change the hash (§9.2). Tags are derived from the
         // body now, so a tag change IS a body change — covered by the next test.
         let base = hash_note(b"body", false, "");
