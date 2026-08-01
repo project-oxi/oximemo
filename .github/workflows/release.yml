@@ -68,17 +68,36 @@ jobs:
           shasum -a 256 staging/oximemo-${{ env.TARGET }}.tar.gz \
             | awk '{print $1}' > staging/oximemo-${{ env.TARGET }}.tar.gz.sha256
 
-      - name: Build desktop app (.dmg)
-        working-directory: apps/desktop
-        run: cargo tauri build --target ${{ env.TARGET }}
+      # Tauri treats a present-but-empty APPLE_CERTIFICATE as "sign requested"
+      # and fails the keychain import, so export the APPLE_* vars to
+      # $GITHUB_ENV only when the certificate secret is actually registered.
+      # Absent -> fully unsigned build; present -> sign + notarize.
+      - name: Export Apple signing env (only when configured)
         env:
-          # Signing/notarization kicks in only when these secrets are defined.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            {
+              echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+              echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+              echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            } >> "$GITHUB_ENV"
+            echo "Apple signing: enabled"
+          else
+            echo "Apple signing: disabled (no APPLE_CERTIFICATE) -> unsigned build"
+          fi
+
+      - name: Build desktop app (.dmg)
+        working-directory: apps/desktop
+        run: cargo tauri build --target ${{ env.TARGET }}
 
       - name: Collect desktop bundle
         run: |
