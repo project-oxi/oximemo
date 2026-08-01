@@ -69,7 +69,6 @@ jobs:
         run: bun run build
 
       - name: Tauri config sanity
-        working-directory: .
         run: node -e "const c=require('./src-tauri/tauri.conf.json'); if(!c.bundle) throw new Error('missing bundle section'); if(!c.bundle.macOS.entitlements) throw new Error('missing entitlements');"
 
       - name: clippy (desktop)
