@@ -32,8 +32,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inbox/transparent color through the existing `resolve_category_color`
   orphan rule (no per-file rewrite required).
 
+### Added
+
+- **Gallery → open containing memo** — clicking a gallery image now opens the
+  first memo that references it (the lightbox stays as the orphan-asset
+  fallback). Adds a `find_memo_by_asset` core API and `memo_for_asset` command.
+
 ### Fixed
 
+- **⌘I image shortcut inserted at the wrong cursor** — the wrapper `<div>`
+  handler ran only after CodeMirror's built-in `Mod-i` (`selectParentSyntax`)
+  had already expanded the selection, shifting the insertion point; a
+  `Prec.highest` keymap now preempts it at the editor layer.
+- **Vault `reset` was non-atomic** — derived indexes were cleared under the
+  lock but source files were deleted afterward with errors swallowed, allowing
+  a half-wiped state. File deletion now runs under the exclusive index lock and
+  propagates errors.
+- **Embed widgets ignored the locale** — `![[memo-id]]` loading/missing/open
+  labels were hardcoded Korean; they now use the i18n dictionary, and the
+  widget header shows the target memo's preview once resolved.
+- **Tray menu default locale mismatched the renderer** on non-Korean/non-English
+  systems — the default now mirrors the renderer's `detectInitial`.
+- **Wiki-link autocomplete detail** now includes the relative date.
+- **Immersive (focus) toggle** returns focus to the editor instead of leaving
+  it on the toolbar button.
+- **Gallery GC** now logs a warning when an unparseable memo's image refs
+  cannot be counted.
+- Removed the dead `CoreError::AssetInvalid` variant.
 - **`oxinot` CLI did not compile** — `format.rs` still referenced the removed
   `color` field after the category refactor; updated to `category`.
 
