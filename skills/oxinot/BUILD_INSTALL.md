@@ -67,26 +67,38 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>English</string>
+    <key>CFBundleDisplayName</key>
+    <string>oxinot</string>
     <key>CFBundleExecutable</key>
     <string>oxinot-desktop</string>
     <key>CFBundleIdentifier</key>
     <string>com.oxinot.app</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
     <key>CFBundleName</key>
     <string>oxinot</string>
-    <key>CFBundleVersion</key>
-    <string>0.2.0</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>0.4.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.4.0</string>
     <key>CFBundleIconFile</key>
     <string>icon.icns</string>
+    <key>CSResourcesFileMapped</key>
+    <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>LSRequiresCarbon</key>
+    <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
-    <key>LSUIElement</key>
-    <false/>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 oxinot</string>
 </dict>
 </plist>
 PLIST
