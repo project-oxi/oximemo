@@ -5,6 +5,7 @@
 - 작성일: 2026-07-28
 - 대상 플랫폼: macOS 14+ on Apple Silicon ( `aarch64-apple-darwin` 단일 타겟)
 - 언어/런타임: Rust 1.97+ (2024 edition) · TypeScript 5 · React 19
+- 디자인 시스템: **`UNIFIED-DESIGN.md`** (oxi 생태계 통합 — OKLCH 색상·타이포그래피·토큰 계층·컴포넌트 스펙). 이 문서는 제품·데이터·CLI 설계에 집중하며, 시각 토큰은 통합 문서를 따른다.
 
 ---
 
@@ -374,6 +375,27 @@ macOS에서 "수정자 키 단독 두 번 탭"은 표준 전역 단축키 API( `
 | 클라이언트 UI 상태 | `zustand`                       | 선택된 노트, 필터, 뷰 모드 등 휘발성 상태 (서버 상태와 명확히 분리)                                                               |
 | 아이콘         | `lucide-react`                  | 미니멀 라인 아이콘                                                                                              |
 | 모션          | `motion`(구 Framer Motion)       | 카드 진입/삭제 등 절제된 트랜지션만                                                                                    |
+
+### 7.1.1 타이포그래피 (통합 디자인 시스템 §3)
+
+oxinot의 타이포그래피는 oxi 생태계 통합 시스템(`UNIFIED-DESIGN.md` §3)을 따른다. v0.2까지 이 문서에 폰트가 정의되어 있지 않았던 갭을 메운다.
+
+| 역할 | 폰트 | 비고 |
+| :--- | :--- | :--- |
+| 본문 / UI | **SUIT** (`'SUIT Variable'`) | wght 100–900, 한국어 우선. jsDelivr 배포(Google Fonts 아님) |
+| 헤드라인 (≥20px) | **SUITE** (`'SUITE Variable'`) | wght 300–900. 디스플레이 전용. `font-display` 유틸리티로 해석 |
+| 모노스페이스 | **Geist Mono** | 코드 블록, ID. Fontsource 배포 |
+| Latin fallback | `system-ui, -apple-system, "Inter", sans-serif` | SUIT 로딩 중에만 |
+
+```css
+:root {
+  --font-sans:    "SUIT Variable", "SUIT", system-ui, -apple-system, "Inter", sans-serif;
+  --font-display: "SUITE Variable", "SUITE", system-ui, -apple-system, "Inter", sans-serif;
+  --font-mono:    "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+```
+
+마이그레이션 전(현재 `app.css`): Inter + Pretendard + hex 색상(`#18181b` 등). `.dark` 트리거는 이미 올바름. SUIT/SUITE woff2 번들링 + hex→OKLCH 시맨틱 토큰 전환이 필요. 상세 토큰 값·타입 스케일·반경·elevation은 `UNIFIED-DESIGN.md` 참조.
 
 ### 7.2 그리드 & 가상화
 
