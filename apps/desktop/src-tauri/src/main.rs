@@ -5,5 +5,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    oxinot_desktop::run();
+    oximemo_desktop::run();
 }

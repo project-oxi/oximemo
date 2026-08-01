@@ -1,6 +1,6 @@
 name: Release
 
-# Builds the `oxinot` CLI binary and the macOS desktop app (.dmg) for
+# Builds the `oximemo` CLI binary and the macOS desktop app (.dmg) for
 # aarch64-apple-darwin, then publishes a GitHub Release with the artifacts.
 #
 # Apple signing + notarization is enabled automatically when the APPLE_*
@@ -58,15 +58,15 @@ jobs:
         run: cargo install tauri-cli --locked --version "^2"
 
       - name: Build CLI binary
-        run: cargo build --release -p oxinot-cli --target ${{ env.TARGET }}
+        run: cargo build --release -p oximemo-cli --target ${{ env.TARGET }}
 
       - name: Package CLI binary
         run: |
           mkdir -p staging
-          tar -czf staging/oxinot-${{ env.TARGET }}.tar.gz \
-            -C target/${{ env.TARGET }}/release oxinot
-          shasum -a 256 staging/oxinot-${{ env.TARGET }}.tar.gz \
-            | awk '{print $1}' > staging/oxinot-${{ env.TARGET }}.tar.gz.sha256
+          tar -czf staging/oximemo-${{ env.TARGET }}.tar.gz \
+            -C target/${{ env.TARGET }}/release oximemo
+          shasum -a 256 staging/oximemo-${{ env.TARGET }}.tar.gz \
+            | awk '{print $1}' > staging/oximemo-${{ env.TARGET }}.tar.gz.sha256
 
       - name: Build desktop app (.dmg)
         working-directory: apps/desktop
@@ -123,6 +123,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ steps.tag.outputs.name }}" \
-            --title "oxinot ${{ steps.tag.outputs.name }}" \
+            --title "oximemo ${{ steps.tag.outputs.name }}" \
             --generate-notes \
             staging/*

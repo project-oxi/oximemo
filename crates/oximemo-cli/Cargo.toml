@@ -1,18 +1,18 @@
 [package]
-name = "oxinot-cli"
+name = "oximemo-cli"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Command-line interface for oxinot"
+description = "Command-line interface for oximemo"
 
 [[bin]]
-name = "oxinot"
+name = "oximemo"
 path = "src/main.rs"
 
 [dependencies]
-oxinot-core = { workspace = true }
+oximemo-core = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }

@@ -22,7 +22,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, BoundarySt
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("oxinot render error:", error, info.componentStack);
+    console.error("oximemo render error:", error, info.componentStack);
   }
 
   render() {
@@ -30,7 +30,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, BoundarySt
       return (
         <div className="flex h-screen w-full flex-col items-center justify-center gap-3 bg-white px-6 text-center dark:bg-zinc-950">
           <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-            oxinot hit an unexpected error.
+            oximemo hit an unexpected error.
           </p>
           <p className="max-w-md text-xs text-zinc-500 dark:text-zinc-400">
             {String(this.state.error.message || this.state.error)}

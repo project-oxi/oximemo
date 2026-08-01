@@ -12,7 +12,7 @@
 //! redb and tantivy are opened *transiently* within the lock scope, so no
 //! process holds them open across the boundary — two processes never collide on
 //! redb's or tantivy's own single-writer locks. This keeps the agent path
-//! (`oxinot …` while the GUI is running) correct.
+//! (`oximemo …` while the GUI is running) correct.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -968,7 +968,7 @@ fn validate_note_input(body: &str, tags: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Output of `oxinot doctor` (§9.3).
+/// Output of `oximemo doctor` (§9.3).
 #[derive(Debug, Default, serde::Serialize)]
 pub struct DoctorReport {
     pub corrupt_frontmatter: Vec<(PathBuf, String)>,

@@ -26,7 +26,7 @@ impl CaptureMonitorImpl {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let thread = std::thread::Builder::new()
-            .name("oxinot-capture".into())
+            .name("oximemo-capture".into())
             .spawn(move || worker(ready_tx, worker_stop, threshold_ms, on_trigger))
             .map_err(|error| CaptureError::Os(format!("spawn monitor thread: {error}")))?;
 

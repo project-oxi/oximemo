@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "oxinot",
+  "productName": "oximemo",
   "version": "0.4.0",
-  "identifier": "com.oxinot.app",
+  "identifier": "com.oximemo.app",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:5173",
@@ -35,9 +35,9 @@
   "bundle": {
     "active": true,
     "targets": ["dmg"],
-    "publisher": "oxinot",
+    "publisher": "oximemo",
     "category": "Productivity",
-    "copyright": "© 2026 oxinot",
+    "copyright": "© 2026 oximemo",
     "shortDescription": "Capture a thought before it's gone.",
     "longDescription": "A fast, minimal, card-based memo app for macOS (Apple Silicon).",
     "icon": [

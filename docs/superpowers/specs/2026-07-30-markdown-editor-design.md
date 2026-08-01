@@ -1,4 +1,4 @@
-# oxinot — `@atomic-editor/editor` 통합 (라이브 마크다운 메모)
+# oximemo — `@atomic-editor/editor` 통합 (라이브 마크다운 메모)
 
 - **Date:** 2026-07-30
 - **Status:** Draft (디자인 확정, 구현 계획 대기)
@@ -7,7 +7,7 @@
 
 ## 1. 배경 & 목표
 
-현재 oxinot은 **plain-text-only** 메모 앱이다. 본문은 `MirrorTagEditor`(textarea + mirror overlay)로 입력되고, 카드 미리보기는 `**bold**` 정규식 한 줄로 inline bold만 표시한다. Obsidian/Apple Notes 같은 WYSIWYG 노트앱에 익숙한 사용자에게는 한계가 뚜렷하다.
+현재 oximemo은 **plain-text-only** 메모 앱이다. 본문은 `MirrorTagEditor`(textarea + mirror overlay)로 입력되고, 카드 미리보기는 `**bold**` 정규식 한 줄로 inline bold만 표시한다. Obsidian/Apple Notes 같은 WYSIWYG 노트앱에 익숙한 사용자에게는 한계가 뚜렷하다.
 
 목표:
 
@@ -15,7 +15,7 @@
 2. **카드 미리보기**를 마크다운 HTML 렌더링으로 전환(`.renderPreview` → `marked`).
 3. **CaptureOverlay는 변경 없음** — 빠른 캡처의 단순성을 유지.
 4. 인라인 `#태그` 칩을 **에디터 아래 사이드 영역**으로 이동(MirrorTagEditor 제거).
-5. 디자인 토큰으로 atomic-editor 스타일 변수를 oxinot 테마와 정합.
+5. 디자인 토큰으로 atomic-editor 스타일 변수를 oximemo 테마와 정합.
 
 ## 2. 결정 요약 (locked)
 
@@ -28,7 +28,7 @@
 | 5 | 헤드라인/리스트 등 핵심 문법 카드 미리보기에 표시 | "라이브 에디팅 마크다운 메모 앱" 경험의 핵심. plain text는 디버깅용으로만 의미 있음. |
 | 6 | 코드 펜스 하이라이팅은 비활성(코드 랭귀지 lazy-load 없음) | 사용자가 명시 요청 없음. 추후 추가 가능. 우선 가벼운 빌드 유지. |
 | 7 | `wiki-links` 확장 비활성 | 우리는 노트 간 링크 시스템 없음. `[[target]]`은 그냥 텍스트로 둠. |
-| 8 | atomic-editor 테마 변수를 oxinot CSS 변수와 매핑 | 다크/라이트 전환 시 일관성. 라이트 테마는 `data-theme="light"` 스코프로 atomic-editor가 자동 처리. |
+| 8 | atomic-editor 테마 변수를 oximemo CSS 변수와 매핑 | 다크/라이트 전환 시 일관성. 라이트 테마는 `data-theme="light"` 스코프로 atomic-editor가 자동 처리. |
 
 ## 3. 컴포넌트 아키텍처
 
@@ -250,7 +250,7 @@ return (
 :root {
   /* atomic-editor 기본 변수 오버라이드 (라이트) */
   --atomic-editor-fg: #18181b;
-  --atomic-editor-bg: transparent;          /* oxinot Dialog 자체 배경 사용 */
+  --atomic-editor-bg: transparent;          /* oximemo Dialog 자체 배경 사용 */
   --atomic-editor-bg-panel: rgba(0, 0, 0, 0.04);
   --atomic-editor-border: var(--card-edge, #e7e7ea);
   --atomic-editor-link: #2563eb;
@@ -356,7 +356,7 @@ import "@atomic-editor/editor/styles.css";
   - 한글 IME: NoteDetail에서 한 줄 입력, 조합 중 글자 깨짐 없음(CM6 native IME 동작).
   - 다크/라이트 토글: 에디터 텍스트 가독성 유지.
   - `⌘Z`로 되돌리기, `⌘⇧Z`로 재실행.
-- **재배포**: 프론트 변경이므로 `cargo build -p oxinot-desktop --release` + 앱 교체 + 재서명(임베드 프론트 갱신).
+- **재배포**: 프론트 변경이므로 `cargo build -p oximemo-desktop --release` + 앱 교체 + 재서명(임베드 프론트 갱신).
 
 ## 10. 마이그레이션 (데이터)
 

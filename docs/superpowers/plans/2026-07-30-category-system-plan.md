@@ -6,7 +6,7 @@
 
 **Architecture:** `Note.category: String` (Rust + TS), `CategoriesConfig` in `config.toml`, 색상은 읽기시 룩업. `hash_note`가 `color` 대신 `category`로 해싱. Tauri 래퍼 명령 + 프론트 슬래시 메뉴.
 
-**Tech Stack:** Rust(oxinot-core), Tauri 2, React/Zustand, serde, redb, tanstack-query
+**Tech Stack:** Rust(oximemo-core), Tauri 2, React/Zustand, serde, redb, tanstack-query
 
 ## Global Constraints
 
@@ -16,15 +16,15 @@
 - Orphan 카테고리 id → 읽기시 inbox 중성색 폴백. 렌더 브레이크 금지.
 - 마이그레이션 M2: 재작성 없음. 기존 파일에 `category` 없으면 inbox. `reindex` 1회로 인덱스 정리.
 - `schema_version` 1 → 2 (레거시 `[color]` 감지 무시).
-- 프론트 변경 후 `cargo build -p oxinot-desktop --release` + 앱 교체 + 재서명 필요.
+- 프론트 변경 후 `cargo build -p oximemo-desktop --release` + 앱 교체 + 재서명 필요.
 
 ---
 
 ### Task 1: Rust 데이터 모델 (note.rs + hash.rs)
 
 **Files:**
-- Modify: `crates/oxinot-core/src/note.rs` — Note, NoteSummary, NoteFilter, Facets, NoteColor 제거, COLOR_PRESETS 정리, 테스트
-- Modify: `crates/oxinot-core/src/hash.rs` — hash_note 시그니처 변경
+- Modify: `crates/oximemo-core/src/note.rs` — Note, NoteSummary, NoteFilter, Facets, NoteColor 제거, COLOR_PRESETS 정리, 테스트
+- Modify: `crates/oximemo-core/src/hash.rs` — hash_note 시그니처 변경
 
 **Interfaces:**
 - Consumes: 없음 (루트 변경)
@@ -157,8 +157,8 @@ pub fn hash_note(body: &[u8], favorite: bool, category: &str) -> NoteHash {
 - [ ] **Step 6: cargo build + test 확인**
 
 ```bash
-cd crates/oxinot-core && cargo build 2>&1 | head -20
-cd crates/oxinot-core && cargo test 2>&1 | tail -20
+cd crates/oximemo-core && cargo build 2>&1 | head -20
+cd crates/oximemo-core && cargo test 2>&1 | tail -20
 ```
 
 Expected: build OK, 모든 테스트 통과.
@@ -166,7 +166,7 @@ Expected: build OK, 모든 테스트 통과.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/oxinot-core/src/note.rs crates/oxinot-core/src/hash.rs
+git add crates/oximemo-core/src/note.rs crates/oximemo-core/src/hash.rs
 git commit -m "feat(core): replace NoteColor with category field on Note/Summary
 
 - note.rs: NoteColor type removed, color→category (default inbox)
@@ -180,7 +180,7 @@ git commit -m "feat(core): replace NoteColor with category field on Note/Summary
 ### Task 2: Rust 카테고리 레지스트리 (config.rs)
 
 **Files:**
-- Modify: `crates/oxinot-core/src/config.rs` — `CategoriesConfig` + `CategoryDef`, `ColorConfig` 제거, helper 함수
+- Modify: `crates/oximemo-core/src/config.rs` — `CategoriesConfig` + `CategoryDef`, `ColorConfig` 제거, helper 함수
 
 **Interfaces:**
 - Consumes: Task 1의 `Note` 구조체 변경
@@ -286,8 +286,8 @@ impl Default for VaultConfig {
 - [ ] **Step 5: cargo build + test 확인**
 
 ```bash
-cargo build -p oxinot-core 2>&1 | head -20
-cargo test -p oxinot-core 2>&1 | tail -20
+cargo build -p oximemo-core 2>&1 | head -20
+cargo test -p oximemo-core 2>&1 | tail -20
 ```
 
 Expected: 컴파일 OK, 모든 테스트 통과.
@@ -295,7 +295,7 @@ Expected: 컴파일 OK, 모든 테스트 통과.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/oxinot-core/src/config.rs
+git add crates/oximemo-core/src/config.rs
 git commit -m "feat(core): add CategoriesConfig with CategoryDef; remove ColorConfig
 
 - CategoriesConfig holds 6 built-in categories (inbox/note/todo/idea/bookmark/snippet)
@@ -308,9 +308,9 @@ git commit -m "feat(core): add CategoriesConfig with CategoryDef; remove ColorCo
 ### Task 3: Rust 저장소/볼트 (store + vault)
 
 **Files:**
-- Modify: `crates/oxinot-core/src/store/files.rs` — Frontmatter
-- Modify: `crates/oxinot-core/src/store/index.rs` — IndexRecord, to_summary
-- Modify: `crates/oxinot-core/src/vault.rs` — create/update/delete/restore, record_of, list_facets, 새 명령
+- Modify: `crates/oximemo-core/src/store/files.rs` — Frontmatter
+- Modify: `crates/oximemo-core/src/store/index.rs` — IndexRecord, to_summary
+- Modify: `crates/oximemo-core/src/vault.rs` — create/update/delete/restore, record_of, list_facets, 새 명령
 
 **Interfaces:**
 - Consumes: Task 1+2 — `Note.category`, `hash_note(..., category)`, `CategoriesConfig`
@@ -531,8 +531,8 @@ pub fn create_category(&self, id: String, color: Option<String>) -> Result<Categ
 - [ ] **Step 9: cargo build + test 확인**
 
 ```bash
-cargo build -p oxinot-core 2>&1 | head -20
-cargo test -p oxinot-core 2>&1 | tail -20
+cargo build -p oximemo-core 2>&1 | head -20
+cargo test -p oximemo-core 2>&1 | tail -20
 ```
 
 Expected: 컴파일 OK, 모든 테스트 통과.
@@ -540,7 +540,7 @@ Expected: 컴파일 OK, 모든 테스트 통과.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add crates/oxinot-core/src/store/files.rs crates/oxinot-core/src/store/index.rs crates/oxinot-core/src/vault.rs
+git add crates/oximemo-core/src/store/files.rs crates/oximemo-core/src/store/index.rs crates/oximemo-core/src/vault.rs
 git commit -m "feat(core): update store+vault for category field
 
 - Frontmatter, IndexRecord: color→category with serde default
@@ -574,7 +574,7 @@ pub fn list_notes(
     match_all: bool,
     categories: Vec<String>,  // colors → categories
     favorites_only: bool,
-) -> Result<oxinot_core::Page<oxinot_core::NoteSummary>, String> {
+) -> Result<oximemo_core::Page<oximemo_core::NoteSummary>, String> {
     let after = match after {
         Some(s) => Some(Cursor::parse(&s).map_err(|e| e.to_string())?),
         None => None,
@@ -598,7 +598,7 @@ pub fn create_note(
     app: AppHandle,
     body: String,
     category: Option<String>,  // color → category
-) -> Result<oxinot_core::Note, String> {
+) -> Result<oximemo_core::Note, String> {
     let note = state.vault.create_note(body, category).map_err(|e| e.to_string())?;
     let _ = app.emit("notes:changed", ());
     Ok(note)
@@ -615,7 +615,7 @@ pub fn update_note(
     body: Option<String>,
     favorite: Option<bool>,
     category: Option<String>,  // color → category
-) -> Result<oxinot_core::Note, String> {
+) -> Result<oximemo_core::Note, String> {
     let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
     let note = state.vault.update_note(id, body, favorite, category).map_err(|e| e.to_string())?;
     let _ = app.emit("notes:changed", ());
@@ -627,7 +627,7 @@ pub fn update_note(
 
 ```rust
 #[tauri::command]
-pub fn list_categories(state: State<'_, AppState>) -> Result<Vec<oxinot_core::config::CategoryDef>, String> {
+pub fn list_categories(state: State<'_, AppState>) -> Result<Vec<oximemo_core::config::CategoryDef>, String> {
     Ok(state.vault.list_categories())
 }
 
@@ -636,7 +636,7 @@ pub fn create_category(
     state: State<'_, AppState>,
     id: String,
     color: Option<String>,
-) -> Result<oxinot_core::config::CategoryDef, String> {
+) -> Result<oximemo_core::config::CategoryDef, String> {
     state.vault.create_category(id, color).map_err(|e| e.to_string())
 }
 ```
@@ -667,7 +667,7 @@ Tauri commands 정의 블록 안(`pub mod commands { ... }`)에 `list_categories
 - [ ] **Step 6: cargo build 확인**
 
 ```bash
-cargo build -p oxinot-desktop 2>&1 | tail -20
+cargo build -p oximemo-desktop 2>&1 | tail -20
 ```
 
 Expected: Tauri 바이너리 컴파일 OK.
@@ -1342,7 +1342,7 @@ Expected: 타입 에러 0, Vite 빌드 성공.
 - [ ] **Step 6: 전체 cargo build 확인 (Tauri 바이너리)**
 
 ```bash
-cargo build -p oxinot-desktop --release 2>&1 | tail -10
+cargo build -p oximemo-desktop --release 2>&1 | tail -10
 ```
 
 Expected: 릴리스 바이너리 빌드 OK.

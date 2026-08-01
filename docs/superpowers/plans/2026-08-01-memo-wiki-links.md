@@ -1,4 +1,4 @@
-# 메모 위키링크 + 임베드 구현 계획 — oxinot
+# 메모 위키링크 + 임베드 구현 계획 — oximemo
 
 > **For agentic workers:** 인라인 실행(동일 세션, 사용자 위임 "알아서 진행"). 단계는 체크박스로 추적.
 > **Spec:** `docs/superpowers/specs/2026-08-01-memo-wiki-links-design.md`

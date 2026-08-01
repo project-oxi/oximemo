@@ -2,8 +2,8 @@
 
 use std::io::{self, Write};
 
-use oxinot_core::memo::MemoSummary;
-use oxinot_core::sync::{FullRecord, ManifestRecord};
+use oximemo_core::memo::MemoSummary;
+use oximemo_core::sync::{FullRecord, ManifestRecord};
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum Format {

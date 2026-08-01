@@ -23,7 +23,7 @@ for a keyboard-only "fast capture with categorization" flow:
    `docs/designs/2026-06-29-command-palette-design.md` and
    `web/src/components/layout/command-palette/{lexer,types,capture,...}.ts`.
 
-The goal for oxinot: let the user pick a capture destination (color / favorite /
+The goal for oximemo: let the user pick a capture destination (color / favorite /
 category) **without leaving the keyboard**, while the composer stays a single
 lightweight pill at the bottom-center of the screen.
 
@@ -61,13 +61,13 @@ bare   ::= resolved per-mode (Knowledge → capture, Console → go, Chat → ru
    - **X3 — hybrid.** X1 first; add `⌘K` later only if demand appears.
    - **Default lean:** X1. Resolve before implementation.
 
-2. **Verb catalog for oxinot.** oxios's six verbs are agent-OS-shaped
-   (`run`/`switch`/`control`/…). oxinot has none of those nouns. Candidate
-   oxinot verbs are unstaged: color shortcuts (...), favorite (`/p`), tag/category
+2. **Verb catalog for oximemo.** oxios's six verbs are agent-OS-shaped
+   (`run`/`switch`/`control`/…). oximemo has none of those nouns. Candidate
+   oximemo verbs are unstaged: color shortcuts (...), favorite (`/p`), tag/category
    routing, "append to last memo" (`+`). The set — and
    whether categories even exist as first-class destinations — is undecided.
 
-3. **Category model.** oxinot today has color + inline `#tag` extraction, no
+3. **Category model.** oximemo today has color + inline `#tag` extraction, no
    checklist/category files. Do we introduce destinations at all (à la
    files.md's `Later.md`), or keep capture as "one memo, attributes inline"?
    This gates #2.
@@ -79,7 +79,7 @@ bare   ::= resolved per-mode (Knowledge → capture, Console → go, Chat → ru
 5. **Keyboard ergonomics on a pill composer.** `/` already has no existing
    meaning in the textarea, but IME/composition (Korean `ㅂ` lives on the
    `/` key) makes a bare `/` prefix ambiguous. oxios avoids this because the
-   palette input is Latin-only command text; oxinot's composer is free-form
+   palette input is Latin-only command text; oximemo's composer is free-form
    Korean text. A modifier (`⌘/`, `Tab`-triggered palette) may be required.
    **This is the hardest unresolved issue.**
 

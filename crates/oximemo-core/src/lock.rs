@@ -79,7 +79,7 @@ pub fn acquire(path: &Path, kind: LockKind, timeout: Duration) -> Result<FileLoc
 }
 
 /// Probe whether an *exclusive* lock is currently held by some process. Used by
-/// `oxinot doctor` to report lock contention without blocking.
+/// `oximemo doctor` to report lock contention without blocking.
 pub fn is_locked(path: &Path) -> bool {
     let Ok(file) = OpenOptions::new()
         .read(true)

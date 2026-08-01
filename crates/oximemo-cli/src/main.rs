@@ -1,6 +1,6 @@
-//! oxinot — command-line interface.
+//! oximemo — command-line interface.
 //!
-//! Thin adapter over `oxinot-core`. Every subcommand opens a [`Vault`] and
+//! Thin adapter over `oximemo-core`. Every subcommand opens a [`Vault`] and
 //! delegates; the binary carries no domain logic of its own.
 
 use std::path::PathBuf;
@@ -8,18 +8,18 @@ use std::process::ExitCode;
 
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
-use oxinot_core::Vault;
-use oxinot_core::memo::MemoId;
+use oximemo_core::Vault;
+use oximemo_core::memo::MemoId;
 
 mod commands;
 mod format;
 
 #[derive(Parser)]
 #[command(
-    name = "oxinot",
+    name = "oximemo",
     version,
     about = "Minimal note capture for humans and agents",
-    long_about = "Reads/writes the oxinot vault. Agent-facing commands default to JSON/NDJSON."
+    long_about = "Reads/writes the oximemo vault. Agent-facing commands default to JSON/NDJSON."
 )]
 struct Cli {
     /// Vault root (defaults to the user vault under Application Support).
@@ -134,7 +134,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("oxinot: {e}");
+            eprintln!("oximemo: {e}");
             if let Some(src) = e.source() {
                 eprintln!("  caused by: {src}");
             }

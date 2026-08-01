@@ -1,4 +1,4 @@
-//! Error model for oxinot-core.
+//! Error model for oximemo-core.
 //!
 //! Errors are split by the subsystem that produces them so callers can react
 //! precisely (e.g. a watcher treats a [`CoreError::Frontmatter`] as "defer

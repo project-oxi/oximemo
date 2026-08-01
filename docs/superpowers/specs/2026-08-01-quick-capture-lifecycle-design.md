@@ -8,7 +8,7 @@
 
 - **토글 닫기:** 캡처 창이 열려 있을 때 `⌘+Shift+N` 또는 Option 더블탭을 다시 입력하면 창이 닫힌다. 현재는 두 트리거 모두 항상 `show_capture`만 호출해 무조건 연다.
 - **외부 클릭 닫기:** 캡처 창이 열린 상태에서 데스크톱·다른 앱·메인 창 등 창 바깥을 클릭하면 자동으로 닫힌다.
-- **메뉴바 아이콘:** 상태표시줄에 oxinot 아이콘이 표시되고, **좌클릭 시 드롭다운 메뉴**가 열린다(표준 macOS 메뉴바 앱 동작).
+- **메뉴바 아이콘:** 상태표시줄에 oximemo 아이콘이 표시되고, **좌클릭 시 드롭다운 메뉴**가 열린다(표준 macOS 메뉴바 앱 동작).
 
 ## 2. 접근법 결정
 
@@ -48,7 +48,7 @@
 ### 2.4 트레이 메뉴 언어 → 프론트엔드 locale 동기화 (채택)
 
 **근거:**
-- 앱 locale은 프론트엔드 `localStorage`(`oxinot.locale`)에만 존재(`i18n.tsx:19,42`). Rust가 직접 읽을 수 없음.
+- 앱 locale은 프론트엔드 `localStorage`(`oximemo.locale`)에만 존재(`i18n.tsx:19,42`). Rust가 직접 읽을 수 없음.
 - 시작 시엔 시스템 locale(`LANG`)로 기본 메뉴 구성, 프론트엔드 로드 후 `set_menu_locale` 커맨드로 사용자가 선택한 locale로 메뉴 라벨 재구성. 앱 locale 설정과 트레이 메뉴가 항상 일치.
 - `ko` 시작이 아니면 `en`(프론트엔드 `detectInitial`과 일치).
 
@@ -133,7 +133,7 @@ useEffect(() => {
 
 ### 3.5 template 아이콘 자산
 
-`apps/desktop/src-tauri/icons/tray-template.png` — 단색(검정 + 투명) 22×22(@2x 44×44) glyph. oxinot의 "o" 마크 또는 펜촉 중 단순형. `icon_as_template(true)`로 다크모드 자동 반전.
+`apps/desktop/src-tauri/icons/tray-template.png` — 단색(검정 + 투명) 22×22(@2x 44×44) glyph. oximemo의 "o" 마크 또는 펜촉 중 단순형. `icon_as_template(true)`로 다크모드 자동 반전.
 
 ## 4. 상호작용 매트릭스
 
@@ -156,7 +156,7 @@ useEffect(() => {
 
 ## 6. 검증
 
-- **컴파일:** `cargo build -p oxinot-desktop`(Rust 타입·API 검증), `bun run build`(프론트엔드 tsc).
+- **컴파일:** `cargo build -p oximemo-desktop`(Rust 타입·API 검증), `bun run build`(프론트엔드 tsc).
 - **토글:** 캡처 열림 상태에서 단축키 재입력 → 닫힘 확인.
 - **외부 클릭:** 캡처 열림 상태에서 데스크톱 클릭 → 닫힘. 슬래시 카테고리 메뉴(인윈도우) 조작 시에는 닫히지 않음 확인.
 - **self-dismiss 가드:** show 직후 창이 자기닳힘하지 않는지 확인.

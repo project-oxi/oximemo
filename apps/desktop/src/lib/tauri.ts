@@ -54,7 +54,7 @@ export async function listen<T>(
 }
 
 // --- Browser-mode localStorage store --------------------------------------
-const STORE_KEY = "oxinot:memos:v1";
+const STORE_KEY = "oximemo:memos:v1";
 const PREVIEW_MAX = 160;
 
 function loadStore(): Record<string, Memo> {

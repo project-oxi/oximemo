@@ -43,7 +43,7 @@ interface UIState {
   setDraftId: (id: string | null) => void;
 }
 
-const COLLAPSED_KEY = "oxinot.sidebarCollapsed";
+const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
 function loadCollapsed(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(COLLAPSED_KEY) === "1";

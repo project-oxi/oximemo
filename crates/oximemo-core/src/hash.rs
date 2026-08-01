@@ -4,7 +4,7 @@
 //! and color — so the sync diff (§9.2) detects metadata-only edits (tag/favorite/
 //! color changes), not just body edits. The digest must be stable regardless
 //! of how a memo was written — vim's atomic-rename, a shell redirect, or
-//! oxinot's own writer must all produce the same digest for identical state.
+//! oximemo's own writer must all produce the same digest for identical state.
 //! Normalization therefore precedes hashing.
 
 use blake3::Hasher;

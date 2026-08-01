@@ -6,7 +6,7 @@
 
 **Architecture:** Single source of truth for categories in `config.toml` (via interior-mutable `Vault.config`). Rust core owns persistence + migration; Tauri commands wrap it; React consumes via TanStack Query. Capture window routing fixed by window-label branching so `CaptureOverlay` actually mounts.
 
-**Tech Stack:** Rust (oxinot-core, redb, tantivy, parking_lot), Tauri 2, React 19, TanStack Query, Zustand, Base UI, Tailwind v4.
+**Tech Stack:** Rust (oximemo-core, redb, tantivy, parking_lot), Tauri 2, React 19, TanStack Query, Zustand, Base UI, Tailwind v4.
 
 ## Global Constraints
 
@@ -14,14 +14,14 @@
 - Category ids: trim + lowercase + NFC; reject empty/duplicate.
 - All category mutations persist to `config.toml` via `VaultConfig::save()` AND update in-memory config atomically.
 - `rename_category` migrates all referencing notes (rewrite file + rehash + reindex), bumps `updated_at` (sync-manifest correctness).
-- Verification: Rust tasks use `cargo test -p oxinot-core`; frontend uses `tsc -b` + manual/visual (no unit-test framework for components). `clippy` 0 warnings. Redeploy needs `cargo build -p oxinot-desktop --release` + codesign.
+- Verification: Rust tasks use `cargo test -p oximemo-core`; frontend uses `tsc -b` + manual/visual (no unit-test framework for components). `clippy` 0 warnings. Redeploy needs `cargo build -p oximemo-desktop --release` + codesign.
 - Spec: `docs/superpowers/specs/2026-07-31-category-management-ux-design.md`.
 
 ---
 
 ## File Structure
 
-**Rust core** (`crates/oxinot-core/src/`):
+**Rust core** (`crates/oximemo-core/src/`):
 - `config.rs` — add `VaultConfig::save()`; inbox color `""`; `AUTO_COLORS[0] = ""`.
 - `vault.rs` — `config: VaultConfig` → `RwLock<VaultConfig>`; add `categories()`, `create_category`, `update_category`, `rename_category`, `delete_category`; update `config()` callers.
 
@@ -96,9 +96,9 @@ Tauri mode; keep pathname fallback for browser dev."
 ## Task 2: Rust — VaultConfig::save() + interior-mutable config
 
 **Files:**
-- Modify: `crates/oxinot-core/src/config.rs` (add `save`)
-- Modify: `crates/oxinot-core/src/vault.rs` (`config` → `RwLock`, add `categories()`, fix `config()` callers)
-- Test: `crates/oxinot-core/src/config.rs` (tests mod), `vault.rs` (tests mod)
+- Modify: `crates/oximemo-core/src/config.rs` (add `save`)
+- Modify: `crates/oximemo-core/src/vault.rs` (`config` → `RwLock`, add `categories()`, fix `config()` callers)
+- Test: `crates/oximemo-core/src/config.rs` (tests mod), `vault.rs` (tests mod)
 
 **Interfaces:**
 - Produces: `VaultConfig::save(&self, paths: &Paths) -> Result<()>`; `Vault::categories() -> Vec<CategoryDef>`; `Vault::with_config<R>(&self, f: impl FnOnce(&VaultConfig) -> R) -> R` (read guard helper).
@@ -118,11 +118,11 @@ fn save_roundtrips_categories() {
     assert!(reloaded.categories.items.iter().any(|c| c.id == "custom"));
 }
 ```
-Add `tempfile` to `[dev-dependencies]` in `crates/oxinot-core/Cargo.toml` if absent.
+Add `tempfile` to `[dev-dependencies]` in `crates/oximemo-core/Cargo.toml` if absent.
 
 - [ ] **Step 2: Run test — verify it fails**
 
-Run: `cargo test -p oxinot-core save_roundtrips`
+Run: `cargo test -p oximemo-core save_roundtrips`
 Expected: FAIL — no `save` method.
 
 - [ ] **Step 3: Implement `save`**
@@ -139,7 +139,7 @@ pub fn save(&self, paths: &Paths) -> Result<()> {
 
 - [ ] **Step 4: Run test — verify pass**
 
-Run: `cargo test -p oxinot-core save_roundtrips`
+Run: `cargo test -p oximemo-core save_roundtrips`
 Expected: PASS.
 
 - [ ] **Step 5: Make `Vault.config` interior-mutable**
@@ -155,7 +155,7 @@ pub struct Vault {
 // in Vault::open:
 config: RwLock::new(VaultConfig::load(&paths)),
 ```
-Add `parking_lot` to `crates/oxinot-core/Cargo.toml` `[dependencies]` if absent.
+Add `parking_lot` to `crates/oximemo-core/Cargo.toml` `[dependencies]` if absent.
 
 - [ ] **Step 6: Add read helper + categories(), fix callers**
 
@@ -175,13 +175,13 @@ Replace existing `config()` method callers:
 
 - [ ] **Step 7: Build + full test**
 
-Run: `cargo build -p oxinot-core && cargo test -p oxinot-core`
+Run: `cargo build -p oximemo-core && cargo test -p oximemo-core`
 Expected: build OK, all tests pass.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/oxinot-core/src/config.rs crates/oxinot-core/src/vault.rs crates/oxinot-core/Cargo.toml apps/desktop/src-tauri/src/lib.rs
+git add crates/oximemo-core/src/config.rs crates/oximemo-core/src/vault.rs crates/oximemo-core/Cargo.toml apps/desktop/src-tauri/src/lib.rs
 git commit -m "feat(core): persistable config — VaultConfig::save + RwLock config"
 ```
 
@@ -190,7 +190,7 @@ git commit -m "feat(core): persistable config — VaultConfig::save + RwLock con
 ## Task 3: Rust — category CRUD (create/update/delete)
 
 **Files:**
-- Modify: `crates/oxinot-core/src/vault.rs`
+- Modify: `crates/oximemo-core/src/vault.rs`
 - Test: `vault.rs` tests mod
 
 **Interfaces:**
@@ -239,7 +239,7 @@ fn category_crud_persists() {
 
 - [ ] **Step 2: Run — verify fail**
 
-Run: `cargo test -p oxinot-core category_crud_persists`
+Run: `cargo test -p oximemo-core category_crud_persists`
 Expected: FAIL — methods missing.
 
 - [ ] **Step 3: Implement CRUD**
@@ -291,14 +291,14 @@ impl Vault {
 
 - [ ] **Step 4: Run — verify pass**
 
-Run: `cargo test -p oxinot-core category_crud_persists`
+Run: `cargo test -p oximemo-core category_crud_persists`
 Expected: PASS.
 
 - [ ] **Step 5: clippy + commit**
 
 ```bash
-cargo clippy -p oxinot-core -- -D warnings
-git add crates/oxinot-core/src/vault.rs crates/oxinot-core/src/error.rs crates/oxinot-core/Cargo.toml
+cargo clippy -p oximemo-core -- -D warnings
+git add crates/oximemo-core/src/vault.rs crates/oximemo-core/src/error.rs crates/oximemo-core/Cargo.toml
 git commit -m "feat(core): category CRUD persisted to config.toml"
 ```
 
@@ -307,7 +307,7 @@ git commit -m "feat(core): category CRUD persisted to config.toml"
 ## Task 4: Rust — rename_category migration
 
 **Files:**
-- Modify: `crates/oxinot-core/src/vault.rs`
+- Modify: `crates/oximemo-core/src/vault.rs`
 - Test: `vault.rs` tests mod
 
 **Interfaces:**
@@ -347,7 +347,7 @@ fn rename_category_migrates_notes() {
 
 - [ ] **Step 2: Run — verify fail**
 
-Run: `cargo test -p oxinot-core rename_category_migrates_notes`
+Run: `cargo test -p oximemo-core rename_category_migrates_notes`
 Expected: FAIL — no method.
 
 - [ ] **Step 3: Implement rename migration**
@@ -406,14 +406,14 @@ Note: `export_since(None)` returns all `IndexRecord`s (confirmed has `category` 
 
 - [ ] **Step 4: Run — verify pass**
 
-Run: `cargo test -p oxinot-core rename_category_migrates_notes`
+Run: `cargo test -p oximemo-core rename_category_migrates_notes`
 Expected: PASS.
 
 - [ ] **Step 5: full test + clippy + commit**
 
 ```bash
-cargo test -p oxinot-core && cargo clippy -p oxinot-core -- -D warnings
-git add crates/oxinot-core/src/vault.rs
+cargo test -p oximemo-core && cargo clippy -p oximemo-core -- -D warnings
+git add crates/oximemo-core/src/vault.rs
 git commit -m "feat(core): rename_category migrates referencing notes + reindex"
 ```
 
@@ -479,7 +479,7 @@ In `browserFallback`: add `update_category`/`rename_category`/`delete_category` 
 
 - [ ] **Step 4: Build (Rust + TS)**
 
-Run: `cargo check -p oxinot-desktop && cd apps/desktop && bunx tsc -b`
+Run: `cargo check -p oximemo-desktop && cd apps/desktop && bunx tsc -b`
 Expected: both exit 0.
 
 - [ ] **Step 5: Commit**
@@ -494,7 +494,7 @@ git commit -m "feat(tauri): category CRUD/rename commands; drop ephemeral user_c
 ## Task 6: Inbox transparent color
 
 **Files:**
-- Modify: `crates/oxinot-core/src/config.rs` (`AUTO_COLORS[0]`, default inbox item)
+- Modify: `crates/oximemo-core/src/config.rs` (`AUTO_COLORS[0]`, default inbox item)
 - Modify: `apps/desktop/src/lib/color.ts` (`INBOX_NEUTRAL`)
 
 - [ ] **Step 1: Rust — empty inbox color**
@@ -518,13 +518,13 @@ const INBOX_NEUTRAL = "";   // transparent → paperFor/edgeFor return default s
 
 - [ ] **Step 3: Test + build**
 
-Run: `cargo test -p oxinot-core && cd apps/desktop && bunx tsc -b`
+Run: `cargo test -p oximemo-core && cd apps/desktop && bunx tsc -b`
 Expected: pass. Verify an existing test that asserted the old inbox color string — update if any.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/oxinot-core/src/config.rs apps/desktop/src/lib/color.ts
+git add crates/oximemo-core/src/config.rs apps/desktop/src/lib/color.ts
 git commit -m "feat(color): inbox transparent — default card surface, categorized cards pop"
 ```
 
@@ -634,7 +634,7 @@ git commit -m "feat(ui): shared keyboard-first CategoryCombobox; replaces NoteEd
 - [ ] **Step 1: Run §8 diagnostic (manual)**
 
 After Task 1, `cargo tauri dev`, ⌘⇧N → type → Enter. Check:
-- devtools console (main window) for `[oxinot] notes:changed received`
+- devtools console (main window) for `[oximemo] notes:changed received`
 - terminal for `create_note: emitted notes:changed`
 - does the captured note appear in the main grid?
 
@@ -650,7 +650,7 @@ The window is fixed 560×200 (`tauri.conf.json`). The auto-grow input + floating
 
 - [ ] **Step 4: capture→main refresh (branch on Step 1 result)**
 
-- **If `[oxinot] notes:changed received` DID appear and the note showed:** event works — no `App.tsx` change. Remove the diagnostic `console.log` (CardGrid) and `tracing::info!` (lib.rs) added during P0.
+- **If `[oximemo] notes:changed received` DID appear and the note showed:** event works — no `App.tsx` change. Remove the diagnostic `console.log` (CardGrid) and `tracing::info!` (lib.rs) added during P0.
 - **If the listener did NOT fire / note missing:** set `refetchOnWindowFocus: true` for the notes query in `App.tsx` (override the QueryClient default for `["notes"]`), so the main grid refetches when the overlay hides and focus returns. Keep or remove diagnostics per preference.
 
 - [ ] **Step 5: Typecheck + manual end-to-end**
@@ -668,8 +668,8 @@ git commit -m "feat(capture): redesigned shell (slash logic reused) + reliable c
 
 ## Final verification
 
-- [ ] `cargo test -p oxinot-core` — all pass (incl. new save/CRUD/rename tests).
-- [ ] `cargo clippy -p oxinot-core -- -D warnings` + `cargo check -p oxinot-desktop` — 0 warnings.
+- [ ] `cargo test -p oximemo-core` — all pass (incl. new save/CRUD/rename tests).
+- [ ] `cargo clippy -p oximemo-core -- -D warnings` + `cargo check -p oximemo-desktop` — 0 warnings.
 - [ ] `cd apps/desktop && bunx tsc -b` — exit 0.
 - [ ] Manual (spec §11): settings drawer; category CRUD persists across restart; rename migrates; inbox transparent; capture input mounts + saves + appears in grid; combobox filter/create.
-- [ ] Redeploy: `cargo build -p oxinot-desktop --release` + `codesign --force --deep -s -` on the .app.
+- [ ] Redeploy: `cargo build -p oximemo-desktop --release` + `codesign --force --deep -s -` on the .app.

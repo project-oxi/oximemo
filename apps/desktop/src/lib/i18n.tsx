@@ -17,7 +17,7 @@ export type Locale = "ko" | "en";
 
 const ALL: Record<Locale, Record<string, string>> = { ko, en };
 
-const STORAGE_KEY = "oxinot.locale";
+const STORAGE_KEY = "oximemo.locale";
 
 type Ctx = {
   locale: Locale;

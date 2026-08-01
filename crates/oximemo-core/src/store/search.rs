@@ -2,7 +2,7 @@
 //! body and tags.
 //!
 //! The writer (and its heap arena) is created lazily, so read-only consumers —
-//! `oxinot search` from a CLI alongside the GUI — never allocate it and never
+//! `oximemo search` from a CLI alongside the GUI — never allocate it and never
 //! contend on tantivy's single-writer lock.
 
 use std::sync::Mutex;

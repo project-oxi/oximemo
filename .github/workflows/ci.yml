@@ -34,10 +34,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: clippy
-        run: cargo clippy -p oxinot-core -p oxinot-cli -p oxinot-capture --all-targets -- -D warnings
+        run: cargo clippy -p oximemo-core -p oximemo-cli -p oximemo-capture --all-targets -- -D warnings
 
       - name: test
-        run: cargo test -p oxinot-core -p oxinot-cli -p oxinot-capture
+        run: cargo test -p oximemo-core -p oximemo-cli -p oximemo-capture
 
   # Validate the desktop crate (apps/desktop/src-tauri) too. The desktop
   # compile embeds the built `dist/` via generate_context!(), so the
@@ -74,11 +74,11 @@ jobs:
 
       - name: clippy (desktop)
         working-directory: .
-        run: cargo clippy -p oxinot-desktop --all-targets -- -D warnings
+        run: cargo clippy -p oximemo-desktop --all-targets -- -D warnings
 
       - name: check (desktop)
         working-directory: .
-        run: cargo check -p oxinot-desktop
+        run: cargo check -p oximemo-desktop
 
   frontend:
     name: Frontend (typecheck + build)

@@ -19,7 +19,7 @@ use time::{Month, OffsetDateTime};
 
 use crate::memo::MemoId;
 
-pub const APP_SUPPORT_SUBDIR: &str = "com.oxinot.app";
+pub const APP_SUPPORT_SUBDIR: &str = "com.oximemo.app";
 pub const VAULT_DEFAULT_SUBDIR: &str = "vault";
 pub const INDEX_SUBDIR: &str = "index";
 pub const META_DB_NAME: &str = "meta.redb";
@@ -144,7 +144,7 @@ fn shard(t: OffsetDateTime) -> (i32, String) {
     (t.year(), month.to_string())
 }
 
-/// `~/Library/Application Support/com.oxinot.app` (macOS default).
+/// `~/Library/Application Support/com.oximemo.app` (macOS default).
 pub fn app_support_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     PathBuf::from(home)

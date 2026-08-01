@@ -1,9 +1,9 @@
 ---
-name: oxinot-build-install
-description: Use when the user asks to build, install, compile, or package the oxinot desktop .app bundle — triggers on phrases like "앱 설치해줘", "build the app", "install oxinot", ".app 만들어줘", "로컬 빌드". Does NOT handle code signing/notarization for distribution; use the release workflow for that.
+name: oximemo-build-install
+description: Use when the user asks to build, install, compile, or package the oximemo desktop .app bundle — triggers on phrases like "앱 설치해줘", "build the app", "install oximemo", ".app 만들어줘", "로컬 빌드". Does NOT handle code signing/notarization for distribution; use the release workflow for that.
 ---
 
-# oxinot 로컬 .app 빌드 + 설치
+# oximemo 로컬 .app 빌드 + 설치
 
 소스에서 macOS `.app` 번들을 `/Applications`에 빌드하고 설치하는 절차.
 
@@ -12,7 +12,7 @@ description: Use when the user asks to build, install, compile, or package the o
 - macOS 14+ (Apple Silicon, `aarch64-apple-darwin`)
 - Rust 1.89+ (`rust-toolchain.toml` 기준)
 - Bun 1.3.14+
-- 프로젝트 루트 (`/Volumes/MERCURY/PROJECTS/oxinot`)
+- 프로젝트 루트 (`/Volumes/MERCURY/PROJECTS/oximemo`)
 
 > **`cargo tauri build`는 알려진 Cargo proc-macro 해석 버그로 작동하지 않는다.** 반드시 아래 수동 조립 절차를 따라야 한다.
 
@@ -38,21 +38,21 @@ rm -rf target/release/.fingerprint/tauri-macros*
 ### 3. 데스크톱 바이너리 빌드
 
 ```bash
-cargo build -p oxinot-desktop --release
+cargo build -p oximemo-desktop --release
 ```
 
-→ `target/release/oxinot-desktop` (Mach-O 64-bit arm64, ~10 MB)
+→ `target/release/oximemo-desktop` (Mach-O 64-bit arm64, ~10 MB)
 
 ### 4. .app 번들 조립
 
 ```bash
-APP="/tmp/oxinot.app"
+APP="/tmp/oximemo.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # 바이너리
-cp target/release/oxinot-desktop "$APP/Contents/MacOS/"
-chmod +x "$APP/Contents/MacOS/oxinot-desktop"
+cp target/release/oximemo-desktop "$APP/Contents/MacOS/"
+chmod +x "$APP/Contents/MacOS/oximemo-desktop"
 
 # 아이콘
 cp apps/desktop/src-tauri/icons/icon.icns "$APP/Contents/Resources/"
@@ -70,15 +70,15 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>English</string>
     <key>CFBundleDisplayName</key>
-    <string>oxinot</string>
+    <string>oximemo</string>
     <key>CFBundleExecutable</key>
-    <string>oxinot-desktop</string>
+    <string>oximemo-desktop</string>
     <key>CFBundleIdentifier</key>
-    <string>com.oxinot.app</string>
+    <string>com.oximemo.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>oxinot</string>
+    <string>oximemo</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
@@ -98,7 +98,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026 oxinot</string>
+    <string>© 2026 oximemo</string>
 </dict>
 </plist>
 PLIST
@@ -109,7 +109,7 @@ PLIST
 ```bash
 codesign -d --force -s - "$APP"
 cp -R "$APP" /Applications/
-open /Applications/oxinot.app
+open /Applications/oximemo.app
 ```
 
 ### 6. 실행 확인
@@ -130,6 +130,6 @@ ps aux | grep "[o]xinot-desktop"
 ## CLI만 필요하면
 
 ```bash
-cargo build --release -p oxinot-cli
-# target/release/oxinot
+cargo build --release -p oximemo-cli
+# target/release/oximemo
 ```

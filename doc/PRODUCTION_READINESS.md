@@ -1,6 +1,6 @@
-# oxinot 프로덕션 전환 진단 보고서 및 설계
+# oximemo 프로덕션 전환 진단 보고서 및 설계
 
-> 작성일: 2026-07-29 · 대상: oxinot v0.2.0 (`prod-readiness` 브랜치)
+> 작성일: 2026-07-29 · 대상: oximemo v0.2.0 (`prod-readiness` 브랜치)
 > 범위: macOS(Apple Silicon) 단일 타겟 — CLI + Tauri 데스크톱 앱 전체
 
 ---
@@ -25,7 +25,7 @@
 
 5개 영역을 병렬 감사했다.
 
-1. **Rust 코어 견고성** (`oxinot-core` + `oxinot-capture`) — 패닉 안전성, 원자적 쓰기, 워처/락/경로 안전
+1. **Rust 코어 견고성** (`oximemo-core` + `oximemo-capture`) — 패닉 안전성, 원자적 쓰기, 워처/락/경로 안전
 2. **데스크톱 백엔드** (`apps/desktop/src-tauri`) — Tauri 커맨드 에러 처리, IPC 입력 검증, 윈도우 생명주기
 3. **프론트엔드** (`apps/desktop/src`) — 에러 바운더리, 로딩/에러 상태, 가상화 정확성
 4. **배포/릴리스/CI** — 코드 서명/공증, 번들 설정, 버전 일관성
@@ -66,7 +66,7 @@
 - **DESIGN 근거**: §6.5 "Developer ID 서명 + 공증(notarization) + Hardened Runtime 필요 (전역 이벤트 모니터링 및 배포용 .dmg 배포를 위해). Input Monitoring 관련 entitlement를 Info.plist/entitlements에 명시."
 
 ### C2. 원자적 쓰기 — 디렉토리 fsync 누락
-- **위치**: `crates/oxinot-core/src/store/files.rs:274-288` (`atomic_write`)
+- **위치**: `crates/oximemo-core/src/store/files.rs:274-288` (`atomic_write`)
 - **현상**:
   ```rust
   fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -83,7 +83,7 @@
 - **정확한 패턴**: temp 파일 `fsync` → `rename` → **부모 디렉토리 `fsync`**.
 
 ### C3. 동일 노트 동시 쓰기 임시파일 충돌
-- **위치**: `crates/oxinot-core/src/store/files.rs:279`
+- **위치**: `crates/oximemo-core/src/store/files.rs:279`
 - **현상**: `let tmp = path.with_extension("md.tmp")` — 임시파일 이름이 타깃 경로에서만 결정된다. 두 프로세스(CLI `update` + 데스크톱 `update_memo`)가 같은 노트를 동시에 쓰면 같은 `<id>.md.tmp`를 사용해 서로의 임시파일을 덮어쓴다.
 - **영향**: 파일 쓰기는 인덱스 락 대상이 아니다(DESIGN §5.7 규칙 5: "파일 스토어는 락 대상이 아닙니다"). 따라서 이 경쟁은 실제로 발생 가능하며, 한 쪽의 쓰기가 손상되거나 rename이 실패할 수 있다.
 - **해결**: 임시파일에 고유 접미사(프로세스 ID + 카운터, 또는 `tempfile` 크레이트의 난수 접미사)를 붙인다.
@@ -93,13 +93,13 @@
 ## 4. 발견사항 — High
 
 ### H1. reindex 성능 — 노트당 tantivy commit
-- **위치**: `crates/oxinot-core/src/vault.rs:324-365` (`reindex`), `store/search.rs:79-91` (`upsert`)
+- **위치**: `crates/oximemo-core/src/vault.rs:324-365` (`reindex`), `store/search.rs:79-91` (`upsert`)
 - **현상**: `reindex` 루프 안에서 각 노트마다 `search.upsert()`를 호출하고, `upsert`는 매번 `writer.commit()` + `reader.reload()`를 수행한다. tantivy commit은 fsync를 동반하므로 10만 건이면 10만 번의 디스크 동기화 → 수십 분.
-- **영향**: `oxinot reindex`(명시적 복구)가 대용량 볼트에서 사실상 사용 불가. 복구 시나리오가 무너진다. 또한 exclusive 락을 오래 잡고 있어 CLI/GUI 접근이 차단.
+- **영향**: `oximemo reindex`(명시적 복구)가 대용량 볼트에서 사실상 사용 불가. 복구 시나리오가 무너진다. 또한 exclusive 락을 오래 잡고 있어 CLI/GUI 접근이 차단.
 - **해결**: `SearchIndex`에 `upsert_batch`를 추가하고, `reindex`는 메모리에 모아 두었다가 한 번에 commit.
 
 ### H2. doctor --fix가 쓰기 에러를 무음 처리
-- **위치**: `crates/oxinot-core/src/vault.rs:450-453`
+- **위치**: `crates/oximemo-core/src/vault.rs:450-453`
 - **현상**:
   ```rust
   if fix {
@@ -127,12 +127,12 @@
 
 ### H5. PR CI가 데스크톱 백엔드를 컴파일/검증하지 않음
 - **위치**: `.github/workflows/ci.yml:37,40`
-- **현상**: clippy와 test가 `-p oxinot-core -p oxinot-cli -p oxinot-capture`로 스코프되어 있다. `apps/desktop/src-tauri` 크레이트는 릴리스 시점에만 컴파일된다.
+- **현상**: clippy와 test가 `-p oximemo-core -p oximemo-cli -p oximemo-capture`로 스코프되어 있다. `apps/desktop/src-tauri` 크레이트는 릴리스 시점에만 컴파일된다.
 - **영향**: 백엔드 회귀(컴파일 에러, clippy 위반)가 PR에서 잡히지 않고 릴리스 태그에서야 발견된다.
 - **해결**: CI에 데스크톱 크레이트 `cargo check`/`clippy` 스텝 추가 (프론트 `dist/`가 필요하므로 `--no-default-features` 또는 `check`만). 또는 릴리스 빌드 전 단계로 `cargo build` 추가.
 
 ### H6. IPC 입력 검증 부재
-- **위치**: `apps/desktop/src-tauri/src/lib.rs` (`mod commands`), `crates/oxinot-core/src/vault.rs` (`create_memo`/`update_memo`)
+- **위치**: `apps/desktop/src-tauri/src/lib.rs` (`mod commands`), `crates/oximemo-core/src/vault.rs` (`create_memo`/`update_memo`)
 - **현상**: `create_memo(body, tags, color)`가 본문 길이·태그 수·태그 길이 제한 없이 코어로 전달. `body`에 수 MB 문자열, `tags`에 수만 개를 넣어도 처리 시도.
 - **영향**: 의도치 않은/악성 입력이 인덱스와 파일 시스템을 비대하게 만들 수 있다. (단일 로컬 사용자 가정이므로 보안 위협보다 안정성 문제.)
 - **해결**: 코어 진입점에서 소프트 상한 검증 (예: 본문 64KB, 태그 64개, 태그당 64자). 초과 시 `CoreError` 반환.
@@ -164,15 +164,15 @@ tauri.conf.json
 ├── bundle (신설)
 │   ├── active: true
 │   ├── targets: ["dmg"]                    # Apple Silicon 단일 타겟
-│   ├── identifier: "com.oxinot.app"        # (최상위와 일치)
-│   ├── publisher: "oxinot"
+│   ├── identifier: "com.oximemo.app"        # (최상위와 일치)
+│   ├── publisher: "oximemo"
 │   ├── icon: ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"]
 │   ├── macOS:
 │   │   ├── minimumSystemVersion: "14.0"
 │   │   ├── entitlements: "entitlements.plist"
 │   │   ├── exceptionDomain: ""             # 불필요
 │   │   └── frameworks: []
-│   └── copyright: "© 2026 oxinot"
+│   └── copyright: "© 2026 oximemo"
 └── app.macOSPrivateApi: true               # vibrancy (엔타이틀먼트로 보완)
 
 entitlements.plist (신설, src-tauri/)

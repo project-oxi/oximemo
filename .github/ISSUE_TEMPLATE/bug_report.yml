@@ -12,7 +12,7 @@ body:
     attributes:
       label: What happened?
       description: Describe the bug and what you expected instead.
-      placeholder: "When I run `oxinot list`, … I expected …"
+      placeholder: "When I run `oximemo list`, … I expected …"
     validations:
       required: true
   - type: textarea
@@ -21,7 +21,7 @@ body:
       label: Steps to reproduce
       description: Minimal steps to trigger the behavior.
       placeholder: |
-        1. Run `oxinot new "…"`
+        1. Run `oximemo new "…"`
         2. ...
     validations:
       required: true
@@ -30,7 +30,7 @@ body:
     attributes:
       label: Interface
       options:
-        - CLI (`oxinot`)
+        - CLI (`oximemo`)
         - Desktop app
         - Both
     validations:
@@ -38,8 +38,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: oxinot version
-      description: Output of `oxinot --version`, or the About version in the desktop app.
+      label: oximemo version
+      description: Output of `oximemo --version`, or the About version in the desktop app.
       placeholder: "0.2.0"
     validations:
       required: true
@@ -54,5 +54,5 @@ body:
     id: logs
     attributes:
       label: Logs / output
-      description: Relevant stderr, `oxinot doctor` output, or console logs. Paste verbatim.
+      description: Relevant stderr, `oximemo doctor` output, or console logs. Paste verbatim.
       render: shell

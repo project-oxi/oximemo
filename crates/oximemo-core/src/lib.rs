@@ -1,4 +1,4 @@
-//! oxinot-core: the pure-Rust heart of oxinot.
+//! oximemo-core: the pure-Rust heart of oximemo.
 //!
 //! This crate owns the file store (source of truth), the derived metadata and
 //! search indexes, file-watching, and synchronization. It knows nothing about
@@ -6,7 +6,7 @@
 //! [`vault::Vault`] facade.
 
 // `CoreError` carries redb's large error enums inline (160B Result variant).
-// Harmless for oxinot's workload; silence the pedantic lint rather than box
+// Harmless for oximemo's workload; silence the pedantic lint rather than box
 // every redb variant.
 #![allow(clippy::result_large_err)]
 

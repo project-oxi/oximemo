@@ -44,7 +44,7 @@ CronScheduler와 Task 모듈은 대부분 구현되어 있었으나 부팅 시 �
 
 ## 2. 03:00 — Oxi Ecosystem: 통합 디자인 시스템 ✅
 
-3개 프로젝트(oxinot, oxipage, oxios) 디자인 분석 → 통합 DESIGN.md(UNIFIED-DESIGN.md) 생성.
+3개 프로젝트(oximemo, oxipage, oxios) 디자인 분석 → 통합 DESIGN.md(UNIFIED-DESIGN.md) 생성.
 
 **토큰 상태 분석:**
 
@@ -52,24 +52,24 @@ CronScheduler와 Task 모듈은 대부분 구현되어 있었으나 부팅 시 �
 |---|---|---|---|---|
 | oxios | ✅ 3-tier 완료 | `.dark` ✅ | SUIT/SUITE | 가장 앞서 있음 (정규값 출처) |
 | oxipage | ⚠️ v1 (`[data-theme]`) | 마이그레이션 필요 | Pretendard/Fraunces→SUIT/SUITE | 별점 골드·로비 3모드 고유 |
-| oxinot | ⚠️ 레거시 hex | `.dark` ✅ | Inter/Pretendard→SUIT/SUITE | OKLCH 라벨 팔레트 원천 |
+| oximemo | ⚠️ 레거시 hex | `.dark` ✅ | Inter/Pretendard→SUIT/SUITE | OKLCH 라벨 팔레트 원천 |
 
 **통합 방향:**
 1. OKLCH 3-tier 토큰 (primitive → semantic → component) 단일 체계
-2. 6-hue 라벨 팔레트 (L≈0.70–0.75, C≈0.12–0.15) — oxinot `lib/color.ts` 원천
+2. 6-hue 라벨 팔레트 (L≈0.70–0.75, C≈0.12–0.15) — oximemo `lib/color.ts` 원천
 3. 상태색 APCA 최적화 — oxios 대시보드 실측값이 정규
 4. SUIT(본문) + SUITE(헤드라인) + Geist Mono(코드), 세리프 없음, jsDelivr 배포
 5. `.dark` 클래스 단일 트리거, `oxi-theme` 저장 키
 6. 컴포넌트는 Tailwind 유틸리티만 소비 (`dark:`, hex, 프리미티브 직접 접근 금지)
 
 **산출물:**
-- `oxinot/doc/UNIFIED-DESIGN.md` (25.9KB — 메인 통합 문서, 정규 11섹션 구조)
-- `oxinot/doc/DESIGN.md` (참조 + 타이포그래피 §7.1.1 추가)
+- `oximemo/doc/UNIFIED-DESIGN.md` (25.9KB — 메인 통합 문서, 정규 11섹션 구조)
+- `oximemo/doc/DESIGN.md` (참조 + 타이포그래피 §7.1.1 추가)
 - `oxipage/doc/UNIFIED-DESIGN.md`, `oxios/web/UNIFIED-DESIGN.md` (프로젝트 adaptation)
 
 **발견사항:** 정규 통합 스펙이 이미 `oxios/web/DESIGN.md` (v1.0, 1151줄) + `oxi-design-system` 매니지드 스킬로 존재. oxios가 가장 완성된 구현체. 새 UNIFIED-DESIGN.md는 이를 요청 구조로 재구성 + 값 검증.
 
-**레퍼런스 우선순위:** oxinot(1순위) > oxipage(2순위) > oxios(3순위).
+**레퍼런스 우선순위:** oximemo(1순위) > oxipage(2순위) > oxios(3순위).
 
 ---
 
@@ -153,7 +153,7 @@ CronScheduler와 Task 모듈은 대부분 구현되어 있었으나 부팅 시 �
 
 ---
 
-## 6. 06:00 — Oxinot: 앱 개선 (검증 중심) ✅
+## 6. 06:00 — Oximemo: 앱 개선 (검증 중심) ✅
 
 **중요:** 이 태스크에 열거된 **모든 기능(P0 + 작업 1~4)은 본 실행 이전에 이미 구현·커밋된 상태**였다.
 스펙의 파일명/식별자는 구식 (Note→Memo 전역 리네임 이전): `NoteDetail.tsx`/`createNote`/`notes:changed` →
@@ -162,7 +162,7 @@ CronScheduler와 Task 모듈은 대부분 구현되어 있었으나 부팅 시 �
 **이번 실행에서 실제 수행한 작업 (NEW):**
 1. **Tauri CLI 복구** — `cargo-tauri` 바이너리가 레지스트리엔 있으나 `~/.cargo/bin`에 실종. `cargo install tauri-cli --version "^2.0" --locked --force`로 복구 (2.11.4, 2m03s).
 2. **CI 환경변수 충돌 해결** — `CI=1`이 tauri-cli의 `--ci` 불 플래그와 충돌 (`error: invalid value '1' for '--ci'`). `CI` 해제 후 빌드 재실행.
-3. **릴리스 빌드 성공** — `cargo tauri build` (release, 1m01s): 바이너리 + **DMG `oxinot_0.3.0_aarch64.dmg` (7.4 MB)**.
+3. **릴리스 빌드 성공** — `cargo tauri build` (release, 1m01s): 바이너리 + **DMG `oximemo_0.3.0_aarch64.dmg` (7.4 MB)**.
 4. **/Applications 설치** — 기존 app 제거 후 DMG에서 Fresh .app 설치 (v0.3.0, ad-hoc 서명).
 5. 전 기능 코드 검사 + 데이터 계층 스모크 테스트.
 
@@ -176,7 +176,7 @@ Tauri v2는 `invoke` 인자를 Rust 파라미터의 **camelCase**로 바인딩. 
 - 작업 3 빠른 캡처 오버레이 ✅ (QuickCaptureForm, SlashCategoryMenu, `show_capture` 560×200)
 - 작업 4 카테고리 드롭다운 → search-as-you-type ✅ (CategoryCombobox, `⌘L` 단축키, 위쪽으로 열림)
 
-**검증 증거:** 코드 경로 검사 · 데이터 계층 스모크 (`oxinot new` → `oxinot list` 즉시 표시, 다중 메모 영속) · 릴리스 빌드 성공 (tsc 2284 모듈 0 에러) · 앱 부팅 확인 (PID 66283).
+**검증 증거:** 코드 경로 검사 · 데이터 계층 스모크 (`oximemo new` → `oximemo list` 즉시 표시, 다중 메모 영속) · 릴리스 빌드 성공 (tsc 2284 모듈 0 에러) · 앱 부팅 확인 (PID 66283).
 ⚠️ **대화형/시각적 GUI 스모크 미실행**: 자동 실행 환경에서 macOS Screen Recording/Accessibility 권한 거부로 인터랙티브 검증 불가. 런타임 재패치/가상화는 코드 경로로 입증되나 GUI 상호작용 자체는 본 환경에서 불가.
 
 **이메일 보고:** ⚠️ 미발송 (알려진 제약 — 본 보고서가 취합 대상이므로 이 항목에서는 정상).
@@ -188,19 +188,19 @@ Tauri v2는 `invoke` 인자를 Rust 파라미터의 **camelCase**로 바인딩. 
 | 프로젝트 | 작업 | 상태 | 비고 |
 |---|---|---|---|
 | oxios | Scheduled Task 기능 | ✅ | 부팅 시 cron 자동실행, Task API 동작, 프론트 스케줄 UI + 실행 기록. 테스트 795 passed. |
-| oxinot/oxipage/oxios | 통합 DESIGN.md | ✅ | UNIFIED-DESIGN.md 생성, OKLCH 3-tier 단일 체계, oxinot=정규 원천. |
+| oximemo/oxipage/oxios | 통합 DESIGN.md | ✅ | UNIFIED-DESIGN.md 생성, OKLCH 3-tier 단일 체계, oximemo=정규 원천. |
 | oxi | TUI 레이아웃 | ⚠️ 부분 | grok-build 레이아웃 라이브러리 커밋(`7e0ee3cf`) + 22 테스트. **프로덕션 통합은 WIP 의존성으로 미커밋** (781 테스트로 검증됨). |
 | oxipage | Console 개선 | ✅ | 테마 라우팅 컨텍스트 버그(F1) + 콘텐츠 데이터 결함(F4–F7) 수정. 3개는 이미 완료 상태. Release v0.8.0. |
 | oxiline | UI 리디자인 | ✅ | Flat Premium (rail·flatten·soften), 다크 block-bg 보정. 빌드 + /Applications 설치 완료. |
-| oxinot | 앱 개선 | ✅ (검증) | 스펙 전 기능 이미 구현됨. Tauri CLI 복구 + 릴리스 빌드 + /Applications 설치 + 코드/데이터 스모크 검증. |
+| oximemo | 앱 개선 | ✅ (검증) | 스펙 전 기능 이미 구현됨. Tauri CLI 복구 + 릴리스 빌드 + /Applications 설치 + 코드/데이터 스모크 검증. |
 
 ### 공통 패턴 / 인사이트
-- **3건(oxipage·oxiline·oxinot)이 "이미 구현됨" 상태에서 시작** — 자동 실행 태스크 문서가 실제 코드 상태보다 stale. 실사(stale 검증)가 가장 큰 가치를 창출함.
-- **정직한 커밋 원칙 준수**: oxi는 비컴파일 커밋을 피하려 라이브러리만 커밋하고 통합은 WIP 확정 후 보류. oxinot은 소스 변경 없음을 명시.
+- **3건(oxipage·oxiline·oximemo)이 "이미 구현됨" 상태에서 시작** — 자동 실행 태스크 문서가 실제 코드 상태보다 stale. 실사(stale 검증)가 가장 큰 가치를 창출함.
+- **정직한 커밋 원칙 준수**: oxi는 비컴파일 커밋을 피하려 라이브러리만 커밋하고 통합은 WIP 확정 후 보류. oximemo은 소스 변경 없음을 명시.
 - **이메일 인프라 미구축이 전체 파이프라인의 병목** — 6개 보고서 모두 파일로만 존재. 자동 이메일 발송을 원한다면 Resend 인증(CLOUDFLARE DNS의 DKIM 충돌 해소) 또는 Cloudflare Email Sending 도메인 온보딩이 선행 필요.
 
 ### 미해결 / 후속 항목
 1. **oxi 프로덕션 통합 커밋** — 워크스페이스 WIP(47파일) 확정 후 `frame_layout.rs` + `main_loop.rs` 함께 커밋 필요.
-2. **oxinot 대화형 GUI 스모크** — macOS 권한(Screen Recording/Accessibility) 부여 후 재실행 권장.
+2. **oximemo 대화형 GUI 스모크** — macOS 권한(Screen Recording/Accessibility) 부여 후 재실행 권장.
 3. **oxipage EditorPreviewDrawer 7에디터 일반화** — 전용 follow-up.
-4. **이메일 발송 인프라** — Resend `oxinot.dev` DKIM 충돌(3 competing TXT) 해소 또는 `mail.oxinot.dev` 서브도메인 등록.
+4. **이메일 발송 인프라** — Resend `oximemo.dev` DKIM 충돌(3 competing TXT) 해소 또는 `mail.oximemo.dev` 서브도메인 등록.

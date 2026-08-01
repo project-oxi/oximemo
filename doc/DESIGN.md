@@ -11,7 +11,7 @@
 
 ## 1. 개요
 
-**oxinot**는 "생각을 붙잡아 두는 속도"에 최적화된 메모 앱입니다. 각 메모는 하나의 **카드**이고, 카드들은 **그리드**에 배치됩니다. AI 요약, 자동 태깅, 챗봇 같은 기능은 없습니다 — 그런 기능이 캡처 속도와 신뢰성을 해친다고 보기 때문입니다.
+**oximemo**는 "생각을 붙잡아 두는 속도"에 최적화된 메모 앱입니다. 각 메모는 하나의 **카드**이고, 카드들은 **그리드**에 배치됩니다. AI 요약, 자동 태깅, 챗봇 같은 기능은 없습니다 — 그런 기능이 캡처 속도와 신뢰성을 해친다고 보기 때문입니다.
 
 핵심 사용 시나리오는 두 가지입니다.
 
@@ -30,9 +30,9 @@
 2. **파일이 진실이다.**  DB나 인덱스가 깨져도 메모는 사람이 읽을 수 있는 평문 파일로 디스크에 남아 있어야 합니다. 인덱스는 언제든 파일로부터 재생성 가능한 "캐시"로 취급합니다.
 3. **적을수록 좋다.**  리치 텍스트 에디터, AST 파서, 클라우드 동기화 프로토콜처럼 복잡도가 큰 컴포넌트는 기본적으로 배제하고, 정말 필요할 때만 최소 형태로 추가합니다.
 
-참고 프로젝트로 [zakirullin/files.md](https://github.com/zakirullin/files.md)를 검토했고, 다음 아이디어들을 oxinot에 맞게 가져옵니다.
+참고 프로젝트로 [zakirullin/files.md](https://github.com/zakirullin/files.md)를 검토했고, 다음 아이디어들을 oximemo에 맞게 가져옵니다.
 
-| files.md에서 확인한 것                                                                  | oxinot에 적용                                                         |
+| files.md에서 확인한 것                                                                  | oximemo에 적용                                                         |
 | :-------------------------------------------------------------------------------- | :----------------------------------------------------------------- |
 | 모든 것을 평문 `.md` 파일로 저장, "LLM-friendly"를 명시적 목표로 삼음                                 | 노트 원본을 평문 마크다운 파일로 저장 (§5.2)                                       |
 | 인박스 항목을 위치 인덱스가 아니라 **내용 해시**로 식별해 항목이 추가/삭제돼도 참조가 깨지지 않게 함 (ADR)                 | 노트 식별에 `id` + `content hash`를 함께 사용해 CLI 동기화의 중복 판별 기준으로 삼음 (§9.2) |
@@ -59,7 +59,7 @@
 
 - AI 요약, 자동 태깅, 챗봇, 임베딩 기반 의미 검색 (§14에서 후순위로 재논의)
 - 리치 텍스트/WYSIWYG 에디터, 이미지·첨부파일 (Phase 2 후보)
-- 다중 기기 동기화 프로토콜 자체 구현 (볼트 폴더를 iCloud Drive 등에 두는 것은 사용자 선택으로 허용하되, oxinot이 동기화 로직을 직접 구현하지 않음)
+- 다중 기기 동기화 프로토콜 자체 구현 (볼트 폴더를 iCloud Drive 등에 두는 것은 사용자 선택으로 허용하되, oximemo이 동기화 로직을 직접 구현하지 않음)
 - Windows/Linux/모바일 지원, App Store 배포
 - 노트 간 위키링크·백링크 그래프 (파일 기반 마크다운 링크로 열어두되 MVP 기능은 아님)
 
@@ -70,7 +70,7 @@
 ```mermaid
 flowchart TB
     subgraph Native["macOS 네이티브 레이어"]
-        CAP["oxinot-capture\nObjC2 전역 flagsChanged 모니터\n(Option 더블탭 감지)"]
+        CAP["oximemo-capture\nObjC2 전역 flagsChanged 모니터\n(Option 더블탭 감지)"]
         MENU["메뉴바 NSStatusItem"]
     end
 
@@ -80,11 +80,11 @@ flowchart TB
         OVERLAY["캡처 오버레이 윈도우 (React)"]
     end
 
-    subgraph CLI["oxinot-cli 바이너리"]
+    subgraph CLI["oximemo-cli 바이너리"]
         CLIBIN["clap 기반 서브커맨드\nnew/list/get/search/export…"]
     end
 
-    subgraph Core["oxinot-core (순수 Rust 라이브러리)"]
+    subgraph Core["oximemo-core (순수 Rust 라이브러리)"]
         FILES["파일 스토어\n(*.md, TOML frontmatter)\n= 진실의 원천"]
         LOCK["프로세스 간 advisory lock\n(fs2 flock)"]
         REDB["redb 메타데이터 인덱스\n(id, hash, updated_at, tags…)"]
@@ -112,7 +112,7 @@ flowchart TB
     SKILL -.->|"사용법 안내"| AGENT
 ```
 
-핵심 결정: **오버레이/그리드 UI, CLI, 코어 로직을 별도의 Cargo 크레이트로 분리**합니다. `oxinot-core`는 Tauri나 clap에 대해 전혀 알지 못하는 순수 라이브러리로, 파일 I/O·해시·인덱싱·동기화 로직을 전담합니다. Tauri 앱과 CLI는 둘 다 이 코어를 감싸는 얇은 어댑터일 뿐입니다. 이렇게 하면:
+핵심 결정: **오버레이/그리드 UI, CLI, 코어 로직을 별도의 Cargo 크레이트로 분리**합니다. `oximemo-core`는 Tauri나 clap에 대해 전혀 알지 못하는 순수 라이브러리로, 파일 I/O·해시·인덱싱·동기화 로직을 전담합니다. Tauri 앱과 CLI는 둘 다 이 코어를 감싸는 얇은 어댑터일 뿐입니다. 이렇게 하면:
 
 - CLI와 GUI가 동시에 열려 있어도 같은 볼트를 안전하게 공유합니다 (§5.7 프로세스 간 락 참조).
 - 코어 로직을 유닛 테스트하는 데 UI나 IPC가 전혀 필요 없습니다.
@@ -126,13 +126,13 @@ flowchart TB
 
 | 계층                   | 역할                            | 기술                               | 위치                                                                                |
 | :------------------- | :---------------------------- | :------------------------------- | :-------------------------------------------------------------------------------- |
-| 원본 (source of truth) | 사람·에이전트가 직접 읽을 수 있는 노트 본문     | 개별 `.md` 파일 + TOML frontmatter   | 사용자가 지정한 **Vault 폴더** (기본: `~/Library/Application Support/com.oxinot.app/vault/`) |
-| 메타데이터 인덱스            | 그리드 페이지네이션, 필터, 동기화 커서용 빠른 조회 | `redb` (순수 Rust 임베디드 KV/테이블 스토어) | 로컬 전용 캐시 경로: `~/Library/Application Support/com.oxinot.app/index/meta.redb`       |
+| 원본 (source of truth) | 사람·에이전트가 직접 읽을 수 있는 노트 본문     | 개별 `.md` 파일 + TOML frontmatter   | 사용자가 지정한 **Vault 폴더** (기본: `~/Library/Application Support/com.oximemo.app/vault/`) |
+| 메타데이터 인덱스            | 그리드 페이지네이션, 필터, 동기화 커서용 빠른 조회 | `redb` (순수 Rust 임베디드 KV/테이블 스토어) | 로컬 전용 캐시 경로: `~/Library/Application Support/com.oximemo.app/index/meta.redb`       |
 | 전문 검색 인덱스            | BM25 키워드 검색                   | `tantivy`                        | `…/index/search/`                                                                 |
 
-**왜 3단인가:**  인덱스 계층(redb, tantivy)은 언제든 Vault 폴더를 다시 스캔해서 100% 재생성할 수 있는 "파생 데이터"로 설계합니다. 이렇게 하면 인덱스가 손상되거나 앱 버전이 바뀌어 스키마가 달라져도 `oxinot reindex` 한 번으로 복구됩니다. 반대로 Vault 폴더는 절대 자동으로 손댈 필요가 없는 순수 텍스트 뭉치이므로, 에이전트가 CLI 없이 `grep`이나 `cat`으로 직접 들여다봐도 안전합니다.
+**왜 3단인가:**  인덱스 계층(redb, tantivy)은 언제든 Vault 폴더를 다시 스캔해서 100% 재생성할 수 있는 "파생 데이터"로 설계합니다. 이렇게 하면 인덱스가 손상되거나 앱 버전이 바뀌어 스키마가 달라져도 `oximemo reindex` 한 번으로 복구됩니다. 반대로 Vault 폴더는 절대 자동으로 손댈 필요가 없는 순수 텍스트 뭉치이므로, 에이전트가 CLI 없이 `grep`이나 `cat`으로 직접 들여다봐도 안전합니다.
 
-**"순수 Rust" 원칙과의 관계:**  SQLite(FTS5)는 성숙하고 검증된 선택지지만 C 라이브러리를 번들링합니다. 이번 프로젝트는 명시적으로 "순수 Rust"를 요구했고, 트렌드도 부합하므로 `redb`(임베디드 KV, lmdb에 영감을 받은 순수 Rust 구현) + `tantivy`(Lucene에 영감을 받은 순수 Rust 검색 엔진, Quickwit 팀이 유지)를 기본값으로 채택합니다. 둘 다 활발히 유지보수되고 있고 실사용 벤치마크에서 lmdb/rocksdb에 준하는 성능을 보입니다. 다만 이 인덱스 계층은 언제든 SQLite+FTS5로 교체 가능하도록 `oxinot-core` 내부에 `trait MemoIndex`, `trait SearchIndex` 경계를 두어 스토리지 구현을 갈아끼울 수 있게 설계합니다.
+**"순수 Rust" 원칙과의 관계:**  SQLite(FTS5)는 성숙하고 검증된 선택지지만 C 라이브러리를 번들링합니다. 이번 프로젝트는 명시적으로 "순수 Rust"를 요구했고, 트렌드도 부합하므로 `redb`(임베디드 KV, lmdb에 영감을 받은 순수 Rust 구현) + `tantivy`(Lucene에 영감을 받은 순수 Rust 검색 엔진, Quickwit 팀이 유지)를 기본값으로 채택합니다. 둘 다 활발히 유지보수되고 있고 실사용 벤치마크에서 lmdb/rocksdb에 준하는 성능을 보입니다. 다만 이 인덱스 계층은 언제든 SQLite+FTS5로 교체 가능하도록 `oximemo-core` 내부에 `trait MemoIndex`, `trait SearchIndex` 경계를 두어 스토리지 구현을 갈아끼울 수 있게 설계합니다.
 
 ### 5.2 노트 파일 포맷
 
@@ -161,7 +161,7 @@ updated_at = "2026-07-28T10:15:03+09:00"
 hash = "b3:6f2a9e1d4c7b8a90f1e2d3c4b5a6978..."
 favorite = false
 color = "oklch(0.75 0.15 75)"
-tags = ["idea", "oxinot"]
+tags = ["idea", "oximemo"]
 +++
 
 Option 더블탭 오버레이는 반드시 300ms 안에 떠야 한다.
@@ -197,13 +197,13 @@ Option 더블탭 오버레이는 반드시 300ms 안에 떠야 한다.
 4. 파일 끝 개행 하나로 통일
 5. 위 결과 UTF-8 바이트열의 BLAKE3 해시를 hex로 인코딩
 
-**왜 자체 발급 시퀀스 번호(seq) 대신** `updated_at`**을 동기화 커서로 쓰는가:**  files.md ADR에서 이미 겪은 문제입니다 — 만약 로컬 인덱스가 손상돼 `oxinot reindex`로 재생성하면, 파일을 다시 스캔하는 순서에 따라 자체 발급 seq가 이전과 달라질 수 있습니다. 그러면 에이전트가 들고 있던 "seq 커서"가 무의미해집니다. 반면 `updated_at`은 노트 파일 자체(frontmatter)에 저장되므로 재인덱싱해도 값이 변하지 않습니다. 동기화 커서는 `(updated_at, id)` 튜플로 정의해 동시각 충돌을 `id`(UUIDv7이라 이 역시 시간 정렬됨)로 타이브레이크합니다.
+**왜 자체 발급 시퀀스 번호(seq) 대신** `updated_at`**을 동기화 커서로 쓰는가:**  files.md ADR에서 이미 겪은 문제입니다 — 만약 로컬 인덱스가 손상돼 `oximemo reindex`로 재생성하면, 파일을 다시 스캔하는 순서에 따라 자체 발급 seq가 이전과 달라질 수 있습니다. 그러면 에이전트가 들고 있던 "seq 커서"가 무의미해집니다. 반면 `updated_at`은 노트 파일 자체(frontmatter)에 저장되므로 재인덱싱해도 값이 변하지 않습니다. 동기화 커서는 `(updated_at, id)` 튜플로 정의해 동시각 충돌을 `id`(UUIDv7이라 이 역시 시간 정렬됨)로 타이브레이크합니다.
 
 ### 5.4 삭제(트래시) 처리
 
-- `oxinot delete <id>` 는 파일을 즉시 지우지 않고 `notes/…/id.md` → `.trash/id.md` 로 이동하고 frontmatter에 `deleted_at`을 기록합니다.
+- `oximemo delete <id>` 는 파일을 즉시 지우지 않고 `notes/…/id.md` → `.trash/id.md` 로 이동하고 frontmatter에 `deleted_at`을 기록합니다.
 - redb 인덱스는 해당 레코드를 툼스톤(tombstone)로 표시해 둡니다. `export`/ `list --since`는 `deleted: true` 레코드도 함께 반환해 에이전트가 로컬 캐시에서 제거할 수 있게 합니다.
-- 기본 30일(설정 가능) 경과 후 `oxinot purge`(수동 또는 앱 실행 시 백그라운드)로 완전 삭제합니다.
+- 기본 30일(설정 가능) 경과 후 `oximemo purge`(수동 또는 앱 실행 시 백그라운드)로 완전 삭제합니다.
 - 이 구조 덕분에 "실수로 지운 메모 복구"와 "에이전트에게 삭제 사실을 정확히 전파"를 같은 메커니즘으로 해결합니다.
 
 ### 5.5 파일 변경 감지 & 재인덱싱
@@ -211,11 +211,11 @@ Option 더블탭 오버레이는 반드시 300ms 안에 떠야 한다.
 `notify` 크레이트로 Vault 폴더를 감시합니다. 목적은 두 가지입니다.
 
 1. **사용자가 파일을 직접 편집**했을 때(예: 다른 에디터로 열어 수정, 또는 iCloud로 다른 기기에서 동기화되어 들어온 변경) 앱이 자동으로 감지해 redb/tantivy를 갱신합니다.
-2. **에이전트가 CLI 없이 파일을 직접 썼을 때**도 동일하게 반영됩니다 (oxinot은 파일 쓰기 권한을 독점하지 않습니다).
+2. **에이전트가 CLI 없이 파일을 직접 썼을 때**도 동일하게 반영됩니다 (oximemo은 파일 쓰기 권한을 독점하지 않습니다).
 
 **외부 쓰기 견고성 보장:**
 
-외부 에디터와 iCloud Drive는 oxinot이 제어하지 않는 방식으로 파일을 씁니다. 다음 시나리오를 반드시 처리해야 합니다:
+외부 에디터와 iCloud Drive는 oximemo이 제어하지 않는 방식으로 파일을 씁니다. 다음 시나리오를 반드시 처리해야 합니다:
 
 | 시나리오                    | 문제                                | 대응             |
 | :---------------------- | :-------------------------------- | :------------- |
@@ -232,7 +232,7 @@ Option 더블탭 오버레이는 반드시 300ms 안에 떠야 한다.
 4. 3회 모두 실패하면 해당 파일을 "파싱 보류" 큐에 넣고, 다음 워처 이벤트 또는 `reindex` 시 재시도합니다. 앱은 크래시하지 않습니다.
 5. 해시가 기존과 다르면 `updated_at` 갱신 + tantivy 문서 재색인. 같으면 스킵.
 
-변경 감지 시 처리: 파일을 다시 읽어 frontmatter 파싱 → 해시 재계산 → 기존 `hash`와 다르면 `updated_at` 갱신 + tantivy 문서 재색인. oxinot 자신이 쓰는 경우는 항상 "임시 파일에 쓰고 `rename`으로 원자적 교체" 패턴을 사용합니다.
+변경 감지 시 처리: 파일을 다시 읽어 frontmatter 파싱 → 해시 재계산 → 기존 `hash`와 다르면 `updated_at` 갱신 + tantivy 문서 재색인. oximemo 자신이 쓰는 경우는 항상 "임시 파일에 쓰고 `rename`으로 원자적 교체" 패턴을 사용합니다.
 
 ### 5.6 대용량 노트 스케일 대응
 
@@ -240,7 +240,7 @@ Option 더블탭 오버레이는 반드시 300ms 안에 떠야 한다.
 
 - 메타데이터 조회는 항상 **커서 기반 페이지네이션**( `updated_at`/ `id` 커서)으로만 이루어지고, "전체 노트 개수만큼 SELECT"는 어떤 경로에서도 금지합니다.
 - React 쪽 카드 그리드는 반드시 가상화(§7.2)해서 DOM에는 화면에 보이는 카드만 존재합니다.
-- 검색은 tantivy 인덱스를 거치며, 파일 시스템 전수 스캔은 오직 `oxinot reindex`(명시적 복구 명령)에서만 발생합니다.
+- 검색은 tantivy 인덱스를 거치며, 파일 시스템 전수 스캔은 오직 `oximemo reindex`(명시적 복구 명령)에서만 발생합니다.
 - 인덱스 쓰기는 UI 스레드를 막지 않도록 Tauri의 async command + 백그라운드 태스크로 처리하고, 연속 타이핑 중 저장은 디바운스(300\~500ms)합니다.
 
 ### 5.7 프로세스 간 동시성 — redb 락 전략
@@ -259,22 +259,22 @@ index/
 
 **규칙:**
 
-1. `oxinot-core`의 `IndexAccess` 모듈이 redb/tantivy를 열기 전에 반드시 `meta.redb.lock`에 **exclusive flock**을 획득합니다.
+1. `oximemo-core`의 `IndexAccess` 모듈이 redb/tantivy를 열기 전에 반드시 `meta.redb.lock`에 **exclusive flock**을 획득합니다.
 2. 읽기 전용 작업(목록 조회, 검색)은 **shared flock**을 사용합니다 (다중 리더 허용).
 3. 쓰기 작업(노트 생성/수정/삭제 → 인덱스 갱신)은 **exclusive flock**을 사용합니다.
-4. 락 획득 실패 시(다른 프로세스가 exclusive 보유): 최대 5초 대기 후 타임아웃 에러를 반환합니다. CLI는 "다른 oxinot 프로세스가 인덱스를 사용 중입니다" 메시지를 표시합니다.
+4. 락 획득 실패 시(다른 프로세스가 exclusive 보유): 최대 5초 대기 후 타임아웃 에러를 반환합니다. CLI는 "다른 oximemo 프로세스가 인덱스를 사용 중입니다" 메시지를 표시합니다.
 5. **파일 스토어(원본 .md)는 락 대상이 아닙니다.**  파일 쓰기는 원자적 rename으로 보호되므로, 인덱스 락 없이도 파일 직접 읽기/쓰기는 안전합니다.
 
 **CLI 단독 사용 시나리오:**  CLI가 GUI 없이 단독 실행되면 락 경합이 없으므로 정상 동작합니다. GUI가 백그라운드에 있으면 CLI가 exclusive 락을 기다릴 수 있지만, 인덱스 쓰기 트랜잭션은 보통 1ms 이내이므로 체감 지연은 없습니다.
 
-**대안 검토:**  "CLI는 인덱스를 열지 않고 파일 스캔만 한다"는 옵션도 고려했으나, 이 경우 `oxinot search`(tantivy)와 `oxinot list`(redb 페이지네이션)가 CLI에서 동작하지 않게 되어 에이전트 연동의 핵심 가치가 훼손됩니다. advisory lock 방식이 복잡도와 기능 보존의 최적 균형점입니다.
+**대안 검토:**  "CLI는 인덱스를 열지 않고 파일 스캔만 한다"는 옵션도 고려했으나, 이 경우 `oximemo search`(tantivy)와 `oximemo list`(redb 페이지네이션)가 CLI에서 동작하지 않게 되어 에이전트 연동의 핵심 가치가 훼손됩니다. advisory lock 방식이 복잡도와 기능 보존의 최적 균형점입니다.
 
 ### 5.8 볼트 설정 ( `config.toml`)
 
 볼트 루트에 선택적 `config.toml`을 둡니다. 없으면 모든 값이 기본값으로 동작합니다.
 
 ```toml
-# vault/config.toml — oxinot 볼트 설정
+# vault/config.toml — oximemo 볼트 설정
 
 [general]
 trash_retention_days = 30          # 휴지통 자동 퍼지 주기
@@ -315,7 +315,7 @@ watcher_retry_interval_ms = 200    # 재시도 간격
 
 macOS에서 "수정자 키 단독 두 번 탭"은 표준 전역 단축키 API( `RegisterHotKey`류)로는 감지할 수 없습니다 — 이런 API는 항상 일반 키 하나 이상을 요구합니다. Alfred, Raycast류 앱이 쓰는 것과 같은 방식으로, **AppKit의 전역 이벤트 모니터**를 사용합니다.
 
-- `objc2` + `objc2-app-kit` 크레이트로 `NSEvent::addGlobalMonitorForEvents(matching: .flagsChanged)`를 호출하는 네이티브 모듈( `crates/oxinot-capture`)을 별도로 둡니다. (이 이벤트를 **소비/차단**할 필요가 없으므로 `CGEventTap`이 아니라 패시브 모니터인 `NSEvent` global monitor로 충분합니다 — Option 키는 다른 앱에서 계속 정상 동작해야 합니다.)
+- `objc2` + `objc2-app-kit` 크레이트로 `NSEvent::addGlobalMonitorForEvents(matching: .flagsChanged)`를 호출하는 네이티브 모듈( `crates/oximemo-capture`)을 별도로 둡니다. (이 이벤트를 **소비/차단**할 필요가 없으므로 `CGEventTap`이 아니라 패시브 모니터인 `NSEvent` global monitor로 충분합니다 — Option 키는 다른 앱에서 계속 정상 동작해야 합니다.)
 - 감지 로직: `flagsChanged` 이벤트에서 Option 키(좌/우 모두)가 **단독으로** 눌렸다가 뗀 시점을 기록. 직전 기록과의 간격이 임계값(기본 350ms, 설정 가능) 이내면 "더블탭"으로 판정.
 - 다른 수정자나 일반 키가 동시에 눌린 경우(예: `Option+E`로 악센트 문자 입력, 다른 앱의 `Option+숫자` 단축키)는 애초에 `flagsChanged` 단독 이벤트가 아니므로 자연스럽게 걸러집니다.
 - 이 모니터는 Tauri `setup()` 훅에서 별도 OS 스레드 + 자체 `CFRunLoop`로 구동하고, 감지 시 Tauri 이벤트( `capture:trigger`)를 메인 앱으로 전달합니다.
@@ -378,7 +378,7 @@ macOS에서 "수정자 키 단독 두 번 탭"은 표준 전역 단축키 API( `
 
 ### 7.1.1 타이포그래피 (통합 디자인 시스템 §3)
 
-oxinot의 타이포그래피는 oxi 생태계 통합 시스템(`UNIFIED-DESIGN.md` §3)을 따른다. v0.2까지 이 문서에 폰트가 정의되어 있지 않았던 갭을 메운다.
+oximemo의 타이포그래피는 oxi 생태계 통합 시스템(`UNIFIED-DESIGN.md` §3)을 따른다. v0.2까지 이 문서에 폰트가 정의되어 있지 않았던 갭을 메운다.
 
 | 역할 | 폰트 | 비고 |
 | :--- | :--- | :--- |
@@ -427,7 +427,7 @@ oxinot의 타이포그래피는 oxi 생태계 통합 시스템(`UNIFIED-DESIGN.m
 
 ### 7.7 색상 체계 — OKLCH
 
-oxinot의 모든 색상은 **OKLCH 색상 공간**을 기준으로 정의합니다.
+oximemo의 모든 색상은 **OKLCH 색상 공간**을 기준으로 정의합니다.
 
 **왜 OKLCH인가:**
 
@@ -512,7 +512,7 @@ Rust → React 이벤트:
 - `capture:reset` — 오버레이 입력창 초기화
 - `memos:changed` — 파일 워처나 다른 창에서의 변경을 반영해 쿼리 무효화
 
-`create_memo`/ `update_memo`/ `delete_memo`는 CLI와 GUI, 오버레이가 모두 동일한 `oxinot-core` 함수를 호출하므로 동작이 항상 일관됩니다.
+`create_memo`/ `update_memo`/ `delete_memo`는 CLI와 GUI, 오버레이가 모두 동일한 `oximemo-core` 함수를 호출하므로 동작이 항상 일관됩니다.
 
 ---
 
@@ -521,20 +521,20 @@ Rust → React 이벤트:
 ### 9.1 명령어 레퍼런스
 
 ```latex
-oxinot new [TEXT] [--tag TAG ...] [--color "oklch(...)"]
+oximemo new [TEXT] [--tag TAG ...] [--color "oklch(...)"]
                                            # 인자 또는 stdin으로 캡처
-oxinot list [--limit N] [--tag T] [--favorites]
+oximemo list [--limit N] [--tag T] [--favorites]
             [--format table|json|ndjson]   # 기본 table(사람용), 에이전트는 json/ndjson 권장
-oxinot get <ID> [--format json|md]
-oxinot search <QUERY> [--limit N] [--format json|ndjson]
-oxinot export [--since <RFC3339>] [--ids a,b,c]
+oximemo get <ID> [--format json|md]
+oximemo search <QUERY> [--limit N] [--format json|ndjson]
+oximemo export [--since <RFC3339>] [--ids a,b,c]
               [--ids-file <PATH>] [--ids-stdin]
               [--full] [--format ndjson|json]  # §9.2 참조
-oxinot delete <ID>
-oxinot purge [--older-than 30d]
-oxinot reindex
-oxinot doctor                              # 볼트/인덱스 정합성 점검 (§9.3)
-oxinot vault path                          # 현재 볼트 경로 출력
+oximemo delete <ID>
+oximemo purge [--older-than 30d]
+oximemo reindex
+oximemo doctor                              # 볼트/인덱스 정합성 점검 (§9.3)
+oximemo vault path                          # 현재 볼트 경로 출력
 ```
 
 전역 옵션 `--vault <PATH>`로 볼트를 지정할 수 있습니다(다중 볼트, 테스트 용도). 기본 출력 포맷은 사람이 터미널에서 쓰기 편한 테이블이지만, 에이전트 소비를 염두에 둔 명령( `export`, 대량 `list`)은 **NDJSON**(줄 단위 JSON)을 기본값으로 하여 스트리밍 처리와 부분 실패에 유리하게 합니다.
@@ -547,7 +547,7 @@ macOS의 `ARG_MAX`(≈256KB)로 인해 수천 개의 ID를 커맨드라인 인�
 | :------------------ | :-------------------------------------- | ----------------------------------- |
 | `--ids a,b,c`       | 소량(수십 개 이하) ID를 콤마 구분으로 직접 전달           |                                     |
 | `--ids-file <PATH>` | 파일에서 한 줄에 하나씩 ID를 읽음                    |                                     |
-| `--ids-stdin`       | stdin에서 한 줄에 하나씩 ID를 읽음 ( \`cat ids.txt | oxinot export --ids-stdin --full\`) |
+| `--ids-stdin`       | stdin에서 한 줄에 하나씩 ID를 읽음 ( \`cat ids.txt | oximemo export --ids-stdin --full\`) |
 
 세 옵션은 상호 배타적이며, 동시에 지정하면 에러를 반환합니다. SKILL.md에 이 제한과 권장 용법을 명시합니다.
 
@@ -560,7 +560,7 @@ macOS의 `ARG_MAX`(≈256KB)로 인해 수천 개의 ID를 커맨드라인 인�
 3. ```plain
    ```
 
-oxinot export --since "2026-07-28T09:00:00+09:00" --format ndjson
+oximemo export --since "2026-07-28T09:00:00+09:00" --format ndjson
 
 ````
 
@@ -573,22 +573,22 @@ oxinot export --since "2026-07-28T09:00:00+09:00" --format ndjson
 6. **본문 조회**는 "가져와야 함"으로 분류된 것만 요청합니다: 
 1. ```plain
 # 소량
-oxinot export --ids <id1>,<id2>,<id3> --full --format ndjson
+oximemo export --ids <id1>,<id2>,<id3> --full --format ndjson
 
 # 대량 (ARG_MAX 회피)
-printf '%s\n' "${IDS[@]}" | oxinot export --ids-stdin --full --format ndjson
+printf '%s\n' "${IDS[@]}" | oximemo export --ids-stdin --full --format ndjson
 
 # 또는 개별
-oxinot get <id> --format json
+oximemo get <id> --format json
 ````
 
 7. 에이전트는 응답으로 받은 `updated_at` 중 최댓값으로 커서를 갱신하고, `id → hash` 캐시를 갱신합니다.
 
-작은 규모 동기화라면 2\~4단계를 한 번에 처리하는 `oxinot export --since <커서> --full`도 지원해 단순한 경우엔 2단계 왕복이 필요 없게 합니다.
+작은 규모 동기화라면 2\~4단계를 한 번에 처리하는 `oximemo export --since <커서> --full`도 지원해 단순한 경우엔 2단계 왕복이 필요 없게 합니다.
 
 이 알고리즘이 "중복 판별"에 해시를 쓰는 이유는, 같은 `id`라도 사람이 다시 편집해서 내용이 바뀐 경우(다시 가져와야 함)와, 정말 변화 없는 경우(스킵)를 `updated_at`만으로는 구분하기 애매한 엣지 케이스(시계 오차, 재인덱싱 등)에서도 해시가 최종 판정 기준이 되어 안전하기 때문입니다.
 
-### 9.3 `oxinot doctor` 점검 항목
+### 9.3 `oximemo doctor` 점검 항목
 
 `doctor`는 다음을 점검하고 리포트를 출력합니다:
 
@@ -607,8 +607,8 @@ oxinot get <id> --format json
 
 ### 9.4 배포
 
-- 단일 정적에 가까운 바이너리로 빌드해 `cargo-dist` 등으로 GitHub Release + Homebrew tap( `brew install oxinot/tap/oxinot`) 배포를 자동화합니다.
-- 에이전트가 셸에서 바로 `oxinot` 바이너리를 호출할 수 있는 것이 핵심이므로, 별도 런타임(Node/Python) 의존 없이 동작해야 합니다.
+- 단일 정적에 가까운 바이너리로 빌드해 `cargo-dist` 등으로 GitHub Release + Homebrew tap( `brew install oximemo/tap/oximemo`) 배포를 자동화합니다.
+- 에이전트가 셸에서 바로 `oximemo` 바이너리를 호출할 수 있는 것이 핵심이므로, 별도 런타임(Node/Python) 의존 없이 동작해야 합니다.
 
 ---
 
@@ -619,27 +619,27 @@ oxinot get <id> --format json
 Claude Code 등 코딩 에이전트가 이해할 수 있는 Skill 패키지를 별도로 배포합니다.
 
 ```plain
-skills/oxinot/
+skills/oximemo/
 └── SKILL.md
 ```
 
 `SKILL.md`는 다음을 포함합니다:
 
-- **frontmatter**: `name: oxinot`, `description:` — "oxinot 노트 앱의 CLI로 사용자의 빠른 메모를 읽고 쓸 때 사용" 등 트리거 조건을 명확히 기술
+- **frontmatter**: `name: oximemo`, `description:` — "oximemo 노트 앱의 CLI로 사용자의 빠른 메모를 읽고 쓸 때 사용" 등 트리거 조건을 명확히 기술
 - CLI 명령어 레퍼런스(§9.1)와 각 명령의 JSON 출력 스키마
 - **동기화 워크플로 가이드**(§9.2를 에이전트가 그대로 따라 할 수 있는 절차형 문서로 재기술): 커서 저장 위치 제안, 재시도/실패 처리 권장사항
 - **대량 ID 전달 시** `--ids-file`\*\* /\*\* `--ids-stdin`\*\* 사용 권장\*\* (ARG\_MAX 제한 명시)
 - **frontmatter 작성 규칙** (§5.2 엄격 파싱 규칙): 에이전트가 파일을 직접 쓸 때 올바른 포맷 안내
-- 안전 수칙: 볼트 파일을 직접 편집해도 안전하지만(§5.5의 워처가 반영함) 삭제는 `oxinot delete`를 통해 휴지통 경로를 거치는 것을 권장, 대량 쓰기 시 `oxinot new`를 반복 호출하기보다 배치 생성 방법 안내
+- 안전 수칙: 볼트 파일을 직접 편집해도 안전하지만(§5.5의 워처가 반영함) 삭제는 `oximemo delete`를 통해 휴지통 경로를 거치는 것을 권장, 대량 쓰기 시 `oximemo new`를 반복 호출하기보다 배치 생성 방법 안내
 
 ### 10.2 배치 방식
 
-- 사용자가 `~/.claude/skills/oxinot/` 또는 프로젝트별 `.claude/skills/`에 설치
-- oxinot 자체 배포물(Homebrew formula, GitHub Release)에 Skill 디렉토리를 동봉해 `oxinot skill install` 같은 CLI 편의 명령으로 심볼릭 링크/복사하는 것도 고려(Phase 2)
+- 사용자가 `~/.claude/skills/oximemo/` 또는 프로젝트별 `.claude/skills/`에 설치
+- oximemo 자체 배포물(Homebrew formula, GitHub Release)에 Skill 디렉토리를 동봉해 `oximemo skill install` 같은 CLI 편의 명령으로 심볼릭 링크/복사하는 것도 고려(Phase 2)
 
 ### 10.3 향후 MCP 확장 (Phase 3 후보)
 
-CLI 셸아웃은 가장 이식성이 높은 통합 방식이라 MVP 기본값으로 유지하되, 여러 에이전트가 실시간으로 동일 볼트를 폴링해야 하는 상황이 잦아지면 `oxinot-core`를 감싸는 MCP 서버( `oxinot mcp serve`)를 추가해 `list_memos`/ `get_memo`/ `search_memos`/ `create_memo`를 MCP 툴로 노출할 수 있습니다. 코어 로직을 이미 크레이트로 분리해 두었으므로(§4) 이 확장은 새 얇은 어댑터 하나를 추가하는 작업에 가깝습니다.
+CLI 셸아웃은 가장 이식성이 높은 통합 방식이라 MVP 기본값으로 유지하되, 여러 에이전트가 실시간으로 동일 볼트를 폴링해야 하는 상황이 잦아지면 `oximemo-core`를 감싸는 MCP 서버( `oximemo mcp serve`)를 추가해 `list_memos`/ `get_memo`/ `search_memos`/ `create_memo`를 MCP 툴로 노출할 수 있습니다. 코어 로직을 이미 크레이트로 분리해 두었으므로(§4) 이 확장은 새 얇은 어댑터 하나를 추가하는 작업에 가깝습니다.
 
 ---
 
@@ -678,17 +678,17 @@ CLI 셸아웃은 가장 이식성이 높은 통합 방식이라 MVP 기본값으
 
 ### CLI
 
-- `oxinot-cli` 바이너리, `oxinot-core` 의존, JSON/NDJSON 우선 출력
+- `oximemo-cli` 바이너리, `oximemo-core` 의존, JSON/NDJSON 우선 출력
 
 ---
 
 ## 12. 프로젝트 구조
 
 ```plain
-oxinot/
+oximemo/
 ├── Cargo.toml                       # workspace 루트
 ├── crates/
-│   ├── oxinot-core/                 # 순수 Rust 코어 라이브러리
+│   ├── oximemo-core/                 # 순수 Rust 코어 라이브러리
 │   │   ├── src/
 │   │   │   ├── memo.rs              # Memo, MemoSummary, Cursor 등 도메인 타입
 │   │   │   ├── store/
@@ -701,12 +701,12 @@ oxinot/
 │   │   │   ├── lock.rs              # fs2 advisory lock 래퍼
 │   │   │   └── lib.rs
 │   │   └── Cargo.toml
-│   ├── oxinot-cli/                  # CLI 바이너리
+│   ├── oximemo-cli/                  # CLI 바이너리
 │   │   ├── src/
 │   │   │   ├── commands/
 │   │   │   └── main.rs
 │   │   └── Cargo.toml
-│   └── oxinot-capture/              # macOS 전역 이벤트 감지 (objc2)
+│   └── oximemo-capture/              # macOS 전역 이벤트 감지 (objc2)
 │       ├── src/lib.rs
 │       └── Cargo.toml
 ├── apps/
@@ -729,7 +729,7 @@ oxinot/
 │           │   └── color.ts         # OKLCH 유틸리티 (팔레트, clamp, 다크모드 보정)
 │           └── main.tsx
 ├── skills/
-│   └── oxinot/
+│   └── oximemo/
 │       └── SKILL.md
 └── docs/
     └── adr/                          # Architecture Decision Records (files.md 방식 참고)
@@ -745,7 +745,7 @@ oxinot/
 | 오버레이 저장 → 파일 기록 완료                         | ≤ 50ms      |                                                                   |
 | 메인 창 최초 렌더(노트 10만 개 기준)                    | ≤ 200ms     |                                                                   |
 | 검색 응답(tantivy)                             | ≤ 50ms      |                                                                   |
-| `oxinot export --since` (변경분 1,000건 매니페스트) | ≤ 500ms     |                                                                   |
+| `oximemo export --since` (변경분 1,000건 매니페스트) | ≤ 500ms     |                                                                   |
 | 앱 유휴 시 메모리                                 | 목표 150MB 내외 | Tauri(WebKit) 베이스라인 60\~80MB + redb mmap + tantivy 포함. 10만 노트 기준. |
 
 **메모리 목표 참고:**  Tauri의 WebKit 프로세스 자체가 60\~80MB를 점유하므로, "앱 전체 100MB"는 비현실적입니다. 150MB를 실질적 목표로 두되, redb mmap은 OS가 페이지 캐시로 관리하므로 실제 RSS는 노트 접근 패턴에 따라 변동합니다.
@@ -758,7 +758,7 @@ oxinot/
 카드 그리드, 3단 저장소, Option 더블탭 캡처(+대체 단축키·메뉴바), CLI 핵심 명령, `SKILL.md`, 라이트/다크모드, 즐겨찾기·태그·OKLCH 색상 라벨.
 
 **v0.2**
-휴지통/퍼지 안정화, 온보딩(권한 요청 플로우), Homebrew 배포 자동화, `oxinot doctor`/ `reindex` UX 개선, 붙여넣기 이미지 첨부(선택).
+휴지통/퍼지 안정화, 온보딩(권한 요청 플로우), Homebrew 배포 자동화, `oximemo doctor`/ `reindex` UX 개선, 붙여넣기 이미지 첨부(선택).
 
 **v0.3+**
 MCP 서버 모드(§10.3), 다중 볼트, iCloud Drive 볼트 자동 인식, 위키링크/백링크(선택).

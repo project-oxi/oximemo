@@ -1,4 +1,4 @@
-# oxinot — 카테고리 시스템 설계 (수동 색상 → 카테고리 파생 색상)
+# oximemo — 카테고리 시스템 설계 (수동 색상 → 카테고리 파생 색상)
 
 - **Date:** 2026-07-30
 - **Status:** Draft (디자인 확정, 구현 계획 대기)
@@ -6,7 +6,7 @@
 
 ## 1. 배경 & 목표
 
-현재 oxinot은 노트마다 **수동 oklch 색상**(`NoteColor`)을 캡처/편집에서 직접 고르고, 사이드바 색상 스왓치로 필터링한다. 문제: 색상이 **라벨링 비용만 들고 의미는 없다** — 빨강을 골라도 빨강이 무엇을 의미하는지 정해지지 않는다. 매 색상 결정이 사고 비용이며 분류 체계로 귀결되지 않는다.
+현재 oximemo은 노트마다 **수동 oklch 색상**(`NoteColor`)을 캡처/편집에서 직접 고르고, 사이드바 색상 스왓치로 필터링한다. 문제: 색상이 **라벨링 비용만 들고 의미는 없다** — 빨강을 골라도 빨강이 무엇을 의미하는지 정해지지 않는다. 매 색상 결정이 사고 비용이며 분류 체계로 귀결되지 않는다.
 
 목표:
 
@@ -232,4 +232,4 @@ flowchart LR
 - **Rust 단위**: `hash_note` category 인자(카테고리 변경→해시 변경). `NoteFilter` `categories` 매칭(빈=통과, 소속 OR). `CategoriesConfig` 기본 6종 생성 + `[color]` 레거시 무시. `create_category` id 충돌 검증. **`resolve_color` orphan 폴백**(알 수 없는 id→inbox 색).
 - **빌드**: `cargo build`/`clippy` 경고 0, `tsc -b` + Vite.
 - **수동**: 캡처 `/todo`→칩 확정→Enter 저장→그리드에 파생색 표시. `/새이름`→추가 항목→생성→레지스트리 반영. 슬래시 없이 입력→inbox. 사이드바 카테고리 라디오 필터 + 태그 AND 결합. 레거시 파일(`color=` 포함, `category=` 없음)이 깨짐 없이 inbox로 로드(M2). **orphan**: `config.toml`에서 사용자 카테고리 제거 후 해당 노트가 inbox색으로 폴백 렌더(§4.6).
-- **재배포**: 프론트 + Rust 코어 변경이므로 `cargo build -p oxinot-desktop --release` + 앱 교체 + `codesign --force --deep -s -` 재서명 필요(임베드 프론트·바이너리 갱신).
+- **재배포**: 프론트 + Rust 코어 변경이므로 `cargo build -p oximemo-desktop --release` + 앱 교체 + `codesign --force --deep -s -` 재서명 필요(임베드 프론트·바이너리 갱신).

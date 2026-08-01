@@ -1,14 +1,14 @@
 [package]
-name = "oxinot-capture"
+name = "oximemo-capture"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "macOS global Option double-tap monitor for oxinot"
+description = "macOS global Option double-tap monitor for oximemo"
 
 [lib]
-name = "oxinot_capture"
+name = "oximemo_capture"
 path = "src/lib.rs"
 
 [target.'cfg(target_os = "macos")'.dependencies]

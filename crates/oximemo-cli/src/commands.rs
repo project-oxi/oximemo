@@ -1,16 +1,16 @@
-//! Command implementations — thin adapters over [`oxinot_core::Vault`].
+//! Command implementations — thin adapters over [`oximemo_core::Vault`].
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
-use oxinot_core::Vault;
-use oxinot_core::memo::{MemoFilter, MemoId};
-use oxinot_core::store::files::FileStore;
+use oximemo_core::Vault;
+use oximemo_core::memo::{MemoFilter, MemoId};
+use oximemo_core::store::files::FileStore;
 
 use crate::format::{self, Format};
 
-/// `oxinot new` — capture a note from an argument or stdin.
+/// `oximemo new` — capture a note from an argument or stdin.
 ///
 /// `--tag` values are folded into the body as inline `#tag` tokens so the
 /// derived model picks them up (the core no longer takes a tags argument).
@@ -52,7 +52,7 @@ pub fn cmd_new(
     Ok(())
 }
 
-/// `oxinot list`.
+/// `oximemo list`.
 pub fn cmd_list(
     vault: &Vault,
     limit: u32,
@@ -70,26 +70,26 @@ pub fn cmd_list(
     format::print_summaries(&page.items, fmt)
 }
 
-/// `oxinot get`.
+/// `oximemo get`.
 pub fn cmd_get(vault: &Vault, id: MemoId, md: bool) -> Result<()> {
     let note = vault.get_memo(id)?;
     if md {
         // Emit the exact on-disk representation (frontmatter + body).
         println!("{}", FileStore::serialize(&note)?);
     } else {
-        let summary: oxinot_core::memo::MemoSummary = oxinot_core::memo::MemoSummary::from(note);
+        let summary: oximemo_core::memo::MemoSummary = oximemo_core::memo::MemoSummary::from(note);
         println!("{}", serde_json::to_string_pretty(&summary)?);
     }
     Ok(())
 }
 
-/// `oxinot search`.
+/// `oximemo search`.
 pub fn cmd_search(vault: &Vault, query: String, limit: u32, fmt: Format) -> Result<()> {
     let hits = vault.search_memos(&query, limit)?;
     format::print_summaries(&hits, fmt)
 }
 
-/// `oxinot export` (§9.2). Manifest by default; `--full` includes bodies.
+/// `oximemo export` (§9.2). Manifest by default; `--full` includes bodies.
 pub fn cmd_export(
     vault: &Vault,
     since: Option<String>,
@@ -121,21 +121,21 @@ pub fn cmd_export(
     }
 }
 
-/// `oxinot delete` — soft-delete (trash).
+/// `oximemo delete` — soft-delete (trash).
 pub fn cmd_delete(vault: &Vault, id: MemoId) -> Result<()> {
     vault.delete_memo(id)?;
     println!("trashed {}", id);
     Ok(())
 }
 
-/// `oxinot purge` — hard-delete trashed memos older than the retention.
+/// `oximemo purge` — hard-delete trashed memos older than the retention.
 pub fn cmd_purge(vault: &Vault, older_than: Duration) -> Result<()> {
     let n = vault.purge(older_than)?;
     println!("purged {}", n);
     Ok(())
 }
 
-/// `oxinot reindex` — rebuild indexes from files.
+/// `oximemo reindex` — rebuild indexes from files.
 pub fn cmd_reindex(vault: &Vault) -> Result<()> {
     let stats = vault.reindex()?;
     println!(
@@ -145,13 +145,13 @@ pub fn cmd_reindex(vault: &Vault) -> Result<()> {
     Ok(())
 }
 
-/// `oxinot vault path`.
+/// `oximemo vault path`.
 pub fn cmd_vault_path(vault: &Vault) -> Result<()> {
     println!("{}", vault.paths().vault.display());
     Ok(())
 }
 
-/// `oxinot doctor [--fix]`.
+/// `oximemo doctor [--fix]`.
 pub fn cmd_doctor(vault: &Vault, fix: bool) -> Result<()> {
     let report = vault.doctor(fix)?;
     let json = serde_json::to_string_pretty(&report)?;

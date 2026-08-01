@@ -4,7 +4,7 @@
 
 **Goal:** `NoteDetail` 편집기를 Obsidian 스타일 라이브 프리뷰 마크다운 에디터(`@atomic-editor/editor`)로 교체하고, 카드 미리보기를 `marked` 기반 HTML 렌더링으로 전환한다. `CaptureOverlay`의 빠른 캡처 textarea는 그대로 유지.
 
-**Architecture:** 데스크톱 프론트엔드 변경. `MirrorTagEditor`(textarea+mirror)는 제거하고 그 자리에 `MarkdownEditor`(atomic-editor React 래퍼)와 `TagChipRow`(시각 보조)를 둔다. 기존 공통 폼 `NoteComposeForm`은 사용처가 두 곳뿐이며 의도가 달라졌으므로, `NoteEditorForm`(NoteDetail용)과 `QuickCaptureForm`(CaptureOverlay용)으로 분해. 카드 미리보기는 `marked`로 변환. atomic-editor의 CSS 변수는 `app.css`의 다크/라이트 스코프에서 oxinot 토큰에 매핑.
+**Architecture:** 데스크톱 프론트엔드 변경. `MirrorTagEditor`(textarea+mirror)는 제거하고 그 자리에 `MarkdownEditor`(atomic-editor React 래퍼)와 `TagChipRow`(시각 보조)를 둔다. 기존 공통 폼 `NoteComposeForm`은 사용처가 두 곳뿐이며 의도가 달라졌으므로, `NoteEditorForm`(NoteDetail용)과 `QuickCaptureForm`(CaptureOverlay용)으로 분해. 카드 미리보기는 `marked`로 변환. atomic-editor의 CSS 변수는 `app.css`의 다크/라이트 스코프에서 oximemo 토큰에 매핑.
 
 **Tech Stack:** React 19, TypeScript 5.6, Vite 6, Tailwind v4, CodeMirror 6 (transitive via atomic-editor), `marked` v14, atomic-editor v0.6.2.
 
@@ -106,7 +106,7 @@ Expected: PASS (변경한 게 package.json뿐). 만약 실패하면 `bun install
 - [ ] **Step 5: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add apps/desktop/package.json apps/desktop/bun.lock
 git commit -m "build(deps): add @atomic-editor/editor and marked
 
@@ -175,7 +175,7 @@ Expected: PASS.
 - [ ] **Step 3: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add apps/desktop/src/lib/markdownPreview.ts
 git commit -m "feat(preview): marked-based markdown renderer for card grid"
 ```
@@ -350,7 +350,7 @@ Expected: 정상 종료, `dist/` 갱신.
 - [ ] **Step 7: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add apps/desktop/src/components/Card.tsx apps/desktop/src/app.css
 git commit -m "feat(card): render previews as markdown HTML via marked
 
@@ -429,7 +429,7 @@ Expected: PASS.
 - [ ] **Step 3: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add apps/desktop/src/components/TagChipRow.tsx
 git commit -m "feat(editor): TagChipRow — read-only visual tag chips"
 ```
@@ -452,7 +452,7 @@ export function MarkdownEditor({ body, onChange, documentId, className, onLinkCl
 `apps/desktop/src/app.css` 끝(`@keyframes` 블록 이후)에 추가:
 
 ```css
-/* atomic-editor theme tokens (§6) — mapped to oxinot design tokens. */
+/* atomic-editor theme tokens (§6) — mapped to oximemo design tokens. */
 :root {
   --atomic-editor-fg: #18181b;
   --atomic-editor-bg: transparent;
@@ -564,13 +564,13 @@ Expected: 정상 종료. 출력에서 `atomic-editor` 또는 `@codemirror`가 �
 - [ ] **Step 5: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add apps/desktop/src/components/MarkdownEditor.tsx apps/desktop/src/app.css
 git commit -m "feat(editor): MarkdownEditor — atomic-editor React wrapper
 
 Forwards documentId so note swaps remount the CM6 view (prevents
 undo/cursor leak). Theme tokens mapped in app.css so the editor
-follows oxinot's dark/light scheme."
+follows oximemo's dark/light scheme."
 ```
 
 ---
@@ -682,7 +682,7 @@ Expected: PASS.
 - [ ] **Step 3: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add apps/desktop/src/components/NoteEditorForm.tsx
 git commit -m "feat(editor): NoteEditorForm — atomic-editor + chips + confirm"
 ```
@@ -807,7 +807,7 @@ Expected: PASS.
 - [ ] **Step 3: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add apps/desktop/src/components/QuickCaptureForm.tsx
 git commit -m "feat(editor): QuickCaptureForm — CaptureOverlay textarea form
 
@@ -878,7 +878,7 @@ Expected: PASS.
 - [ ] **Step 4: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add apps/desktop/src/components/NoteDetail.tsx
 git commit -m "refactor(NoteDetail): swap NoteComposeForm for NoteEditorForm
 
@@ -939,7 +939,7 @@ Expected: PASS.
 - [ ] **Step 4: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add apps/desktop/src/components/CaptureOverlay.tsx
 git commit -m "refactor(CaptureOverlay): swap NoteComposeForm for QuickCaptureForm
 
@@ -959,7 +959,7 @@ explicit: capture is fast, detail is rich."
 - [ ] **Step 1: 잔존 참조 grep**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 grep -rn "NoteComposeForm\|MirrorTagEditor" apps/desktop/src
 ```
 
@@ -968,7 +968,7 @@ Expected: 출력 없음. 만약 남아있으면 모두 새 컴포넌트로 교�
 - [ ] **Step 2: 파일 삭제**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 rm apps/desktop/src/components/NoteComposeForm.tsx
 rm apps/desktop/src/components/MirrorTagEditor.tsx
 ```
@@ -984,7 +984,7 @@ Expected: `tsc -b` 0 에러 + `vite build` 정상 종료. 출력에 `dist/` 갱�
 - [ ] **Step 4: Rust 코어 단위 테스트 (변경 없음 확인)**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot && cargo test --workspace
+cd /Volumes/MERCURY/PROJECTS/oximemo && cargo test --workspace
 ```
 
 Expected: 모든 기존 테스트 PASS (변경 없음 확인).
@@ -992,7 +992,7 @@ Expected: 모든 기존 테스트 PASS (변경 없음 확인).
 - [ ] **Step 5: 커밋**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot
+cd /Volumes/MERCURY/PROJECTS/oximemo
 git add -u apps/desktop/src/components/
 git commit -m "refactor(editor): remove NoteComposeForm and MirrorTagEditor
 
@@ -1021,7 +1021,7 @@ chip row visual affordance is now served by TagChipRow."
 - [ ] **Step 7: Tauri 데스크톱 빌드 (재배포 검증)**
 
 ```bash
-cd /Volumes/MERCURY/PROJECTS/oxinot && cargo build -p oxinot-desktop --release
+cd /Volumes/MERCURY/PROJECTS/oximemo && cargo build -p oximemo-desktop --release
 ```
 
 Expected: 정상 종료. 임베드 프론트가 갱신된 새 노트가 들어있는지 빌드 출력 로그로 확인. 본 작업은 빌드까지만 수행. `cargo install --path`/`cp` 단계는 사용자 결정 후 별도 진행(메인 세션에서 코드서명 + 재서명 필요).

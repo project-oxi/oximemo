@@ -1,5 +1,5 @@
 /**
- * Inline `#tag` extraction + highlight, mirroring `crates/oxinot-core/src/tags.rs`.
+ * Inline `#tag` extraction + highlight, mirroring `crates/oximemo-core/src/tags.rs`.
  * A `#` starts a tag only when NOT preceded by a Unicode letter/digit, so chord
  * symbols (`C#m7`) and markdown headings (`# Title`) never match. Extraction
  * normalizes (NFC + lowercase); highlighting preserves the body's display casing.

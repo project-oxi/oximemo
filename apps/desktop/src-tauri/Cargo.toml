@@ -1,18 +1,18 @@
 [package]
-name = "oxinot-desktop"
+name = "oximemo-desktop"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Tauri 2 desktop app for oxinot"
+description = "Tauri 2 desktop app for oximemo"
 
 [lib]
-name = "oxinot_desktop"
+name = "oximemo_desktop"
 path = "src/lib.rs"
 
 [[bin]]
-name = "oxinot-desktop"
+name = "oximemo-desktop"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -31,6 +31,6 @@ tracing-subscriber = { workspace = true }
 parking_lot = "0.12"
 base64 = "0.22"
 
-oxinot-core = { workspace = true }
-oxinot-capture = { workspace = true }
+oximemo-core = { workspace = true }
+oximemo-capture = { workspace = true }
 tauri-macros = "2"

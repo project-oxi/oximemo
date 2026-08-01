@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 본문에 `#태그`를 쓰면 자동 인식되는 파생 모델 + 접이식 사이드바(3상태 복합 필터·색상 필터) + textarea+mirror 인라인 칩 편집기를 oxinot에 도입한다.
+**Goal:** 본문에 `#태그`를 쓰면 자동 인식되는 파생 모델 + 접이식 사이드바(3상태 복합 필터·색상 필터) + textarea+mirror 인라인 칩 편집기를 oximemo에 도입한다.
 
 **Architecture:** 태그는 본문에서 파생(단일 진실 = 서버). Rust 코어에 `extract_tags`·복합 `NoteFilter`·`list_facets`를 두고, `hash_note`에서 tags 인자를 제거한다. 데스크톱 Tauri 명령과 CLI를 새 시그니처로 갱신. 프론트는 `lib/tags.ts`(추출+하이라이트)를 양측(미러 편집기·사이드바)에서 쓰고, `MirrorTagEditor`(textarea+mirror)로 `TagInput`을 대체, `Sidebar` 컴포넌트로 헤더 chip을 대체한다. 브라우저 mock(`tauri.ts`)도 새 API로 미러링.
 
@@ -14,25 +14,25 @@
 
 ## Global Constraints
 
-- macOS 단일 타겟. 프론트 변경은 `cargo build -p oxinot-desktop --release` + `/Applications/oxinot.app/Contents/MacOS/oxinot-desktop` 교체 + `codesign --force --deep -s -` 재서명으로만 앱에 반영됨.
+- macOS 단일 타겟. 프론트 변경은 `cargo build -p oximemo-desktop --release` + `/Applications/oximemo.app/Contents/MacOS/oximemo-desktop` 교체 + `codesign --force --deep -s -` 재서명으로만 앱에 반영됨.
 - Rust `regex` crate 없음 → 추출기는 핸드롤 char 스캐너. TS는 동일 알고리즘을 `/[\p{L}\p{N}_]/u` 술어로 미러링. 양측 정규화 = NFC + 소문자.
 - 태그 강조색 = 주황 app-wide(CSS 변수 `--tag`/`--tag-bg`). 즐겨찾기는 별 아이콘만(주황 미사용).
 - 레거시 태그 마이그레이션 없음(프리릴리즈, 손실 수용).
 - 인라인 칩 클릭→필터, 폴더/중첩태그/스마트필터, hex 오깅 정제는 비목표.
-- 검증: Rust = `cargo test -p oxinot-core` + `cargo clippy --workspace --all-targets -- -D warnings`. 프론트 = `cd apps/desktop && bun run build`(tsc -b + vite). 매 태스크 끝 커밋.
+- 검증: Rust = `cargo test -p oximemo-core` + `cargo clippy --workspace --all-targets -- -D warnings`. 프론트 = `cd apps/desktop && bun run build`(tsc -b + vite). 매 태스크 끝 커밋.
 
 ## File Structure
 
 | 파일 | 역할 |
 |---|---|
-| `crates/oxinot-core/src/tags.rs` (신규) | `extract_tags` — 본문→정규화 태그 벡터 |
-| `crates/oxinot-core/src/note.rs` | `NoteFilter` 복합화 + `Facets` 타입 |
-| `crates/oxinot-core/src/hash.rs` | `hash_note` tags 인자 제거 |
-| `crates/oxinot-core/src/vault.rs` | create/update 파생, `list_facets` 추가 |
-| `crates/oxinot-core/src/store/files.rs` | `read_note` 해시 재계산 갱신 |
-| `crates/oxinot-core/src/lib.rs` | `tags` 모듈 + `Facets` 재수출 |
-| `crates/oxinot-cli/src/commands.rs` | `cmd_new` 접기, `cmd_list` 복합 필터 |
-| `crates/oxinot-cli/src/main.rs` | `--tag` 도움말, `Cmd::List` 필드 |
+| `crates/oximemo-core/src/tags.rs` (신규) | `extract_tags` — 본문→정규화 태그 벡터 |
+| `crates/oximemo-core/src/note.rs` | `NoteFilter` 복합화 + `Facets` 타입 |
+| `crates/oximemo-core/src/hash.rs` | `hash_note` tags 인자 제거 |
+| `crates/oximemo-core/src/vault.rs` | create/update 파생, `list_facets` 추가 |
+| `crates/oximemo-core/src/store/files.rs` | `read_note` 해시 재계산 갱신 |
+| `crates/oximemo-core/src/lib.rs` | `tags` 모듈 + `Facets` 재수출 |
+| `crates/oximemo-cli/src/commands.rs` | `cmd_new` 접기, `cmd_list` 복합 필터 |
+| `crates/oximemo-cli/src/main.rs` | `--tag` 도움말, `Cmd::List` 필드 |
 | `apps/desktop/src-tauri/src/lib.rs` | 명령 시그니처 + `list_facets` + handler |
 | `apps/desktop/src/lib/tags.ts` (신규) | `extractTags` + `highlightTags` |
 | `apps/desktop/src/lib/api.ts` | 시그니처 + `listFacets` |
@@ -55,14 +55,14 @@
 ### Task 1: Rust `extract_tags` 모듈 (TDD)
 
 **Files:**
-- Create: `crates/oxinot-core/src/tags.rs`
-- Modify: `crates/oxinot-core/src/lib.rs` (모듈 선언 + 재수출)
+- Create: `crates/oximemo-core/src/tags.rs`
+- Modify: `crates/oximemo-core/src/lib.rs` (모듈 선언 + 재수출)
 
 **Produces:** `pub fn extract_tags(body: &str) -> Vec<String>`
 
 - [ ] **Step 1: 모듈 골격 + 테스트 작성**
 
-`crates/oxinot-core/src/tags.rs` 생성:
+`crates/oximemo-core/src/tags.rs` 생성:
 
 ```rust
 //! Inline `#tag` extraction from note bodies (§3).
@@ -163,7 +163,7 @@ mod tests {
 }
 ```
 
-`crates/oxinot-core/src/lib.rs`에 모듈 선언 추가(`pub mod hash;` 줄 근처):
+`crates/oximemo-core/src/lib.rs`에 모듈 선언 추가(`pub mod hash;` 줄 근처):
 
 ```rust
 pub mod tags;
@@ -173,13 +173,13 @@ pub mod tags;
 
 - [ ] **Step 2: 테스트 실행 (실→통과 확인)**
 
-Run: `cargo test -p oxinot-core tags::`
+Run: `cargo test -p oximemo-core tags::`
 Expected: 8 tests pass. (구현과 테스트를 함께 작성했으므로 첫 실행에 통과해야 함; 실패하면 알고리즘 버그 — `is_word`/경계 조건 점검.)
 
 - [ ] **Step 3: 커밋**
 
 ```bash
-git add crates/oxinot-core/src/tags.rs crates/oxinot-core/src/lib.rs
+git add crates/oximemo-core/src/tags.rs crates/oximemo-core/src/lib.rs
 git commit -m "feat(core): inline #tag extraction with chord-symbol guard"
 ```
 
@@ -188,13 +188,13 @@ git commit -m "feat(core): inline #tag extraction with chord-symbol guard"
 ### Task 2: 복합 `NoteFilter` + `Facets` 타입 (TDD)
 
 **Files:**
-- Modify: `crates/oxinot-core/src/note.rs` (`NoteFilter` struct + `matches`, `Facets` 추가)
+- Modify: `crates/oximemo-core/src/note.rs` (`NoteFilter` struct + `matches`, `Facets` 추가)
 
 **Produces:** 새 `NoteFilter { include_tags, exclude_tags, match_all, colors, favorites_only, include_deleted }`, `pub struct Facets`, `NoteFilter::matches(&NoteSummary)`.
 
 - [ ] **Step 1: `NoteFilter` 교체 + `Facets` 추가 + matches 테스트**
 
-`crates/oxinot-core/src/note.rs`의 기존 `NoteFilter`(242–265줄) 전체를 다음으로 교체:
+`crates/oximemo-core/src/note.rs`의 기존 `NoteFilter`(242–265줄) 전체를 다음으로 교체:
 
 ```rust
 /// Filter applied to listings (§4.3, §7.5). Composite: include-tag set
@@ -322,13 +322,13 @@ mod filter_tests {
 
 - [ ] **Step 2: 테스트 실행**
 
-Run: `cargo test -p oxinot-core note::filter_tests`
-Expected: 3 pass. (컴파일 에러 = 다른 파일의 구 `NoteFilter { tag, .. }` 리터럴 때문 — Task 4/5/6에서 정리. 이 태스크에서는 `note.rs` 자체 컴파일만 확인: `cargo build -p oxinot-core`는 실패 가능. 대신 `cargo test -p oxinot-core note::filter_tests`가 crate 전체를 컴파일하므로 구 리터럴 때문에 실패함. 따라서 **이 태스크는 Task 3(해시)과 함께 먼저 컴파일 깨짐을 감수**하고, Task 4·5·6에서 모든 호출부를 고친 뒤 전체가 통과. 진행 순서상 Task 2·3·4·5·6을 연속으로 끝낸 뒤 `cargo test`/`clippy`를 한 번에 돌린다.)
+Run: `cargo test -p oximemo-core note::filter_tests`
+Expected: 3 pass. (컴파일 에러 = 다른 파일의 구 `NoteFilter { tag, .. }` 리터럴 때문 — Task 4/5/6에서 정리. 이 태스크에서는 `note.rs` 자체 컴파일만 확인: `cargo build -p oximemo-core`는 실패 가능. 대신 `cargo test -p oximemo-core note::filter_tests`가 crate 전체를 컴파일하므로 구 리터럴 때문에 실패함. 따라서 **이 태스크는 Task 3(해시)과 함께 먼저 컴파일 깨짐을 감수**하고, Task 4·5·6에서 모든 호출부를 고친 뒤 전체가 통과. 진행 순서상 Task 2·3·4·5·6을 연속으로 끝낸 뒤 `cargo test`/`clippy`를 한 번에 돌린다.)
 
 - [ ] **Step 3: 커밋 (호출부 정리 전, WIP 허용)**
 
 ```bash
-git add crates/oxinot-core/src/note.rs
+git add crates/oximemo-core/src/note.rs
 git commit -m "refactor(core): composite NoteFilter + Facets type"
 ```
 
@@ -337,11 +337,11 @@ git commit -m "refactor(core): composite NoteFilter + Facets type"
 ### Task 3: `hash_note`에서 tags 제거
 
 **Files:**
-- Modify: `crates/oxinot-core/src/hash.rs` (`hash_note` 시그니처 + 본문 + 테스트)
+- Modify: `crates/oximemo-core/src/hash.rs` (`hash_note` 시그니처 + 본문 + 테스트)
 
 - [ ] **Step 1: `hash_note` 갱신**
 
-`crates/oxinot-core/src/hash.rs` 81–95줄(`hash_note`)을 다음으로 교체:
+`crates/oximemo-core/src/hash.rs` 81–95줄(`hash_note`)을 다음으로 교체:
 
 ```rust
 /// Hash a note's full meaningful state: body + favorite + color (§5.3).
@@ -404,7 +404,7 @@ pub fn hash_note(body: &[u8], favorite: bool, color: &str) -> NoteHash {
 - [ ] **Step 2: 커밋**
 
 ```bash
-git add crates/oxinot-core/src/hash.rs
+git add crates/oximemo-core/src/hash.rs
 git commit -m "refactor(core): drop tags from note hash (body-derived)"
 ```
 
@@ -413,8 +413,8 @@ git commit -m "refactor(core): drop tags from note hash (body-derived)"
 ### Task 4: Vault — 파생 태그 + `list_facets`
 
 **Files:**
-- Modify: `crates/oxinot-core/src/vault.rs`
-- Modify: `crates/oxinot-core/src/store/files.rs` (`read_note` 해시 호출)
+- Modify: `crates/oximemo-core/src/vault.rs`
+- Modify: `crates/oximemo-core/src/store/files.rs` (`read_note` 해시 호출)
 
 **Consumes:** `crate::tags::extract_tags`, 새 `hash_note(body, favorite, color)`, `Facets`.
 
@@ -531,7 +531,7 @@ git commit -m "refactor(core): drop tags from note hash (body-derived)"
 
 - [ ] **Step 5: `store/files.rs` `read_note` 해시 갱신**
 
-`crates/oxinot-core/src/store/files.rs` 148줄을 새 시그니처로 + 본문 재파생:
+`crates/oximemo-core/src/store/files.rs` 148줄을 새 시그니처로 + 본문 재파생:
 
 ```rust
                 let tags = crate::tags::extract_tags(&body);
@@ -552,7 +552,7 @@ git commit -m "refactor(core): drop tags from note hash (body-derived)"
 
 - [ ] **Step 6: `lib.rs` 재수출에 `Facets` 추가**
 
-`crates/oxinot-core/src/lib.rs` 27–30줄 재수출 블록에 `Facets` 추가:
+`crates/oximemo-core/src/lib.rs` 27–30줄 재수출 블록에 `Facets` 추가:
 
 ```rust
 pub use note::{
@@ -564,7 +564,7 @@ pub use note::{
 - [ ] **Step 7: 커밋**
 
 ```bash
-git add crates/oxinot-core/src/vault.rs crates/oxinot-core/src/store/files.rs crates/oxinot-core/src/lib.rs
+git add crates/oximemo-core/src/vault.rs crates/oximemo-core/src/store/files.rs crates/oximemo-core/src/lib.rs
 git commit -m "feat(core): derive tags from body + list_facets"
 ```
 
@@ -573,15 +573,15 @@ git commit -m "feat(core): derive tags from body + list_facets"
 ### Task 5: CLI 새 시그니처 적응
 
 **Files:**
-- Modify: `crates/oxinot-cli/src/commands.rs`
-- Modify: `crates/oxinot-cli/src/main.rs`
+- Modify: `crates/oximemo-cli/src/commands.rs`
+- Modify: `crates/oximemo-cli/src/main.rs`
 
 - [ ] **Step 1: `cmd_new` — `--tag`을 본문으로 접기**
 
-`crates/oxinot-cli/src/commands.rs` `cmd_new`(14–37줄)을 다음으로 교체:
+`crates/oximemo-cli/src/commands.rs` `cmd_new`(14–37줄)을 다음으로 교체:
 
 ```rust
-/// `oxinot new` — capture a note from an argument or stdin.
+/// `oximemo new` — capture a note from an argument or stdin.
 ///
 /// `--tag` values are folded into the body as inline `#tag` tokens so the
 /// derived model picks them up (the core no longer takes a tags argument).
@@ -629,7 +629,7 @@ pub fn cmd_new(
 `cmd_list`(40–54줄) 시그니처 + 본문 교체:
 
 ```rust
-/// `oxinot list`.
+/// `oximemo list`.
 pub fn cmd_list(
     vault: &Vault,
     limit: u32,
@@ -650,7 +650,7 @@ pub fn cmd_list(
 
 - [ ] **Step 3: `main.rs` — `Cmd::List.tag` 타입 + 도움말**
 
-`crates/oxinot-cli/src/main.rs`의 `Cmd::List` 변형에서 `tag` 필드(51–52줄 근처)를 다음으로 교체(repeatable):
+`crates/oximemo-cli/src/main.rs`의 `Cmd::List` 변형에서 `tag` 필드(51–52줄 근처)를 다음으로 교체(repeatable):
 
 ```rust
         /// Include notes with this tag (repeatable; OR).
@@ -671,7 +671,7 @@ pub fn cmd_list(
 - [ ] **Step 4: 커밋**
 
 ```bash
-git add crates/oxinot-cli/src/commands.rs crates/oxinot-cli/src/main.rs
+git add crates/oximemo-cli/src/commands.rs crates/oximemo-cli/src/main.rs
 git commit -m "feat(cli): fold --tag into body + repeatable list filter"
 ```
 
@@ -697,7 +697,7 @@ git commit -m "feat(cli): fold --tag into body + repeatable list filter"
         match_all: bool,
         colors: Vec<String>,
         favorites_only: bool,
-    ) -> Result<oxinot_core::Page<oxinot_core::NoteSummary>, String> {
+    ) -> Result<oximemo_core::Page<oximemo_core::NoteSummary>, String> {
         let after = match after {
             Some(s) => Some(Cursor::parse(&s).map_err(|e| e.to_string())?),
             None => None,
@@ -728,7 +728,7 @@ git commit -m "feat(cli): fold --tag into body + repeatable list filter"
         app: AppHandle,
         body: String,
         color: Option<String>,
-    ) -> Result<oxinot_core::Note, String> {
+    ) -> Result<oximemo_core::Note, String> {
         let note = state
             .vault
             .create_note(body, color)
@@ -751,7 +751,7 @@ git commit -m "feat(cli): fold --tag into body + repeatable list filter"
         body: Option<String>,
         favorite: Option<bool>,
         color: Option<String>,
-    ) -> Result<oxinot_core::Note, String> {
+    ) -> Result<oximemo_core::Note, String> {
         let id = NoteId::parse(&id).map_err(|e| e.to_string())?;
         let note = state
             .vault
@@ -768,7 +768,7 @@ git commit -m "feat(cli): fold --tag into body + repeatable list filter"
 
 ```rust
     #[tauri::command]
-    pub fn list_facets(state: State<'_, AppState>) -> Result<oxinot_core::Facets, String> {
+    pub fn list_facets(state: State<'_, AppState>) -> Result<oximemo_core::Facets, String> {
         state.vault.list_facets().map_err(|e| e.to_string())
     }
 ```
@@ -777,7 +777,7 @@ git commit -m "feat(cli): fold --tag into body + repeatable list filter"
 
 - [ ] **Step 5: 코어+CLI+Tauri 전체 검증**
 
-Run: `cargo test -p oxinot-core && cargo clippy --workspace --all-targets -- -D warnings`
+Run: `cargo test -p oximemo-core && cargo clippy --workspace --all-targets -- -D warnings`
 Expected: 모든 테스트 통과, clippy 경고 0. (Task 2·3·4의 컴파일 깨짐이 여기서 해소되어야 함. 실패 시 구 `NoteFilter { tag }`/구 `hash_note` 4인자 호출 잔여분 grep: `rg "tag," crates ; rg "hash_note\(" crates`.)
 
 - [ ] **Step 6: 커밋**
@@ -802,7 +802,7 @@ git commit -m "feat(desktop): composite filter + list_facets tauri commands"
 
 ```ts
 /**
- * Inline `#tag` extraction + highlight, mirroring `crates/oxinot-core/src/tags.rs`.
+ * Inline `#tag` extraction + highlight, mirroring `crates/oximemo-core/src/tags.rs`.
  * A `#` starts a tag only when NOT preceded by a Unicode letter/digit, so chord
  * symbols (`C#m7`) and markdown headings (`# Title`) never match. Extraction
  * normalizes (NFC + lowercase); highlighting preserves the body's display casing.
@@ -1384,7 +1384,7 @@ interface UIState {
   setDraftId: (id: string | null) => void;
 }
 
-const COLLAPSED_KEY = "oxinot.sidebarCollapsed";
+const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
 function loadCollapsed(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(COLLAPSED_KEY) === "1";
@@ -1722,9 +1722,9 @@ Expected: 통과.
 
 Run:
 ```bash
-cargo build -p oxinot-desktop --release
-cp target/release/oxinot-desktop /Applications/oxinot.app/Contents/MacOS/oxinot-desktop
-codesign --force --deep -s - /Applications/oxinot.app
+cargo build -p oximemo-desktop --release
+cp target/release/oximemo-desktop /Applications/oximemo.app/Contents/MacOS/oximemo-desktop
+codesign --force --deep -s - /Applications/oximemo.app
 ```
 Expected: 교체 성공, 서명 완료.
 

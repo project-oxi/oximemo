@@ -1,4 +1,4 @@
-# 이미지 삽입 기능 설계 — oxinot
+# 이미지 삽입 기능 설계 — oximemo
 
 > 상태: 설계 (사용자 자리 비움 → 승인 게이트 면제, 자율 진행)
 > 날짜: 2026-08-01
@@ -47,7 +47,7 @@
 
 ## 4. 백엔드 (Rust)
 
-### oxinot-core
+### oximemo-core
 - `paths.rs`: `ASSETS_DIR="assets"`, `Paths::assets_root()`, `Paths::asset_path(name)`.
 - `error.rs`: `CoreError::AssetRejected(String)` (확장자/MIME 거부), `AssetInvalid(String)` (경로 순회 등).
 - `vault.rs`: 에셋 메서드 (록 불필요 — 파일 I/O만):
@@ -75,7 +75,7 @@
   - `listAssets()`, `gcAssets()`.
   - `OXIMG_RE = /!\[([^\]]*)\]\(oximg:\/\/([^)\s#?]+)(?:\?[^)]*)?(?:#([^)]*))?\)/g`.
   - `markdownForImage(url, alt, w?)`.
-  - browser dev IDB 헬퍼 (`oxinot-assets` db, key `<hash>.<ext>` → Uint8Array).
+  - browser dev IDB 헬퍼 (`oximemo-assets` db, key `<hash>.<ext>` → Uint8Array).
 - `lib/cm6Images.ts`: `imageInsertionExtension({ onInsert, viewRef })` — `EditorView.domEventHandlers({ paste, drop, dragover })`. 이미지 File 추출 → `onInsert` 콜백(업로드+dispatch). `ViewPlugin.fromClass`로 `viewRef.current = view`. 비-이미지는 false 반환.
 - `components/MarkdownEditor.tsx`: `extensions` prop에 cm6Images 전달. browser dev용 MutationObserver(blob 치환) + 너비 fragment(`#w=`) → img style 적용 + 리사이즈 핸들.
 - `components/MemoEditorForm.tsx`: `onInsert` 콜백(업로드 진행 토스트). 툴바에 이미지 버튼(Image 아이콘) → `tauri-plugin-dialog` open → `saveImageFromPath` → viewRef로 dispatch. ⌘I 단축키.
@@ -99,5 +99,5 @@
 
 ## 8. 검증
 - `cargo build` (core + desktop), `tsc -b && vite build` (프론트).
-- `cargo test` -P oxinot-core (에셋 저장/dedup/gc 단위 테스트).
+- `cargo test` -P oximemo-core (에셋 저장/dedup/gc 단위 테스트).
 - 스모크: 메모에 이미지 드롭/붙여넣기 → 본문에 `oximg://` 삽입 → 렌더 → 저장 → 재오픈 시 표시 → 갤러리 등장.

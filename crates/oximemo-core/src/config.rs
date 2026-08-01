@@ -176,7 +176,7 @@ impl VaultConfig {
         }
     }
 
-    /// Serialize back to TOML text (used by `oxinot` config init / doctor).
+    /// Serialize back to TOML text (used by `oximemo` config init / doctor).
     pub fn to_toml(&self) -> Result<String, toml::ser::Error> {
         toml::to_string_pretty(self)
     }

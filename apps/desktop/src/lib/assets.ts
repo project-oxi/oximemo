@@ -135,7 +135,7 @@ async function contentName(bytes: Uint8Array, ext: string): Promise<string> {
 // `Promise.withResolvers`, which lands only in Safari 17.4+ while the app's
 // minimum is macOS 14.0 / Safari 17.0).
 
-const DB_NAME = "oxinot-assets";
+const DB_NAME = "oximemo-assets";
 const STORE = "kv";
 const blobCache = new Map<string, string>();
 

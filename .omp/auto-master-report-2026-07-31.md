@@ -2,7 +2,7 @@
 
 > **실행 시점:** 2026-07-31 07:30 KST (UTC+9)
 > **실행 모델:** `zai/glm-5.2` (smol도 무방)
-> **CWD:** `/Volumes/MERCURY/PROJECTS/oxinot`
+> **CWD:** `/Volumes/MERCURY/PROJECTS/oximemo`
 > **의뢰인:** 사용자
 
 ---
@@ -20,11 +20,11 @@
 | 시간 | 프로젝트 | 요약 파일 |
 |---|---|---|
 | 02:00 | oxios | `/tmp/oxi-reports/oxios.md` |
-| 03:00 | oxinot/oxipage/oxios | `/tmp/oxi-reports/design-farmer.md` |
+| 03:00 | oximemo/oxipage/oxios | `/tmp/oxi-reports/design-farmer.md` |
 | 04:00 | oxi | `/tmp/oxi-reports/oxi.md` |
 | 05:00 | oxipage | `/tmp/oxi-reports/oxipage.md` |
 | 05:30 | oxiline | `/tmp/oxi-reports/oxiline.md` |
-| 06:00 | oxinot | `/tmp/oxi-reports/oxinot.md` |
+| 06:00 | oximemo | `/tmp/oxi-reports/oximemo.md` |
 
 ---
 
@@ -83,8 +83,8 @@ ls -la /tmp/oxi-reports/*.md 2>/dev/null
 
 ---
 
-## 6. 06:00 — Oxinot: 앱 개선
-[oxinot 요약 내용]
+## 6. 06:00 — Oximemo: 앱 개선
+[oximemo 요약 내용]
 
 ---
 
@@ -93,11 +93,11 @@ ls -la /tmp/oxi-reports/*.md 2>/dev/null
 | 프로젝트 | 작업 | 상태 | 비고 |
 |---|---|---|---|
 | oxios | Scheduled Task 기능 | ✅/❌ | |
-| oxinot/oxipage/oxios | 통합 DESIGN.md | ✅/❌ | |
+| oximemo/oxipage/oxios | 통합 DESIGN.md | ✅/❌ | |
 | oxi | TUI 레이아웃 | ✅/❌ | |
 | oxipage | Console 개선 | ✅/❌ | |
 | oxiline | UI 리디자인 | ✅/❌ | |
-| oxinot | 앱 개선 | ✅/❌ | |
+| oximemo | 앱 개선 | ✅/❌ | |
 ```
 
 ### 4. 이메일 발송
@@ -124,7 +124,7 @@ tail -30 /tmp/{project}-auto-task.stdout.log 2>/dev/null
 - `/tmp/oxi-auto-fix.stdout.log`
 - `/tmp/oxipage-auto-fix.stdout.log`
 - `/tmp/oxiline-auto-fix.stdout.log`
-- `/tmp/oxinot-auto-fix.stdout.log`
+- `/tmp/oximemo-auto-fix.stdout.log`
 
 ---
 

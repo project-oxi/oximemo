@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to oxinot are documented in this file.
+All notable changes to oximemo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gallery GC** now logs a warning when an unparseable memo's image refs
   cannot be counted.
 - Removed the dead `CoreError::AssetInvalid` variant.
-- **`oxinot` CLI did not compile** — `format.rs` still referenced the removed
+- **`oximemo` CLI did not compile** — `format.rs` still referenced the removed
   `color` field after the category refactor; updated to `category`.
 
 ## [0.3.0] — 2026-07-30
@@ -108,7 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   perceptually-uniform preset palette, replacing the old string enum.
 - **`config.toml`** — full vault configuration schema (retention, capture,
   appearance, index tuning) with forward-compatible parsing.
-- **`oxinot doctor`** — 8-point vault/index consistency audit with a safe
+- **`oximemo doctor`** — 8-point vault/index consistency audit with a safe
   `--fix` mode (never deletes files).
 
 ### Changed
@@ -125,12 +125,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Option` double-tap global capture overlay, with a `Cmd+Shift+N` fallback
   shortcut and a menu-bar status item.
 - Note CRUD, soft-delete trash, and purge with configurable retention.
-- `oxinot` CLI: `new`, `list`, `get`, `search`, `export`, `delete`, `purge`,
+- `oximemo` CLI: `new`, `list`, `get`, `search`, `export`, `delete`, `purge`,
   `reindex`, `doctor`, `vault path` — JSON/NDJSON-first for agent consumption.
-- Agent integration via `skills/oxinot/SKILL.md`.
+- Agent integration via `skills/oximemo/SKILL.md`.
 - Light/dark mode following the macOS system appearance.
 
-[Unreleased]: https://github.com/a7garden/oxinot/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/a7garden/oxinot/releases/tag/v0.3.0
-[0.2.0]: https://github.com/a7garden/oxinot/releases/tag/v0.2.0
-[0.1.0]: https://github.com/a7garden/oxinot/releases/tag/v0.1.0
+[Unreleased]: https://github.com/a7garden/oximemo/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/a7garden/oximemo/releases/tag/v0.3.0
+[0.2.0]: https://github.com/a7garden/oximemo/releases/tag/v0.2.0
+[0.1.0]: https://github.com/a7garden/oximemo/releases/tag/v0.1.0

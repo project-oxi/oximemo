@@ -1,11 +1,11 @@
 ---
-name: oxinot
-description: Read, write, and search the user's oxinot memo vault from the shell. Use when the user wants to capture a thought, recall a memo, list/search their notes, sync the vault, or operate the oxinot CLI. Triggers on phrases like "save a memo", "create a memo", "list my notes", "search memos for X", "what did I write about Y", "purge the trash", "show the vault path", or any direct invocation of the `oxinot` binary.
+name: oximemo
+description: Read, write, and search the user's oximemo memo vault from the shell. Use when the user wants to capture a thought, recall a memo, list/search their notes, sync the vault, or operate the oximemo CLI. Triggers on phrases like "save a memo", "create a memo", "list my notes", "search memos for X", "what did I write about Y", "purge the trash", "show the vault path", or any direct invocation of the `oximemo` binary.
 ---
 
-# oxinot
+# oximemo
 
-`oxinot` is a fast, minimal card-based memo capture app. The CLI is the
+`oximemo` is a fast, minimal card-based memo capture app. The CLI is the
 authoritative agent interface: human/agent parity — every operation the GUI
 can do, the CLI can do, and vice versa. The vault is a directory of plain
 `.md` files (the source of truth), backed by an in-process redb + tantivy
@@ -14,16 +14,16 @@ index that the CLI reads/writes transparently.
 ## When to use
 
 - The user wants to **capture a thought quickly** (one line, no formatting
-  friction) — `oxinot new`.
-- The user wants to **list recent memos** — `oxinot list`.
-- The user wants to **search notes** by keyword — `oxinot search` (BM25 over
+  friction) — `oximemo new`.
+- The user wants to **list recent memos** — `oximemo list`.
+- The user wants to **search notes** by keyword — `oximemo search` (BM25 over
   body and tags).
-- The user wants to **read a specific memo** — `oxinot get <id>`.
+- The user wants to **read a specific memo** — `oximemo get <id>`.
 - The user wants to **sync the vault** with an external cache (read manifest
-  → diff hashes → fetch changed bodies) — `oxinot export`.
-- The user wants to **soft-delete** (`oxinot delete`) or **purge the trash**
-  (`oxinot purge`).
-- The user wants to **audit / repair** the vault — `oxinot doctor [--fix]`.
+  → diff hashes → fetch changed bodies) — `oximemo export`.
+- The user wants to **soft-delete** (`oximemo delete`) or **purge the trash**
+  (`oximemo purge`).
+- The user wants to **audit / repair** the vault — `oximemo doctor [--fix]`.
 
 Do **not** use this skill for: editing arbitrary files, writing prose with
 formatting, or anything that needs a WYSIWYG. The MVP design explicitly
@@ -31,25 +31,25 @@ excludes rich text, AI features, and wikilinks (§3 of `doc/DESIGN.md`).
 
 ## Discovery
 
-- The vault path is the user vault under `~/Library/Application Support/com.oxinot.app/vault/` by default. Override with `--vault <PATH>` (also see the env var `OXINOT_VAULT`).
-- Quick check: `oxinot vault path` prints the resolved root.
+- The vault path is the user vault under `~/Library/Application Support/com.oximemo.app/vault/` by default. Override with `--vault <PATH>` (also see the env var `OXIMEMO_VAULT`).
+- Quick check: `oximemo vault path` prints the resolved root.
 - A memo's `id` is a UUIDv7 string (e.g. `019fa927-a897-7e12-9102-8a8c7ebbb594`).
 
 ## Command reference
 
 ```bash
-oxinot new [TEXT] [--tag TAG]… [--color "oklch(0.75 0.15 75)"]
+oximemo new [TEXT] [--tag TAG]… [--color "oklch(0.75 0.15 75)"]
   # TEXT may be omitted: stdin is read. Empty memos are rejected.
 
-oxinot list [--limit N] [--tag T] [--favorites]
+oximemo list [--limit N] [--tag T] [--favorites]
             [--format table|json|ndjson]   # default: table (human)
 
-oxinot get <ID> [--md]
+oximemo get <ID> [--md]
   # --md emits the raw .md file (frontmatter + body). Default is JSON.
 
-oxinot search <QUERY> [--limit N] [--format json|ndjson]
+oximemo search <QUERY> [--limit N] [--format json|ndjson]
 
-oxinot export [--since RFC3339]
+oximemo export [--since RFC3339]
               [--ids a,b,c | --ids-file PATH | --ids-stdin]
               [--full]
               [--format ndjson|json]
@@ -57,11 +57,11 @@ oxinot export [--since RFC3339]
   # With --full:    emits full memo bodies (id, body, tags, color, ...).
   # Default format is NDJSON (line-delimited JSON, streaming-friendly).
 
-oxinot delete <ID>            # soft-delete (moves to .trash/)
-oxinot purge [--older-than 30d]
-oxinot reindex                 # rebuild indexes from files
-oxinot doctor [--fix]          # audit / repair
-oxinot vault path              # print the vault path
+oximemo delete <ID>            # soft-delete (moves to .trash/)
+oximemo purge [--older-than 30d]
+oximemo reindex                 # rebuild indexes from files
+oximemo doctor [--fix]          # audit / repair
+oximemo vault path              # print the vault path
 ```
 
 `--ids`, `--ids-file`, and `--ids-stdin` are mutually exclusive; combining
@@ -84,7 +84,7 @@ The body-less design keeps the manifest cheap regardless of memo size.
 
 1. **Fetch the manifest since your last cursor:**
    ```bash
-   oxinot export --since "$CURSOR" --format ndjson > manifest.ndjson
+   oximemo export --since "$CURSOR" --format ndjson > manifest.ndjson
    ```
 2. **Diff against your local `id → hash` cache** (do this in your code):
    - `id` not in your cache → **fetch**.
@@ -93,12 +93,12 @@ The body-less design keeps the manifest cheap regardless of memo size.
    - `deleted: true` → **drop** from your cache.
 3. **Fetch changed memos in bulk.** For small batches:
    ```bash
-   oxinot export --ids a,b,c --full --format ndjson
+   oximemo export --ids a,b,c --full --format ndjson
    ```
    For large batches (the macOS `ARG_MAX` is ~256 KB) use one of:
    ```bash
-   oxinot export --ids-file ids.txt --full --format ndjson
-   cat ids.txt | oxinot export --ids-stdin --full --format ndjson
+   oximemo export --ids-file ids.txt --full --format ndjson
+   cat ids.txt | oximemo export --ids-stdin --full --format ndjson
    ```
 4. **Advance your cursor** to the max `updated_at` you saw. Repeat.
 
@@ -111,7 +111,7 @@ change a color) bumps the hash, so the diff correctly flags it.
 
 The vault is plain `.md` files with TOML frontmatter. You may read or edit
 them with any tool. **If you write a file directly**, observe these rules
-(or the file will be flagged by `oxinot doctor` and skipped by the
+(or the file will be flagged by `oximemo doctor` and skipped by the
 indexer):
 
 1. The **first line** must be exactly `+++` for frontmatter to exist.
@@ -126,51 +126,51 @@ indexer):
 
 The index/watcher will pick up your change within the debounce window
 (default 300 ms) and re-index automatically — there is no need to run
-`oxinot reindex` for ordinary writes. If you bulk-edit many files, run
-`oxinot reindex` once to flush.
+`oximemo reindex` for ordinary writes. If you bulk-edit many files, run
+`oximemo reindex` once to flush.
 
-**Do not** delete `.trash` files yourself; use `oxinot purge` so the
+**Do not** delete `.trash` files yourself; use `oximemo purge` so the
 metadata index stays consistent.
 
 ## Quick recipes
 
 - **Capture a thought during a session:** echo the body over stdin.
   ```bash
-  echo "Bump redb to 2.6 next sprint" | oxinot new --tag backlog
+  echo "Bump redb to 2.6 next sprint" | oximemo new --tag backlog
   ```
 - **List favorite memos:**
   ```bash
-  oxinot list --favorites --limit 10 --format ndjson
+  oximemo list --favorites --limit 10 --format ndjson
   ```
 - **Search for a term and pull the top hit's body:**
   ```bash
-  ID=$(oxinot search "redb upgrade" --format ndjson | head -1 | jq -r .id)
-  oxinot get "$ID" --md
+  ID=$(oximemo search "redb upgrade" --format ndjson | head -1 | jq -r .id)
+  oximemo get "$ID" --md
   ```
 - **Print the manifest for a calendar day:**
   ```bash
   SINCE=$(date -u -v-1d +%Y-%m-%dT00:00:00Z 2>/dev/null || date -u --date='1 day ago' +%Y-%m-%dT00:00:00Z)
-  oxinot export --since "$SINCE" --format ndjson
+  oximemo export --since "$SINCE" --format ndjson
   ```
 - **Audit and repair:**
   ```bash
-  oxinot doctor          # report
-  oxinot doctor --fix    # apply safe repairs (never deletes files)
+  oximemo doctor          # report
+  oximemo doctor --fix    # apply safe repairs (never deletes files)
   ```
 - **Find the vault on disk:**
   ```bash
-  oxinot vault path
+  oximemo vault path
   ```
 
 ## Error handling
 
 - The CLI exits non-zero on any error; the first line of stderr is the
   message; subsequent lines include the chain (e.g. lock timeout).
-- `LockTimeout` means another oxinot process is currently using the
+- `LockTimeout` means another oximemo process is currently using the
   index (likely the desktop app is open). The wait is 5 seconds; after
   that, retry or back off.
 - `Frontmatter` errors name the file and the reason; fix the file's
-  TOML or run `oxinot doctor --fix` for safe repairs.
+  TOML or run `oximemo doctor --fix` for safe repairs.
 
 ## Concurrency and locks
 
@@ -187,5 +187,5 @@ retry.
 - Wikilinks / backlinks / graph (deferred to v0.3+).
 - AI summaries, embeddings, or semantic search (deferred, §14).
 - Synchronizing across machines; the vault lives on one host at a time.
-  Move the vault directory (and re-run `oxinot reindex` on the new host)
+  Move the vault directory (and re-run `oximemo reindex` on the new host)
   if you need to migrate.

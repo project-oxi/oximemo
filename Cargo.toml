@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/oxinot-core",
-    "crates/oxinot-cli",
-    "crates/oxinot-capture",
+    "crates/oximemo-core",
+    "crates/oximemo-cli",
+    "crates/oximemo-capture",
     "apps/desktop/src-tauri",
 ]
 
@@ -11,10 +11,10 @@ members = [
 version = "0.4.0"
 edition = "2024"
 rust-version = "1.89"
-authors = ["oxinot"]
+authors = ["oximemo"]
 license = "MIT"
-repository = "https://github.com/project-oxi/oxinot"
-homepage = "https://github.com/project-oxi/oxinot"
+repository = "https://github.com/a7garden/oximemo"
+homepage = "https://github.com/a7garden/oximemo"
 
 # Centralized dependency versions. Crates opt in with `dep.workspace = true`.
 [workspace.dependencies]
@@ -51,8 +51,8 @@ thiserror = "2"
 anyhow = "1"
 
 # Internal crates
-oxinot-core = { path = "crates/oxinot-core" }
-oxinot-capture = { path = "crates/oxinot-capture" }
+oximemo-core = { path = "crates/oximemo-core" }
+oximemo-capture = { path = "crates/oximemo-capture" }
 
 [profile.release]
 codegen-units = 1

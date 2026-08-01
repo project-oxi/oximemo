@@ -2,7 +2,7 @@
 // same keys with string values. `en.ts` derives from this via
 // `Record<keyof typeof dict, string>` so missing keys are a compile error.
 export const dict = {
-  app_title: "oxinot",
+  app_title: "oximemo",
   search_placeholder: "검색",
   empty_hint: "아직 메모가 없어요. 캡처를 시작해 보세요.",
   new_memo: "새 메모",

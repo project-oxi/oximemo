@@ -3,11 +3,11 @@
 > **한 문장:** 잉크 위 종이(Ink on paper) — 중성의 따뜻한 표면, 헤어라인 보더, 무게 중심의 위계. 색은 데이터이지 장식이 아니다.
 >
 > **버전:** v1.0 · **작성일:** 2026-07-31 · **작성 모델:** `zai/glm-5.2` (design-farmer Phase 4.5)
-> **적용 범위:** `oxinot` (Tauri 2 · macOS), `oxipage` (Vite · web), `oxios` (Vite · web)
+> **적용 범위:** `oximemo` (Tauri 2 · macOS), `oxipage` (Vite · web), `oxios` (Vite · web)
 
-이 문서는 oxi 생태계 세 프로젝트가 공유하는 **단일 디자인 문법**을 정의한다. oxinot의 스타일(캡처 우선 철학, OKLCH 6-hue 라벨 팔레트, 미니멀 카드 그리드)을 기준 레퍼런스로 삼고, oxipage·oxios의 패턴을 그 위로 통합했다. 모든 토큰 값은 세 프로젝트의 실제 CSS 파일에서 추출·검증했다.
+이 문서는 oxi 생태계 세 프로젝트가 공유하는 **단일 디자인 문법**을 정의한다. oximemo의 스타일(캡처 우선 철학, OKLCH 6-hue 라벨 팔레트, 미니멀 카드 그리드)을 기준 레퍼런스로 삼고, oxipage·oxios의 패턴을 그 위로 통합했다. 모든 토큰 값은 세 프로젝트의 실제 CSS 파일에서 추출·검증했다.
 
-> **정보 출처(verified):** `oxios/web/src/index.css`(3-tier 구현 완료), `oxipage/web/src/shared/tokens.css`(v1), `oxinot/apps/desktop/src/app.css` + `lib/color.ts`(레거시 hex, OKLCH 팔레트 보유), 그리고 정규 스펙 `oxi-design-system` 매니지드 스킬.
+> **정보 출처(verified):** `oxios/web/src/index.css`(3-tier 구현 완료), `oxipage/web/src/shared/tokens.css`(v1), `oximemo/apps/desktop/src/app.css` + `lib/color.ts`(레거시 hex, OKLCH 팔레트 보유), 그리고 정규 스펙 `oxi-design-system` 매니지드 스킬.
 
 ---
 
@@ -17,19 +17,19 @@
 |---|---|---|---|---|---|
 | **oxios** | ✅ 3-tier 완료 | `.dark` | SUIT (Geist fallback) | SUITE | 가장 앞서 있음 |
 | **oxipage** | ⚠️ v1 (`[data-theme]`) | `[data-theme]` → `.dark` | Pretendard → SUIT | Fraunces → SUITE | 마이그레이션 필요 |
-| **oxinot** | ⚠️ 레거시 hex | `.dark` ✅ | Inter/Pretendard → SUIT | SUITE | `color.ts`는 OKLCH 보유 |
+| **oximemo** | ⚠️ 레거시 hex | `.dark` ✅ | Inter/Pretendard → SUIT | SUITE | `color.ts`는 OKLCH 보유 |
 
-이 문서의 토큰 값은 **oxios가 이미 구현한 정규(canonical) 값**이며, oxipage·oxinot이 마이그레이션해야 할 목표치다.
+이 문서의 토큰 값은 **oxios가 이미 구현한 정규(canonical) 값**이며, oxipage·oximemo이 마이그레이션해야 할 목표치다.
 
 ---
 
 ## 1. Design Philosophy
 
-세 프로젝트의 원칙을 우선순위대로 통합했다. 1·2·3위는 oxinot에서, 4위는 oxipage에서, 5위는 oxios에서 가져왔다.
+세 프로젝트의 원칙을 우선순위대로 통합했다. 1·2·3위는 oximemo에서, 4위는 oxipage에서, 5위는 oxios에서 가져왔다.
 
-1. **캡처는 마찰이 없어야 한다** (oxinot). 가장 빠른 경로가 이긴다. 디자인은 결코 사용자를 기다리게 만들지 않는다.
-2. **파일이 진실이다** (oxinot). CSS 변수는 시맨틱 토큰의 별칭일 뿐이다. 컴포넌트에서 프리미티브를 직접 손대지 않는다.
-3. **적을수록 좋다** (oxinot). 장식적 크롬, AI 기본값 그라디언트, "Inter = 정체성"은 없다.
+1. **캡처는 마찰이 없어야 한다** (oximemo). 가장 빠른 경로가 이긴다. 디자인은 결코 사용자를 기다리게 만들지 않는다.
+2. **파일이 진실이다** (oximemo). CSS 변수는 시맨틱 토큰의 별칭일 뿐이다. 컴포넌트에서 프리미티브를 직접 손대지 않는다.
+3. **적을수록 좋다** (oximemo). 장식적 크롬, AI 기본값 그라디언트, "Inter = 정체성"은 없다.
 4. **종이와 잉크** (oxipage). 중성 표면에 하나의 절제된 악센트 — 단, 그 악센트는 **6-hue 팔레트**이지 단일 색이 아니다.
 5. **상태는 차분하다** (oxios). 상태색은 의미로 무게를 얻는다. 그 외 어떤 것도 색을 갖지 않는다.
 
@@ -49,7 +49,7 @@
 
 ### 2.1 왜 OKLCH인가
 
-oxinot §7.7과 oxipage §3.2에서 상속:
+oximemo §7.7과 oxipage §3.2에서 상속:
 
 - **지각적 균일성.** 같은 L → 색상에 무관하게 동일한 체감 밝기. 카드 왼쪽 색상 바가 어떤 색이든 동일한 "시각적 무게"를 갖는다.
 - **CSS 네이티브.** Tailwind CSS v4가 OKLCH를 기본 색상 공간으로 채택했고, 모든 모던 브라우저(WebKit 포함)가 `oklch()`를 지원한다. Tauri WebView(WebKit)에서 변환 없이 렌더링.
@@ -82,7 +82,7 @@ oxinot §7.7과 oxipage §3.2에서 상속:
 
 라이트 톤은 hue `95` (따뜻한 종이), 다크 셰이드는 `265` (차가운 잉크).
 
-**6-hue 라벨 팔레트** (검증: oxinot `lib/color.ts` + oxios `index.css:208-213`)
+**6-hue 라벨 팔레트** (검증: oximemo `lib/color.ts` + oxios `index.css:208-213`)
 
 | 이름 | OKLCH | 용도 |
 |---|---|---|
@@ -227,9 +227,9 @@ oxinot §7.7과 oxipage §3.2에서 상속:
 }
 ```
 
-> oxios는 레거시 shadcn 별칭(`--background`→`--color-surface` 등)을 **동시 보존**해 기존 유틸리티가 조용히 no-op 되지 않게 한다. oxipage·oxinot 마이그레이션 시 동일 패턴 권장.
+> oxios는 레거시 shadcn 별칭(`--background`→`--color-surface` 등)을 **동시 보존**해 기존 유틸리티가 조용히 no-op 되지 않게 한다. oxipage·oximemo 마이그레이션 시 동일 패턴 권장.
 
-### 2.7 커스텀 OKLCH 입력 (oxinot §7.7)
+### 2.7 커스텀 OKLCH 입력 (oximemo §7.7)
 
 사용자가 임의 OKLCH 값을 입력할 수 있다. UI는 지각적 안전 범위로 clamp (검증: `lib/color.ts`):
 
@@ -257,7 +257,7 @@ frontmatter에 `color = "oklch(L C H)"`로 그대로 저장. 파싱 실패 시 `
 | 모노스페이스 | **Geist Mono** | Latin 우선. 코드·ID·JSON |
 | Latin fallback | `system-ui, -apple-system, "Inter", sans-serif` | SUIT 로딩 중에만 |
 
-> oxipage의 기존 Fraunces 디스플레이 세리프는 이 통합에서 제거된다. oxinot·oxios는 SUIT를 새로 채택.
+> oxipage의 기존 Fraunces 디스플레이 세리프는 이 통합에서 제거된다. oximemo·oxios는 SUIT를 새로 채택.
 
 ### 3.2 배포 (jsDelivr, Google Fonts 아님)
 
@@ -321,7 +321,7 @@ SUIT/SUITE는 **Google Fonts에 없다**. jsDelivr CDN (`sun-typeface` GitHub or
 
 | 프로젝트 | 패턴 |
 |---|---|
-| oxinot 카드 그리드 | `grid-cols-[repeat(auto-fill,minmax(240px,1fr))]` — 균일 높이, `@tanstack/react-virtual` 가상화 |
+| oximemo 카드 그리드 | `grid-cols-[repeat(auto-fill,minmax(240px,1fr))]` — 균일 높이, `@tanstack/react-virtual` 가상화 |
 | oxipage lobby `list` | 단일 열, 헤어라인 구분선, 모션 없음 |
 | oxipage lobby `grid` | 1 / 2 / 3열 반응형 |
 | oxipage lobby `canvas` | 플로팅 카드; 드리프트 진폭 12px / 주기 14s; seed `stable-per-day` |
@@ -365,7 +365,7 @@ SUIT/SUITE는 **Google Fonts에 없다**. jsDelivr CDN (`sun-typeface` GitHub or
 | `--radius-2xl` | 1.25rem (20px) | 모달, 히어로 표면 |
 | `--radius-full` | 9999px | 배지, 필, 아바타 |
 
-> oxinot 카드는 `--radius-lg`(12px). oxios 버튼은 `--radius-md`(8px). oxipage v1 카드는 `--radius-md`에서 `--radius-lg`로 정렬 필요.
+> oximemo 카드는 `--radius-lg`(12px). oxios 버튼은 `--radius-md`(8px). oxipage v1 카드는 `--radius-md`에서 `--radius-lg`로 정렬 필요.
 
 ---
 
@@ -387,7 +387,7 @@ SUIT/SUITE는 **Google Fonts에 없다**. jsDelivr CDN (`sun-typeface` GitHub or
 ```
 
 - 반경 토큰: `--card-radius: var(--radius-lg)` (12px)
-- oxinot 카드 해부: 선택적 2px 왼쪽 바 `bg-hue-{name}` (라벨용). 호버: `hover:shadow-md transition-shadow`.
+- oximemo 카드 해부: 선택적 2px 왼쪽 바 `bg-hue-{name}` (라벨용). 호버: `hover:shadow-md transition-shadow`.
 - 서브 컴포넌트: `CardHeader`(border-bottom `border-line/50`, `px-4 py-3`), `CardTitle`(`font-semibold text-text`), `CardContent`(`p-4`), `CardFooter`(border-top).
 
 ### 7.2 Button
@@ -502,7 +502,7 @@ export function initTheme() {
 ```
 
 - **저장 키:** `oxi-theme` (oxios는 현재 `oxios-theme` → 마이그레이션 필요)
-- **oxinot:** Tauri WebKit. `NSAppearanceChange` 수신 → Tauri 이벤트 → JS가 `.dark` 적용. macOS 타이틀바는 OS 설정 따름.
+- **oximemo:** Tauri WebKit. `NSAppearanceChange` 수신 → Tauri 이벤트 → JS가 `.dark` 적용. macOS 타이틀바는 OS 설정 따름.
 
 ### 8.2 FOUC 방지 (web)
 
@@ -549,10 +549,10 @@ export function initTheme() {
 ```
 
 - `prefers-reduced-motion: reduce`는 모든 지속시간을 0으로, 드리프트/패럴랙스/리프트 비활성화.
-- oxipage canvas 모드는 자동으로 `grid`로 폴백. oxinot 캡처 오버레이는 즉시 표시.
+- oxipage canvas 모드는 자동으로 `grid`로 폴백. oximemo 캡처 오버레이는 즉시 표시.
 - 호버/액티브는 CSS `:hover` / `:active`만 — `onMouseEnter`/`onMouseLeave` 금지.
 
-### 9.1 캡처 오버레이 (oxinot 특화)
+### 9.1 캡처 오버레이 (oximemo 특화)
 
 warm-up 전략: 화면 밖 좌표 `visible: true`로 생성 → 첫 표시 **≤ 16ms** (NSWindow 재할당 없음). 저장 경로 ≤ 50ms.
 
@@ -588,13 +588,13 @@ type CanvasParams = {
 
 공통 문법은 §1–10. 아래는 각 프로젝트가 **그 위에** 갖는 고유 표면 정체성.
 
-### 11.1 oxinot (Tauri macOS app) — 기준 레퍼런스
+### 11.1 oximemo (Tauri macOS app) — 기준 레퍼런스
 
 - **스택:** React 19 + TS 5 + Vite, **Base UI**(헤드리스) + Tailwind v4, `@tanstack/react-virtual` + `react-query`, zustand, lucide-react, motion.
 - **창 크롬:** `titleBarStyle: overlay` + 커스텀 툴바(검색 인라인). Arc/Linear 패턴.
-- **카드 그리드:** `repeat(auto-fill, minmax(240px,1fr))`, 균일 높이, 가상화. §7.2 (oxinot DESIGN.md).
+- **카드 그리드:** `repeat(auto-fill, minmax(240px,1fr))`, 균일 높이, 가상화. §7.2 (oximemo DESIGN.md).
 - **Hue 라벨:** 선택적 2px 왼쪽 바 `bg-hue-{name}`. OKLCH 입력 clamp (`lib/color.ts`).
-- **상태색:** 메인 앱에서 미사용 — oxinot에는 "running/failed" 의미가 없음. 토큰에는 미래용으로 정의됨.
+- **상태색:** 메인 앱에서 미사용 — oximemo에는 "running/failed" 의미가 없음. 토큰에는 미래용으로 정의됨.
 - **마이그레이션 상태:** 현재 `app.css`는 레거시 hex(`#18181b`, `#e7e7ea`) + Inter/Pretendard. `.dark` 트리거는 이미 올바름. SUIT/SUITE 도입 + hex→OKLCH 토큰 전환이 필요. `doc/DESIGN.md`에 폰트/스케일이 없었음 — 이 문서가 최초 정의.
 - **OKLCH 라벨 팔레트(`lib/color.ts`):** 이미 정규 6-hue 값과 일치. 이것이 전 생태계 라벨 시스템의 원천.
 

@@ -1,4 +1,4 @@
-# oxinot — 카테고리 관리·설정·캡처 재설계 (v2)
+# oximemo — 카테고리 관리·설정·캡처 재설계 (v2)
 
 - **Date:** 2026-07-31
 - **Status:** Draft (디자인 확정, 구현 계획 대기)
@@ -42,10 +42,10 @@ v1에서 카테고리가 핵심 분류로 자리잡았지만 관리·UX가 미�
 
 **수정(적용됨, 컴파일 검증 완료):**
 - `onNewNote`(CardGrid)·NoteDetail autosave/close-flush에 **직접 `invalidateQueries(["notes"],["facets"])` 추가** — delete/favorite과 대칭화. 동일 윈도우 create/update는 이제 이벤트 무관하게 갱신.
-- **진단(임시):** `notes:changed` 리스너에 `console.log("[oxinot] notes:changed received")`, `create_note`/`update_note`에 `tracing::info!` 추가.
+- **진단(임시):** `notes:changed` 리스너에 `console.log("[oximemo] notes:changed received")`, `create_note`/`update_note`에 `tracing::info!` 추가.
 - **검증 보류(사용자 실행 필요):** 
   1. ＋/편집 → 즉시 표시되는지(동일 윈도우 수정 확인).
-  2. **캡처 진단은 §6.2 라우팅 수정 후에만 실행 가능** (현재 CaptureOverlay 미마운트). 수정 후: ⌘⇧N 캡처 → 메인 그리드 갱신 + devtools 콘솔 `[oxinot] notes:changed received` + Rust 로그 `create_note: emitted notes:changed` 확인 → §8 결정.
+  2. **캡처 진단은 §6.2 라우팅 수정 후에만 실행 가능** (현재 CaptureOverlay 미마운트). 수정 후: ⌘⇧N 캡처 → 메인 그리드 갱신 + devtools 콘솔 `[oximemo] notes:changed received` + Rust 로그 `create_note: emitted notes:changed` 확인 → §8 결정.
 
 > capture→main 교차윈도우 경로는 동일 윈도우 수정으로는 해결 안 됨(캡처 창이 메인의 쿼리 캐시를 직접 무효화 불가). 이벤트 인프라는 캡처 재설계 후에도 잔존하므로, 근본 고장이라면 재설계 캡처까지 영향 → 위 진단으로 반드시 규명.
 
@@ -227,6 +227,6 @@ CategoryCombobox:
 
 - **Rust 단위**: `VaultConfig::save()` 라운드트립(변경→재로드). `rename_category` 마이그레이션(참조 노트 category·hash·updated_at 갱신, 비참조 노트 불변, 동기화 매니페스트에 포함). `update_category`/`delete_category` 검증(inbox 거부, 중복 거부). inbox 색 `""`로 `resolve_category_color`/`paperFor` 정상.
 - **빌드**: `cargo build`/`clippy` 경고 0, `tsc -b` + Vite.
-- **P0 런타임(사용자, 차단)**: ＋/편집 → 즉시 그리드 표시. 캡처 → devtools 콘솔 `[oxinot] notes:changed received` + Rust 로그 `create_note: emitted notes:changed` 출력 확인 → §8 필요성 판정.
+- **P0 런타임(사용자, 차단)**: ＋/편집 → 즉시 그리드 표시. 캡처 → devtools 콘솔 `[oximemo] notes:changed received` + Rust 로그 `create_note: emitted notes:changed` 출력 확인 → §8 필요성 판정.
 - **수동**: 설정 드로어 열기/닫기·섹션. 카테고리 색 편집→그리드 즉시 반영. rename→영향 노트 이동·재시작 후 유지. 새 카테고리 생성→재시작 후 유지. delete→orphan inbox 폴백. inbox 투명 렌더. 캡처 슬래시 메뉴·칩·Enter 저장. Combobox 타이핑 필터·즉시 생성.
-- **재배포**: 프론트+코어 변경 → `cargo build -p oxinot-desktop --release` + 앱 교체 + `codesign --force --deep -s -` 재서명.
+- **재배포**: 프론트+코어 변경 → `cargo build -p oximemo-desktop --release` + 앱 교체 + `codesign --force --deep -s -` 재서명.

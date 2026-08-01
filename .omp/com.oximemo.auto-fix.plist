@@ -12,7 +12,7 @@
 	<key>KeepAlive</key>
 	<false/>
 	<key>Label</key>
-	<string>com.oxinot.auto-fix</string>
+	<string>com.oximemo.auto-fix</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/Users/won/.bun/bin/omp</string>
@@ -25,9 +25,9 @@
 	<key>RunAtLoad</key>
 	<false/>
 	<key>StandardErrorPath</key>
-	<string>/tmp/oxinot-auto-fix.stderr.log</string>
+	<string>/tmp/oximemo-auto-fix.stderr.log</string>
 	<key>StandardOutPath</key>
-	<string>/tmp/oxinot-auto-fix.stdout.log</string>
+	<string>/tmp/oximemo-auto-fix.stdout.log</string>
 	<key>StartCalendarInterval</key>
 	<array>
 		<dict>
@@ -38,6 +38,6 @@
 		</dict>
 	</array>
 	<key>WorkingDirectory</key>
-	<string>/Volumes/MERCURY/PROJECTS/oxinot</string>
+	<string>/Volumes/MERCURY/PROJECTS/oximemo</string>
 </dict>
 </plist>
