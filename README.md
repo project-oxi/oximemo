@@ -99,6 +99,11 @@ oximemo get 019fa927-a897-7e12-9102-8a8c7ebbb594 --md
 # Full-text search (BM25 over body + tags)
 oximemo search "redb upgrade" --limit 5 --format ndjson
 
+# Edit a memo (favorite / category / body) and manage categories
+oximemo update 019fa927-a897-7e12-9102-8a8c7ebbb594 --favorite --category idea
+oximemo category list
+oximemo category new research --color "oklch(0.72 0.15 310)"
+
 # Where does my vault live?
 oximemo vault path
 ```
@@ -108,16 +113,24 @@ oximemo vault path
 
 ```bash
 oximemo new [TEXT] [--tag TAG]… [--category ID]      # arg or stdin; empty rejected
-oximemo list [--limit N] [--tag T] [--favorites] [--format table|json|ndjson]
+oximemo list [--limit N] [--tag T] [--category ID] [--favorites] [--format table|json|ndjson]
 oximemo get <ID> [--md]
+oximemo update <ID> [--body T | --body-stdin] [--favorite] [--unfavorite] [--category ID]
 oximemo search <QUERY> [--limit N] [--format json|ndjson]
+oximemo stats                                           # live memo counts (JSON)
 oximemo export [--since RFC3339] [--ids a,b,c | --ids-file PATH | --ids-stdin]
               [--full] [--format ndjson|json]
-oximemo delete <ID>                                          # soft-delete → .trash/
+oximemo delete <ID>                                     # soft-delete → .trash/
+oximemo restore <ID>                                    # un-delete a trashed memo
 oximemo purge [--older-than 30d]
-oximemo reindex                                              # rebuild indexes from files
-oximemo doctor [--fix]                                       # audit / safe-repair
-oximemo vault path                                           # print the vault root
+oximemo category list [--format table|json|ndjson]
+oximemo category new <ID> [--color "oklch(...)"]
+oximemo category recolor <ID> <COLOR> | --none         # set or clear a category's color
+oximemo category rename <OLD> <NEW>                    # moves memos; prints count
+oximemo category delete <ID>                           # inbox cannot be deleted
+oximemo reindex                                        # rebuild indexes from files
+oximemo doctor [--fix]                                 # audit / safe-repair
+oximemo vault path                                     # print the vault root
 ```
 
 Global: `--vault <PATH>` (or `OXIMEMO_VAULT`) selects a non-default vault. Output formats: `table` (human), `json` (single array), `ndjson` (one value per line, the default for `export`/`search`). Timestamps are RFC 3339.

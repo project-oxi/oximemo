@@ -160,7 +160,7 @@ created_at = "2026-07-28T10:15:03+09:00"
 updated_at = "2026-07-28T10:15:03+09:00"
 hash = "b3:6f2a9e1d4c7b8a90f1e2d3c4b5a6978..."
 favorite = false
-color = "oklch(0.75 0.15 75)"
+category = "idea"
 tags = ["idea", "oximemo"]
 +++
 
@@ -437,15 +437,11 @@ oximemo의 모든 색상은 **OKLCH 색상 공간**을 기준으로 정의합니
 
 **저장 포맷:**
 
-frontmatter의 `color` 필드는 OKLCH 문자열을 그대로 저장합니다:
-
-```toml
-color = "oklch(0.75 0.15 75)"
-```
+색상은 개별 메모가 아니라 **카테고리 레지스트리**(`config.toml`)의 속성입니다. 각 카테고리는 OKLCH 문자열을 `color`로 가지며, 메모는 frontmatter의 `category` 필드로 카테고리 id만 참조합니다. 표시 색상은 `colorForCategory(category_id, registry)`로 파생됩니다.
 
 - 형식: `oklch(L C H)` — L: 0\~1 (명도), C: 0\~0.4 (채도), H: 0\~360 (색상각, 도 단위)
-- `color = ""` 또는 필드 부재 = 색상 없음 (기본 카드 배경)
-- 알 수 없는 형식의 값(구버전 enum 문자열 등)이 오면 파서가 `None`으로 fallback하고 `doctor`에 경고 기록
+- `color = ""` 또는 카테고리 미지정 = 색상 없음 (기본 카드 배경)
+- `inbox`는 색상이 없는 중성 기본 카테고리
 
 **UI 프리셋 팔레트 (기본값):**
 
@@ -464,29 +460,22 @@ color = "oklch(0.75 0.15 75)"
 
 **Rust 측 타입:**
 
+색상은 메모의 필드가 아니라 카테고리 정의(`CategoryDef`)의 속성입니다:
+
 ```rust
-/// 노트 색상. OKLCH 문자열을 검증 없이 보관하되,
-/// UI 렌더링 시 유효성을 검사한다.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct NoteColor(pub String);
+/// 카테고리 정의. 색상은 여기에, 메모 자체에는 들어가지 않는다.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryDef {
+    pub id: String, // "inbox", "todo", "idea", ...
+    pub color: String, // OKLCH 문자열; 빈 문자열 = 색상 없음
+    #[serde(default)]
+    pub builtin: bool, // inbox 등 삭제 불가 내장 카테고리
+}
 
-impl NoteColor {
-    pub const NONE: Self = Self(String::new());
-
-    /// 유효한 oklch() 문자열인지 검사
-    pub fn is_valid(&self) -> bool {
-        self.0.is_empty() || self.0.starts_with("oklch(")
-    }
-
-    /// 파싱 실패 시 None으로 fallback (구버전 호환)
-    pub fn parse_or_none(s: &str) -> Self {
-        if s.is_empty() || s.starts_with("oklch(") {
-            Self(s.to_string())
-        } else {
-            Self::NONE
-        }
-    }
+/// 메모는 카테고리 id만 참조한다(색상 X).
+pub struct Memo {
+    // ...
+    pub category: String, // 기본 "inbox"
 }
 ```
 
@@ -521,20 +510,23 @@ Rust → React 이벤트:
 ### 9.1 명령어 레퍼런스
 
 ```latex
-oximemo new [TEXT] [--tag TAG ...] [--color "oklch(...)"]
-                                           # 인자 또는 stdin으로 캡처
-oximemo list [--limit N] [--tag T] [--favorites]
+oximemo new [TEXT] [--tag TAG ...] [--category ID]   # 인자 또는 stdin으로 캡처
+oximemo list [--limit N] [--tag T] [--category ID] [--favorites]
             [--format table|json|ndjson]   # 기본 table(사람용), 에이전트는 json/ndjson 권장
-oximemo get <ID> [--format json|md]
+oximemo get <ID> [--md]                    # 기본 JSON; --md = 원본 .md 파일
+oximemo update <ID> [--body T | --body-stdin] [--favorite] [--unfavorite] [--category ID]
 oximemo search <QUERY> [--limit N] [--format json|ndjson]
+oximemo stats                             # 실시간 메모 수 (JSON)
 oximemo export [--since <RFC3339>] [--ids a,b,c]
               [--ids-file <PATH>] [--ids-stdin]
               [--full] [--format ndjson|json]  # §9.2 참조
-oximemo delete <ID>
+oximemo delete <ID>                        # 소프트 삭제 → .trash/
+oximemo restore <ID>                       # 휴지통 메모 복원
 oximemo purge [--older-than 30d]
+oximemo category list|new|recolor|rename|delete   # 카테고리 레지스트리 관리
 oximemo reindex
-oximemo doctor                              # 볼트/인덱스 정합성 점검 (§9.3)
-oximemo vault path                          # 현재 볼트 경로 출력
+oximemo doctor [--fix]                     # 볼트/인덱스 정합성 점검 (§9.3)
+oximemo vault path                         # 현재 볼트 경로 출력
 ```
 
 전역 옵션 `--vault <PATH>`로 볼트를 지정할 수 있습니다(다중 볼트, 테스트 용도). 기본 출력 포맷은 사람이 터미널에서 쓰기 편한 테이블이지만, 에이전트 소비를 염두에 둔 명령( `export`, 대량 `list`)은 **NDJSON**(줄 단위 JSON)을 기본값으로 하여 스트리밍 처리와 부분 실패에 유리하게 합니다.

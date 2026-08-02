@@ -41,13 +41,18 @@ excludes rich text, AI features, and wikilinks (§3 of `doc/DESIGN.md`).
 oximemo new [TEXT] [--tag TAG]… [--category ID]
   # TEXT may be omitted: stdin is read. Empty memos are rejected.
 
-oximemo list [--limit N] [--tag T] [--favorites]
+oximemo list [--limit N] [--tag T] [--category ID] [--favorites]
             [--format table|json|ndjson]   # default: table (human)
 
 oximemo get <ID> [--md]
   # --md emits the raw .md file (frontmatter + body). Default is JSON.
 
+oximemo update <ID> [--body T | --body-stdin] [--favorite] [--unfavorite] [--category ID]
+  # Edit an existing memo. Omitted fields are left unchanged.
+
 oximemo search <QUERY> [--limit N] [--format json|ndjson]
+
+oximemo stats            # live memo counts (memos, favorites) as JSON
 
 oximemo export [--since RFC3339]
               [--ids a,b,c | --ids-file PATH | --ids-stdin]
@@ -58,7 +63,13 @@ oximemo export [--since RFC3339]
   # Default format is NDJSON (line-delimited JSON, streaming-friendly).
 
 oximemo delete <ID>            # soft-delete (moves to .trash/)
+oximemo restore <ID>           # un-delete a trashed memo
 oximemo purge [--older-than 30d]
+oximemo category list [--format table|json|ndjson]
+oximemo category new <ID> [--color "oklch(...)"]
+oximemo category recolor <ID> <COLOR> | --none
+oximemo category rename <OLD> <NEW>   # moves memos; prints count moved
+oximemo category delete <ID>          # inbox cannot be deleted
 oximemo reindex                 # rebuild indexes from files
 oximemo doctor [--fix]          # audit / repair
 oximemo vault path              # print the vault path
