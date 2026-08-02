@@ -39,9 +39,9 @@ enum Cmd {
         /// Inline tag appended to the body as `#TAG` (repeatable).
         #[arg(long = "tag", value_name = "TAG")]
         tags: Vec<String>,
-        /// OKLCH color string, e.g. `oklch(0.75 0.15 75)`.
-        #[arg(long)]
-        color: Option<String>,
+        /// Category id, e.g. `todo`, `idea` (defaults to `inbox`).
+        #[arg(long, value_name = "ID")]
+        category: Option<String>,
     },
 
     /// List notes (newest first).
@@ -148,7 +148,7 @@ fn run() -> Result<()> {
     let vault = Vault::open(cli.vault.as_deref())?;
     vault.migrate()?;
     match cli.cmd {
-        Cmd::New { text, tags, color } => commands::cmd_new(&vault, text, tags, color),
+        Cmd::New { text, tags, category } => commands::cmd_new(&vault, text, tags, category),
         Cmd::List {
             limit,
             tag,

@@ -87,7 +87,7 @@ The CLI is the authoritative interface — the same `oximemo-core` the desktop a
 
 ```bash
 # Capture a thought (text arg, or omit to read stdin)
-oximemo new "Ship the redb bump before the freeze" --tag backlog --color "oklch(0.75 0.15 75)"
+oximemo new "Ship the redb bump before the freeze" --tag backlog --category todo
 
 # List recent notes — table for humans (default), JSON/NDJSON for agents
 oximemo list --limit 10
@@ -107,7 +107,7 @@ oximemo vault path
 <summary><strong>Full command reference</strong></summary>
 
 ```bash
-oximemo new [TEXT] [--tag TAG]… [--color "oklch(...)"]      # arg or stdin; empty rejected
+oximemo new [TEXT] [--tag TAG]… [--category ID]      # arg or stdin; empty rejected
 oximemo list [--limit N] [--tag T] [--favorites] [--format table|json|ndjson]
 oximemo get <ID> [--md]
 oximemo search <QUERY> [--limit N] [--format json|ndjson]
@@ -156,14 +156,14 @@ created_at = "2026-07-28T10:15:03+09:00"
 updated_at = "2026-07-28T10:15:03+09:00"
 hash = "b3:6f2a9e1d4c7b8a90f1e2d3c4b5a6978…"
 favorite = false
-color = "oklch(0.75 0.15 75)"
+category = "inbox"
 tags = ["idea", "oximemo"]
 +++
 
 The capture overlay must appear in under one frame.
 ```
 
-The `id` is a time-sortable **UUIDv7**; the `hash` is **`b3:` + BLAKE3** over the normalized body, tags, favorite flag, and color — so a pure metadata edit (add a tag, change a color) bumps the hash and is detected by sync. Full parsing rules and the safe-writing guide are in [`doc/DESIGN.md`](doc/DESIGN.md) §5 and [`skills/oximemo/SKILL.md`](skills/oximemo/SKILL.md).
+The `id` is a time-sortable **UUIDv7**; the `hash` is **`b3:` + BLAKE3** over the normalized body, tags, favorite flag, and category — so a pure metadata edit (add a tag, change a category) bumps the hash and is detected by sync. Full parsing rules and the safe-writing guide are in [`doc/DESIGN.md`](doc/DESIGN.md) §5 and [`skills/oximemo/SKILL.md`](skills/oximemo/SKILL.md).
 
 ## Architecture
 

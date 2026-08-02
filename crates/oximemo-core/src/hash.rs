@@ -67,7 +67,7 @@ pub fn hash_normalized(normalized: &str) -> MemoHash {
     MemoHash::new(hasher.finalize().to_hex().to_string())
 }
 
-/// Hash a memo's full meaningful state: body + tags + favorite + color (§5.3).
+/// Hash a memo's full meaningful state: body + tags + favorite + category (§5.3).
 ///
 /// Deliberately excluded from the input:
 /// - `hash` (avoids a self-referential cycle),
@@ -75,7 +75,7 @@ pub fn hash_normalized(normalized: &str) -> MemoHash {
 /// - `updated_at` (it is the sync *cursor*, not content),
 /// - `deleted_at` (tombstones travel via the manifest's `deleted` flag).
 ///
-/// Because tags, favorite, and color are part of the digest, editing any of them
+/// Because tags, favorite, and category are part of the digest, editing any of them
 /// changes the hash and is correctly surfaced by the sync diff — closing the
 /// gap where a metadata-only edit would otherwise look "unchanged".
 pub fn hash_memo(body: &[u8], favorite: bool, category: &str) -> MemoHash {

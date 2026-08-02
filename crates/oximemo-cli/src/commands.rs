@@ -18,7 +18,7 @@ pub fn cmd_new(
     vault: &Vault,
     text: Option<String>,
     tags: Vec<String>,
-    color: Option<String>,
+    category: Option<String>,
 ) -> Result<()> {
     let mut body = match text {
         Some(t) => t,
@@ -47,7 +47,7 @@ pub fn cmd_new(
     if body.is_empty() {
         return Err(anyhow!("refusing to create an empty note"));
     }
-    let note = vault.create_memo(body, color)?;
+    let note = vault.create_memo(body, category)?;
     println!("{}", note.id);
     Ok(())
 }

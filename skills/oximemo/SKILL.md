@@ -38,7 +38,7 @@ excludes rich text, AI features, and wikilinks (§3 of `doc/DESIGN.md`).
 ## Command reference
 
 ```bash
-oximemo new [TEXT] [--tag TAG]… [--color "oklch(0.75 0.15 75)"]
+oximemo new [TEXT] [--tag TAG]… [--category ID]
   # TEXT may be omitted: stdin is read. Empty memos are rejected.
 
 oximemo list [--limit N] [--tag T] [--favorites]
@@ -54,7 +54,7 @@ oximemo export [--since RFC3339]
               [--full]
               [--format ndjson|json]
   # Without --full: emits a manifest of {id, hash, updated_at, deleted}.
-  # With --full:    emits full memo bodies (id, body, tags, color, ...).
+  # With --full:    emits full memo bodies (id, body, tags, category, ...).
   # Default format is NDJSON (line-delimited JSON, streaming-friendly).
 
 oximemo delete <ID>            # soft-delete (moves to .trash/)
@@ -89,7 +89,7 @@ The body-less design keeps the manifest cheap regardless of memo size.
 2. **Diff against your local `id → hash` cache** (do this in your code):
    - `id` not in your cache → **fetch**.
    - `id.hash` differs from your cache → **fetch** (metadata changes are
-     reflected in the hash, so tag/favorite/color edits are detected).
+     reflected in the hash, so tag/favorite/category edits are detected).
    - `deleted: true` → **drop** from your cache.
 3. **Fetch changed memos in bulk.** For small batches:
    ```bash
@@ -103,9 +103,9 @@ The body-less design keeps the manifest cheap regardless of memo size.
 4. **Advance your cursor** to the max `updated_at` you saw. Repeat.
 
 The hash is `b3:<blake3-hex>` and covers the memo's body **plus** its
-tags, favorite flag, and color (§5.3 of `doc/DESIGN.md` — extended from
+tags, favorite flag, and category (§5.3 of `doc/DESIGN.md` — extended from
 body-only to include meaningful metadata). A pure metadata edit (add a tag,
-change a color) bumps the hash, so the diff correctly flags it.
+change a category) bumps the hash, so the diff correctly flags it.
 
 ## Notes on writing files directly
 
