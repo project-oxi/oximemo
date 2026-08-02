@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-08-02
+
+### Changed
+- **CLI `--color` → `--category`** — the `new` command's `--color` flag stored
+  its OKLCH value into the memo's `category` field (an orphan category that
+  rendered with no color in the UI). Renamed to `--category <ID>` to match the
+  desktop app and the on-disk data model. Color is a property of the category
+  registry, derived for display; memos carry only a `category` id. **Breaking**
+  for any script passing `--color`.
+
+### Added
+- **CLI parity** — `oximemo update` (edit body / favorite / category),
+  `restore` (un-delete), `stats` (live counts), and a `category` group
+  (`list` / `new` / `recolor` / `rename` / `delete`). `list` gains a
+  `--category` filter. Closes the gap where the desktop app exposed memo +
+  category operations the CLI lacked (image/asset management — `list_assets`,
+  `gc_assets` — remains desktop-only).
+- **`OXIMEMO_VAULT` env var** — the CLI now honors it for `--vault`, matching
+  the desktop app.
+
+### Fixed
+- **GitHub Actions Node 20 deprecation** — bumped `actions/checkout`,
+  `upload-artifact`, and `download-artifact` to v5 (Node 24 runtime).
+- **Repo URL** — README badges, clone/install links, and Cargo metadata now
+  point at `project-oxi/oximemo` (was `a7garden/oximemo`).
+- **Docs reconciled to the `category` data model** — README/SKILL/DESIGN
+  frontmatter example, hash description, OKLCH storage, and CLI reference.
+
+## [0.4.0] — 2026-08-01
+
 ### Changed
 - **`note` → `memo` terminology** — every identifier, IPC surface, file
   path, and JSON key previously spelled `note` is now `memo`, for parity
@@ -130,7 +160,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent integration via `skills/oximemo/SKILL.md`.
 - Light/dark mode following the macOS system appearance.
 
-[Unreleased]: https://github.com/a7garden/oximemo/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/a7garden/oximemo/releases/tag/v0.3.0
-[0.2.0]: https://github.com/a7garden/oximemo/releases/tag/v0.2.0
-[0.1.0]: https://github.com/a7garden/oximemo/releases/tag/v0.1.0
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.5.0
+[0.4.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.4.0
+[0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
+[0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
+[0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
