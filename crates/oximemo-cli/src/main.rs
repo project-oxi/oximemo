@@ -51,6 +51,9 @@ enum Cmd {
         /// Include notes with this tag (repeatable; OR).
         #[arg(long = "tag", value_name = "TAG")]
         tag: Vec<String>,
+        /// Only notes in this category (repeatable; OR).
+        #[arg(long = "category", value_name = "ID")]
+        category: Vec<String>,
         #[arg(long)]
         favorites: bool,
         /// table | json | ndjson
@@ -99,6 +102,29 @@ enum Cmd {
 
     /// Soft-delete a note (moves to trash).
     Delete { id: String },
+    /// Edit an existing memo (body / favorite / category).
+    Update {
+        id: String,
+        /// Replace the body with TEXT.
+        #[arg(long)]
+        body: Option<String>,
+        /// Read the new body from stdin.
+        #[arg(long)]
+        body_stdin: bool,
+        /// Mark as favorite.
+        #[arg(long)]
+        favorite: bool,
+        /// Remove favorite.
+        #[arg(long)]
+        unfavorite: bool,
+        /// Move to this category id.
+        #[arg(long, value_name = "ID")]
+        category: Option<String>,
+    },
+    /// Restore a soft-deleted (trashed) memo.
+    Restore { id: String },
+    /// Live memo counts.
+    Stats,
 
     /// Hard-delete trashed memos older than the retention.
     Purge {
@@ -121,12 +147,47 @@ enum Cmd {
         #[command(subcommand)]
         sub: Option<VaultCmd>,
     },
+    /// Category registry management.
+    Category {
+        #[command(subcommand)]
+        sub: CategoryCmd,
+    },
 }
 
 #[derive(Subcommand)]
 enum VaultCmd {
     /// Print the vault root path.
     Path,
+}
+
+#[derive(Subcommand)]
+enum CategoryCmd {
+    /// List categories (id, color, builtin).
+    List {
+        /// table | json | ndjson
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
+    /// Create a category.
+    New {
+        id: String,
+        /// OKLCH color; auto-picks one if omitted.
+        #[arg(long, value_name = "COLOR")]
+        color: Option<String>,
+    },
+    /// Change a category's color.
+    Recolor {
+        id: String,
+        /// OKLCH color string.
+        color: Option<String>,
+        /// Clear the color.
+        #[arg(long)]
+        none: bool,
+    },
+    /// Rename a category (moves all its memos).
+    Rename { old: String, new: String },
+    /// Delete a user category (inbox cannot be deleted).
+    Delete { id: String },
 }
 
 fn main() -> ExitCode {
@@ -152,12 +213,13 @@ fn run() -> Result<()> {
         Cmd::List {
             limit,
             tag,
+            category,
             favorites,
             format,
         } => {
             let fmt = format::Format::from_arg(&format)
                 .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
-            commands::cmd_list(&vault, limit, tag, favorites, fmt)
+            commands::cmd_list(&vault, limit, tag, category, favorites, fmt)
         }
         Cmd::Get { id, md } => commands::cmd_get(&vault, parse_id(&id)?, md),
         Cmd::Search {
@@ -182,6 +244,25 @@ fn run() -> Result<()> {
             commands::cmd_export(&vault, since, ids, ids_file, ids_stdin, full, fmt)
         }
         Cmd::Delete { id } => commands::cmd_delete(&vault, parse_id(&id)?),
+        Cmd::Update {
+            id,
+            body,
+            body_stdin,
+            favorite,
+            unfavorite,
+            category,
+        } => {
+            let fav = if unfavorite {
+                Some(false)
+            } else if favorite {
+                Some(true)
+            } else {
+                None
+            };
+            commands::cmd_update(&vault, parse_id(&id)?, body, body_stdin, fav, category)
+        }
+        Cmd::Restore { id } => commands::cmd_restore(&vault, parse_id(&id)?),
+        Cmd::Stats => commands::cmd_stats(&vault),
         Cmd::Purge { older_than } => {
             let d = commands::parse_duration(&older_than)?;
             commands::cmd_purge(&vault, d)
@@ -190,6 +271,19 @@ fn run() -> Result<()> {
         Cmd::Doctor { fix } => commands::cmd_doctor(&vault, fix),
         Cmd::Vault { sub } => match sub {
             Some(VaultCmd::Path) | None => commands::cmd_vault_path(&vault),
+        },
+        Cmd::Category { sub } => match sub {
+            CategoryCmd::List { format } => {
+                let fmt = format::Format::from_arg(&format)
+                    .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
+                commands::cmd_category_list(&vault, fmt)
+            }
+            CategoryCmd::New { id, color } => commands::cmd_category_new(&vault, id, color),
+            CategoryCmd::Recolor { id, color, none } => {
+                commands::cmd_category_recolor(&vault, id, color, none)
+            }
+            CategoryCmd::Rename { old, new } => commands::cmd_category_rename(&vault, old, new),
+            CategoryCmd::Delete { id } => commands::cmd_category_delete(&vault, id),
         },
     }
 }

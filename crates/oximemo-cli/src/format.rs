@@ -4,6 +4,7 @@ use std::io::{self, Write};
 
 use oximemo_core::memo::MemoSummary;
 use oximemo_core::sync::{FullRecord, ManifestRecord};
+use oximemo_core::config::CategoryDef;
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum Format {
@@ -86,6 +87,33 @@ pub fn print_full(items: &[FullRecord], fmt: Format) -> anyhow::Result<()> {
             for it in items {
                 writeln!(h, "--- {} ---", it.id)?;
                 writeln!(h, "{}", serde_json::to_string_pretty(it)?)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn print_categories(items: &[CategoryDef], fmt: Format) -> anyhow::Result<()> {
+    let stdout = io::stdout();
+    match fmt {
+        Format::Json => println!("{}", serde_json::to_string_pretty(items)?),
+        Format::Ndjson => {
+            let mut h = stdout.lock();
+            for it in items {
+                writeln!(h, "{}", serde_json::to_string(it)?)?;
+            }
+        }
+        Format::Table => {
+            let mut h = stdout.lock();
+            writeln!(h, "{:<16} {:<28} KIND", "ID", "COLOR")?;
+            for it in items {
+                writeln!(
+                    h,
+                    "{:<16} {:<28} {}",
+                    it.id,
+                    it.color,
+                    if it.builtin { "builtin" } else { "user" }
+                )?;
             }
         }
     }
