@@ -13,8 +13,8 @@ edition = "2024"
 rust-version = "1.89"
 authors = ["oximemo"]
 license = "MIT"
-repository = "https://github.com/a7garden/oximemo"
-homepage = "https://github.com/a7garden/oximemo"
+repository = "https://github.com/project-oxi/oximemo"
+homepage = "https://github.com/project-oxi/oximemo"
 
 # Centralized dependency versions. Crates opt in with `dep.workspace = true`.
 [workspace.dependencies]

@@ -8,8 +8,8 @@ A fast, minimal, card-based memo app for macOS (Apple Silicon).
 
 Where a human hits `Option` twice and a coding agent reads the same vault over a CLI — with parity, no cloud, and plain-text files as the source of truth.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/a7garden/oximemo/ci.yml?branch=main&logo=github&label=CI)](https://github.com/a7garden/oximemo/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/a7garden/oximemo?include_prereleases&logo=github)](https://github.com/a7garden/oximemo/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/project-oxi/oximemo/ci.yml?branch=main&logo=github&label=CI)](https://github.com/project-oxi/oximemo/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/project-oxi/oximemo?include_prereleases&logo=github)](https://github.com/project-oxi/oximemo/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.89%2B-dea584?logo=rust&logoColor=000)](https://www.rust-lang.org)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24c8d8?logo=tauri&logoColor=000)](https://v2.tauri.app)
@@ -62,7 +62,7 @@ Windows, Linux, and mobile are intentionally out of scope for the MVP. See the [
 ### From a release
 
 Download the prebuilt `oximemo` binary and `.dmg` from the
-[latest release](https://github.com/a7garden/oximemo/releases), then:
+[latest release](https://github.com/project-oxi/oximemo/releases), then:
 
 ```bash
 tar -xzf oximemo-aarch64-apple-darwin.tar.gz
@@ -73,7 +73,7 @@ oximemo --version
 ### From source
 
 ```bash
-git clone https://github.com/a7garden/oximemo.git
+git clone https://github.com/project-oxi/oximemo.git
 cd oximemo
 cargo build --release -p oximemo-cli
 # binary: target/release/oximemo
