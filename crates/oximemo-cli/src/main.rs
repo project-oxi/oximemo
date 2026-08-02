@@ -23,7 +23,7 @@ mod format;
 )]
 struct Cli {
     /// Vault root (defaults to the user vault under Application Support).
-    #[arg(long, global = true)]
+    #[arg(long, global = true, env = "OXIMEMO_VAULT")]
     vault: Option<PathBuf>,
 
     #[command(subcommand)]
