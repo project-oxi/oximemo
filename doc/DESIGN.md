@@ -1,3 +1,5 @@
+> Canonical unified design system: `project-oxi/.github/DESIGN.md` — this file is project-specific (oximemo product · data · CLI design).
+
 > macOS(Apple Silicon) 전용, 미니멀 카드형 빠른 메모 캡처 앱
 > Rust + Tauri 2 · React · 헤드리스 UI · 순수 Rust 코어 · CLI/Skill로 코딩 에이전트 연동
 
