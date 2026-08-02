@@ -209,7 +209,11 @@ fn run() -> Result<()> {
     let vault = Vault::open(cli.vault.as_deref())?;
     vault.migrate()?;
     match cli.cmd {
-        Cmd::New { text, tags, category } => commands::cmd_new(&vault, text, tags, category),
+        Cmd::New {
+            text,
+            tags,
+            category,
+        } => commands::cmd_new(&vault, text, tags, category),
         Cmd::List {
             limit,
             tag,

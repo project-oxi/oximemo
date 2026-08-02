@@ -2,9 +2,9 @@
 
 use std::io::{self, Write};
 
+use oximemo_core::config::CategoryDef;
 use oximemo_core::memo::MemoSummary;
 use oximemo_core::sync::{FullRecord, ManifestRecord};
-use oximemo_core::config::CategoryDef;
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum Format {

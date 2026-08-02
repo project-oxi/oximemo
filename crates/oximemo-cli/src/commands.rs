@@ -170,7 +170,11 @@ pub fn cmd_update(
     favorite: Option<bool>,
     category: Option<String>,
 ) -> Result<()> {
-    let body = if body_stdin { Some(read_stdin()?) } else { body };
+    let body = if body_stdin {
+        Some(read_stdin()?)
+    } else {
+        body
+    };
     if body.is_none() && favorite.is_none() && category.is_none() {
         return Err(anyhow!(
             "no changes specified; pass --body/--body-stdin, --favorite/--unfavorite, or --category"
@@ -385,7 +389,15 @@ mod tests {
         assert_eq!(after.body, "first body");
 
         // body replacement re-extracts tags
-        cmd_update(t.v(), id, Some("new body #urgent".into()), false, None, None).unwrap();
+        cmd_update(
+            t.v(),
+            id,
+            Some("new body #urgent".into()),
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         let after = t.v().get_memo(id).unwrap();
         assert_eq!(after.body, "new body #urgent");
         assert!(after.tags.iter().any(|x| x == "urgent"));
@@ -422,19 +434,41 @@ mod tests {
 
         // recolor --none clears
         cmd_category_recolor(t.v(), "work".into(), None, true).unwrap();
-        assert_eq!(t.v().categories().iter().find(|c| c.id == "work").unwrap().color, "");
+        assert_eq!(
+            t.v()
+                .categories()
+                .iter()
+                .find(|c| c.id == "work")
+                .unwrap()
+                .color,
+            ""
+        );
 
         // recolor with a color sets it
-        cmd_category_recolor(t.v(), "work".into(), Some("oklch(0.8 0.1 100)".into()), false).unwrap();
+        cmd_category_recolor(
+            t.v(),
+            "work".into(),
+            Some("oklch(0.8 0.1 100)".into()),
+            false,
+        )
+        .unwrap();
         assert_eq!(
-            t.v().categories().iter().find(|c| c.id == "work").unwrap().color,
+            t.v()
+                .categories()
+                .iter()
+                .find(|c| c.id == "work")
+                .unwrap()
+                .color,
             "oklch(0.8 0.1 100)"
         );
 
         // rename moves memos assigned to the category
         let id = make_memo(t.v(), "categorized");
         cmd_update(t.v(), id, None, false, None, Some("work".into())).unwrap();
-        let moved = t.v().rename_category("work".into(), "project".into()).unwrap();
+        let moved = t
+            .v()
+            .rename_category("work".into(), "project".into())
+            .unwrap();
         assert_eq!(moved, 1);
         assert_eq!(t.v().get_memo(id).unwrap().category, "project");
 
@@ -448,7 +482,15 @@ mod tests {
         let t = TmpVault::new();
         make_memo(t.v(), "a");
         make_memo(t.v(), "b");
-        cmd_update(t.v(), make_memo(t.v(), "fav"), None, false, Some(true), None).unwrap();
+        cmd_update(
+            t.v(),
+            make_memo(t.v(), "fav"),
+            None,
+            false,
+            Some(true),
+            None,
+        )
+        .unwrap();
         cmd_stats(t.v()).unwrap();
         let s = t.v().memo_stats().unwrap();
         assert_eq!(s.memos, 3);
