@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-08-04
+
+### Added
+- **oxi design-system token layer** — the desktop app now builds on the oxi
+  semantic token tier: primitive → dark-override → component OKLCH tokens
+  (`apps/desktop/src/tokens/`), exposed to Tailwind v4 via `@theme` in
+  `app.css`. Self-hosted SUIT / SUITE variable fonts and Geist Mono replace
+  system fonts. A FOUC-prevention script reads the `oxi-theme` key before
+  first paint.
+- **Apple Developer ID signing + notarization** — the macOS `.dmg` is now
+  signed and notarized when the `APPLE_*` repository secrets are configured,
+  so it opens without Gatekeeper warnings on first launch.
+
+### Changed
+- **Product name "OxiMemo"** — `productName`, bundle display name, and
+  locale strings now spell "OxiMemo" (was lowercased).
+- **Semantic color migration** — every desktop component now uses semantic
+  utilities (`bg-surface`, `text-text`, `border-line`, `bg-hue-*`,
+  `bg-status-*`, `bg-interactive-primary`) instead of raw zinc / hex values;
+  inputs render borders via box-shadow per design spec 6.5.
+
 ## [0.5.0] — 2026-08-02
 
 ### Changed
@@ -160,7 +181,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent integration via `skills/oximemo/SKILL.md`.
 - Light/dark mode following the macOS system appearance.
 
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.6.0
 [0.5.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.5.0
 [0.4.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
