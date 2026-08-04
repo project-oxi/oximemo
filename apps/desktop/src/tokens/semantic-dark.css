@@ -1,0 +1,63 @@
+/* Tier 2 — Dark theme overrides (.dark).
+ *
+ * Neutrals + label hues: L-only adjustment (C, H held).
+ * Status hues: APCA-optimized per-mode (C/H may shift). Source: DESIGN.md §3.1, §3.3. */
+.dark {
+  /* Primitive neutral overrides — only steps that differ from light */
+  --p-neutral-100: oklch(0.28 0.015 265); /* border on dark */
+  --p-neutral-500: oklch(0.65 0.012 265); /* muted text on dark */
+  --p-neutral-950: oklch(0.13 0.020 265); /* canvas (explicit) */
+
+  /* Surfaces */
+  --color-surface:        var(--p-neutral-950);
+  --color-surface-raised: oklch(0.22 0.016 265);
+  --color-surface-sunken: oklch(0.11 0.018 265);
+  --color-surface-muted:  oklch(0.20 0.012 265);
+
+  /* Text */
+  --color-text:         var(--p-neutral-0);
+  --color-text-muted:   var(--p-neutral-300);
+  --color-text-subtle:  oklch(0.75 0.012 265); /* L=0.75 passes on dark */
+  --color-text-inverse: var(--p-neutral-900);
+
+  /* Lines */
+  --color-line:        oklch(0.28 0.015 265);
+  --color-line-strong: oklch(0.40 0.015 265);
+  --color-focus-ring:  oklch(0.65 0.05 265);
+
+  /* Hue labels: L +0.05 (C, H held) */
+  --color-hue-red:    oklch(0.78 0.14 25);
+  --color-hue-amber:  oklch(0.78 0.14 75);
+  --color-hue-green:  oklch(0.78 0.12 145);
+  --color-hue-teal:   oklch(0.78 0.11 195);
+  --color-hue-blue:   oklch(0.74 0.13 250);
+  --color-hue-purple: oklch(0.76 0.14 310);
+
+  /* Status — APCA-optimized for dark */
+  --color-status-success: oklch(0.723 0.219 149.579);
+  --color-status-warning: oklch(0.769 0.188 70.08);
+  --color-status-error:   oklch(0.704 0.191 22.216);
+  --color-status-info:    oklch(0.685 0.196 259);
+
+  /* Status surfaces (dark) */
+  --color-status-success-subtle: oklch(0.20 0.03 163);
+  --color-status-warning-subtle: oklch(0.20 0.03 70);
+  --color-status-error-subtle:   oklch(0.20 0.03 27);
+  --color-status-info-subtle:    oklch(0.20 0.03 259);
+
+  /* Interactive primary — lighter fill (dark text passes) */
+  --color-interactive-primary:            oklch(0.70 0.14 250);
+  --color-interactive-primary-foreground: oklch(0.15 0.015 265);
+
+  /* Status text on subtle — lighter for dark */
+  --color-status-success-on-subtle: oklch(0.80 0.10 163);
+  --color-status-warning-on-subtle: oklch(0.82 0.10 70);
+  --color-status-error-on-subtle:   oklch(0.78 0.12 27);
+  --color-status-info-on-subtle:    oklch(0.78 0.10 259);
+
+  /* Elevation — dark alphas (higher, else shadows vanish) */
+  --shadow-xs: 0 1px 2px oklch(0 0 0 / 0.30);
+  --shadow-sm: 0 1px 3px oklch(0 0 0 / 0.40), 0 1px 2px oklch(0 0 0 / 0.30);
+  --shadow-md: 0 4px 8px oklch(0 0 0 / 0.45), 0 2px 4px oklch(0 0 0 / 0.35);
+  --shadow-lg: 0 12px 24px oklch(0 0 0 / 0.50), 0 4px 8px oklch(0 0 0 / 0.40);
+}

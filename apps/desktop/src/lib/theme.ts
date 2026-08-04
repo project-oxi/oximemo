@@ -4,7 +4,7 @@
  */
 export type Theme = "system" | "light" | "dark";
 
-const STORAGE_KEY = "oximemo.theme";
+const STORAGE_KEY = "oxi-theme";
 
 function resolve(theme: Theme): "light" | "dark" {
   if (theme === "system") {

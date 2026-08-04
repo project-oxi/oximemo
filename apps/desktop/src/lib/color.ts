@@ -57,12 +57,12 @@ export function isValidOklch(s: string): boolean {
  * reads, and the ColorPicker swatches preview this exact value (WYSIWYG).
  */
 export function paperFor(color: string): string {
-  if (!color) return "var(--card-surface)";
-  return `color-mix(in oklch, ${color} 60%, var(--card-surface))`;
+  if (!color) return "var(--color-surface-raised)";
+  return `color-mix(in oklch, ${color} 60%, var(--color-surface-raised))`;
 }
 
 /** Card edge: more saturated than the fill (80%) for clear definition. */
 export function edgeFor(color: string): string {
-  if (!color) return "var(--card-edge)";
-  return `color-mix(in oklch, ${color} 80%, var(--card-edge))`;
+  if (!color) return "var(--color-line)";
+  return `color-mix(in oklch, ${color} 80%, var(--color-line))`;
 }

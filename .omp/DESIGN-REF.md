@@ -27,6 +27,16 @@ oximemo is the **primary style reference** for the ecosystem. Its OKLCH 6-hue la
 
 ## Migration status
 
-oximemo is on **legacy CSS** (`app.css`: hex colors, Inter/Pretendard). The `.dark` trigger is
-already correct; SUIT/SUITE adoption + hex→OKLCH token conversion is pending.
-See `doc/UNIFIED-DESIGN.md` §11.1 for the full path.
+**Done (2026-08-04).** The desktop frontend is on the oxi token system:
+`apps/desktop/src/tokens/` holds the primitive → dark-override → component tiers
+(`primitives.css`, `semantic-dark.css`, `components.css`), and the Tailwind
+`@theme`/`@custom-variant` exposure lives directly in `apps/desktop/src/app.css`
+(this Tailwind v4 build does not process `@theme`/`@custom-variant` inside an
+`@import`ed file, and `@theme` color values must reference primitives, not
+themselves, for utilities to generate). Fonts are self-hosted (SUIT/SUITE woff2
+in `public/fonts/`; Geist Mono via `@fontsource-variable/geist-mono`), with a
+FOUC script in `index.html` keyed on `oxi-theme`. All 16 components consume
+semantic utilities only — no `dark:` variants, no `zinc-*`/hex in component code
+(the single exception is `bg-black/40` on the `MemoDetail` dialog backdrop,
+which §6.7 of the design system prescribes verbatim). The `oxi-theme` storage
+key replaces the former `oximemo.theme`.

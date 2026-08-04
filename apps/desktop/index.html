@@ -4,9 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <title>oximemo</title>
+    <title>OxiMemo</title>
+    <!-- FOUC prevention: resolve theme before first paint (§8.2). The value
+         "system" (or null) follows the OS preference; "light"/"dark" override. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("oxi-theme");
+          var d =
+            t === "dark" ||
+            ((t === "system" || t == null) &&
+              matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", d);
+        } catch (_) {}
+      })();
+    </script>
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/SUIT-Variable.woff2" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/SUITE-Variable.woff2" />
   </head>
-  <body class="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+  <body class="bg-surface text-text">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

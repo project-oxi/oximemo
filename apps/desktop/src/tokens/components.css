@@ -1,0 +1,48 @@
+/* Tier 3 — Component-shaped tokens: radius tiers + per-component aliases,
+ * input box-shadow borders, motion. Source: DESIGN.md §5.2, §6.4, §7.3.
+ * Font stacks live in theme.css @theme (font-sans / font-display / font-mono). */
+:root {
+  /* Radius tiers */
+  --radius-xs:   0.25rem;   /* 4px — tags, dense chips */
+  --radius-sm:   0.375rem;  /* 6px — inline elements */
+  --radius-md:   0.5rem;    /* 8px — buttons, inputs, selects */
+  --radius-lg:   0.75rem;   /* 12px — cards, dialogs */
+  --radius-xl:   1rem;      /* 16px — popovers, tooltips */
+  --radius-2xl:  1.25rem;   /* 20px — modals, hero */
+  --radius-full: 9999px;    /* badges, pills */
+
+  /* Component → radius aliases (centralize per-project overrides) */
+  --button-radius:         var(--radius-md);
+  --input-radius:          var(--radius-md);
+  --select-radius:         var(--radius-md);
+  --card-radius:           var(--radius-lg);
+  --dialog-radius:         var(--radius-lg);
+  --popover-radius:        var(--radius-xl);
+  --tooltip-radius:        var(--radius-xl);
+  --badge-radius:          var(--radius-full);
+  --avatar-radius:         var(--radius-full);
+  --tag-radius:            var(--radius-xs);
+  --nav-item-radius:       var(--radius-md);
+  --nav-item-dense-radius: var(--radius-sm);
+
+  /* Input/select borders via box-shadow — no layout shift on state change (§6.4) */
+  --input-shadow:        0 0 0 1px var(--color-line);
+  --input-shadow-focus:  0 0 0 1px var(--color-focus-ring), 0 0 0 4px oklch(0.45 0.04 265 / 0.15);
+  --input-shadow-error:  0 0 0 1px var(--color-status-error);
+
+  /* Motion tokens (§7.3) */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 350ms;
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Reduced-motion: collapse durations to 0 (functional motion preserved, no travel). */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}
