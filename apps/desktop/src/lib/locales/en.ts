@@ -3,7 +3,7 @@
 import type { dict as ko } from "./ko";
 
 export const dict: Record<keyof typeof ko, string> = {
-  app_title: "oximemo",
+  app_title: "OxiMemo",
   search_placeholder: "Search",
   empty_hint: "No memos yet. Start a capture.",
   new_memo: "New memo",
