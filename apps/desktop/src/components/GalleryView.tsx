@@ -29,7 +29,7 @@ function Thumb({ asset, onOpen }: { asset: AssetInfo; onOpen: (a: AssetInfo) => 
     <button
       type="button"
       onClick={() => onOpen(asset)}
-      className="group/img relative aspect-square w-full overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900"
+      className="group/img relative aspect-square w-full overflow-hidden rounded-lg border border-line bg-surface-muted"
     >
       {src ? (
         <img
@@ -39,7 +39,7 @@ function Thumb({ asset, onOpen }: { asset: AssetInfo; onOpen: (a: AssetInfo) => 
           className="h-full w-full object-cover transition-transform group-hover/img:scale-[1.03]"
         />
       ) : (
-        <div className="h-full w-full animate-pulse bg-zinc-200 dark:bg-zinc-800" />
+        <div className="h-full w-full animate-pulse bg-surface-muted" />
       )}
     </button>
   );
@@ -91,11 +91,11 @@ export function GalleryView() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
-        <div className="flex items-center gap-2 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-text">
           <Images size={15} /> {t.gallery}
           {items.length > 0 && (
-            <span className="text-[11px] font-normal text-zinc-400">
+            <span className="text-[11px] font-normal text-text-subtle">
               {t.gallery_count.replace("{n}", String(items.length))}
             </span>
           )}
@@ -105,14 +105,14 @@ export function GalleryView() {
             type="button"
             onClick={onClean}
             disabled={cleaning || items.length === 0}
-            className="inline-flex items-center gap-1 rounded-full border border-zinc-200 px-2.5 py-1 text-[11px] text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-40"
           >
             <Trash2 size={12} /> {t.clean_unused}
           </button>
           <button
             type="button"
             onClick={() => setView("memos")}
-            className="inline-flex items-center rounded-full border border-zinc-200 px-2.5 py-1 text-[11px] text-zinc-500 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            className="inline-flex items-center rounded-full border border-line px-2.5 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface-muted"
           >
             {t.all_memos}
           </button>
@@ -123,13 +123,13 @@ export function GalleryView() {
         {assets.isLoading ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
             {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="aspect-square animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800" />
+              <div key={i} className="aspect-square animate-pulse rounded-lg bg-surface-muted" />
             ))}
           </div>
         ) : items.length === 0 ? (
           <div className="mt-24 flex flex-col items-center gap-2 text-center">
-            <Images size={28} className="text-zinc-300 dark:text-zinc-700" />
-            <p className="max-w-sm text-sm text-zinc-400">{t.gallery_empty}</p>
+            <Images size={28} className="text-text-subtle" />
+            <p className="max-w-sm text-sm text-text-subtle">{t.gallery_empty}</p>
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
@@ -152,14 +152,14 @@ function Lightbox({ asset, onClose }: { asset: AssetInfo; onClose: () => void })
   }, [asset.url]);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-8 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-surface/70 p-8 backdrop-blur-sm"
       onClick={onClose}
     >
       <button
         type="button"
         onClick={onClose}
         aria-label="close"
-        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+        className="absolute right-4 top-4 rounded-full bg-surface-raised/10 p-2 text-text-inverse transition-colors hover:bg-surface-raised/20"
       >
         <X size={18} />
       </button>
@@ -167,7 +167,7 @@ function Lightbox({ asset, onClose }: { asset: AssetInfo; onClose: () => void })
         <img
           src={src}
           alt={asset.name}
-          className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+          className="max-h-full max-w-full rounded-lg object-contain shadow-lg"
           onClick={(e) => e.stopPropagation()}
         />
       )}

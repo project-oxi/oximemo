@@ -157,25 +157,25 @@ export const CategoryCombobox = forwardRef<
         aria-label={triggerAriaLabel}
         title={triggerAriaLabel}
         className={cx(
-          "inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100",
+          "inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-surface-raised px-2 text-xs",
           className,
         )}
       >
         <span
           aria-hidden
           className="inline-block h-2.5 w-2.5 rounded-full"
-          style={{ backgroundColor: selected?.color || "var(--card-edge)" }}
+          style={{ backgroundColor: selected?.color || "var(--color-line)" }}
         />
         <span>{value}</span>
-        <span aria-hidden className="text-zinc-400">▾</span>
-        <kbd className="ml-0.5 font-mono text-[10px] leading-none text-zinc-400 dark:text-zinc-500">
+        <span aria-hidden className="text-text-subtle">▾</span>
+        <kbd className="ml-0.5 font-mono text-[10px] leading-none text-text-subtle">
           ⌘L
         </kbd>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[60]">
-          <Popover.Popup className="w-56 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
-            <div className="border-b border-zinc-100 p-1 dark:border-zinc-700">
+          <Popover.Popup className="w-56 rounded-lg border border-line bg-surface-raised shadow-lg">
+            <div className="border-b border-line p-1">
               <input
                 ref={inputRef}
                 type="text"
@@ -186,7 +186,7 @@ export const CategoryCombobox = forwardRef<
                 autoComplete="off"
                 spellCheck={false}
                 aria-controls={listboxId}
-                className="w-full rounded-md bg-transparent px-2 py-1 text-xs outline-none placeholder:text-zinc-400"
+                className="w-full rounded-md bg-transparent px-2 py-1 text-xs outline-none placeholder:text-text-subtle"
               />
             </div>
             <ul
@@ -196,7 +196,7 @@ export const CategoryCombobox = forwardRef<
               className="max-h-56 overflow-y-auto py-1"
             >
               {filtered.length === 0 && !showCreate && (
-                <li className="px-3 py-1.5 text-xs text-zinc-400">No matches</li>
+                <li className="px-3 py-1.5 text-xs text-text-subtle">No matches</li>
               )}
               {filtered.map((c, i) => (
                 <li
@@ -211,7 +211,7 @@ export const CategoryCombobox = forwardRef<
                   }}
                   className={cx(
                     "flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs",
-                    i === highlight ? "bg-zinc-100 dark:bg-zinc-700" : "",
+                    i === highlight ? "bg-surface-muted" : "",
                   )}
                 >
                   <span
@@ -221,7 +221,7 @@ export const CategoryCombobox = forwardRef<
                   />
                   <span className="flex-1 truncate">{c.id}</span>
                   {c.builtin && (
-                    <span className="text-[10px] text-zinc-400">built-in</span>
+                    <span className="text-[10px] text-text-subtle">built-in</span>
                   )}
                 </li>
               ))}
@@ -236,8 +236,8 @@ export const CategoryCombobox = forwardRef<
                     activate(filtered.length);
                   }}
                   className={cx(
-                    "flex w-full cursor-pointer items-center gap-2 border-t border-zinc-100 px-3 py-1.5 text-left text-xs text-purple-600 dark:border-zinc-700 dark:text-purple-400",
-                    filtered.length === highlight ? "bg-zinc-100 dark:bg-zinc-700" : "",
+                    "flex w-full cursor-pointer items-center gap-2 border-t border-line px-3 py-1.5 text-left text-xs text-hue-purple",
+                    filtered.length === highlight ? "bg-surface-muted" : "",
                   )}
                 >
                   <span aria-hidden>✨</span>

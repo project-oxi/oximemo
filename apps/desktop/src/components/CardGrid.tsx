@@ -246,7 +246,7 @@ export function CardGrid() {
         type="button"
         onClick={toggleSidebar}
         aria-label={sidebarCollapsed ? t.show_sidebar : t.hide_sidebar}
-        className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-200/60 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        className="rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
       >
         {sidebarCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
       </button>
@@ -271,11 +271,11 @@ export function CardGrid() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           data-tauri-drag-region="deep"
-          className="flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/80 pl-4 pr-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80"
+          className="flex h-12 items-center gap-3 border-b border-line bg-surface-raised/80 pl-4 pr-4 backdrop-blur"
         >
           <div className="flex-1" />
           <div className="relative w-56">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-subtle" />
             <input
               type="text"
               value={localSearch}
@@ -284,14 +284,14 @@ export function CardGrid() {
                 setSearch(e.target.value);
               }}
               placeholder={t.search_placeholder}
-              className="w-full rounded-full border border-zinc-200 bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:focus:border-zinc-500"
+              className="w-full rounded-full bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-text-subtle shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
             />
           </div>
           <button
             type="button"
             onClick={onNewNote}
             aria-label={t.new_memo}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-interactive-primary text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95"
           >
             <Plus size={15} strokeWidth={2.5} />
           </button>
@@ -300,24 +300,24 @@ export function CardGrid() {
         <div ref={scrollerRef} className="flex-1 overflow-y-auto p-2">
           {listing.isError ? (
             <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
-              <p className="text-sm font-medium text-red-500">{t.load_error}</p>
-              <p className="max-w-md break-words text-xs text-zinc-400">{String(listing.error)}</p>
+              <p className="text-sm font-medium text-status-error">{t.load_error}</p>
+              <p className="max-w-md break-words text-xs text-text-subtle">{String(listing.error)}</p>
               <button
                 type="button"
                 onClick={() => listing.refetch()}
-                className="mt-1 inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                className="mt-1 inline-flex items-center gap-2 rounded-full bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95"
               >
                 {t.retry}
               </button>
             </div>
           ) : items.length === 0 ? (
             <div className="mt-24 flex flex-col items-center gap-4 text-center">
-              <p className="text-sm text-zinc-400">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
+              <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
               {hasMemos ? (
                 <button
                   type="button"
                   onClick={clearAllFilters}
-                  className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                  className="inline-flex items-center gap-2 rounded-full bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95"
                 >
                   {t.clear_filters}
                 </button>
@@ -325,7 +325,7 @@ export function CardGrid() {
                 <button
                   type="button"
                   onClick={onNewNote}
-                  className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                  className="inline-flex items-center gap-2 rounded-full bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95"
                 >
                   <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
                 </button>

@@ -130,7 +130,7 @@ export function MemoDetail() {
               setImmersive((v) => !v);
             }
           }}
-          className={`fixed left-1/2 top-1/2 z-50 isolate flex ${popupSize} -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900`}
+          className={`fixed left-1/2 top-1/2 z-50 isolate flex ${popupSize} -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-lg`}
         >
           {category && (
             <div
@@ -140,11 +140,11 @@ export function MemoDetail() {
             />
           )}
           {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
-            <div className="py-10 text-center text-sm text-zinc-400">…</div>
+            <div className="py-10 text-center text-sm text-text-subtle">…</div>
           ) : (
             <>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[10px] uppercase tracking-wide text-zinc-400">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-text-subtle">
                   {memo.data.id.slice(0, 8)}
                 </span>
                 <div className="flex items-center gap-1">
@@ -155,18 +155,18 @@ export function MemoDetail() {
                     title={favorite ? t.action_unfavorite : t.action_favorite}
                     className={`rounded-full p-1.5 transition-colors ${
                       favorite
-                        ? "text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300"
-                        : "text-zinc-400 hover:text-amber-600 dark:text-zinc-400 dark:hover:text-amber-400"
+                        ? "text-hue-amber"
+                        : "text-text-subtle"
                     }`}
                   >
-                    <Star size={13} className={favorite ? "fill-amber-400 dark:fill-amber-400" : undefined} />
+                    <Star size={13} className={favorite ? "fill-hue-amber" : undefined} />
                   </button>
                   <button
                     type="button"
                     onClick={() => setImmersive((v) => !v)}
                     aria-label={immersive ? t.compact_mode : t.focus_mode}
                     title={`${immersive ? t.compact_mode : t.focus_mode} (⌘.)`}
-                    className="rounded-full p-1.5 text-zinc-400 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                    className="rounded-full p-1.5 text-text-subtle transition-colors hover:text-text"
                   >
                     {immersive ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                   </button>

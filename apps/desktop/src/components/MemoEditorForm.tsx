@@ -132,7 +132,7 @@ export function MemoEditorForm({
           onClick={() => fileInputRef.current?.click()}
           aria-label={t.insert_image}
           title={`${t.insert_image} (⌘I)`}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-line text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
         >
           <ImageIcon size={15} />
         </button>
@@ -153,7 +153,7 @@ export function MemoEditorForm({
           disabled={confirmDisabled}
           aria-label={confirmLabel}
           title={confirmLabel}
-          className="group ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-900 px-2 text-white shadow-sm transition-all hover:bg-zinc-800 active:scale-95 disabled:pointer-events-none disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          className="group ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-interactive-primary px-2 text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95 disabled:pointer-events-none disabled:opacity-40"
         >
           <Check
             size={15}
@@ -161,7 +161,7 @@ export function MemoEditorForm({
             className="transition-transform group-hover:scale-110"
           />
           {confirmKbd && (
-            <kbd className="font-mono text-[10px] leading-none text-white/60 dark:text-zinc-500">
+            <kbd className="font-mono text-[10px] leading-none text-interactive-primary-foreground/60">
               {confirmKbd}
             </kbd>
           )}

@@ -46,16 +46,16 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
               backgroundColor: paperFor(colorForCategory(memo.category, categories)),
               borderColor: edgeFor(colorForCategory(memo.category, categories)),
             }}
-            className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-2xl border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_3px_10px_-3px_rgba(0,0,0,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_2px_5px_rgba(0,0,0,0.06),0_10px_24px_-6px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.3),0_3px_10px_-3px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_2px_5px_rgba(0,0,0,0.4),0_10px_24px_-6px_rgba(0,0,0,0.6)]"
+            className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
           />
         }
       >
-      <div className="flex items-center gap-1.5 pr-7 text-zinc-500/90 dark:text-zinc-400">
+      <div className="flex items-center gap-1.5 pr-7 text-text-subtle">
         <span className="text-[11px]">{relativeTime(memo.updated_at, locale)}</span>
-        <span aria-hidden className="text-zinc-400/50 dark:text-zinc-600">
+        <span aria-hidden className="text-text-subtle">
           ·
         </span>
-        <span className="font-mono text-[10px] text-zinc-400/90 dark:text-zinc-500">
+        <span className="font-mono text-[10px] text-text-subtle">
           {shortId}
         </span>
       </div>
@@ -65,23 +65,23 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
         title={memo.favorite ? t.action_unfavorite : t.action_favorite}
         className={`absolute right-2 top-2 z-10 rounded-md p-1.5 transition-all duration-150 ${
           memo.favorite
-            ? "text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300"
-            : "text-zinc-400 opacity-0 hover:bg-black/5 hover:text-amber-600 group-hover:opacity-100 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-amber-400"
+            ? "text-hue-amber hover:text-hue-amber"
+            : "text-text-subtle opacity-0 hover:bg-surface-muted hover:text-hue-amber group-hover:opacity-100"
         }`}
         onClick={(e) => {
           e.stopPropagation();
           onToggleFavorite(memo.id);
         }}
       >
-        <Star size={14} className={memo.favorite ? "fill-amber-400 dark:fill-amber-400" : undefined} />
+        <Star size={14} className={memo.favorite ? "fill-hue-amber" : undefined} />
       </button>
       {memo.preview ? (
         <div
-          className="md-preview mt-2 line-clamp-4 flex-1 text-sm leading-relaxed text-zinc-700 dark:text-zinc-200"
+          className="md-preview mt-2 line-clamp-4 flex-1 text-sm leading-relaxed text-text"
           dangerouslySetInnerHTML={{ __html: previewHtml }}
         />
       ) : (
-        <p className="mt-2 line-clamp-4 flex-1 text-sm leading-relaxed text-zinc-700 dark:text-zinc-200">
+        <p className="mt-2 line-clamp-4 flex-1 text-sm leading-relaxed text-text">
           {t.empty_memo}
         </p>
       )}
@@ -90,13 +90,13 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
           {memo.tags.slice(0, 3).map((tag) => (
             <span
               key={tag}
-              className="rounded-full bg-[var(--tag-bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--tag)]"
+              className="rounded-full bg-status-warning-subtle px-2 py-0.5 text-[10px] font-medium text-hue-amber"
             >
               {tag}
             </span>
           ))}
           {memo.tags.length > 3 && (
-            <span className="text-[10px] text-zinc-400">+{memo.tags.length - 3}</span>
+            <span className="text-[10px] text-text-subtle">+{memo.tags.length - 3}</span>
           )}
         </div>
       )}
@@ -104,7 +104,7 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
         <button
           type="button"
           aria-label={t.copy}
-          className="rounded-md p-1.5 text-zinc-500 hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
+          className="rounded-md p-1.5 text-text-subtle hover:bg-surface-muted hover:text-text"
           onClick={(e) => {
             e.stopPropagation();
             void navigator.clipboard.writeText(memo.id).then(() => {
@@ -119,7 +119,7 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
         <button
           type="button"
           aria-label={t.action_delete}
-          className="rounded-md p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-500 dark:text-zinc-400 dark:hover:bg-red-500/20"
+          className="rounded-md p-1.5 text-text-subtle hover:bg-status-error-subtle hover:text-status-error"
           onClick={(e) => {
             e.stopPropagation();
             onDelete(memo.id);

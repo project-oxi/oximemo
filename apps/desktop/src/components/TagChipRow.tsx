@@ -29,7 +29,7 @@ export function TagChipRow({ body, onTagClick }: TagChipRowProps) {
           type="button"
           onClick={() => onTagClick?.(t)}
           disabled={!onTagClick}
-          className="rounded-full bg-[var(--tag-bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--tag)] disabled:cursor-default"
+          className="rounded-full bg-status-warning-subtle px-2 py-0.5 text-[10px] font-medium text-hue-amber disabled:cursor-default"
         >
           #{t}
         </button>

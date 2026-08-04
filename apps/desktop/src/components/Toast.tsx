@@ -20,7 +20,7 @@ export function Toast() {
   if (!toast) return null;
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-10 z-50 flex justify-center px-4">
-      <div className="pointer-events-auto animate-toast-in rounded-full bg-zinc-900/90 px-4 py-2 text-xs font-medium text-white shadow-lg backdrop-blur dark:bg-zinc-100/90 dark:text-zinc-900">
+      <div className="pointer-events-auto animate-toast-in rounded-full border border-line bg-surface-raised px-4 py-2 text-xs font-medium text-text shadow-lg backdrop-blur">
         {toast}
       </div>
     </div>

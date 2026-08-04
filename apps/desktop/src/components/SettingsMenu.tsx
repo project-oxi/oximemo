@@ -61,7 +61,7 @@ function Segmented<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div className="flex rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800">
+    <div className="flex rounded-lg bg-surface-muted p-0.5">
       {options.map((o) => (
         <button
           key={o.value}
@@ -70,8 +70,8 @@ function Segmented<T extends string>({
           className={
             "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors " +
             (o.value === value
-              ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
-              : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
+              ? "bg-surface-raised text-text shadow-sm"
+              : "text-text-muted hover:text-text")
           }
         >
           {o.label}
@@ -92,8 +92,8 @@ function Section({
 }) {
   return (
     <section>
-      <h2 className="mb-2.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-        <span className="text-zinc-400 dark:text-zinc-500">{icon}</span>
+      <h2 className="mb-2.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
+        <span className="text-text-subtle">{icon}</span>
         {title}
       </h2>
       {children}
@@ -229,7 +229,7 @@ function CategoriesSection() {
   return (
     <div className="space-y-1.5">
       {cats.isLoading && (
-        <p className="rounded-lg bg-zinc-50 px-3 py-2 text-[11px] text-zinc-400 dark:bg-zinc-800/50 dark:text-zinc-500">
+        <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] text-text-subtle">
           …
         </p>
       )}
@@ -239,7 +239,7 @@ function CategoriesSection() {
         return (
           <div
             key={c.id}
-            className="group flex items-center gap-2 rounded-lg bg-zinc-50 px-2.5 py-1.5 dark:bg-zinc-800/50"
+            className="group flex items-center gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5"
           >
             <CategorySwatch
               color={c.color}
@@ -252,7 +252,7 @@ function CategoriesSection() {
                 onChange={(e) => setEditingDraft(e.target.value)}
                 onBlur={() => void onCommitRename(c.id)}
                 onKeyDown={onRenameKey}
-                className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-800 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                className="min-w-0 flex-1 rounded-md bg-surface-raised px-2 py-1 text-xs text-text outline-none shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
               />
             ) : (
               <button
@@ -260,11 +260,11 @@ function CategoriesSection() {
                 disabled={isInbox}
                 onClick={() => startRename(c)}
                 title={isInbox ? "Inbox is immutable" : "Rename"}
-                className="min-w-0 flex-1 truncate text-left text-xs text-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-400 dark:text-zinc-200 dark:disabled:text-zinc-500"
+                className="min-w-0 flex-1 truncate text-left text-xs text-text-muted disabled:cursor-not-allowed disabled:text-text-subtle"
               >
                 {c.id}
                 {c.builtin && !isInbox && (
-                  <span className="ml-1.5 text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                  <span className="ml-1.5 text-[10px] uppercase tracking-wider text-text-subtle">
                     built-in
                   </span>
                 )}
@@ -276,7 +276,7 @@ function CategoriesSection() {
                 onClick={() => startRename(c)}
                 disabled={isInbox}
                 aria-label="Rename"
-                className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                className="rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
               >
                 <Pencil size={12} />
               </button>
@@ -287,7 +287,7 @@ function CategoriesSection() {
               disabled={isInbox}
               aria-label={t.action_delete}
               title={isInbox ? "Inbox is immutable" : t.action_delete}
-              className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-red-100 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-red-900/40 dark:hover:text-red-300"
+              className="rounded-md p-1 text-text-subtle transition-colors hover:bg-status-error-subtle hover:text-status-error disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
             >
               <Trash2 size={12} />
             </button>
@@ -296,7 +296,7 @@ function CategoriesSection() {
       })}
 
       {/* New-category row */}
-      <div className="flex items-center gap-2 rounded-lg border border-dashed border-zinc-300 px-2.5 py-1.5 dark:border-zinc-700">
+      <div className="flex items-center gap-2 rounded-lg border border-dashed border-line px-2.5 py-1.5">
         <CategorySwatch color={newColor} onPick={setNewColor} />
         <input
           ref={newInputRef}
@@ -304,13 +304,13 @@ function CategoriesSection() {
           onChange={(e) => setNewId(e.target.value)}
           onKeyDown={onNewKey}
           placeholder="New category id"
-          className="min-w-0 flex-1 rounded-md bg-transparent px-1 py-1 text-xs text-zinc-800 outline-none placeholder:text-zinc-400 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+          className="min-w-0 flex-1 rounded-md bg-transparent px-1 py-1 text-xs text-text outline-none placeholder:text-text-subtle"
         />
         <button
           type="button"
           onClick={() => void onAdd()}
           disabled={creating || newId.trim().length === 0}
-          className="flex items-center gap-1 rounded-md bg-zinc-900 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="flex items-center gap-1 rounded-md bg-interactive-primary px-2 py-1 text-[11px] font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Plus size={12} />
           Add
@@ -351,12 +351,12 @@ function CategorySwatch({
     <Popover.Root>
       <Popover.Trigger
         aria-label="Edit color"
-        className="block h-5 w-5 shrink-0 rounded-full border border-zinc-200 transition-transform hover:scale-110 dark:border-zinc-600"
+        className="block h-5 w-5 shrink-0 rounded-full border border-line transition-transform hover:scale-110"
         style={swatchStyle}
       />
       <Popover.Portal>
         <Popover.Positioner side="left" align="center" sideOffset={6} className="z-[60]">
-          <Popover.Popup className="w-56 rounded-lg border border-zinc-200 bg-white p-2.5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+          <Popover.Popup className="w-56 rounded-lg border border-line bg-surface-raised p-2.5 shadow-lg">
             <div className="mb-2 grid grid-cols-6 gap-1.5">
               {COLOR_PRESETS.map((p) => {
                 const v = presetToString(p);
@@ -369,7 +369,7 @@ function CategorySwatch({
                     title={p.id}
                     className={
                       "h-6 w-6 rounded-full border transition-transform hover:scale-110 " +
-                      (active ? "border-zinc-900 dark:border-zinc-100" : "border-zinc-200 dark:border-zinc-600")
+                      (active ? "border-text" : "border-line")
                     }
                     style={{ backgroundColor: v }}
                   />
@@ -394,7 +394,7 @@ function CategorySwatch({
                 }
               }}
               placeholder="oklch(0.75 0.15 25)"
-              className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[11px] text-zinc-700 outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+              className="w-full rounded-md bg-surface-sunken px-2 py-1 font-mono text-[11px] text-text-muted outline-none shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
             />
           </Popover.Popup>
         </Popover.Positioner>
@@ -497,23 +497,23 @@ export function SettingsMenu() {
     <Dialog.Root>
       <Dialog.Trigger
         aria-label={t.settings}
-        className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        className="rounded-full p-1.5 text-text-muted transition-colors hover:bg-surface-muted hover:text-text"
       >
         <Settings size={15} />
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
+        <Dialog.Backdrop className="fixed inset-0 z-40 backdrop-blur-sm" />
         <Dialog.Popup
-          className="fixed right-0 top-0 z-50 flex h-full w-[380px] max-w-[92vw] translate-x-full flex-col overflow-hidden border-l border-zinc-200 bg-white shadow-xl transition-transform duration-200 ease-out data-[open]:translate-x-0 dark:border-zinc-800 dark:bg-zinc-950"
+          className="fixed right-0 top-0 z-50 flex h-full w-[380px] max-w-[92vw] translate-x-full flex-col overflow-hidden border-l border-line bg-surface shadow-lg transition-transform duration-200 ease-out data-[open]:translate-x-0"
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3.5 dark:border-zinc-800">
-            <h1 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+          <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+            <h1 className="text-sm font-semibold text-text">
               {t.settings}
             </h1>
             <Dialog.Close
               aria-label={t.close}
-              className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              className="rounded-lg p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text-muted"
             >
               <X size={16} />
             </Dialog.Close>
@@ -550,13 +550,13 @@ export function SettingsMenu() {
             <Section icon={<HardDrive size={12} />} title={t.section_storage}>
               <div className="space-y-2.5">
                 <div>
-                  <p className="mb-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+                  <p className="mb-1 text-[11px] text-text-subtle">
                     {t.vault_location}
                   </p>
                   <div className="flex items-center gap-1.5">
                     <code
                       title={vault.data ?? ""}
-                      className="min-w-0 flex-1 truncate rounded-lg bg-zinc-50 px-2.5 py-1.5 font-mono text-[11px] text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-300"
+                      className="min-w-0 flex-1 truncate rounded-lg bg-surface-sunken px-2.5 py-1.5 font-mono text-[11px] text-text-muted"
                     >
                       {vault.data ?? "…"}
                     </code>
@@ -564,13 +564,13 @@ export function SettingsMenu() {
                       type="button"
                       onClick={() => void copyVault()}
                       aria-label={t.copy}
-                      className="shrink-0 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      className="shrink-0 rounded-lg p-1.5 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
                     >
-                      {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                      {copied ? <Check size={13} className="text-status-success" /> : <Copy size={13} />}
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800/50 dark:text-zinc-400">
+                <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text-muted">
                   <span>{t.memo_count.replace("{n}", String(stats.data?.memos ?? 0))}</span>
                   <span>{t.favorites_count.replace("{n}", String(stats.data?.favorites ?? 0))}</span>
                 </div>
@@ -579,7 +579,7 @@ export function SettingsMenu() {
                     type="button"
                     onClick={onReindex}
                     disabled={busy !== null}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-2 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-50"
                   >
                     <RefreshCw size={13} className={busy === "reindex" ? "animate-spin" : ""} />
                     {busy === "reindex" ? t.reindexing : t.reindex}
@@ -588,7 +588,7 @@ export function SettingsMenu() {
                     type="button"
                     onClick={onDoctor}
                     disabled={busy !== null}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-2 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-50"
                   >
                     <Stethoscope size={13} />
                     {busy === "doctor" ? t.checking : t.doctor}
@@ -599,8 +599,8 @@ export function SettingsMenu() {
                     className={
                       "flex items-center gap-1 text-xs " +
                       (issues === 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-amber-600 dark:text-amber-400")
+                        ? "text-status-success"
+                        : "text-status-warning")
                     }
                   >
                     <ShieldCheck size={13} />
@@ -614,8 +614,8 @@ export function SettingsMenu() {
                   className={
                     "mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors disabled:opacity-50 " +
                     (confirmReset
-                      ? "border-red-500 bg-red-500 text-white hover:bg-red-600 dark:border-red-500 dark:bg-red-500 dark:hover:bg-red-600"
-                      : "border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30")
+                      ? "border-status-error bg-status-error text-interactive-primary-foreground hover:bg-status-error/90"
+                      : "border-status-error text-status-error hover:bg-status-error-subtle")
                   }
                 >
                   <Trash2 size={13} />
@@ -625,13 +625,13 @@ export function SettingsMenu() {
             </Section>
 
             <Section icon={<Info size={12} />} title={t.section_about}>
-              <div className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/50">
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">oximemo</span>
-                <span className="font-mono text-xs text-zinc-400">v{APP_VERSION}</span>
+              <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
+                <span className="text-xs text-text-muted">oximemo</span>
+                <span className="font-mono text-xs text-text-subtle">v{APP_VERSION}</span>
               </div>
-              <div className="mt-1.5 flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/50">
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">{t.capture_shortcut}</span>
-                <kbd className="font-mono text-xs text-zinc-400">⌘⇧N</kbd>
+              <div className="mt-1.5 flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
+                <span className="text-xs text-text-muted">{t.capture_shortcut}</span>
+                <kbd className="font-mono text-xs text-text-subtle">⌘⇧N</kbd>
               </div>
             </Section>
           </div>

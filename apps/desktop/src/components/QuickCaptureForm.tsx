@@ -77,13 +77,12 @@ function SlashCategoryMenu({
   onSelect: (id: string) => void;
   onCreate: (id: string) => void;
 }) {
-
   return (
-    <div className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-32 overflow-y-auto rounded-xl bg-white/80 px-1 py-1 shadow-lg ring-1 ring-black/5 backdrop-blur-xl dark:bg-zinc-800/80 dark:ring-white/10">
+    <div className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-32 overflow-y-auto rounded-xl bg-surface-raised/80 px-1 py-1 shadow-lg ring-1 ring-line backdrop-blur-xl">
       {filtered.map((c, i) => (
         <button
           key={c.id}
-          className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-zinc-800 dark:text-zinc-100 ${i === sel ? "bg-zinc-900/5 dark:bg-white/10" : ""}`}
+          className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-text ${i === sel ? "bg-surface-muted" : ""}`}
           onClick={() => onSelect(c.id)}
           onMouseEnter={() => onSelChange(i)}
         >
@@ -93,13 +92,13 @@ function SlashCategoryMenu({
           />
           <span className="truncate">{c.id}</span>
           {c.builtin && (
-            <span className="ml-auto text-[10px] text-zinc-400">built-in</span>
+            <span className="ml-auto text-[10px] text-text-subtle">built-in</span>
           )}
         </button>
       ))}
       {isNew && (
         <button
-          className={`mt-0.5 flex w-full items-center gap-2 rounded-md border-t border-black/5 px-2.5 py-1.5 text-left text-sm text-purple-600 dark:border-white/10 dark:text-purple-400 ${filtered.length === sel ? "bg-zinc-900/5 dark:bg-white/10" : ""}`}
+          className={`mt-0.5 flex w-full items-center gap-2 rounded-md border-t border-line px-2.5 py-1.5 text-left text-sm text-hue-purple ${filtered.length === sel ? "bg-surface-muted" : ""}`}
           onClick={() => onCreate(query)}
           onMouseEnter={() => onSelChange(filtered.length)}
         >
@@ -124,7 +123,7 @@ function CategoryChip({
   const color = colorForCategory(id, categories);
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-text-inverse"
       style={{ backgroundColor: color }}
     >
       ● {id}
@@ -133,7 +132,7 @@ function CategoryChip({
           e.stopPropagation();
           onDismiss();
         }}
-        className="ml-0.5 text-white/70 hover:text-white"
+        className="ml-0.5 text-text-inverse/70 hover:text-text-inverse"
       >
         ✕
       </button>
@@ -288,10 +287,8 @@ export function QuickCaptureForm({
           카테고리가 선택되면 paperFor로 카테고리 색조로 톤 다운. */}
       <div
         className={cx(
-          "relative rounded-2xl px-3 py-2.5 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.18)] ring-1 ring-black/5 backdrop-blur-xl transition-colors",
-          category
-            ? "dark:ring-white/10"
-            : "bg-white/70 dark:bg-zinc-900/70 dark:ring-white/10",
+          "relative rounded-2xl px-3 py-2.5 shadow-md ring-1 ring-line backdrop-blur-xl transition-colors",
+          category ? undefined : "bg-surface-raised/70",
         )}
         style={
           category
@@ -338,7 +335,7 @@ export function QuickCaptureForm({
             // branch fires.
             onKeyDown={handleKeyDown}
             className={cx(
-              "block w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-relaxed text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-0 dark:text-zinc-100 dark:placeholder:text-zinc-500",
+              "block w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-relaxed text-text placeholder:text-text-subtle focus:outline-none focus:ring-0",
               // 한 줄 시작, ~5줄까지 자동 성장 후 내부 스크롤.
               "min-h-[1.5rem] max-h-[7.5rem] overflow-y-auto",
               bodyClassName,
@@ -347,7 +344,7 @@ export function QuickCaptureForm({
         </div>
         {/* 하단 희미한 키보드 힌트 — 캡슐 안, 입력 아래 한 줄. */}
         <div className="mt-1 flex items-center justify-end">
-          <span className="font-mono text-[10px] tracking-tight text-zinc-400/70 dark:text-zinc-500/70">
+          <span className="font-mono text-[10px] tracking-tight text-text-subtle">
             {hint}
           </span>
         </div>

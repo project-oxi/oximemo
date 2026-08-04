@@ -17,9 +17,9 @@ import type { CategoryDef } from "../lib/types";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, CtxSubmenu } from "./ContextMenu";
 
 const STATE_CLASS: Record<TagState, string> = {
-  off: "bg-zinc-200/70 text-zinc-600 hover:bg-zinc-300/70 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700/70",
-  in: "bg-[var(--tag)] font-semibold text-white",
-  out: "border border-[var(--tag)] text-[var(--tag)] line-through",
+  off: "bg-surface-muted text-text-muted hover:bg-surface-muted/80",
+  in: "bg-hue-amber font-semibold text-text-inverse",
+  out: "border border-hue-amber text-hue-amber line-through",
 };
 /** One category row: click filters, right-click opens a context menu
  *  (rename / recolor / delete). Rename is inline, reusing the commit/Escape
@@ -88,7 +88,7 @@ function CategoryRow({
   };
 
   const btnCls = `flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm ${
-    selected ? "bg-zinc-200/70 font-semibold dark:bg-zinc-700" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+    selected ? "bg-surface-muted font-semibold text-text" : "hover:bg-surface-muted"
   }`;
 
   if (editing) {
@@ -99,7 +99,7 @@ function CategoryRow({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={onKey}
-        className="min-w-0 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+        className="min-w-0 rounded-md bg-surface px-2 py-1 text-sm outline-none shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
       />
     );
   }
@@ -116,7 +116,7 @@ function CategoryRow({
           style={{ backgroundColor: colorForCategory(def.id, catDefs) }}
         />
         <span>{def.id}</span>
-        {count !== undefined && <span className="ml-auto text-[11px] text-zinc-400">{count}</span>}
+        {count !== undefined && <span className="ml-auto text-[11px] text-text-subtle">{count}</span>}
         <CtxMenu>
           <CtxItem
             icon={Pencil}
@@ -194,7 +194,7 @@ export function Sidebar() {
   const favoritesCount = stats.data?.favorites ?? 0;
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50/60 dark:border-zinc-800 dark:bg-zinc-950/40">
+    <aside className="flex w-56 shrink-0 flex-col border-r border-line bg-surface-sunken/60">
       {/* Traffic-light drag region: reserve the 48px header band at the top of
           the sidebar so its content starts below the macOS lights. The sidebar
           toggle itself is a single fixed element rendered in CardGrid, so this
@@ -206,43 +206,43 @@ export function Sidebar() {
         onClick={() => { setView("memos"); setFavoritesOnly(false); }}
         className={`mx-2 flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] ${
           view === "memos" && !favoritesOnly
-            ? "bg-zinc-200/70 font-semibold dark:bg-zinc-800"
-            : "text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300"
+            ? "bg-surface-muted font-semibold text-text"
+            : "text-text-muted hover:bg-surface-muted"
         }`}
       >
         <span className="flex items-center gap-2"><Layers size={14} /> {t.all_memos}</span>
-        <span className="text-[11px] text-zinc-400">{total}</span>
+        <span className="text-[11px] text-text-subtle">{total}</span>
       </button>
       <button
         type="button"
         onClick={() => { setView("memos"); setFavoritesOnly(true); }}
         className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
           view === "memos" && favoritesOnly
-            ? "bg-amber-100 font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-            : "text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300"
+            ? "bg-surface-muted font-semibold text-text"
+            : "text-text-muted hover:bg-surface-muted"
         }`}
       >
         <Star size={14} /> {t.favorite}
-        {favoritesCount > 0 && <span className="ml-auto text-[11px] text-zinc-400">{favoritesCount}</span>}
+        {favoritesCount > 0 && <span className="ml-auto text-[11px] text-text-subtle">{favoritesCount}</span>}
       </button>
       <button
         type="button"
         onClick={() => setView("gallery")}
         className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
           view === "gallery"
-            ? "bg-blue-100 font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-            : "text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-300"
+            ? "bg-surface-muted font-semibold text-text"
+            : "text-text-muted hover:bg-surface-muted"
         }`}
       >
         <Images size={14} /> {t.gallery}
       </button>
 
       <div className="mt-3 flex items-center justify-between px-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{t.tags_section}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">{t.tags_section}</span>
         <button
           type="button"
           onClick={toggleMatchAll}
-          className="text-[10px] font-semibold text-[var(--tag)]"
+          className="text-[10px] font-semibold text-hue-amber"
         >
           {matchAll ? t.match_all : t.match_any} ⇅
         </button>
@@ -251,7 +251,7 @@ export function Sidebar() {
         <button
           type="button"
           onClick={clearTagFilter}
-          className="rounded-md bg-zinc-200/70 px-2 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+          className="rounded-md bg-surface-muted px-2 py-0.5 text-[11px] text-text-muted"
         >
           {t.all_tags}
         </button>
@@ -272,19 +272,19 @@ export function Sidebar() {
 
       {/* 카테고리 라디오 필터 */}
       <div className="mt-3 px-3">
-        <label className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+        <label className="text-[11px] font-medium uppercase tracking-wider text-text-subtle">
           Category
         </label>
         <div className="mt-1 flex flex-col gap-0.5">
           <button
             className={`flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm ${
               categoryFilter === null
-                ? "bg-zinc-200/70 font-semibold dark:bg-zinc-700"
-                : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                ? "bg-surface-muted font-semibold text-text"
+                : "hover:bg-surface-muted"
             }`}
             onClick={() => setCategory(null)}
           >
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-400" />
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-text-subtle" />
             <span>All</span>
           </button>
           {catDefs.map((c) => (

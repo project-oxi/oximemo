@@ -28,17 +28,17 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, BoundarySt
   render() {
     if (this.state.error) {
       return (
-        <div className="flex h-screen w-full flex-col items-center justify-center gap-3 bg-white px-6 text-center dark:bg-zinc-950">
-          <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+        <div className="flex h-screen w-full flex-col items-center justify-center gap-3 bg-surface px-6 text-center">
+          <p className="text-sm font-medium text-text">
             oximemo hit an unexpected error.
           </p>
-          <p className="max-w-md text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="max-w-md text-xs text-text-muted">
             {String(this.state.error.message || this.state.error)}
           </p>
           <button
             type="button"
             onClick={() => this.setState({ error: null })}
-            className="mt-1 rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            className="mt-1 rounded-full bg-interactive-primary px-4 py-1.5 text-xs font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary/90"
           >
             Try again
           </button>
@@ -63,13 +63,13 @@ export function ErrorToast() {
   if (!error) return null;
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-      <div className="pointer-events-auto flex max-w-md items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2 text-xs text-red-700 shadow-lg dark:border-red-900/60 dark:bg-red-950/80 dark:text-red-300">
+      <div className="pointer-events-auto flex max-w-md items-center gap-2 rounded-xl border border-status-error bg-status-error-subtle px-3.5 py-2 text-xs text-status-error-on-subtle shadow-lg">
         <span className="font-medium">⚠</span>
         <span className="flex-1">{error}</span>
         <button
           type="button"
           onClick={() => setError(null)}
-          className="shrink-0 text-red-400 hover:text-red-600 dark:hover:text-red-200"
+          className="shrink-0 text-status-error hover:text-status-error"
           aria-label="dismiss"
         >
           ✕
