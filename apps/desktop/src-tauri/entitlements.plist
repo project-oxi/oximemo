@@ -4,7 +4,7 @@
   oximemo macOS entitlements (Hardened Runtime, DESIGN §6.5).
 
   The app is NOT sandboxed:
-    - The vault lives anywhere on disk (~/Library/… by default, but --vault can
+    - The vault lives anywhere on disk (~/Library/… by default, but the vault flag can
       point anywhere) and oximemo reads/writes plain .md files directly.
     - The global Option double-tap monitor (NSEvent global flagsChanged) needs
       unrestricted event access that the sandbox does not grant; Accessibility /
