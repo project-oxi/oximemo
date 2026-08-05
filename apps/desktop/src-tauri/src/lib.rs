@@ -156,28 +156,33 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if window.label() != "capture" {
-                return;
+        .on_window_event(|window, event| match event {
+            // The main window never really closes. macOS keeps an app alive
+            // after its last window is dismissed; intercept the red traffic
+            // light so the window (and its React state) is only hidden, not
+            // destroyed. `RunEvent::Reopen` (dock icon) and the tray's "Show
+            // Main Window" then bring it straight back via `show_main_window`.
+            // Without this the window is torn down and cannot be re-shown.
+            WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                api.prevent_close();
+                let _ = window.hide();
             }
-            match event {
-                WindowEvent::Focused(true) => {
-                    if let Some(s) = window.app_handle().try_state::<AppState>() {
-                        s.capture_focused.store(true, Ordering::Relaxed);
-                    }
+            WindowEvent::Focused(true) if window.label() == "capture" => {
+                if let Some(s) = window.app_handle().try_state::<AppState>() {
+                    s.capture_focused.store(true, Ordering::Relaxed);
                 }
-                WindowEvent::Focused(false) => {
-                    let hide = window
-                        .app_handle()
-                        .try_state::<AppState>()
-                        .is_some_and(|s| s.capture_focused.swap(false, Ordering::Relaxed));
-                    if hide {
-                        let _ = window.hide();
-                        let _ = window.app_handle().emit("capture:hide", ());
-                    }
-                }
-                _ => {}
             }
+            WindowEvent::Focused(false) if window.label() == "capture" => {
+                let hide = window
+                    .app_handle()
+                    .try_state::<AppState>()
+                    .is_some_and(|s| s.capture_focused.swap(false, Ordering::Relaxed));
+                if hide {
+                    let _ = window.hide();
+                    let _ = window.app_handle().emit("capture:hide", ());
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_memos,
@@ -204,8 +209,26 @@ pub fn run() {
             commands::gc_assets,
             commands::memo_for_asset,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running oximemo desktop app");
+        .build(tauri::generate_context!())
+        .expect("error while building oximemo desktop app")
+        .run(|handle, event| match event {
+            // macOS fires `applicationShouldHandleReopen` when the user clicks
+            // the dock icon. With the main window hidden on close there are no
+            // visible windows to auto-restore, so re-show it here — this is
+            // what makes the dock icon reopen the window after the X dismisses
+            // it. Guarded on `has_visible_windows` to match native reopen
+            // semantics (do nothing when a window is already on screen).
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } => {
+                if !has_visible_windows {
+                    show_main_window(handle);
+                }
+            }
+            _ => {}
+        });
 }
 
 fn parse_vault_arg() -> Option<PathBuf> {
