@@ -6,6 +6,12 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "macOS global Option double-tap monitor for oximemo"
+repository = "https://github.com/project-oxi/oximemo"
+homepage = "https://github.com/project-oxi/oximemo"
+readme = "../../README.md"
+categories = ["os::macos-apis", "gui"]
+keywords = ["oximemo", "macos", "global-hotkey", "capture", "objc2"]
+publish = true
 
 [lib]
 name = "oximemo_capture"

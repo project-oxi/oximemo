@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-08-06
+
+### Fixed
+- **macOS: dock click reopens the main window after close** — the main window
+  was destroyed on the red close button (no `CloseRequested` handler for
+  non-capture windows) and there was no `RunEvent::Reopen` handler, so
+  clicking the Dock icon could not bring the window back even though the
+  app stayed alive. The main window's `CloseRequested` is now intercepted
+  (`prevent_close` + `hide`) and re-shown on `RunEvent::Reopen`.
+
+### Added
+- **crates.io publish** — `oximemo-core`, `oximemo-capture`, and
+  `oximemo-cli` are now published to crates.io and installable with
+  `cargo install oximemo-cli`.
+
 ## [0.6.0] — 2026-08-04
 
 ### Added
@@ -181,7 +196,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent integration via `skills/oximemo/SKILL.md`.
 - Light/dark mode following the macOS system appearance.
 
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.7.0
 [0.6.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.6.0
 [0.5.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.5.0
 [0.4.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.4.0

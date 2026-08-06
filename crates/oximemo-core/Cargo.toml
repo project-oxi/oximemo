@@ -6,6 +6,12 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Pure-Rust core for oximemo: file store, index, search, sync"
+repository = "https://github.com/project-oxi/oximemo"
+homepage = "https://github.com/project-oxi/oximemo"
+readme = "../../README.md"
+categories = ["database-implementations", "filesystem"]
+keywords = ["oximemo", "notes", "markdown", "vault", "search"]
+publish = true
 
 [lib]
 name = "oximemo_core"

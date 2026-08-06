@@ -6,6 +6,12 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Command-line interface for oximemo"
+repository = "https://github.com/project-oxi/oximemo"
+homepage = "https://github.com/project-oxi/oximemo"
+readme = "../../README.md"
+categories = ["command-line-utilities", "command-line-interface"]
+keywords = ["oximemo", "notes", "markdown", "cli", "vault"]
+publish = true
 
 [[bin]]
 name = "oximemo"
