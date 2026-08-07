@@ -744,8 +744,8 @@ mod commands {
 
     #[tauri::command]
     pub fn install_cli() -> Result<(), String> {
-        let target = bundled_cli_path()
-            .ok_or_else(|| "could not locate the app bundle".to_string())?;
+        let target =
+            bundled_cli_path().ok_or_else(|| "could not locate the app bundle".to_string())?;
         if !target.exists() {
             return Err("bundled CLI binary is missing".to_string());
         }
