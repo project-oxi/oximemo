@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-07
+
+### Added
+- **In-app CLI install** — the `oximemo` CLI now ships inside the macOS app as
+  a signed sidecar. Settings → "Command-line tool" (plus a first-launch nudge)
+  exposes `oximemo` on `/usr/local/bin` via a one-time macOS admin prompt, so a
+  single `.dmg` install gives you both the GUI and the terminal command.
+  Headless/agent machines keep using the release tarball.
+
+### Fixed
+- **Release build** — disabled thin LTO in the release profile, which broke
+  tauri 2.11.5's proc-macro linking (`E0463: can't find crate for
+  tauri_macros`) and would have failed the release workflow.
+
 ## [0.7.0] — 2026-08-06
 
 ### Fixed
@@ -196,7 +210,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent integration via `skills/oximemo/SKILL.md`.
 - Light/dark mode following the macOS system appearance.
 
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.8.0
 [0.7.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.7.0
 [0.6.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.6.0
 [0.5.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.5.0
