@@ -109,8 +109,8 @@ export function MemoDetail() {
     setDirty(true);
   };
   const popupSize = immersive
-    ? "max-h-[94vh] w-[min(900px,96vw)] p-6"
-    : "max-h-[80vh] w-[min(640px,92vw)] p-5";
+    ? "h-[94vh] w-[min(900px,96vw)] p-6"
+    : "h-[80vh] w-[min(640px,92vw)] p-5";
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
