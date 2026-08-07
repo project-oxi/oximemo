@@ -99,14 +99,14 @@ export function MemoEditorForm({
   };
 
   return (
-    <div className={cx("flex flex-col gap-2.5", immersive && "flex-1 min-h-0", className)}>
+    <div className={cx("flex flex-1 min-h-0 flex-col gap-2.5", className)}>
       <MarkdownEditor
         body={body}
         onChange={onBodyChange}
         documentId={documentId}
         editorHandleRef={editorHandleRef}
         viewHandleRef={viewHandleRef}
-        className={immersive ? "flex-1 min-h-0 overflow-y-auto" : "max-h-[55vh] overflow-y-auto"}
+        className="flex-1 min-h-0 overflow-y-auto"
         extensions={linkExtensions}
       />
       <TagChipRow body={body} />
