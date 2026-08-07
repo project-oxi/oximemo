@@ -68,6 +68,15 @@ jobs:
           shasum -a 256 staging/oximemo-${{ env.TARGET }}.tar.gz \
             | awk '{print $1}' > staging/oximemo-${{ env.TARGET }}.tar.gz.sha256
 
+      # Stage the CLI binary as a Tauri externalBin sidecar so the .app bundle
+      # ships a signed, runnable `oximemo` command (Settings symlinks it onto
+      # PATH). Must precede `cargo tauri build`, which embeds + signs it.
+      - name: Stage CLI sidecar for app bundle
+        run: |
+          mkdir -p apps/desktop/src-tauri/binaries
+          cp "target/${{ env.TARGET }}/release/oximemo" \
+             "apps/desktop/src-tauri/binaries/oximemo-${{ env.TARGET }}"
+
       # Tauri treats a present-but-empty APPLE_CERTIFICATE as "sign requested"
       # and fails the keychain import, so export the APPLE_* vars to
       # $GITHUB_ENV only when the certificate secret is actually registered.

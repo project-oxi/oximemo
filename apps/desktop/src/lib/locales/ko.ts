@@ -89,6 +89,21 @@ export const dict = {
   embed_loading: "메모 불러오는 중…",
   deleted_memo: "삭제된 메모",
   open_memo: "메모 열기",
+  section_cli: "명령줄 도구",
+  cli_desc: "터미널에서 `oximemo` 명령으로 메모를 읽고 써요. 에이전트와 함께 쓰기 좋아요.",
+  cli_install: "명령 설치",
+  cli_uninstall: "명령 제거",
+  cli_not_installed: "설치 안 됨",
+  cli_installed: "설치됨",
+  cli_reinstall: "다시 설치",
+  cli_installing: "설치 중…",
+  cli_install_done: "`oximemo` 명령이 설치됐어요. 터미널을 재시작하면 써요.",
+  cli_uninstall_done: "`oximemo` 명령이 제거됐어요.",
+  cli_install_failed: "설치에 실패했어요. 관리자 권한이 필요해요.",
+  cli_nudge_title: "명령줄 도구를 켜보세요",
+  cli_nudge_body: "OxiMemo는 터미널에서도 쓸 수 있어요. 한 번 설치하면 에이전트와 함께 쓰기 좋아요.",
+  cli_nudge_install: "지금 설치",
+  cli_nudge_dismiss: "나중에",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

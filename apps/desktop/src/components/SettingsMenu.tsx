@@ -27,11 +27,16 @@ import {
   Settings,
   ShieldCheck,
   Stethoscope,
+  Terminal,
   Trash2,
   X,
 } from "lucide-react";
 
 import {
+  cliStatus,
+  installCli,
+  uninstallCli,
+  type CliState,
   createCategory,
   deleteCategory,
   doctor,
@@ -403,6 +408,81 @@ function CategorySwatch({
   );
 }
 
+/** Command-line tool install section. Surfaces the bundled `oximemo` CLI on
+ *  PATH via a one-time macOS admin prompt. */
+function CliSection() {
+  const { t } = useI18n();
+  const setToast = useUI((s) => s.setToast);
+  const setError = useUI((s) => s.setError);
+  const [busy, setBusy] = useState(false);
+
+  const status = useQuery({
+    queryKey: ["cli-status"],
+    queryFn: cliStatus,
+    staleTime: Infinity,
+  });
+
+  const onInstall = () => {
+    setBusy(true);
+    installCli()
+      .then(() => {
+        setToast(t.cli_install_done);
+        void status.refetch();
+      })
+      .catch(() => setError(t.cli_install_failed))
+      .finally(() => setBusy(false));
+  };
+
+  const onUninstall = () => {
+    setBusy(true);
+    uninstallCli()
+      .then(() => {
+        setToast(t.cli_uninstall_done);
+        void status.refetch();
+      })
+      .catch((e) => setError(String(e).split("\n")[0]))
+      .finally(() => setBusy(false));
+  };
+
+  const state: CliState = status.data ?? "not-installed";
+
+  return (
+    <div className="space-y-2.5">
+      <p className="text-[11px] leading-relaxed text-text-subtle">{t.cli_desc}</p>
+      <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
+        <span className="flex items-center gap-1.5 text-xs text-text-muted">
+          {state === "installed" && (
+            <Check size={13} className="text-status-success" />
+          )}
+          {state === "installed" ? t.cli_installed : t.cli_not_installed}
+        </span>
+        {state === "installed" ? (
+          <button
+            type="button"
+            onClick={onUninstall}
+            disabled={busy}
+            className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-50"
+          >
+            {busy ? "…" : t.cli_uninstall}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onInstall}
+            disabled={busy}
+            className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-50"
+          >
+            {busy
+              ? t.cli_installing
+              : state === "stale"
+                ? t.cli_reinstall
+                : t.cli_install}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 export function SettingsMenu() {
   const { t, locale, setLocale } = useI18n();
   const theme = useUI((s) => s.theme);
@@ -622,6 +702,10 @@ export function SettingsMenu() {
                   {busy === "reset" ? "…" : confirmReset ? t.reset_confirm : t.reset}
                 </button>
               </div>
+            </Section>
+
+            <Section icon={<Terminal size={12} />} title={t.section_cli}>
+              <CliSection />
             </Section>
 
             <Section icon={<Info size={12} />} title={t.section_about}>

@@ -208,6 +208,9 @@ pub fn run() {
             commands::list_assets,
             commands::gc_assets,
             commands::memo_for_asset,
+            commands::cli_status,
+            commands::install_cli,
+            commands::uninstall_cli,
         ])
         .build(tauri::generate_context!())
         .expect("error while building oximemo desktop app")
@@ -688,5 +691,103 @@ mod commands {
             .find_memo_by_asset(&name)
             .map_err(|e| e.to_string())?
             .map(|id| id.0.to_string()))
+    }
+
+    // -- CLI command install ------------------------------------------------
+    // The app ships the `oximemo` CLI as a Tauri externalBin sidecar; these
+    // expose it on PATH via an explicit Settings action (macOS auth dialog).
+
+    /// State of the `oximemo` shell command on `/usr/local/bin`.
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum CliState {
+        /// Symlink present and points at this app's bundled CLI.
+        Installed,
+        /// No symlink present.
+        NotInstalled,
+        /// Symlink missing or points elsewhere (e.g. app moved post-install).
+        Stale,
+    }
+
+    /// Path of the bundled CLI, derived from the running executable so it
+    /// tracks wherever the user installed the `.app`. `None` only if the exe
+    /// path can't be resolved.
+    fn bundled_cli_path() -> Option<std::path::PathBuf> {
+        let exe = std::env::current_exe().ok()?;
+        let dir = exe.parent()?;
+        // The externalBin sidecar lands in Contents/MacOS/ next to the main
+        // binary, under its base name — Tauri strips the `-<triple>` suffix
+        // during bundling (input `oximemo-<triple>` → bundled `oximemo`).
+        Some(dir.join("oximemo"))
+    }
+
+    #[tauri::command]
+    pub fn cli_status() -> Result<CliState, String> {
+        let link = std::path::Path::new("/usr/local/bin/oximemo");
+        let Some(bundled) = bundled_cli_path() else {
+            return Ok(CliState::NotInstalled);
+        };
+        let same = |a: &std::path::Path, b: &std::path::Path| {
+            std::fs::canonicalize(a).ok() == std::fs::canonicalize(b).ok()
+        };
+        match std::fs::read_link(link) {
+            Ok(target) if same(&target, &bundled) => Ok(CliState::Installed),
+            Ok(_) => Ok(CliState::Stale),
+            // Not a symlink: absent → NotInstalled, a stray copy → Stale.
+            Err(_) => Ok(if link.exists() {
+                CliState::Stale
+            } else {
+                CliState::NotInstalled
+            }),
+        }
+    }
+
+    #[tauri::command]
+    pub fn install_cli() -> Result<(), String> {
+        let target = bundled_cli_path()
+            .ok_or_else(|| "could not locate the app bundle".to_string())?;
+        if !target.exists() {
+            return Err("bundled CLI binary is missing".to_string());
+        }
+        // Shell-quote the path; app-bundle paths never contain a quote, guard.
+        let q = target.display().to_string().replace('\'', "'\"'\"'");
+        run_admin(&format!("ln -sf '{q}' /usr/local/bin/oximemo"))
+    }
+
+    #[tauri::command]
+    pub fn uninstall_cli() -> Result<(), String> {
+        run_admin("rm -f /usr/local/bin/oximemo")
+    }
+
+    /// Run a shell snippet with administrator privileges via osascript. macOS
+    /// shows its standard auth dialog once; cancelling surfaces as an error.
+    fn run_admin(shell_script: &str) -> Result<(), String> {
+        let output = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(format!(
+                "do shell script {} with administrator privileges",
+                applescript_string(shell_script)
+            ))
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
+    }
+
+    /// Quote `s` as an AppleScript double-quoted string literal.
+    fn applescript_string(s: &str) -> String {
+        let mut out = String::from("\"");
+        for ch in s.chars() {
+            match ch {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                _ => out.push(ch),
+            }
+        }
+        out.push('"');
+        out
     }
 }

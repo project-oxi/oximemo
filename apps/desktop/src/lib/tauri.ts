@@ -318,6 +318,13 @@ async function browserFallback(
       return null;
     }
 
+    case "cli_status":
+      // CLI is never installed in browser/dev mode.
+      return "not-installed";
+    case "install_cli":
+    case "uninstall_cli":
+      throw new Error("CLI setup is only available in the desktop app");
+
     default:
       return null;
   }

@@ -109,3 +109,20 @@ export async function renameCategory(oldId: string, newId: string) {
 export async function deleteCategory(id: string) {
   return invoke<void>("delete_category", { id });
 }
+
+// --- CLI command install (Settings → "Install command") -------------------
+
+export type CliState = "installed" | "not-installed" | "stale";
+
+export async function cliStatus(): Promise<CliState> {
+  return invoke<CliState>("cli_status");
+}
+
+/** Symlink the bundled CLI onto /usr/local/bin via a macOS admin prompt. */
+export async function installCli(): Promise<void> {
+  await invoke<null>("install_cli");
+}
+
+export async function uninstallCli(): Promise<void> {
+  await invoke<null>("uninstall_cli");
+}

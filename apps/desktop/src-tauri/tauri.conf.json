@@ -35,6 +35,7 @@
   "bundle": {
     "active": true,
     "targets": ["dmg"],
+    "externalBin": ["binaries/oximemo"],
     "publisher": "oximemo",
     "category": "Productivity",
     "copyright": "© 2026 oximemo",
