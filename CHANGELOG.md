@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-08-08
+
+### Changed
+- **Editor layout unified** — `MemoEditorForm` now always uses a `flex-1
+  min-h-0` layout in both immersive and normal modes (normal mode previously
+  capped the editor at `max-h-[55vh]`), so the editor fills its container
+  consistently across modes.
+- **Memo-detail popup fills its box** — the detail popup now uses a fixed
+  viewport-relative height (`h-[94vh]` / `h-[80vh]`) instead of a `max-height`,
+  so it occupies the full intended area rather than collapsing to its content.
+
 ## [0.8.0] — 2026-08-07
 
 ### Added
@@ -218,4 +229,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.4.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
-[0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.8.1
