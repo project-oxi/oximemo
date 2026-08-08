@@ -13,6 +13,7 @@ import { useUI } from "../stores/ui";
 import { applyTheme, saveTheme } from "../lib/theme";
 import { useI18n } from "../lib/i18n";
 import { cliStatus, installCli } from "../lib/api";
+import { checkForUpdate } from "../lib/updater";
 
 const qc = new QueryClient({
   defaultOptions: { queries: { staleTime: 5_000, refetchOnWindowFocus: false } },
@@ -33,10 +34,29 @@ export function App() {
 
 function Shell() {
   const theme = useUI((s) => s.theme);
+  const setUpdateAvailable = useUI((s) => s.setUpdateAvailable);
+  const setToast = useUI((s) => s.setToast);
+  const { t } = useI18n();
+
   useEffect(() => {
     applyTheme(theme);
     saveTheme(theme);
   }, [theme]);
+
+  // Auto-check for updates on launch (Tauri shell only). Badges the settings
+  // gear and toasts once per new version.
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    const DISMISS_KEY = "oximemo.updateToast";
+    void checkForUpdate().then((u) => {
+      if (!u) return;
+      setUpdateAvailable(u.version);
+      if (window.localStorage.getItem(DISMISS_KEY) !== u.version) {
+        window.localStorage.setItem(DISMISS_KEY, u.version);
+        setToast(t.update_toast.replace("{v}", u.version));
+      }
+    });
+  }, [setUpdateAvailable, setToast, t]);
   return (
     <>
       <CardGrid />

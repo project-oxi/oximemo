@@ -34,7 +34,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg"],
+    "targets": ["dmg", "app"],
     "externalBin": ["binaries/oximemo"],
     "publisher": "oximemo",
     "category": "Productivity",
@@ -50,6 +50,14 @@
     "macOS": {
       "minimumSystemVersion": "14.0",
       "entitlements": "entitlements.plist"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/project-oxi/oximemo/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQxNjU4QUVGOTE3NDE1OEYKUldTUEZYU1I3NHBsMGIrU3NvdzRnYVVlN3pyM2Z0a0ZHMlMxb2JJY2pmRkt1bWxqTUdPWXhncXEK"
     }
   }
 }

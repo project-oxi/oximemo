@@ -41,6 +41,9 @@ interface UIState {
    * while still empty so no orphan memos accumulate. */
   draftId: string | null;
   setDraftId: (id: string | null) => void;
+  /** Available update version surfaced on the settings gear, or null. */
+  updateAvailable: string | null;
+  setUpdateAvailable: (v: string | null) => void;
 }
 
 const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
@@ -90,4 +93,6 @@ export const useUI = create<UIState>((set) => ({
   setToast: (msg) => set({ toast: msg }),
   draftId: null,
   setDraftId: (id) => set({ draftId: id }),
+  updateAvailable: null,
+  setUpdateAvailable: (v) => set({ updateAvailable: v }),
 }));

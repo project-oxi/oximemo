@@ -104,6 +104,18 @@ export const dict = {
   cli_nudge_body: "OxiMemo는 터미널에서도 쓸 수 있어요. 한 번 설치하면 에이전트와 함께 쓰기 좋아요.",
   cli_nudge_install: "지금 설치",
   cli_nudge_dismiss: "나중에",
+  section_updates: "업데이트",
+  update_check: "업데이트 확인",
+  update_checking: "확인 중…",
+  update_up_to_date: "최신 버전이에요",
+  update_available: "새 버전 v{v} 사용 가능",
+  update_download: "다운로드 및 설치",
+  update_downloading: "다운로드 중…",
+  update_installing: "설치 중…",
+  update_ready: "설치 완료 — 재시작",
+  update_relaunch: "재시작",
+  update_failed: "업데이트 실패",
+  update_toast: "새 버전이 있어요 (v{v})",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

@@ -104,7 +104,25 @@ jobs:
             echo "Apple signing: disabled (no APPLE_CERTIFICATE) -> unsigned build"
           fi
 
-      - name: Build desktop app (.dmg)
+      # The Tauri updater requires a signed `.app.tar.gz`. Export the signing
+      # key when the secret is registered; absent -> unsigned build (updater
+      # disabled). Mirrors the APPLE_* gate above.
+      - name: Export Tauri updater signing env (only when configured)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            {
+              echo "TAURI_SIGNING_PRIVATE_KEY=$TAURI_SIGNING_PRIVATE_KEY"
+              echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Tauri updater signing: enabled"
+          else
+            echo "Tauri updater signing: disabled (no key) -> unsigned build"
+          fi
+
+      - name: Build desktop app (.dmg + .app.tar.gz)
         working-directory: apps/desktop
         run: cargo tauri build --target ${{ env.TARGET }}
 
@@ -114,9 +132,47 @@ jobs:
           BUNDLE="target/${{ env.TARGET }}/release/bundle"
           find "$BUNDLE/dmg" -name '*.dmg' -exec cp {} staging/ \;
           find "$BUNDLE/macos" -name '*.app.tar.gz' -exec cp {} staging/ \; || true
+          find "$BUNDLE/macos" -name '*.app.tar.gz.sig' -exec cp {} staging/ \; || true
           (cd staging && for f in *.dmg; do
             [ -e "$f" ] && shasum -a 256 "$f" | awk '{print $1}' > "$f.sha256"
           done) || true
+
+      # Assemble the updater manifest the app polls at
+      # releases/latest/download/latest.json. Only when a signed `.app.tar.gz`
+      # exists — forks without the signing key still ship the .dmg + CLI.
+      - name: Generate updater manifest (latest.json)
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          SIG_FILE="$(ls staging/*.app.tar.gz.sig 2>/dev/null | head -1 || true)"
+          if [ -z "$SIG_FILE" ]; then
+            echo "No .sig found — skipping latest.json (updater disabled)"
+            exit 0
+          fi
+          APP_TAR="$(ls staging/*.app.tar.gz | head -1)"
+          export ASSET="$(basename "$APP_TAR")"
+          export VERSION="$(grep -m1 '"version"' apps/desktop/src-tauri/tauri.conf.json | sed 's/.*: *"\(.*\)".*/\1/')"
+          export SIG_FILE
+          node -e '
+            const fs = require("fs");
+            const sig = fs.readFileSync(process.env.SIG_FILE, "utf8").trim();
+            const m = {
+              version: process.env.VERSION,
+              notes: "oximemo " + process.env.TAG,
+              pub_date: new Date().toISOString(),
+              platforms: {
+                "darwin-aarch64": {
+                  signature: sig,
+                  url: "https://github.com/" + process.env.REPO + "/releases/download/" + process.env.TAG + "/" + process.env.ASSET,
+                },
+              },
+            };
+            fs.writeFileSync("staging/latest.json", JSON.stringify(m, null, 2) + "\n");
+          '
+          echo "::group::latest.json"
+          cat staging/latest.json
+          echo "::endgroup::"
 
       - uses: actions/upload-artifact@v5
         with:

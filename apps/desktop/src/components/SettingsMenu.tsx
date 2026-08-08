@@ -17,6 +17,7 @@ import {
 import {
   Check,
   Copy,
+  DownloadCloud,
   FolderTree,
   HardDrive,
   Info,
@@ -53,6 +54,8 @@ import { applyTheme, type Theme } from "../lib/theme";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import type { CategoryDef } from "../lib/types";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { checkForUpdate, type UpdateAvailable } from "../lib/updater";
 
 const APP_VERSION = __APP_VERSION__;
 
@@ -483,12 +486,146 @@ function CliSection() {
     </div>
   );
 }
+/** Auto-update section. Checks GitHub Releases for a newer signed build and
+ * installs it in place (verify → swap → relaunch). No-ops outside the Tauri
+ * shell; auto-checks once on mount so the version is fresh when opened. */
+function UpdaterSection() {
+  const { t } = useI18n();
+  const setError = useUI((s) => s.setError);
+  const [status, setStatus] = useState<
+    | "idle"
+    | "checking"
+    | "available"
+    | "downloading"
+    | "installing"
+    | "ready"
+    | "up-to-date"
+    | "error"
+  >("idle");
+  const [update, setUpdate] = useState<UpdateAvailable | null>(null);
+  const [pct, setPct] = useState(0);
+
+  const inTauri = "__TAURI_INTERNALS__" in window;
+
+  useEffect(() => {
+    if (!inTauri) return;
+    setStatus("checking");
+    checkForUpdate().then((u) => {
+      setUpdate(u);
+      setStatus(u ? "available" : "up-to-date");
+    });
+  }, [inTauri]);
+
+  const onCheck = () => {
+    setStatus("checking");
+    checkForUpdate()
+      .then((u) => {
+        setUpdate(u);
+        setStatus(u ? "available" : "up-to-date");
+      })
+      .catch(() => setStatus("error"));
+  };
+
+  const onInstall = () => {
+    if (!update) return;
+    setStatus("downloading");
+    setPct(0);
+    update
+      .downloadAndInstall((f) => {
+        setPct(f);
+        if (f >= 1) setStatus("installing");
+      })
+      .then(() => setStatus("ready"))
+      .catch(() => {
+        setStatus("error");
+        setError(t.update_failed);
+      });
+  };
+
+  if (!inTauri) return null;
+
+  return (
+    <div className="space-y-2">
+      {status === "available" && update && (
+        <div className="rounded-lg border border-status-success/40 bg-status-success-subtle px-3 py-2">
+          <p className="text-xs font-medium text-status-success">
+            {t.update_available.replace("{v}", update.version)}
+          </p>
+        </div>
+      )}
+      {(status === "downloading" || status === "installing") && (
+        <div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-sunken">
+            <div
+              className="h-full rounded-full bg-interactive-primary transition-[width] duration-150"
+              style={{ width: `${status === "installing" ? 100 : Math.round(pct * 100)}%` }}
+            />
+          </div>
+          <p className="mt-1 text-[11px] text-text-subtle">
+            {status === "downloading"
+              ? `${t.update_downloading} ${Math.round(pct * 100)}%`
+              : t.update_installing}
+          </p>
+        </div>
+      )}
+      {status === "ready" && (
+        <button
+          type="button"
+          onClick={() => void relaunch()}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-interactive-primary px-2 py-2 text-xs font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary/90"
+        >
+          <RefreshCw size={13} />
+          {t.update_relaunch}
+        </button>
+      )}
+      {status === "checking" && (
+        <p className="flex items-center gap-1 text-xs text-text-subtle">
+          <RefreshCw size={13} className="animate-spin" />
+          {t.update_checking}
+        </p>
+      )}
+      {status === "up-to-date" && (
+        <p className="flex items-center gap-1 text-xs text-status-success">
+          <Check size={13} />
+          {t.update_up_to_date}
+        </p>
+      )}
+      {status === "error" && (
+        <p className="flex items-center gap-1 text-xs text-status-error">
+          <ShieldCheck size={13} />
+          {t.update_failed}
+        </p>
+      )}
+      {status === "available" && (
+        <button
+          type="button"
+          onClick={onInstall}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted"
+        >
+          <DownloadCloud size={13} />
+          {t.update_download}
+        </button>
+      )}
+      {(status === "up-to-date" || status === "error") && (
+        <button
+          type="button"
+          onClick={onCheck}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted"
+        >
+          <RefreshCw size={13} />
+          {t.update_check}
+        </button>
+      )}
+    </div>
+  );
+}
 export function SettingsMenu() {
   const { t, locale, setLocale } = useI18n();
   const theme = useUI((s) => s.theme);
   const setTheme = useUI((s) => s.setTheme);
   const setToast = useUI((s) => s.setToast);
   const setError = useUI((s) => s.setError);
+  const updateAvailable = useUI((s) => s.updateAvailable);
   const qc = useQueryClient();
 
   const [busy, setBusy] = useState<"reindex" | "doctor" | "reset" | null>(null);
@@ -577,9 +714,12 @@ export function SettingsMenu() {
     <Dialog.Root>
       <Dialog.Trigger
         aria-label={t.settings}
-        className="rounded-full p-1.5 text-text-muted transition-colors hover:bg-surface-muted hover:text-text"
+        className="relative rounded-full p-1.5 text-text-muted transition-colors hover:bg-surface-muted hover:text-text"
       >
         <Settings size={15} />
+        {updateAvailable && (
+          <span className="absolute right-1 top-1 size-1.5 rounded-full bg-status-info ring-2 ring-surface" />
+        )}
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 backdrop-blur-sm" />
@@ -706,6 +846,10 @@ export function SettingsMenu() {
 
             <Section icon={<Terminal size={12} />} title={t.section_cli}>
               <CliSection />
+            </Section>
+
+            <Section icon={<DownloadCloud size={12} />} title={t.section_updates}>
+              <UpdaterSection />
             </Section>
 
             <Section icon={<Info size={12} />} title={t.section_about}>
