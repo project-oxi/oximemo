@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Tauri 2 desktop app for oximemo"
+publish = false
 
 [lib]
 name = "oximemo_desktop"

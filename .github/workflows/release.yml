@@ -146,11 +146,77 @@ jobs:
             echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.tag.outputs.name }}" \
-            --title "oximemo ${{ steps.tag.outputs.name }}" \
-            --generate-notes \
-            staging/*
+          TAG="${{ steps.tag.outputs.name }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists — uploading assets"
+            gh release upload "$TAG" staging/* --clobber
+          else
+            gh release create "$TAG" \
+              --title "oximemo $TAG" \
+              --generate-notes \
+              staging/*
+          fi
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: publish-crates
+
+      # Leaf crates have no internal dependencies and can publish immediately.
+      # oximemo-cli depends on oximemo-core, so core must be indexed first.
+      - name: Publish leaf crates (core, capture)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "Publishing version $VERSION"
+          for crate in oximemo-core oximemo-capture; do
+            if curl -fsSL "https://crates.io/api/v1/crates/$crate" \
+                 | grep -q "\"max_stable_version\":\"$VERSION\""; then
+              echo "$crate@$VERSION already published — skipping"
+            else
+              cargo publish -p "$crate"
+            fi
+          done
+
+      - name: Wait for crates.io to index oximemo-core (cli dependency)
+        run: |
+          set -euo pipefail
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          for i in $(seq 1 30); do
+            if curl -fsSL "https://crates.io/api/v1/crates/oximemo-core" \
+                 | grep -q "\"max_stable_version\":\"$VERSION\""; then
+              echo "oximemo-core@$VERSION indexed"
+              exit 0
+            fi
+            echo "waiting for oximemo-core@$VERSION to index ($i/30)…"
+            sleep 10
+          done
+          echo "::error::oximemo-core@$VERSION not indexed in time"
+          exit 1
+
+      - name: Publish oximemo-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if curl -fsSL "https://crates.io/api/v1/crates/oximemo-cli" \
+               | grep -q "\"max_stable_version\":\"$VERSION\""; then
+            echo "oximemo-cli@$VERSION already published — skipping"
+          else
+            cargo publish -p oximemo-cli
+          fi
