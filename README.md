@@ -131,6 +131,7 @@ oximemo category delete <ID>                           # inbox cannot be deleted
 oximemo reindex                                        # rebuild indexes from files
 oximemo doctor [--fix]                                 # audit / safe-repair
 oximemo vault path                                     # print the vault root
+oximemo upgrade [--check]                              # self-update from GitHub Releases
 ```
 
 Global: `--vault <PATH>` (or `OXIMEMO_VAULT`) selects a non-default vault. Output formats: `table` (human), `json` (single array), `ndjson` (one value per line, the default for `export`/`search`). Timestamps are RFC 3339.

@@ -73,6 +73,7 @@ oximemo category delete <ID>          # inbox cannot be deleted
 oximemo reindex                 # rebuild indexes from files
 oximemo doctor [--fix]          # audit / repair
 oximemo vault path              # print the vault path
+oximemo upgrade [--check]       # self-update (GUI+CLI together when inside the app)
 ```
 
 `--ids`, `--ids-file`, and `--ids-stdin` are mutually exclusive; combining

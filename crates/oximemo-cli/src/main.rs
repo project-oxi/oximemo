@@ -13,6 +13,7 @@ use oximemo_core::memo::MemoId;
 
 mod commands;
 mod format;
+mod upgrade;
 
 #[derive(Parser)]
 #[command(
@@ -152,6 +153,17 @@ enum Cmd {
         #[command(subcommand)]
         sub: CategoryCmd,
     },
+
+    /// Check for a newer release and self-update.
+    ///
+    /// Inside the OxiMemo app this replaces the whole bundle (GUI + CLI
+    /// together); as a standalone binary it replaces just the binary. Use
+    /// `--check` to only report availability.
+    Upgrade {
+        /// Report availability without installing.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -206,6 +218,10 @@ fn main() -> ExitCode {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    // `upgrade` manages the binary itself and never touches a vault.
+    if let Cmd::Upgrade { check } = &cli.cmd {
+        return upgrade::run(*check);
+    }
     let vault = Vault::open(cli.vault.as_deref())?;
     vault.migrate()?;
     match cli.cmd {
@@ -289,6 +305,8 @@ fn run() -> Result<()> {
             CategoryCmd::Rename { old, new } => commands::cmd_category_rename(&vault, old, new),
             CategoryCmd::Delete { id } => commands::cmd_category_delete(&vault, id),
         },
+        // Handled before the vault is opened (see above).
+        Cmd::Upgrade { .. } => unreachable!(),
     }
 }
 
