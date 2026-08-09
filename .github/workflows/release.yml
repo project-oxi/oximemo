@@ -240,7 +240,7 @@ jobs:
           VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "Publishing version $VERSION"
           for crate in oximemo-core oximemo-capture; do
-            if curl -fsSL "https://crates.io/api/v1/crates/$crate" \
+            if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \
                  | grep -q "\"max_stable_version\":\"$VERSION\""; then
               echo "$crate@$VERSION already published — skipping"
             else
@@ -253,7 +253,7 @@ jobs:
           set -euo pipefail
           VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           for i in $(seq 1 30); do
-            if curl -fsSL "https://crates.io/api/v1/crates/oximemo-core" \
+            if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/oximemo-core" \
                  | grep -q "\"max_stable_version\":\"$VERSION\""; then
               echo "oximemo-core@$VERSION indexed"
               exit 0
@@ -270,7 +270,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          if curl -fsSL "https://crates.io/api/v1/crates/oximemo-cli" \
+          if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/oximemo-cli" \
                | grep -q "\"max_stable_version\":\"$VERSION\""; then
             echo "oximemo-cli@$VERSION already published — skipping"
           else
