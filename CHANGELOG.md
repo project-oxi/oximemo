@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-08-09
+
+### Documentation
+- **Unified update architecture (RFC)** — `doc/UPDATER.md` records the
+  design decision that the CLI is the only engine for download/verify/swap,
+  and the GUI is a view of the CLI. This is the shared blueprint for
+  oximemo and oxiline; the open question of an end-to-end live-swap probe
+  is tracked as a follow-up.
+
+### Fixed
+- **rustfmt drift in `oximemo-cli/src/upgrade.rs`** — several lines added
+  in 0.9.1 broke `cargo fmt --check`. Reformatted; CI fmt gate is green
+  again on `main`.
+
 ## [0.9.1] — 2026-08-08
 
 ### Added
@@ -250,7 +264,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.4.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.2
 [0.9.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.1
 [0.8.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.8.1
 [0.9.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.0
