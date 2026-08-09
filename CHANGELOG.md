@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-08-08
+
+### Added
+- **CLI self-update (`oximemo upgrade`)** — the `oximemo` CLI now updates itself
+  from GitHub Releases, mirroring the desktop app's updater. Inside the app it
+  replaces the whole `.app` bundle (GUI + CLI together); as a standalone binary
+  it replaces just the binary. `--check` reports availability without installing.
+  Both paths verify the release before installing (minisign signature for the
+  bundle, SHA-256 for the CLI tarball).
+
 ## [0.9.0] — 2026-08-08
 
 ### Added
@@ -240,6 +250,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.4.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.1
 [0.8.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.8.1
 [0.9.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.0
