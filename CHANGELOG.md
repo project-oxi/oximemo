@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-08
+
+### Added
+- **In-app auto-updater** — the desktop app detects newer signed builds
+  from GitHub Releases and installs them in place (verify → swap →
+  relaunch) via `tauri-plugin-updater`. Settings → "Updates" shows the
+  available version with a download-and-install button and progress, and
+  a launch-time check badges the settings gear and toasts once per new
+  version. The release workflow signs `OxiMemo.app.tar.gz` and publishes
+  a `latest.json` manifest the app polls at
+  `releases/latest/download/latest.json`.
+
 ## [0.8.1] — 2026-08-08
 
 ### Changed
@@ -221,7 +233,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent integration via `skills/oximemo/SKILL.md`.
 - Light/dark mode following the macOS system appearance.
 
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.8.0
 [0.7.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.7.0
 [0.6.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.6.0
@@ -229,5 +240,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.4.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.9.0...HEAD
 [0.8.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.8.1
+[0.9.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.0
