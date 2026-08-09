@@ -149,11 +149,9 @@ fn upgrade_in_app(manifest: &Manifest, app: &Path) -> Result<()> {
         // their open file descriptors; a restart picks up the new bundle.
         let old = work.join(".previous.app");
         if app.exists() {
-            fs::rename(app, &old)
-                .with_context(|| format!("move aside {}", app.display()))?;
+            fs::rename(app, &old).with_context(|| format!("move aside {}", app.display()))?;
         }
-        fs::rename(&new_app, app)
-            .with_context(|| format!("install {}", app.display()))?;
+        fs::rename(&new_app, app).with_context(|| format!("install {}", app.display()))?;
         let _ = fs::remove_dir_all(&old);
 
         println!(
@@ -201,10 +199,8 @@ fn upgrade_standalone(latest: &str) -> Result<()> {
         // Rename-over: on Unix the running binary's inode persists until the
         // process exits, so the directory entry can be replaced underneath it.
         let old = work.join(".previous.bin");
-        fs::rename(&exe, &old)
-            .with_context(|| format!("move aside {}", exe.display()))?;
-        fs::rename(&new_bin, &exe)
-            .with_context(|| format!("install {}", exe.display()))?;
+        fs::rename(&exe, &old).with_context(|| format!("move aside {}", exe.display()))?;
+        fs::rename(&new_bin, &exe).with_context(|| format!("install {}", exe.display()))?;
         let _ = fs::remove_file(&old);
 
         println!("Updated to v{latest}.");
@@ -220,8 +216,7 @@ fn upgrade_standalone(latest: &str) -> Result<()> {
 /// A temp dir on the same volume as `sibling_of` so renames stay atomic.
 fn sibling_tempdir(sibling_of: &Path) -> Result<PathBuf> {
     let dir = sibling_of.join(format!(".oximemo-upgrade-{}", std::process::id()));
-    fs::create_dir_all(&dir)
-        .with_context(|| format!("create work dir {}", dir.display()))?;
+    fs::create_dir_all(&dir).with_context(|| format!("create work dir {}", dir.display()))?;
     Ok(dir)
 }
 
@@ -230,8 +225,7 @@ fn download(url: &str, dest: &Path) -> Result<()> {
         .call()
         .map_err(|e| anyhow!("download {url}: {e}"))?;
     let mut reader = resp.into_reader();
-    let mut f = fs::File::create(dest)
-        .with_context(|| format!("create {}", dest.display()))?;
+    let mut f = fs::File::create(dest).with_context(|| format!("create {}", dest.display()))?;
     std::io::copy(&mut reader, &mut f)?;
     f.sync_all().ok();
     Ok(())
@@ -241,8 +235,7 @@ fn download_text(url: &str) -> Result<String> {
     let resp = ureq::get(url)
         .call()
         .map_err(|e| anyhow!("download {url}: {e}"))?;
-    resp.into_string()
-        .map_err(|e| anyhow!("read {url}: {e}"))
+    resp.into_string().map_err(|e| anyhow!("read {url}: {e}"))
 }
 
 fn verify_minisign(data: &[u8], signature_b64: &str) -> Result<()> {
@@ -260,8 +253,7 @@ fn verify_minisign(data: &[u8], signature_b64: &str) -> Result<()> {
 }
 
 fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<()> {
-    let f = fs::File::open(archive)
-        .with_context(|| format!("open {}", archive.display()))?;
+    let f = fs::File::open(archive).with_context(|| format!("open {}", archive.display()))?;
     let gz = flate2::read::GzDecoder::new(f);
     let mut tar = tar::Archive::new(gz);
     tar.set_overwrite(true);
@@ -272,8 +264,7 @@ fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<()> {
 
 fn sha256_hex(path: &Path) -> Result<String> {
     use sha2::{Digest, Sha256};
-    let mut f = fs::File::open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+    let mut f = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 64 * 1024];
     loop {
@@ -283,7 +274,11 @@ fn sha256_hex(path: &Path) -> Result<String> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 #[cfg(unix)]
@@ -357,8 +352,7 @@ mod tests {
         resp.into_reader()
             .read_to_end(&mut data)
             .expect("read bundle");
-        verify_minisign(&data, &asset.signature)
-            .expect("PUBKEY verifies the live Tauri signature");
+        verify_minisign(&data, &asset.signature).expect("PUBKEY verifies the live Tauri signature");
     }
 
     #[test]
