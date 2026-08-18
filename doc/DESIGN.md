@@ -800,4 +800,85 @@ MCP 서버 모드(§10.3), 다중 볼트, iCloud Drive 볼트 자동 인식, 위
 - [tantivy](https://github.com/quickwit-oss/tantivy) / [redb](https://github.com/cberner/redb) — 순수 Rust 인덱스·검색 엔진
 - [objc2](https://github.com/madsmtm/objc2) — Rust에서 AppKit/Foundation 바인딩
 - [fs2](https://github.com/danburkert/fs2-rs) — 크로스 플랫폼 advisory file lock
+---
+
+## 17. Memo → Notebook 변환 (v0.10)
+
+> **상세 설계**: `docs/superpowers/specs/2026-08-13-memo-to-notebook-design.md`
+> **구현 계획**: `docs/superpowers/plans/2026-08-13-memo-to-notebook.md`
+
+### 한 줄 요약
+
+메모와 노트, 위키, 일기를 **하나의 엔티티**로 통합한다. 타입 필드는 두지
+않고, **물리 폴더 + 제목**으로 조직한다. 4가지 뷰 모드(grid / list /
+timeline / graph)로 같은 데이터를 다르게 본다.
+
+### 데이터 모델
+
+- **`Memo` 엔티티 = `Note` 엔티티 = 파일 하나**. UUID는 내부 id로만
+  유지(인덱스 키), 사용자가 보는 주소는 항상 `<folder>/<title>.md`.
+- **파일명 = 제목**. 본문 첫 줄의 `# H1`에서 slugify. 제목이 없으면
+  빠른 캡처는 `2026-08-13T12-34-56.md` 형식의 타임스탬프.
+- **프런트매터 축소**: `id`, `created_at`, `updated_at`, `favorite`,
+  `tags`만 남기고 `category`/`folder`/`deleted_at`은 제거. 파일의
+  물리적 위치가 곧 조직 정보.
+
+### Wiki 링크 — 제목 기반
+
+`[[Note Title]]`이 표준. `[[Note Title|표시 텍스트]]`로 별칭 가능.
+해결은 파일 시스템의 `<folder>/<title>.md`를 직접 찾는다.
+제목이 바뀌면 `wiki::replace_link_target`이 모든 노트를 스캔해서
+링크를 일괄 갱신한다.
+
+### 템플릿
+
+폴더 안에 `TEMPLATE.md`가 있으면 새 노트 생성 시 본문이 비어 있을 때
+자동으로 적용한다. 변수 `{{date}}`, `{{weekday}}`, `{{time}}`,
+`{{year}}`, `{{month}}`, `{{day}}`, `{{counter}}`, `{{folder}}`를
+치환. `counter`는 폴더 내 마지막 일련번호 + 1.
+
+### 뷰 모드 & 잠금
+
+4가지 모드를 헤더의 뷰 스위처로 전환한다. 잠금(`[LOCK]`)을 누르면
+`oximemo.toml`의 `[[folders]]` 항목에 `view`가 기록되고 앱 재시작
+후에도 유지된다. 잠금 해제(`[UNLOCK]`)는 세션 한정.
+
+### 마이그레이션 (v2 → v3)
+
+스키마는 `v3`로 상향. 기존 `memos/YYYY/MM/<uuid>.md` 폴더 구조와
+`category`/`folder` 필드를 걷어내고, 본문의 첫 H1을 슬러그로
+사용해 새 위치로 파일을 옮긴다. `oximemo migrate --dry-run`으로
+미리 보고, 확정하면 빈 `memos/` 디렉토리도 정리한다.
+
+### 프론트엔드 변경
+
+- `lib/types.ts` — `Memo`/`MemoSummary`에 `folder`, `title` 필드 추가.
+  `FolderEntry`, `FolderDef`, `ViewMode`, `Config`, `GraphData` 신설.
+  옛 `CategoryDef`는 제거.
+- `lib/api.ts` — `listFolders`/`createFolder`/`deleteFolder`,
+  `getConfig`/`setFolderView`, `graphData` 신설.
+  카테고리 IPC 5종은 제거.
+- `stores/ui.ts` — `folderFilter`가 `categoryFilter`를 대체.
+  `noteView`가 현재 폴더의 뷰 모드를 보유.
+- `Sidebar.tsx` — 카테고리 라디오 → 물리 폴더 트리. 클릭하면
+  `setFolderFilter`로 필터링.
+- `views/GridView.tsx` — 기존 카드 그리드를 별도 컴포넌트로 추출.
+- `views/ListView.tsx` — 한 줄 짜리 dense 리스트.
+- `views/TimelineView.tsx` — 일별로 그룹화한 타임라인.
+- `views/GraphView.tsx` — 위키 링크 기반 포스 디렉터 스 시뮬레이션
+  (외부 의존성 없는 자체 구현).
+- `memoLinks.ts` — `[[UUID]]`에서 `[[Title]]`로 직렬화 변경.
+  `resolve`는 제목으로 노트를 찾아 미리보기 라벨을 반환.
+- `FolderCombobox.tsx` — 카테고리 콤보의 폴더 버전.
+  `CategoryCombobox.tsx`는 삭제.
+
+### 후속 작업
+
+- 백링크 패널(`[[Title]]` 역방향 검색)
+- 검색 인덱스에 폴더 패싯 가중치
+- 풀-텍스트 그래프 필터링
+- 임베드 재귀(다단계 트랜스클루전)
+
+---
+
 - [OKLCH 색상 공간](https://oklch.com) — 지각적 균일 색상 공간, CSS Color Level 4 표준

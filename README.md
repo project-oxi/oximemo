@@ -35,6 +35,8 @@ Two core scenarios, one vault:
 - **Hash-based sync.** `oximemo export` emits a body-less manifest of `{id, hash, updated_at, deleted}`; diff the hashes, fetch only what changed, advance your cursor. Handles `ARG_MAX` with `--ids-file` / `--ids-stdin`.
 - **OKLCH colors.** Perceptually uniform, CSS-native color labels that look right in both light and dark mode.
 - **Hardened against external writes.** The file watcher debounces, retries partial writes (editors, iCloud), and never crashes the indexer.
+- **HTML notes (`.html`).** `.html` files are first-class notes alongside `.md` — frontmatter lives in a leading HTML comment, the title is derived from the first `<h1>`/`<title>`, and the same TEMPLATE rule applies (`TEMPLATE.html` for HTML notes, `TEMPLATE.md` for markdown). The CLI creates HTML notes with `oximemo new --html`.
+- **oxibrain context panel.** A read-only panel in `MemoDetail` gathers recall layers from the local oxibrain daemon over its Unix socket (no cloud); `[brain]` in `oximemo.toml` controls `enabled`/`socket`/`space`.
 
 ## Table of contents
 
@@ -89,6 +91,9 @@ The CLI is the authoritative interface — the same `oximemo-core` the desktop a
 # Capture a thought (text arg, or omit to read stdin)
 oximemo new "Ship the redb bump before the freeze" --tag backlog --category todo
 
+# Create an HTML note (frontmatter lives in a leading <!-- +++ ... +++ --> comment)
+oximemo new "Knowledge distillation draft" --html
+
 # List recent notes — table for humans (default), JSON/NDJSON for agents
 oximemo list --limit 10
 oximemo list --favorites --format ndjson
@@ -111,8 +116,7 @@ oximemo vault path
 <details>
 <summary><strong>Full command reference</strong></summary>
 
-```bash
-oximemo new [TEXT] [--tag TAG]… [--category ID]      # arg or stdin; empty rejected
+oximemo new [TEXT] [--tag TAG]… [--category ID] [--html]   # --html creates a .html note (frontmatter in a leading HTML comment)
 oximemo list [--limit N] [--tag T] [--category ID] [--favorites] [--format table|json|ndjson]
 oximemo get <ID> [--md]
 oximemo update <ID> [--body T | --body-stdin] [--favorite] [--unfavorite] [--category ID]
@@ -160,6 +164,11 @@ vault/
 ├── .trash/          # soft-deleted memos
 └── config.toml      # optional vault settings
 ```
+
+
+Notes can also be `.html` files — frontmatter sits in a leading HTML comment (`<!-- +++ ... +++ -->`), the title is derived from the first `<h1>` (or `<title>`), and folder templates follow the same rule: a folder with `TEMPLATE.html` (and no `TEMPLATE.md`) auto-creates new notes as HTML, and a folder can ship both to drive the toolbar's split "new note" button.
+
+`oximemo.toml` also carries an optional `[brain]` section (`enabled`/`socket`/`space`, defaults `true` / `""` / `"personal"`) for the read-only oxibrain context panel in `MemoDetail`; the panel hides itself when `enabled = false`.
 
 Each memo is one file with TOML frontmatter delimited by `+++`:
 

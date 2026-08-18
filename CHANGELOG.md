@@ -7,7 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Memo → Notebook transformation** — oximemo is no longer a flat
+  category-based memo app. It is now a physical-folder markdown notebook
+  where each note is a real file at `<vault>/<folder>/<title>.md` (or a
+  timestamped capture at the vault root). **Breaking** for any script
+  consuming the old `category`/`tags` frontmatter or category registry.
+  - **Frontmatter simplified** — `category`, `folder`, `deleted_at` are
+    gone. Frontmatter only carries `id`, `created_at`, `updated_at`,
+    `favorite`, and `tags`. Folder location and H1-derived title are the
+    single source of truth.
+  - **Title-based wiki links** — `[[Note Title]]` instead of `[[UUID]]`.
+    Renames propagate through every note that references the old title.
+    `crates/oximemo-core/src/wiki.rs` parses, resolves, and rewrites
+    links; `wiki::links_to` is the building block for the backlinks panel.
+  - **Per-folder `TEMPLATE.md`** — a folder containing `TEMPLATE.md`
+    applies its body as a stub when a new note is created there.
+    Variables (`{{date}}`, `{{weekday}}`, `{{time}}`, `{{year}}`,
+    `{{month}}`, `{{day}}`, `{{counter}}`, `{{folder}}`) are
+    substituted at creation time. `crates/oximemo-core/src/template.rs`.
+  - **`FoldersConfig` replaces `CategoriesConfig`** —
+    `oximemo.toml` now carries `[[folders]]` with `path`, `view` (`grid` /
+    `list` / `timeline` / `graph`), and `color`. Locked views survive
+    restarts; unlocked folders fall back to the global default.
+  - **Schema bumped to `v3`** — `migrate.rs` walks the v2 layout, walks
+    each memo's body for the first `# H1`, derives a slug filename, moves
+    the file to `<folder>/<slug>.md`, strips the old category/folder/
+    deleted_at fields, and removes the empty `memos/YYYY/MM/` tree.
+    `oximemo migrate --dry-run` previews; `--vault-path <path>` selects
+    the target. The CLI auto-runs `migrate_vault` on first open.
+  - **Title field in the index** — `IndexRecord.path` and
+    `IndexRecord.title` (extracted at scan time) replace `category`.
+    Search hits title via tantivy BM25.
+
+### Added
+- **Four view modes** — `grid` (default virtualized cards), `list` (dense
+  rows), `timeline` (day-grouped chronological), and `graph`
+  (force-directed wiki-link graph). The toolbar carries a
+  `[LOCK]`/`[UNLOCK]` toggle that persists the active mode per folder
+  to `oximemo.toml`.
+- **Sidebar folder tree** — the left sidebar now renders a real
+  collapsible tree over vault folders, with counts and an "All / Favorites
+  / Gallery" navigation row.
+- **Folder picker** — `FolderCombobox` (keyboard-first, mirrors the old
+  `CategoryCombobox` API) drives both the capture overlay's `/` slash
+  menu and the MemoDetail editor's folder button.
+- **Note move** — `move_note` Tauri command (and `moveNote` API)
+  renames a note's `.md` file to `<new_folder>/<slug>.md` and updates
+  the index path. Powers the card context-menu "Move to folder" action.
+
+
+- **HTML note format (`.html`)** — `.html` files are first-class notes; the
+  frontmatter is a leading HTML comment `<!-- +++ TOML +++ -->` (D1). Title is
+  derived from the first `<h1>` or `<title>`, tags/preview/search are all
+  format-aware. New notes in folders that contain a `TEMPLATE.html` (and no
+  `TEMPLATE.md`) are created as HTML automatically; when both exist, the new-note
+  toolbar splits the button (D8). The CLI gains `oximemo new --html`, and a
+  folder that ships a template allows an empty body.
+- **`[brain]` config section** — `oximemo.toml` now carries
+  `[brain] enabled/socket/space` (defaults `true` / `""` / `"personal"`).
+  `space` defaults to `"personal"` to match the daemon MCP default (the daemon
+  treats an empty space as the empty space, so the default is non-empty).
+- **oxibrain integration panel** — the desktop app links the
+  `oxibrain-client` git tag `v0.3.0` (src-tauri only). `MemoDetail` renders a
+  `BrainPanel` with status dot (`brain_status` — `online`, server version,
+  episodes/entities/statements/contradictions; a stopped daemon is a normal
+  `online: false` state, not an error), a "Gather context" button that calls
+  `brain_gather` and renders the recall layers with a `kind` label per layer,
+  and a "Start a new note from this" distill action. With
+  `config.brain.enabled = false` the panel is hidden entirely.
+- **Enriched `NoteDto`** — `get_memo`/`create_memo`/`update_move`/`move_note`
+  Tauri commands now return `memo + title/path/folder/format`, fixing the latent
+  bug where the TS `Memo` type required fields the Rust serializer omitted.
+- **Hardened HTML preview** — `MemoEditorForm` now routes HTML notes to an
+  `HtmlEditor` (raw CM6 with `@codemirror/lang-html`) with an
+  Edit / Split / Preview toolbar. Card previews render the new note HTML with
+  DOMPurify inside a `sandbox="allow-same-origin"` iframe
+  (`allow-scripts` deliberately omitted) — the existing marked-raw-HTML XSS in
+  card previews is now also DOMPurify-washed.
+
+### Notes
+- MD notes retain their existing pipeline end-to-end (no regression in the 91
+  core + 11 CLI tests). oxibrain connector `.html` scanning/watch is owned by
+  the oxibrain repo and tracked as a follow-up there.
+
+### Removed
+- **Category registry** — `list_categories`, `create_category`,
+  `rename_category`, `delete_category`, `update_category`, the
+  `CategoryDef` type, and the `CategoriesSection` settings panel are
+  gone. The desktop `CategoryCombobox.tsx` is deleted.
+
 ## [0.9.2] — 2026-08-09
+
+
 
 ### Documentation
 - **Unified update architecture (RFC)** — `doc/UPDATER.md` records the

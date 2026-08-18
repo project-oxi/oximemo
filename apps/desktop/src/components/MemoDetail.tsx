@@ -1,7 +1,7 @@
 /**
  * Memo detail + editor (§7.3). Opens (controlled by the `selectedId` UI state)
- * as a Base UI Dialog, loads the full note via `get_note`, and debounces edits
- * into `update_note` (500ms autosave). A pending edit is flushed on close so no
+ * as a Base UI Dialog, loads the full note via `get_memo`, and debounces edits
+ * into `update_memo` (500ms autosave). A pending edit is flushed on close so no
  * input is lost.
  */
 import { Dialog } from "@base-ui-components/react";
@@ -9,13 +9,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Maximize2, Minimize2, Star } from "lucide-react";
 
-import { deleteMemo, getMemo, updateMemo, listCategories } from "../lib/api";
-import { colorForCategory, paperFor } from "../lib/color";
+import { deleteMemo, getMemo, updateMemo, listFolders } from "../lib/api";
+import { colorForFolder, paperFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
+import { BacklinksPanel } from "./BacklinksPanel";
+import { BrainPanel } from "./BrainPanel";
+import { TagChipRow } from "./TagChipRow";
+import { HtmlNoteEditor } from "./HtmlNoteEditor";
 import { MemoEditorForm } from "./MemoEditorForm";
-import type { CategoryComboboxHandle } from "./CategoryCombobox";
-import type { CategoryDef } from "../lib/types";
+import type { FolderComboboxHandle } from "./FolderCombobox";
+import type { FolderEntry } from "../lib/types";
 
 export function MemoDetail() {
   const { t } = useI18n();
@@ -34,23 +38,22 @@ export function MemoDetail() {
   });
 
   const [body, setBody] = useState("");
-  const [category, setCategory] = useState("");
-  const [categories, setCategories] = useState<CategoryDef[]>([]);
+  const [folder, setFolder] = useState("");
+  const [folders, setFolders] = useState<FolderEntry[]>([]);
   const [favorite, setFavorite] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [seededId, setSeededId] = useState<string | null>(null);
   const [immersive, setImmersive] = useState(false);
-  const categoryPickerRef = useRef<CategoryComboboxHandle>(null);
+  const folderPickerRef = useRef<FolderComboboxHandle>(null);
 
   useEffect(() => {
-    listCategories().then(setCategories).catch(() => {});
+    listFolders().then(setFolders).catch(() => {});
   }, []);
 
-  // Seed the draft exactly once per loaded memo; reset when the dialog closes.
   useEffect(() => {
     if (open && memo.data && seededId !== memo.data.id) {
       setBody(memo.data.body);
-      setCategory(memo.data.category);
+      setFolder(memo.data.folder);
       setFavorite(memo.data.favorite);
       setDirty(false);
       setSeededId(memo.data.id);
@@ -59,11 +62,10 @@ export function MemoDetail() {
     if (!open && seededId !== null) setSeededId(null);
   }, [open, memo.data, seededId]);
 
-  // Debounced autosave (§7.3, 500ms).
   useEffect(() => {
     if (!dirty || !selectedId) return;
     const h = window.setTimeout(() => {
-      void updateMemo(selectedId, body, favorite, category)
+      void updateMemo(selectedId, body, favorite)
         .then((n) => {
           qc.setQueryData(["memo", selectedId], n);
           setDirty(false);
@@ -72,16 +74,12 @@ export function MemoDetail() {
         })
         .catch((e) => {
           setError(String(e).split("\n")[0]);
-          // Leave dirty=true so the next change or a manual retry attempts
-          // the save again; the user can also close to flush.
         });
     }, 500);
     return () => window.clearTimeout(h);
-  }, [dirty, body, favorite, category, selectedId, qc]);
+  }, [dirty, body, favorite, selectedId, qc]);
 
   const close = () => {
-    // A note minted by "new memo" this session is discarded while still
-    // empty, so cancelled drafts don't accumulate as orphan files.
     if (selectedId && selectedId === draftId && !body.trim()) {
       void deleteMemo(selectedId)
         .then(() => qc.invalidateQueries({ queryKey: ["memos"] }))
@@ -90,9 +88,8 @@ export function MemoDetail() {
       select(null);
       return;
     }
-    // Flush a pending edit before dismissing.
     if (dirty && selectedId) {
-      void updateMemo(selectedId, body, favorite, category)
+      void updateMemo(selectedId, body, favorite)
         .then((n) => {
           qc.setQueryData(["memo", selectedId], n);
           qc.invalidateQueries({ queryKey: ["memos"] });
@@ -104,8 +101,8 @@ export function MemoDetail() {
     select(null);
   };
 
-  const edit = <T,>(set: (v: T) => void) => (v: T) => {
-    set(v);
+  const edit = <T,>(setter: (v: T) => void) => (v: T) => {
+    setter(v);
     setDirty(true);
   };
   const popupSize = immersive
@@ -117,76 +114,89 @@ export function MemoDetail() {
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
         <Dialog.Popup
-          onKeyDown={(e) => {
-            const mod = e.metaKey || e.ctrlKey;
-            if (mod && e.key === "Enter") {
-              e.preventDefault();
-              close();
-            } else if (mod && e.key.toLowerCase() === "l") {
-              e.preventDefault();
-              categoryPickerRef.current?.open();
-            } else if (mod && e.key === ".") {
-              e.preventDefault();
-              setImmersive((v) => !v);
-            }
-          }}
-          className={`fixed left-1/2 top-1/2 z-50 isolate flex ${popupSize} -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-lg`}
+          className={`fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-line bg-surface-raised shadow-2xl ${popupSize}`}
         >
-          {category && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0 -z-10"
-              style={{ backgroundColor: paperFor(colorForCategory(category, categories)) }}
-            />
-          )}
-          {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
-            <div className="py-10 text-center text-sm text-text-subtle">…</div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[10px] uppercase tracking-wide text-text-subtle">
-                  {memo.data.id.slice(0, 8)}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => edit(setFavorite)(!favorite)}
-                    aria-label={favorite ? t.action_unfavorite : t.action_favorite}
-                    title={favorite ? t.action_unfavorite : t.action_favorite}
-                    className={`rounded-full p-1.5 transition-colors ${
-                      favorite
-                        ? "text-hue-amber"
-                        : "text-text-subtle"
-                    }`}
-                  >
-                    <Star size={13} className={favorite ? "fill-hue-amber" : undefined} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setImmersive((v) => !v)}
-                    aria-label={immersive ? t.compact_mode : t.focus_mode}
-                    title={`${immersive ? t.compact_mode : t.focus_mode} (⌘.)`}
-                    className="rounded-full p-1.5 text-text-subtle transition-colors hover:text-text"
-                  >
-                    {immersive ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                  </button>
-                </div>
+          <div className="flex h-full flex-col">
+            <Dialog.Title className="sr-only">{t.done}</Dialog.Title>
+            <div className="mb-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => folderPickerRef.current?.open()}
+                className="rounded-md bg-surface-muted px-2 py-1 text-xs text-text-subtle hover:bg-surface-raised"
+                title={folder || "(root)"}
+              >
+                📁 {folder || "(root)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => edit(setFavorite)(!favorite)}
+                aria-label={favorite ? t.action_unfavorite : t.action_favorite}
+                className={`ml-auto rounded-md p-1.5 ${
+                  favorite ? "text-hue-amber" : "text-text-subtle hover:text-hue-amber"
+                }`}
+              >
+                <Star size={14} className={favorite ? "fill-hue-amber" : undefined} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setImmersive((v) => !v)}
+                className="rounded-md p-1.5 text-text-subtle hover:bg-surface-muted hover:text-text"
+                aria-label={immersive ? "Exit immersive" : "Enter immersive"}
+              >
+                {immersive ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+              <button
+                type="button"
+                onClick={close}
+                className="rounded-md bg-interactive-primary px-3 py-1.5 text-xs font-medium text-interactive-primary-foreground"
+              >
+                {t.done}
+              </button>
+            </div>
+            {folder && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 -z-10"
+                style={{ backgroundColor: paperFor(colorForFolder(folder)) }}
+              />
+            )}
+            {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
+              <div className="flex h-full items-center justify-center text-text-subtle">…</div>
+            ) : memo.data.format === "html" ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-2.5">
+                <HtmlNoteEditor
+                  documentId={memo.data.id}
+                  body={body}
+                  onChange={edit(setBody)}
+                />
+                <TagChipRow body={body} />
               </div>
+            ) : (
               <MemoEditorForm
+                documentId={memo.data.id}
+                folder={folder}
+                onFolderChange={edit(setFolder)}
+                folders={folders}
                 body={body}
                 onBodyChange={edit(setBody)}
-                documentId={memo.data.id}
-                category={category}
-                onCategoryChange={edit(setCategory)}
-                categories={categories}
                 onConfirm={close}
                 confirmLabel={t.done}
                 confirmKbd="⌘⏎"
-                categoryPickerRef={categoryPickerRef}
+                folderPickerRef={folderPickerRef}
                 immersive={immersive}
               />
-            </>
-          )}
+            )}
+            {!immersive && memo.data && seededId === memo.data.id && (
+              <>
+                <BacklinksPanel noteId={memo.data.id} />
+                <BrainPanel
+                  noteId={memo.data.id}
+                  title={memo.data.title}
+                  tags={memo.data.tags}
+                />
+              </>
+            )}
+          </div>
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

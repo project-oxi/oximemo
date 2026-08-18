@@ -200,12 +200,17 @@ pub fn run() {
             commands::vault_path,
             commands::memo_stats,
             commands::list_facets,
-            commands::list_categories,
-            commands::create_category,
-            commands::update_category,
-            commands::rename_category,
-            commands::delete_category,
+            commands::list_folders,
+            commands::create_folder,
+            commands::delete_folder,
+            commands::graph_data,
+            commands::get_config,
+            commands::set_folder_view,
+            commands::move_note,
+            commands::brain_status,
+            commands::brain_gather,
             commands::set_menu_locale,
+            commands::get_backlinks,
             commands::save_image_bytes,
             commands::list_assets,
             commands::gc_assets,
@@ -265,7 +270,7 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
     });
     match oximemo_core::watcher::MemoWatcher::spawn(
         vec![
-            state.vault.paths().memos_root(),
+            state.vault.paths().vault.clone(),
             state.vault.paths().trash_root(),
         ],
         debounce,
@@ -416,6 +421,45 @@ fn init_tracing() {
         .try_init();
 }
 
+/// Resolved oxibrain connection settings from `[brain]` config: an explicit
+/// socket path wins; empty uses the daemon default location.
+struct BrainEndpointConf {
+    enabled: bool,
+    socket: String,
+    space: String,
+}
+
+impl BrainEndpointConf {
+    fn from_brain(b: &oximemo_core::config::BrainConfig) -> Self {
+        Self {
+            enabled: b.enabled,
+            socket: b.socket.clone(),
+            space: b.space.clone(),
+        }
+    }
+}
+
+async fn brain_connect(
+    cfg: &BrainEndpointConf,
+) -> anyhow::Result<(
+    oxibrain_client::BrainClient,
+    oxibrain_client::BrainCapabilities,
+)> {
+    if cfg.socket.is_empty() {
+        oxibrain_client::BrainClient::connect_default().await
+    } else {
+        let mut client = oxibrain_client::BrainClient::connect(&cfg.socket).await?;
+        let caps = client
+            .handshake(oxibrain_client::default_client_hello(concat!(
+                env!("CARGO_PKG_NAME"),
+                " ",
+                env!("CARGO_PKG_VERSION")
+            )))
+            .await?;
+        Ok((client, caps))
+    }
+}
+
 mod commands {
     use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
     use oximemo_core::sync::ManifestRecord;
@@ -433,7 +477,7 @@ mod commands {
         include_tags: Vec<String>,
         exclude_tags: Vec<String>,
         match_all: bool,
-        categories: Vec<String>,
+        folder: Option<String>,
         favorites_only: bool,
     ) -> Result<oximemo_core::Page<oximemo_core::MemoSummary>, String> {
         let after = match after {
@@ -444,7 +488,7 @@ mod commands {
             include_tags,
             exclude_tags,
             match_all,
-            categories,
+            folder,
             favorites_only,
             include_deleted: false,
         };
@@ -455,9 +499,13 @@ mod commands {
     }
 
     #[tauri::command]
-    pub fn get_memo(state: State<'_, AppState>, id: String) -> Result<oximemo_core::Memo, String> {
+    pub fn get_memo(
+        state: State<'_, AppState>,
+        id: String,
+    ) -> Result<oximemo_core::memo::NoteDto, String> {
         let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
-        state.vault.get_memo(id).map_err(|e| e.to_string())
+        let memo = state.vault.get_memo(id).map_err(|e| e.to_string())?;
+        Ok(state.vault.note_dto(&memo))
     }
 
     #[tauri::command]
@@ -465,14 +513,28 @@ mod commands {
         state: State<'_, AppState>,
         app: AppHandle,
         body: String,
-        category: Option<String>,
-    ) -> Result<oximemo_core::Memo, String> {
-        let memo = state
-            .vault
-            .create_memo(body, category)
-            .map_err(|e| e.to_string())?;
+        folder: Option<String>,
+        format: Option<String>,
+    ) -> Result<oximemo_core::memo::NoteDto, String> {
+        let fmt = match format.as_deref() {
+            Some("html") => oximemo_core::memo::NoteFormat::Html,
+            _ => oximemo_core::memo::NoteFormat::Markdown,
+        };
+        // Explicit format wins; without one the folder's templates decide
+        // (TEMPLATE.html-only folders produce html notes, spec D8).
+        let memo = if format.is_some() {
+            state
+                .vault
+                .create_note(folder.as_deref().unwrap_or(""), body, fmt)
+                .map_err(|e| e.to_string())?
+        } else {
+            state
+                .vault
+                .create_note_auto(folder.as_deref().unwrap_or(""), body)
+                .map_err(|e| e.to_string())?
+        };
         let _ = app.emit("memos:changed", ());
-        Ok(memo)
+        Ok(state.vault.note_dto(&memo))
     }
 
     #[tauri::command]
@@ -482,15 +544,14 @@ mod commands {
         id: String,
         body: Option<String>,
         favorite: Option<bool>,
-        category: Option<String>,
-    ) -> Result<oximemo_core::Memo, String> {
+    ) -> Result<oximemo_core::memo::NoteDto, String> {
         let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
         let memo = state
             .vault
-            .update_memo(id, body, favorite, category)
+            .update_note(id, body, favorite)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
-        Ok(memo)
+        Ok(state.vault.note_dto(&memo))
     }
 
     #[tauri::command]
@@ -569,67 +630,146 @@ mod commands {
         state.vault.list_facets().map_err(|e| e.to_string())
     }
 
+    // -- folders ----------------------------------------------------------
+
     #[tauri::command]
-    pub fn list_categories(
-        state: State<'_, AppState>,
-    ) -> Result<Vec<oximemo_core::config::CategoryDef>, String> {
-        Ok(state.vault.categories())
+    pub fn list_folders(state: State<'_, AppState>) -> Result<Vec<(String, u32)>, String> {
+        state.vault.list_folders().map_err(|e| e.to_string())
     }
 
     #[tauri::command]
-    pub fn create_category(
+    pub fn create_folder(
         state: State<'_, AppState>,
         app: AppHandle,
-        id: String,
-        color: Option<String>,
-    ) -> Result<oximemo_core::config::CategoryDef, String> {
-        let def = state
-            .vault
-            .create_category(id, color)
-            .map_err(|e| e.to_string())?;
-        let _ = app.emit("memos:changed", ());
-        Ok(def)
-    }
-
-    #[tauri::command]
-    pub fn update_category(
-        state: State<'_, AppState>,
-        app: AppHandle,
-        id: String,
-        color: String,
+        path: String,
     ) -> Result<(), String> {
         state
             .vault
-            .update_category(id, color)
+            .create_folder(&path)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(())
     }
 
     #[tauri::command]
-    pub fn rename_category(
+    pub fn delete_folder(
         state: State<'_, AppState>,
         app: AppHandle,
-        old: String,
-        new: String,
-    ) -> Result<u64, String> {
-        let n = state
+        path: String,
+    ) -> Result<(), String> {
+        state
             .vault
-            .rename_category(old, new)
+            .delete_folder(&path)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
-        Ok(n)
+        Ok(())
+    }
+
+    // -- graph + config (§6 graph view, §6.3 folder views) ----------------
+
+    #[tauri::command]
+    pub fn graph_data(state: State<'_, AppState>) -> Result<oximemo_core::GraphData, String> {
+        state.vault.graph_data().map_err(|e| e.to_string())
     }
 
     #[tauri::command]
-    pub fn delete_category(
+    pub fn get_config(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+        Ok(state.vault.config_json())
+    }
+
+    #[tauri::command]
+    pub fn set_folder_view(
+        state: State<'_, AppState>,
+        path: String,
+        view: Option<oximemo_core::ViewMode>,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_folder_view(&path, view)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn move_note(
         state: State<'_, AppState>,
         app: AppHandle,
         id: String,
-    ) -> Result<(), String> {
-        state.vault.delete_category(id).map_err(|e| e.to_string())?;
+        folder: String,
+    ) -> Result<oximemo_core::memo::NoteDto, String> {
+        let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
+        let memo = state
+            .vault
+            .move_note(id, &folder)
+            .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
-        Ok(())
+        Ok(state.vault.note_dto(&memo))
+    }
+
+    /// oxibrain daemon health + counts for the panel's status dot. Daemon
+    /// down is a normal state, not an error: `{online: false, ...}`.
+    #[tauri::command]
+    pub async fn brain_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+        let cfg = state
+            .vault
+            .with_config(|c| crate::BrainEndpointConf::from_brain(&c.brain));
+        if !cfg.enabled {
+            return Ok(serde_json::json!({"online": false, "disabled": true}));
+        }
+        let (mut client, caps) = match crate::brain_connect(&cfg).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::debug!(error = %e, "brain: daemon unreachable");
+                return Ok(serde_json::json!({"online": false}));
+            }
+        };
+        let stats = match client.stats(&cfg.space).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::debug!(error = %e, "brain: stats failed");
+                return Ok(serde_json::json!({"online": false}));
+            }
+        };
+        let count = |k: &str| stats.get(k).and_then(|v| v.as_u64());
+        Ok(serde_json::json!({
+            "online": true,
+            "server_version": caps.server_version,
+            "episodes": count("episodes"),
+            "entities": count("entities"),
+            "statements": count("statements"),
+            "contradictions": count("contradictions"),
+        }))
+    }
+
+    /// Assemble recall layers for a query. Daemon down → Err so the panel
+    /// can show its offline line; the note editor itself is unaffected.
+    #[tauri::command]
+    pub async fn brain_gather(
+        state: State<'_, AppState>,
+        query: String,
+        budget: Option<u32>,
+    ) -> Result<serde_json::Value, String> {
+        let cfg = state
+            .vault
+            .with_config(|c| crate::BrainEndpointConf::from_brain(&c.brain));
+        if !cfg.enabled {
+            return Err("brain disabled in config".to_string());
+        }
+        let (mut client, _caps) = crate::brain_connect(&cfg)
+            .await
+            .map_err(|e| format!("brain offline: {e}"))?;
+        client
+            .recall(&query, &cfg.space, budget.unwrap_or(4000) as usize)
+            .await
+            .map_err(|e| format!("brain recall failed: {e}"))
+    }
+
+    #[tauri::command]
+    pub fn get_backlinks(
+        state: State<'_, AppState>,
+        id: String,
+    ) -> Result<Vec<oximemo_core::BacklinkInfo>, String> {
+        let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
+        state.vault.get_backlinks(id).map_err(|e| e.to_string())
     }
 
     #[tauri::command]

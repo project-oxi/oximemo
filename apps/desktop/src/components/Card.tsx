@@ -8,25 +8,25 @@
 import { Star, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { edgeFor, paperFor } from "../lib/color";
-import { colorForCategory } from "../lib/color";
+import { edgeFor, paperFor, colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
-import type { CategoryDef, MemoSummary } from "../lib/types";
+import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
 import { relativeTime } from "../lib/time";
 import { renderPreviewMarkdown } from "../lib/markdownPreview";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, CtxSubmenu } from "./ContextMenu";
 
 interface Props {
   memo: MemoSummary;
-  categories: CategoryDef[];
+  folders: FolderDef[];
+  folderEntries: FolderEntry[];
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
-  onMoveCategory: (id: string, category: string) => void;
+  onMoveFolder: (id: string, folder: string) => void;
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCategory, onCopyBody, onDelete }: Props) {
+export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete }: Props) {
   const { t, locale } = useI18n();
   const [copied, setCopied] = useState(false);
   const shortId = memo.id.slice(0, 8);
@@ -35,6 +35,7 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
     () => (memo.preview ? renderPreviewMarkdown(memo.preview) : ""),
     [memo.preview],
   );
+  const color = colorForFolder(memo.folder, folders);
 
   return (
     <CtxRoot>
@@ -43,8 +44,8 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
           <article
             onClick={() => onSelect(memo.id)}
             style={{
-              backgroundColor: paperFor(colorForCategory(memo.category, categories)),
-              borderColor: edgeFor(colorForCategory(memo.category, categories)),
+              backgroundColor: paperFor(color),
+              borderColor: edgeFor(color),
             }}
             className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
           />
@@ -52,9 +53,22 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
       >
       <div className="flex items-center gap-1.5 pr-7 text-text-subtle">
         <span className="text-[11px]">{relativeTime(memo.updated_at, locale)}</span>
-        <span aria-hidden className="text-text-subtle">
-          ·
-        </span>
+        {memo.path?.endsWith(".html") && (
+          <span className="rounded bg-surface-muted px-1 py-px font-mono text-[9px] font-semibold tracking-wide text-text-subtle">
+            HTML
+          </span>
+        )}
+        {memo.title && (
+          <>
+            <span aria-hidden className="text-text-subtle">
+              ·
+            </span>
+            <span className="truncate text-[11px] font-medium text-text">
+              {memo.title}
+            </span>
+          </>
+        )}
+        <span aria-hidden className="ml-auto text-text-subtle">·</span>
         <span className="font-mono text-[10px] text-text-subtle">
           {shortId}
         </span>
@@ -134,13 +148,13 @@ export function Card({ memo, categories, onSelect, onToggleFavorite, onMoveCateg
             label={memo.favorite ? t.action_unfavorite : t.action_favorite}
             onClick={() => onToggleFavorite(memo.id)}
           />
-          <CtxSubmenu icon={FolderInput} label={t.action_move_category}>
-            {categories.map((c) => (
+          <CtxSubmenu icon={FolderInput} label={t.action_move_folder ?? "Move to folder"}>
+            {folderEntries.map((f) => (
               <CtxItem
-                key={c.id}
-                label={c.id}
-                disabled={memo.category === c.id}
-                onClick={() => onMoveCategory(memo.id, c.id)}
+                key={f.path || "(root)"}
+                label={f.path || "(root)"}
+                disabled={memo.folder === f.path}
+                onClick={() => onMoveFolder(memo.id, f.path)}
               />
             ))}
           </CtxSubmenu>

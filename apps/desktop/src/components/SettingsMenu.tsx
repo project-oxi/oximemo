@@ -5,7 +5,7 @@
  * (theme/locale are local state; category management + reindex/doctor hit
  * the vault). Triggered by the gear button in the CardGrid header.
  */
-import { Dialog, Popover } from "@base-ui-components/react";
+import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type KeyboardEvent,
@@ -22,7 +22,7 @@ import {
   HardDrive,
   Info,
   Palette,
-  Pencil,
+
   Plus,
   RefreshCw,
   Settings,
@@ -38,22 +38,20 @@ import {
   installCli,
   uninstallCli,
   type CliState,
-  createCategory,
-  deleteCategory,
+  createFolder,
+  deleteFolder,
   doctor,
-  listCategories,
+  listFolders,
   memoStats,
   reindex,
   resetVault,
-  renameCategory,
-  updateCategory,
   vaultPath,
 } from "../lib/api";
-import { COLOR_PRESETS, isValidOklch, presetToString, paperFor } from "../lib/color";
+
 import { applyTheme, type Theme } from "../lib/theme";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
-import type { CategoryDef } from "../lib/types";
+import type { FolderEntry } from "../lib/types";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { checkForUpdate, type UpdateAvailable } from "../lib/updater";
 
@@ -109,215 +107,101 @@ function Section({
   );
 }
 
-/**
- * Categories management section. Reads the category list via TanStack Query
- * and wires mutations (create / update color / rename / delete) to the IPC
- * bridge defined in `lib/api.ts`. Every mutation invalidates the three
- * downstream caches (categories, facets, memos) so the sidebar chips and
- * grid recolor / move without a manual refresh.
- */
-function CategoriesSection() {
+/** Folder management section: list, create, delete folders from the
+ *  vault. Wired to the IPC bridge defined in `lib/api.ts`. */
+function FoldersSection() {
   const { t } = useI18n();
   const qc = useQueryClient();
-  const setToast = useUI((s) => s.setToast);
   const setError = useUI((s) => s.setError);
+  const setToast = useUI((s) => s.setToast);
+  const setFolderFilter = useUI((s) => s.setFolderFilter);
 
-  const cats = useQuery({ queryKey: ["categories"], queryFn: listCategories });
-  const list = cats.data ?? [];
+  const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
+  const list = foldersQ.data ?? [];
 
-  // ----- New-category row state -----
-  const [newId, setNewId] = useState("");
-  const [newColor, setNewColor] = useState<string>(presetToString(COLOR_PRESETS[0]));
-  const [creating, setCreating] = useState(false);
+  const [newPath, setNewPath] = useState("");
   const newInputRef = useRef<HTMLInputElement>(null);
 
-  // ----- Per-row rename state -----
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingDraft, setEditingDraft] = useState("");
-
   const invalidateAll = () => {
-    qc.invalidateQueries({ queryKey: ["categories"] });
+    qc.invalidateQueries({ queryKey: ["folders"] });
     qc.invalidateQueries({ queryKey: ["facets"] });
     qc.invalidateQueries({ queryKey: ["memos"] });
   };
 
   const onAdd = async () => {
-    const id = newId.trim();
-    if (!id || creating) return;
-    if (list.some((c) => c.id === id)) {
-      setError(`"${id}" already exists`);
-      return;
-    }
-    setCreating(true);
+    const path = newPath.trim();
+    if (!path) return;
     try {
-      await createCategory(id, newColor || null);
-      setNewId("");
-      setNewColor(presetToString(COLOR_PRESETS[0]));
+      await createFolder(path);
+      setNewPath("");
       newInputRef.current?.focus();
       invalidateAll();
     } catch (e) {
       setError(String(e).split("\n")[0]);
-    } finally {
-      setCreating(false);
     }
   };
 
-  const onNewKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      void onAdd();
-    } else if (e.key === "Escape") {
-      setNewId("");
-    }
-  };
-
-  const onCommitRename = async (oldId: string) => {
-    // Escape sets this flag so the blur that follows unmounting the input
-    // does not also commit.
-    if (cancelRenameRef.current) {
-      cancelRenameRef.current = false;
-      setEditingId(null);
-      return;
-    }
-    const next = editingDraft.trim();
-    setEditingId(null);
-    if (!next || next === oldId) return;
-    if (list.some((c) => c.id === next)) {
-      setError(`"${next}" already exists`);
-      return;
-    }
+  const onDelete = async (path: string) => {
     try {
-      const moved = await renameCategory(oldId, next);
-      setToast(`${moved} ${moved === 1 ? "memo moved" : "memos moved"}`);
+      await deleteFolder(path);
       invalidateAll();
+      setToast(`Folder '${path}' deleted`);
     } catch (e) {
       setError(String(e).split("\n")[0]);
     }
-  };
-
-  // Single commit path: Enter blurs the input, the input's onBlur fires
-  // `onCommitRename`. Escape cancels. Without this, both Enter and Escape
-  // would also fire onBlur (because setting `editingId = null` unmounts
-  // the focused input), double-invoking renameCategory.
-  const cancelRenameRef = useRef(false);
-  const onRenameKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      (e.currentTarget as HTMLInputElement).blur();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      cancelRenameRef.current = true;
-      (e.currentTarget as HTMLInputElement).blur();
-    }
-  };
-
-  const onPickColor = async (id: string, color: string) => {
-    try {
-      await updateCategory(id, color);
-      invalidateAll();
-    } catch (e) {
-      setError(String(e).split("\n")[0]);
-    }
-  };
-
-  const onDelete = async (id: string) => {
-    try {
-      await deleteCategory(id);
-      invalidateAll();
-    } catch (e) {
-      setError(String(e).split("\n")[0]);
-    }
-  };
-
-  const startRename = (c: CategoryDef) => {
-    setEditingId(c.id);
-    setEditingDraft(c.id);
   };
 
   return (
     <div className="space-y-1.5">
-      {cats.isLoading && (
+      {foldersQ.isLoading && (
         <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] text-text-subtle">
           …
         </p>
       )}
-      {list.map((c) => {
-        const isInbox = c.id === "inbox";
-        const isEditing = editingId === c.id;
-        return (
-          <div
-            key={c.id}
-            className="group flex items-center gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5"
+      {list.map((f: FolderEntry) => (
+        <div
+          key={f.path || "(root)"}
+          className="group flex items-center gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5"
+        >
+          <span aria-hidden>📁</span>
+          <button
+            type="button"
+            onClick={() => setFolderFilter(f.path || null)}
+            className="min-w-0 flex-1 truncate text-left text-xs text-text-muted hover:text-text"
           >
-            <CategorySwatch
-              color={c.color}
-              onPick={(color) => void onPickColor(c.id, color)}
-            />
-            {isEditing ? (
-              <input
-                autoFocus
-                value={editingDraft}
-                onChange={(e) => setEditingDraft(e.target.value)}
-                onBlur={() => void onCommitRename(c.id)}
-                onKeyDown={onRenameKey}
-                className="min-w-0 flex-1 rounded-md bg-surface-raised px-2 py-1 text-xs text-text outline-none shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
-              />
-            ) : (
-              <button
-                type="button"
-                disabled={isInbox}
-                onClick={() => startRename(c)}
-                title={isInbox ? "Inbox is immutable" : "Rename"}
-                className="min-w-0 flex-1 truncate text-left text-xs text-text-muted disabled:cursor-not-allowed disabled:text-text-subtle"
-              >
-                {c.id}
-                {c.builtin && !isInbox && (
-                  <span className="ml-1.5 text-[10px] uppercase tracking-wider text-text-subtle">
-                    built-in
-                  </span>
-                )}
-              </button>
-            )}
-            {!isEditing && (
-              <button
-                type="button"
-                onClick={() => startRename(c)}
-                disabled={isInbox}
-                aria-label="Rename"
-                className="rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-              >
-                <Pencil size={12} />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void onDelete(c.id)}
-              disabled={isInbox}
-              aria-label={t.action_delete}
-              title={isInbox ? "Inbox is immutable" : t.action_delete}
-              className="rounded-md p-1 text-text-subtle transition-colors hover:bg-status-error-subtle hover:text-status-error disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
-        );
-      })}
-
-      {/* New-category row */}
+            {f.path || "(root)"}
+          </button>
+          <span className="text-[10px] text-text-subtle">{f.note_count}</span>
+          <button
+            type="button"
+            onClick={() => void onDelete(f.path)}
+            disabled={f.note_count > 0 || !f.path}
+            aria-label={t.action_delete}
+            title={f.note_count > 0 ? "Folder has notes — empty it first" : t.action_delete}
+            className="rounded-md p-1 text-text-subtle transition-colors hover:bg-status-error-subtle hover:text-status-error disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      ))}
       <div className="flex items-center gap-2 rounded-lg border border-dashed border-line px-2.5 py-1.5">
-        <CategorySwatch color={newColor} onPick={setNewColor} />
         <input
           ref={newInputRef}
-          value={newId}
-          onChange={(e) => setNewId(e.target.value)}
-          onKeyDown={onNewKey}
-          placeholder="New category id"
+          value={newPath}
+          onChange={(e) => setNewPath(e.target.value)}
+          onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void onAdd();
+            } else if (e.key === "Escape") setNewPath("");
+          }}
+          placeholder="new/folder/path"
           className="min-w-0 flex-1 rounded-md bg-transparent px-1 py-1 text-xs text-text outline-none placeholder:text-text-subtle"
         />
         <button
           type="button"
           onClick={() => void onAdd()}
-          disabled={creating || newId.trim().length === 0}
+          disabled={newPath.trim().length === 0}
           className="flex items-center gap-1 rounded-md bg-interactive-primary px-2 py-1 text-[11px] font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Plus size={12} />
@@ -328,88 +212,7 @@ function CategoriesSection() {
   );
 }
 
-/**
- * Color swatch that opens a Popover of COLOR_PRESETS plus an OKLCH text
- * input for custom values. Used both as the editor for existing rows and
- * as the picker on the new-category row.
- *
- * Popover renders via Portal so its z-index must exceed the dialog's z-50
- * surface to stay visible above the drawer.
- */
-function CategorySwatch({
-  color,
-  onPick,
-}: {
-  color: string;
-  onPick: (color: string) => void;
-}) {
-  const [draft, setDraft] = useState(color);
 
-  // Keep the input in sync when the underlying color changes (e.g. after
-  // a remote mutation invalidates and refetches the list).
-  useEffect(() => {
-    setDraft(color);
-  }, [color]);
-
-  const swatchStyle = color
-    ? { backgroundColor: paperFor(color) }
-    : undefined;
-
-  return (
-    <Popover.Root>
-      <Popover.Trigger
-        aria-label="Edit color"
-        className="block h-5 w-5 shrink-0 rounded-full border border-line transition-transform hover:scale-110"
-        style={swatchStyle}
-      />
-      <Popover.Portal>
-        <Popover.Positioner side="left" align="center" sideOffset={6} className="z-[60]">
-          <Popover.Popup className="w-56 rounded-lg border border-line bg-surface-raised p-2.5 shadow-lg">
-            <div className="mb-2 grid grid-cols-6 gap-1.5">
-              {COLOR_PRESETS.map((p) => {
-                const v = presetToString(p);
-                const active = v === color;
-                return (
-                  <Popover.Close
-                    key={p.id}
-                    onClick={() => onPick(v)}
-                    aria-label={p.id}
-                    title={p.id}
-                    className={
-                      "h-6 w-6 rounded-full border transition-transform hover:scale-110 " +
-                      (active ? "border-text" : "border-line")
-                    }
-                    style={{ backgroundColor: v }}
-                  />
-                );
-              })}
-            </div>
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={() => {
-                const v = draft.trim();
-                if (v && v !== color && isValidOklch(v)) onPick(v);
-                else if (v && !isValidOklch(v)) setDraft(color); // revert invalid
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const v = draft.trim();
-                  if (v && v !== color && isValidOklch(v)) onPick(v);
-                  else if (v && !isValidOklch(v)) setDraft(color); // revert invalid
-                  (e.currentTarget as HTMLInputElement).blur();
-                }
-              }}
-              placeholder="oklch(0.75 0.15 25)"
-              className="w-full rounded-md bg-surface-sunken px-2 py-1 font-mono text-[11px] text-text-muted outline-none shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
-            />
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
-  );
-}
 
 /** Command-line tool install section. Surfaces the bundled `oximemo` CLI on
  *  PATH via a one-time macOS admin prompt. */
@@ -763,8 +566,8 @@ export function SettingsMenu() {
               </div>
             </Section>
 
-            <Section icon={<FolderTree size={12} />} title="Categories">
-              <CategoriesSection />
+            <Section icon={<FolderTree size={12} />} title="Folders">
+              <FoldersSection />
             </Section>
 
             <Section icon={<HardDrive size={12} />} title={t.section_storage}>

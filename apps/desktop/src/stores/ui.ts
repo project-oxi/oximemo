@@ -2,15 +2,19 @@
  *  holds only ephemeral UI state per §7.4. */
 import { create } from "zustand";
 import { loadTheme, type Theme } from "../lib/theme";
+import type { ViewMode } from "../lib/types";
 
 export type TagState = "off" | "in" | "out";
 
 interface UIState {
   search: string;
   setSearch: (s: string) => void;
-  /** Active top-level view. Gallery shows all images across memos. */
+  /** Active top-level view. Gallery shows all images across notes. */
   view: "memos" | "gallery";
   setView: (v: "memos" | "gallery") => void;
+  /** Per-folder view mode override (folder sidebar view switcher). */
+  noteView: ViewMode;
+  setNoteView: (v: ViewMode) => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
   selectedId: string | null;
@@ -22,10 +26,10 @@ interface UIState {
   /** AND over the include set when true, OR when false. */
   matchAll: boolean;
   toggleMatchAll: () => void;
-  /** Selected category. `null` = all categories. */
-  categoryFilter: string | null;
-  setCategory: (c: string | null) => void;
-  clearCategoryFilter: () => void;
+  /** Selected folder. `null` = all notes (entire vault). */
+  folderFilter: string | null;
+  setFolderFilter: (f: string | null) => void;
+  clearFolderFilter: () => void;
   favoritesOnly: boolean;
   setFavoritesOnly: (b: boolean) => void;
   /** Sidebar collapsed? Persisted to localStorage. */
@@ -38,7 +42,7 @@ interface UIState {
   toast: string | null;
   setToast: (msg: string | null) => void;
   /** Id of a note minted by "new memo" this session; discarded on close
-   * while still empty so no orphan memos accumulate. */
+   * while still empty so no orphan notes accumulate. */
   draftId: string | null;
   setDraftId: (id: string | null) => void;
   /** Available update version surfaced on the settings gear, or null. */
@@ -57,6 +61,8 @@ export const useUI = create<UIState>((set) => ({
   setSearch: (s) => set({ search: s }),
   view: "memos",
   setView: (v) => set({ view: v }),
+  noteView: "grid",
+  setNoteView: (v) => set({ noteView: v }),
   theme: loadTheme(),
   setTheme: (t) => set({ theme: t }),
   selectedId: null,
@@ -74,9 +80,9 @@ export const useUI = create<UIState>((set) => ({
   clearTagFilter: () => set({ tagFilter: {} }),
   matchAll: true,
   toggleMatchAll: () => set((s) => ({ matchAll: !s.matchAll })),
-  categoryFilter: null,
-  setCategory: (c) => set({ categoryFilter: c }),
-  clearCategoryFilter: () => set({ categoryFilter: null }),
+  folderFilter: null,
+  setFolderFilter: (f) => set({ folderFilter: f }),
+  clearFolderFilter: () => set({ folderFilter: null }),
   favoritesOnly: false,
   setFavoritesOnly: (b) => set({ favoritesOnly: b }),
   sidebarCollapsed: loadCollapsed(),

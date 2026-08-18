@@ -6,10 +6,11 @@
  * markdown and render the first block (up to `maxLen` chars) to HTML so
  * users see headings, lists, code spans, etc. in the grid.
  *
- * External input never reaches this function — memo bodies are the user's
- * own typing — so `dangerouslySetInnerHTML` in Card.tsx is safe given
- * marked's default HTML escaping.
+ * Output is DOMPurify-sanitized before it reaches `dangerouslySetInnerHTML`
+ * in Card.tsx: marked passes raw HTML through, and html notes can put
+ * arbitrary markup (incl. event handlers) into a preview line.
  */
+import DOMPurify from "dompurify";
 import { marked } from "marked";
 
 marked.setOptions({
@@ -33,7 +34,10 @@ export function renderPreviewMarkdown(body: string, maxLen = 200): string {
   // memo UUIDs. Embed first (it contains a link), then labeled, then bare.
   const head = raw
     .replace(/!\[\[([^\]\n|]+)(?:\|[^\]\n|]+)?\]\]/g, "▢ 임베드")
-    .replace(/\[\[([^\]\n|]+)\|([^\]\n|]+)\]\]/g, "$2")
-    .replace(/\[\[([^\]\n|]+)\]\]/g, "◆");
-  return marked.parse(head, { async: false }) as string;
+    .replace(/\[\[([^\]\n|]+)\]\]/g, "◆")
+    .replace(/\[\[([^\]\n|]+)\|([^\]\n|]+)\]\]/g, "$2");
+  return DOMPurify.sanitize(marked.parse(head, { async: false }) as string, {
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "style"],
+    FORBID_ATTR: ["onerror", "onclick", "onload", "onmouseover", "onfocus"],
+  });
 }

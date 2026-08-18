@@ -21,17 +21,19 @@ use time::OffsetDateTime;
 
 use parking_lot::RwLock;
 
-use crate::config::{AUTO_COLORS, CategoryDef, VaultConfig};
+use crate::config::VaultConfig;
 use crate::error::{CoreError, Result};
 use crate::hash;
 use crate::lock::{FileLock, LockKind, acquire};
-use crate::memo::{Cursor, IndexStats, Memo, MemoFilter, MemoId, MemoSummary, Page, make_preview};
+use crate::memo::{
+    Cursor, Facets, IndexStats, Memo, MemoFilter, MemoId, MemoSummary, Page, note_title,
+    preview_of, searchable_body, tags_of,
+};
 use crate::paths::Paths;
 use crate::store::files::FileStore;
 use crate::store::index::{IndexRecord, MemoIndex, RedbIndex};
 use crate::store::search::{SearchIndex, TantivySearch};
 use crate::sync::{FullRecord, ManifestRecord};
-use crate::tags::extract_tags;
 
 /// How long to wait for the cross-process index lock before timing out (§5.7).
 const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -62,70 +64,62 @@ impl Vault {
         })
     }
 
-    /// Read config under a read guard. Use [`Self::categories`] when you only
-    /// need the list of categories — that helper already takes the guard and
-    /// clones for you.
+    /// Read config under a read guard.
     pub fn with_config<R>(&self, f: impl FnOnce(&VaultConfig) -> R) -> R {
         f(&self.config.read())
     }
 
-    /// Snapshot of the current category list (cloned under the read guard).
-    pub fn categories(&self) -> Vec<crate::config::CategoryDef> {
-        self.config.read().categories.items.clone()
+    /// Snapshot of the current folder list (cloned under the read guard).
+    pub fn folders(&self) -> Vec<crate::config::FolderDef> {
+        self.config.read().folders.items.clone()
     }
 
-    /// Create a user-defined category. `id` is normalized (trimmed + lowercased);
-    /// rejects empty ids and collisions (including the built-in `inbox`).
-    /// `color = None` picks the first unused entry from `AUTO_COLORS`.
-    pub fn create_category(&self, id: String, color: Option<String>) -> Result<CategoryDef> {
-        let id = normalize_id(&id);
-        if id.is_empty() {
-            return Err(CoreError::other("category id empty"));
-        }
-        let mut cfg = self.config.write();
-        if cfg.categories.items.iter().any(|c| c.id == id) {
-            return Err(CoreError::other(format!("category '{id}' exists")));
-        }
-        let color = color.unwrap_or_else(|| pick_auto_color(&cfg.categories.items));
-        let def = CategoryDef {
-            id: id.clone(),
-            color,
-            builtin: false,
+    /// Create a physical folder (mkdir -p). No-op if it already exists.
+    pub fn create_folder(&self, path: &str) -> Result<()> {
+        let dir = if path.is_empty() {
+            self.paths.vault.clone()
+        } else {
+            self.paths.vault.join(path)
         };
-        cfg.categories.items.push(def.clone());
-        cfg.save(&self.paths)?;
-        Ok(def)
+        std::fs::create_dir_all(&dir)?;
+        Ok(())
     }
 
-    /// Update an existing category's color. Errors if the id doesn't match any
-    /// known category. `inbox` (and any other built-in) can be re-colored; only
-    /// deletion is restricted.
-    pub fn update_category(&self, id: String, color: String) -> Result<()> {
-        let id = normalize_id(&id);
-        let mut cfg = self.config.write();
-        let def = cfg
-            .categories
-            .items
-            .iter_mut()
-            .find(|c| c.id == id)
-            .ok_or_else(|| CoreError::other(format!("category '{id}' not found")))?;
-        def.color = color;
-        cfg.save(&self.paths)
+    /// Delete a physical folder. Fails if it contains notes.
+    pub fn delete_folder(&self, path: &str) -> Result<()> {
+        if path.is_empty() {
+            return Err(CoreError::other("cannot delete vault root"));
+        }
+        let dir = self.paths.vault.join(path);
+        if !dir.exists() {
+            return Err(CoreError::other(format!("folder '{path}' not found")));
+        }
+        let has_notes = std::fs::read_dir(&dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|e| {
+                e.file_name().to_string_lossy().ends_with(".md")
+                    && e.file_name().to_string_lossy() != crate::paths::TEMPLATE_NAME
+            });
+        if has_notes {
+            return Err(CoreError::other(format!("folder '{path}' is not empty")));
+        }
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
     }
 
-    /// Remove a user-defined category. The built-in `inbox` cannot be deleted.
-    pub fn delete_category(&self, id: String) -> Result<()> {
-        let id = normalize_id(&id);
-        if id == crate::memo::DEFAULT_CATEGORY {
-            return Err(CoreError::other("inbox cannot be deleted"));
+    /// List the folder tree as a flat list of `(path, note_count)`.
+    pub fn list_folders(&self) -> Result<Vec<(String, u32)>> {
+        let mut counts: std::collections::BTreeMap<String, u32> = Default::default();
+        for path in self.files.scan() {
+            if let Some(rel) = self.paths.relative_path(&path) {
+                let folder = rel.rfind('/').map(|i| &rel[..i]).unwrap_or("");
+                *counts.entry(folder.to_string()).or_insert(0) += 1;
+            }
         }
-        let mut cfg = self.config.write();
-        let before = cfg.categories.items.len();
-        cfg.categories.items.retain(|c| c.id != id);
-        if cfg.categories.items.len() == before {
-            return Err(CoreError::other(format!("category '{id}' not found")));
-        }
-        cfg.save(&self.paths)
+        Ok(counts.into_iter().collect())
     }
 
     pub fn paths(&self) -> &Paths {
@@ -134,7 +128,7 @@ impl Vault {
 
     /// Create the vault + index directories if missing.
     pub fn ensure_initialized(&self) -> Result<()> {
-        std::fs::create_dir_all(self.paths.memos_root())?;
+        std::fs::create_dir_all(&self.paths.vault)?;
         std::fs::create_dir_all(self.paths.trash_root())?;
         std::fs::create_dir_all(self.paths.assets_root())?;
         std::fs::create_dir_all(&self.paths.index_dir)?;
@@ -312,44 +306,92 @@ impl Vault {
 
     // -- CRUD -------------------------------------------------------------
 
-    pub fn create_memo(&self, body: String, category: Option<String>) -> Result<Memo> {
+    /// Create a note in `folder` (empty = vault root) in the given format.
+    /// The filename is derived from the body's title (H1 for markdown,
+    /// `<h1>`/`<title>` for html), or a timestamp if untitled.
+    pub fn create_note(
+        &self,
+        folder: &str,
+        body: String,
+        fmt: crate::memo::NoteFormat,
+    ) -> Result<Memo> {
         self.ensure_initialized()?;
-        let tags = extract_tags(&body);
+        // Apply template if body is blank and a matching TEMPLATE exists.
+        let body = if crate::template::is_blank_body(fmt, &body) {
+            if let Some(tmpl) = crate::template::load_template(&self.paths, folder, fmt) {
+                let counter = crate::template::count_notes(&self.paths, folder) + 1;
+                let ctx = crate::template::TemplateCtx::now(folder, counter);
+                crate::template::apply_template(&tmpl, &ctx)
+            } else {
+                body
+            }
+        } else {
+            body
+        };
+        let tags = tags_of(fmt, &body);
         validate_note_input(&body, &tags)?;
         let now = OffsetDateTime::now_utc();
         let id = MemoId::now();
-        let category = category.unwrap_or_else(|| crate::memo::DEFAULT_CATEGORY.to_string());
         let note = Memo {
             id,
             created_at: now,
             updated_at: now,
-            hash: hash::hash_memo(body.as_bytes(), false, &category),
+            hash: hash::hash_memo(body.as_bytes(), false),
             favorite: false,
-            category,
             tags,
             body,
             deleted_at: None,
         };
-        self.files.write(&note)?;
+        let path = self.files.write_note(folder, &note, fmt)?;
+        let rel = self.paths.relative_path(&path).unwrap_or_default();
+        let (sbody, stitle) = search_fields(fmt, &note);
         self.with_redb_and_search(|idx, search| {
-            idx.upsert(&record_of(&note))?;
-            search.upsert(note.id, &note.body, &note.tags)
+            idx.upsert(&record_of(&note, &rel))?;
+            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
         })?;
         Ok(note)
     }
 
+    /// Create a note whose format follows the folder's templates: a folder
+    /// with `TEMPLATE.html` but no `TEMPLATE.md` produces html notes;
+    /// everything else defaults to markdown (spec §D8).
+    pub fn create_note_auto(&self, folder: &str, body: String) -> Result<Memo> {
+        let fmt =
+            if crate::template::load_template(&self.paths, folder, crate::memo::NoteFormat::Html)
+                .is_some()
+                && crate::template::load_template(
+                    &self.paths,
+                    folder,
+                    crate::memo::NoteFormat::Markdown,
+                )
+                .is_none()
+            {
+                crate::memo::NoteFormat::Html
+            } else {
+                crate::memo::NoteFormat::Markdown
+            };
+        self.create_note(folder, body, fmt)
+    }
+
+    /// Backward-compat alias: create a markdown note at vault root.
+    pub fn create_memo(&self, body: String, _category: Option<String>) -> Result<Memo> {
+        self.create_note("", body, crate::memo::NoteFormat::Markdown)
+    }
+
+    /// Read a note by id. Uses the index to locate the file path; falls back
+    /// to a vault scan if the index is stale.
     pub fn get_memo(&self, id: MemoId) -> Result<Memo> {
-        // Use the index to learn created_at, which pins the sharded file path.
-        let created_at = self.with_redb(|idx| idx.get(id))?.map(|r| r.created_at);
-        if let Some(ca) = created_at {
-            let live = self.paths.memo_path(id, ca);
-            if live.exists() {
+        // Try the index for the path.
+        if let Some(rec) = self.with_redb(|idx| idx.get(id))? {
+            let abs = self.paths.vault.join(&rec.path);
+            if abs.exists() {
                 return self
                     .files
-                    .read_memo(&live)?
+                    .read_memo(&abs)?
                     .ok_or_else(|| CoreError::NotFound(id.to_string()));
             }
-            let trash = self.paths.trash_path(id);
+            // Maybe in trash.
+            let trash = self.paths.trash_path(&rec.path);
             if trash.exists() {
                 return self
                     .files
@@ -357,12 +399,12 @@ impl Vault {
                     .ok_or_else(|| CoreError::NotFound(id.to_string()));
             }
         }
-        // Index miss (not yet indexed): scan the tree.
+        // Index miss: scan the vault.
         for path in self
             .files
-            .list_memo_files()
+            .scan()
             .iter()
-            .chain(self.files.list_trash_files().iter())
+            .chain(self.files.scan_trash().iter())
         {
             if let Ok(Some(n)) = self.files.read_memo(path)
                 && n.id == id
@@ -372,47 +414,152 @@ impl Vault {
         }
         Err(CoreError::NotFound(id.to_string()))
     }
+    /// Update a note's body and/or favorite flag. If the note's title changes,
+    /// the file is renamed to match the new title (format preserved).
+    pub fn update_note(
+        &self,
+        id: MemoId,
+        body: Option<String>,
+        favorite: Option<bool>,
+    ) -> Result<Memo> {
+        let mut note = self.get_memo(id)?;
+        // Determine the note's format from its indexed path (empty fallback
+        // = markdown, matching NoteFormat::from_rel).
+        let rec = self.with_redb(|idx| idx.get(id))?;
+        let old_rel = rec.as_ref().map(|r| r.path.clone()).unwrap_or_default();
+        let fmt = crate::memo::NoteFormat::from_rel(&old_rel);
 
+        let old_title = note_title(fmt, &note.body);
+        if let Some(b) = body {
+            note.body = b;
+            note.tags = tags_of(fmt, &note.body);
+        }
+        if let Some(p) = favorite {
+            note.favorite = p;
+        }
+        validate_note_input(&note.body, &note.tags)?;
+        note.updated_at = OffsetDateTime::now_utc();
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite);
+
+        let old_path = self.paths.vault.join(&old_rel);
+
+        // If the title changed (or old path doesn't exist), compute new path.
+        let new_title = note_title(fmt, &note.body);
+        let needs_rename = old_title != new_title && old_path.exists();
+
+        if needs_rename {
+            // Derive new filename and folder from old path.
+            let folder = old_rel.rfind('/').map(|i| &old_rel[..i]).unwrap_or("");
+            let new_path = self.files.write_note(folder, &note, fmt)?;
+            // Remove the old file if it differs.
+            if new_path != old_path && old_path.exists() {
+                std::fs::remove_file(&old_path)?;
+            }
+            let new_rel = self.paths.relative_path(&new_path).unwrap_or_default();
+            let (sbody, stitle) = search_fields(fmt, &note);
+            self.with_redb_and_search(|idx, search| {
+                idx.upsert(&record_of(&note, &new_rel))?;
+                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+            })?;
+        } else {
+            // Write in place at the existing path.
+            if !old_path.exists() {
+                // No known path — write to root.
+                let p = self.files.write_note("", &note, fmt)?;
+                let rel = self.paths.relative_path(&p).unwrap_or_default();
+                let (sbody, stitle) = search_fields(fmt, &note);
+                self.with_redb_and_search(|idx, search| {
+                    idx.upsert(&record_of(&note, &rel))?;
+                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                })?;
+            } else {
+                let text = FileStore::serialize_as(&note, fmt)?;
+                std::fs::write(&old_path, text.as_bytes())?;
+                let (sbody, stitle) = search_fields(fmt, &note);
+                self.with_redb_and_search(|idx, search| {
+                    idx.upsert(&record_of(&note, &old_rel))?;
+                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                })?;
+            }
+        }
+
+        // Rename propagation (§4.4): rewrite [[old title]] → [[new title]]
+        // in every other note that references it. Only when both titles exist.
+        if needs_rename && old_title.is_some() && new_title.is_some() {
+            let old = old_title.as_deref().unwrap();
+            let new = new_title.as_deref().unwrap();
+            let recs = self.with_redb(|idx| idx.export_since(None))?;
+            let mut updates: Vec<(Memo, String)> = Vec::new();
+            for r in &recs {
+                if r.deleted || r.id == id {
+                    continue;
+                }
+                let src_fmt = crate::memo::NoteFormat::from_rel(&r.path);
+                let abs = self.paths.vault.join(&r.path);
+                let Ok(Some(src)) = self.files.read_memo(&abs) else {
+                    continue;
+                };
+                if crate::wiki::links_to(link_scan_body(src_fmt, &src.body).as_ref(), old) {
+                    let rewritten = crate::wiki::replace_link_target(&src.body, old, new);
+                    let mut updated = src.clone();
+                    updated.body = rewritten;
+                    updated.tags = tags_of(src_fmt, &updated.body);
+                    updated.updated_at = OffsetDateTime::now_utc();
+                    updated.hash = hash::hash_memo(updated.body.as_bytes(), updated.favorite);
+                    let text = FileStore::serialize_as(&updated, src_fmt)?;
+                    std::fs::write(&abs, text.as_bytes())?;
+                    updates.push((updated, r.path.clone()));
+                }
+            }
+            if !updates.is_empty() {
+                self.with_redb_and_search(|idx, search| {
+                    for (n, p) in &updates {
+                        idx.upsert(&record_of(n, p))?;
+                        let (sbody, stitle) =
+                            search_fields(crate::memo::NoteFormat::from_rel(p), n);
+                        search.upsert(n.id, &sbody, stitle.as_deref(), &n.tags)?;
+                    }
+                    Ok(())
+                })?;
+            }
+        }
+        Ok(note)
+    }
+
+    /// Backward-compat wrapper (category ignored).
     pub fn update_memo(
         &self,
         id: MemoId,
         body: Option<String>,
         favorite: Option<bool>,
-        category: Option<String>,
+        _category: Option<String>,
     ) -> Result<Memo> {
-        let mut note = self.get_memo(id)?;
-        if let Some(b) = body {
-            note.body = b;
-            note.tags = extract_tags(&note.body);
-        }
-        if let Some(p) = favorite {
-            note.favorite = p;
-        }
-        if let Some(c) = category {
-            note.category = c;
-        }
-        validate_note_input(&note.body, &note.tags)?;
-        note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
-        self.files.write(&note)?;
-        self.with_redb_and_search(|idx, search| {
-            idx.upsert(&record_of(&note))?;
-            search.upsert(note.id, &note.body, &note.tags)
-        })?;
-        Ok(note)
+        self.update_note(id, body, favorite)
     }
 
-    /// Soft-delete: move to trash, mark tombstone, drop from search (§5.4).
+    /// Soft-delete: move to trash, mark tombstone, drop from search.
     pub fn delete_memo(&self, id: MemoId) -> Result<()> {
         let mut note = self.get_memo(id)?;
+        let rec = self.with_redb(|idx| idx.get(id))?;
+        let rel = rec.as_ref().map(|r| r.path.clone()).unwrap_or_default();
+        let fmt = crate::memo::NoteFormat::from_rel(&rel);
         let now = OffsetDateTime::now_utc();
         note.deleted_at = Some(now);
         note.updated_at = now;
-        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
-        self.files.move_to_trash(&note)?;
-        self.files.write(&note)?;
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite);
+        // Move file to trash (preserving structure).
+        if !rel.is_empty() {
+            self.files.move_to_trash(&rel)?;
+            // Write the tombstone version into trash.
+            let trash_abs = self.paths.trash_path(&rel);
+            if let Some(parent) = trash_abs.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let text = FileStore::serialize_as(&note, fmt)?;
+            std::fs::write(&trash_abs, text.as_bytes())?;
+        }
         self.with_redb_and_search(|idx, search| {
-            idx.upsert(&record_of(&note))?;
+            idx.upsert(&record_of(&note, &rel))?;
             search.remove(note.id)
         })?;
         Ok(())
@@ -420,30 +567,46 @@ impl Vault {
 
     pub fn restore_memo(&self, id: MemoId) -> Result<Memo> {
         let mut note = self.get_memo(id)?;
+        let rec = self.with_redb(|idx| idx.get(id))?;
+        let rel = rec.as_ref().map(|r| r.path.clone()).unwrap_or_default();
+        let fmt = crate::memo::NoteFormat::from_rel(&rel);
         note.deleted_at = None;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
-        self.files.restore_from_trash(&note)?;
-        self.files.write(&note)?;
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite);
+        if !rel.is_empty() {
+            self.files.restore_from_trash(&rel)?;
+            // Write the restored note with deleted_at cleared.
+            let abs = self.paths.vault.join(&rel);
+            if let Some(parent) = abs.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let text = FileStore::serialize_as(&note, fmt)?;
+            std::fs::write(&abs, text.as_bytes())?;
+        }
+        let (sbody, stitle) = search_fields(fmt, &note);
         self.with_redb_and_search(|idx, search| {
-            idx.upsert(&record_of(&note))?;
-            search.upsert(note.id, &note.body, &note.tags)
+            idx.upsert(&record_of(&note, &rel))?;
+            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
         })?;
         Ok(note)
     }
 
-    /// Hard-delete trashed memos whose `deleted_at` is older than `retention`.
-    /// Returns the number purged.
+    /// Hard-delete trashed notes whose `deleted_at` is older than `retention`.
     pub fn purge(&self, retention: Duration) -> Result<u64> {
         let cutoff = OffsetDateTime::now_utc() - retention;
         let mut purged = 0u64;
         self.with_redb_and_search(|idx, search| {
-            for path in self.files.list_trash_files() {
+            for path in self.files.scan_trash() {
                 let Ok(Some(n)) = self.files.read_memo(&path) else {
                     continue;
                 };
                 if n.deleted_at.is_some_and(|t| t < cutoff) {
-                    self.files.purge(n.id)?;
+                    if let Some(rel) = self.paths.relative_path(&path) {
+                        let trash_rel = rel.strip_prefix(".trash/").unwrap_or(&rel).to_string();
+                        self.files.purge(&trash_rel)?;
+                    } else {
+                        std::fs::remove_file(&path)?;
+                    }
                     idx.remove(n.id)?;
                     search.remove(n.id)?;
                     purged += 1;
@@ -518,12 +681,25 @@ impl Vault {
         })
     }
 
+    /// Full-note DTO (memo + placement) for the desktop API. The path comes
+    /// from the index record; falls back to an empty path when the note has
+    /// not been indexed yet (callers upsert before requesting).
+    pub fn note_dto(&self, memo: &Memo) -> crate::memo::NoteDto {
+        let rel = self
+            .with_redb(|idx| idx.get(memo.id))
+            .ok()
+            .flatten()
+            .map(|r| r.path)
+            .unwrap_or_default();
+        crate::memo::NoteDto::from_memo(memo, &rel)
+    }
+
     /// Tag + color counts over live (non-deleted) notes for the sidebar (§4.2).
-    pub fn list_facets(&self) -> Result<crate::memo::Facets> {
+    pub fn list_facets(&self) -> Result<Facets> {
         self.with_redb(|idx| {
             let recs = idx.export_since(None)?;
             let mut tag_map: std::collections::BTreeMap<String, u32> = Default::default();
-            let mut cat_map: std::collections::BTreeMap<String, u32> = Default::default();
+            let mut folder_map: std::collections::BTreeMap<String, u32> = Default::default();
             for r in &recs {
                 if r.deleted {
                     continue;
@@ -531,15 +707,177 @@ impl Vault {
                 for t in &r.tags {
                     *tag_map.entry(t.clone()).or_insert(0) += 1;
                 }
-                if !r.category.is_empty() {
-                    *cat_map.entry(r.category.clone()).or_insert(0) += 1;
-                }
+                let folder = r.path.rfind('/').map(|i| &r.path[..i]).unwrap_or("");
+                *folder_map.entry(folder.to_string()).or_insert(0) += 1;
             }
-            Ok(crate::memo::Facets {
+            Ok(Facets {
                 tags: tag_map.into_iter().collect(),
-                categories: cat_map.into_iter().collect(),
+                folders: folder_map.into_iter().collect(),
             })
         })
+    }
+
+    // -- graph + config (§6 graph view, §6.3 folder views) ---------------
+
+    /// Build the wiki-link graph: nodes = live notes, edges = `[[...]]` links.
+    /// Resolves link targets by title (case-insensitive). No self-loops.
+    pub fn graph_data(&self) -> Result<GraphData> {
+        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let live: Vec<&IndexRecord> = recs.iter().filter(|r| !r.deleted).collect();
+
+        // Title → id map (case-insensitive, first wins).
+        let mut title_map: std::collections::HashMap<String, MemoId> = Default::default();
+        for r in &live {
+            if let Some(ref t) = r.title {
+                title_map.entry(t.trim().to_lowercase()).or_insert(r.id);
+            }
+        }
+
+        let config_items = self.config.read().folders.items.clone();
+        let mut nodes = Vec::with_capacity(live.len());
+        let mut edges = Vec::new();
+        let mut conn: std::collections::HashMap<String, u32> = Default::default();
+
+        for r in &live {
+            let abs = self.paths.vault.join(&r.path);
+            let body = match self.files.read_memo(&abs) {
+                Ok(Some(n)) => n.body,
+                _ => continue,
+            };
+            let folder = r.path.rfind('/').map(|i| &r.path[..i]).unwrap_or("");
+            let color =
+                crate::config::resolve_folder_color(folder, &config_items).unwrap_or_default();
+
+            let fmt = crate::memo::NoteFormat::from_rel(&r.path);
+            for link in crate::wiki::extract_links(link_scan_body(fmt, &body).as_ref()) {
+                let key = link.target.trim().to_lowercase();
+                if let Some(&tgt) = title_map.get(&key)
+                    && tgt != r.id
+                {
+                    edges.push(GraphEdge {
+                        source: r.id.to_string(),
+                        target: tgt.to_string(),
+                    });
+                    *conn.entry(r.id.to_string()).or_insert(0) += 1;
+                }
+            }
+
+            nodes.push(GraphNode {
+                id: r.id.to_string(),
+                title: r.title.clone().unwrap_or_else(|| "Untitled".to_string()),
+                folder: folder.to_string(),
+                connections: 0, // filled below
+                color,
+            });
+        }
+
+        // Fill connection counts now that all edges are counted.
+        for n in &mut nodes {
+            n.connections = *conn.get(&n.id).unwrap_or(&0);
+        }
+
+        Ok(GraphData { nodes, edges })
+    }
+
+    /// Serialize config as JSON with `folders` flattened to a plain array
+    /// (matching the frontend `Config` type).
+    pub fn config_json(&self) -> serde_json::Value {
+        self.config.read().config_json()
+    }
+
+    /// Lock (or unlock) a folder's default view mode, persisted to
+    /// `oximemo.toml`.
+    pub fn set_folder_view(&self, path: &str, view: Option<crate::config::ViewMode>) -> Result<()> {
+        let mut cfg = self.config.write();
+        match view {
+            Some(v) => {
+                if let Some(f) = cfg.folders.items.iter_mut().find(|f| f.path == path) {
+                    f.view = Some(v);
+                } else {
+                    cfg.folders.items.push(crate::config::FolderDef {
+                        path: path.to_string(),
+                        view: Some(v),
+                        color: None,
+                    });
+                }
+            }
+            None => {
+                if let Some(f) = cfg.folders.items.iter_mut().find(|f| f.path == path) {
+                    f.view = None;
+                    // Drop the entry if it has no color either (clean config).
+                    if f.color.is_none() {
+                        cfg.folders.items.retain(|f| f.path != path);
+                    }
+                }
+            }
+        }
+        cfg.save(&self.paths)?;
+        Ok(())
+    }
+
+    /// Move a note to a different folder. Renames the file to
+    /// `<new_folder>/<title-slug><ext>` (format preserved) and updates the
+    /// index path.
+    pub fn move_note(&self, id: MemoId, new_folder: &str) -> Result<Memo> {
+        let note = self.get_memo(id)?;
+        let rec = self.with_redb(|idx| idx.get(id))?;
+        let old_rel = rec.as_ref().map(|r| r.path.clone()).unwrap_or_default();
+        let fmt = crate::memo::NoteFormat::from_rel(&old_rel);
+        let old_path = self.paths.vault.join(&old_rel);
+
+        if !old_path.exists() {
+            return Err(CoreError::other("note file not found; cannot move"));
+        }
+
+        // Write to the new folder (derives filename from title).
+        let new_path = self.files.write_note(new_folder, &note, fmt)?;
+
+        // Remove old file if the path changed.
+        if new_path != old_path && old_path.exists() {
+            std::fs::remove_file(&old_path)?;
+        }
+
+        let new_rel = self.paths.relative_path(&new_path).unwrap_or_default();
+        let (sbody, stitle) = search_fields(fmt, &note);
+        self.with_redb_and_search(|idx, search| {
+            idx.upsert(&record_of(&note, &new_rel))?;
+            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+        })?;
+        Ok(note)
+    }
+
+    /// Find all live notes whose body links to the target note (by title).
+    /// Returns source note id, title, and preview for each backlink.
+    pub fn get_backlinks(&self, id: MemoId) -> Result<Vec<BacklinkInfo>> {
+        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        // Get the target note's title.
+        let target_title = recs
+            .iter()
+            .find(|r| r.id == id && !r.deleted)
+            .and_then(|r| r.title.as_deref())
+            .ok_or_else(|| CoreError::NotFound(id.to_string()))?
+            .to_string();
+
+        let mut out = Vec::new();
+        for r in &recs {
+            if r.deleted || r.id == id {
+                continue;
+            }
+            let abs = self.paths.vault.join(&r.path);
+            let body = match self.files.read_memo(&abs) {
+                Ok(Some(n)) => n.body,
+                _ => continue,
+            };
+            let src_fmt = crate::memo::NoteFormat::from_rel(&r.path);
+            if crate::wiki::links_to(link_scan_body(src_fmt, &body).as_ref(), &target_title) {
+                out.push(BacklinkInfo {
+                    id: r.id.to_string(),
+                    title: r.title.clone().unwrap_or_else(|| "Untitled".to_string()),
+                    preview: preview_of(src_fmt, &body),
+                });
+            }
+        }
+        Ok(out)
     }
 
     // -- sync / export (§9.2) --------------------------------------------
@@ -578,17 +916,19 @@ impl Vault {
         self.ensure_initialized()?;
         self.with_redb_and_search(|idx, search| {
             let mut stats = IndexStats::default();
-            // Collect search upserts to commit once (H1: avoids one tantivy
-            // commit/fsync per note). redb upserts stay per-call; they're cheap.
-            let mut search_owned: Vec<(MemoId, String, Vec<String>)> = Vec::new();
-            for path in self.files.list_memo_files() {
+            let mut search_owned: Vec<(MemoId, String, Option<String>, Vec<String>)> = Vec::new();
+            for path in self.files.scan() {
                 match self.files.read_memo(&path) {
                     Ok(Some(note)) => {
-                        let rec = record_of(&note);
+                        let rel = self.paths.relative_path(&path).unwrap_or_default();
+                        let fmt = crate::memo::NoteFormat::from_rel(&rel);
+                        let (sbody, stitle) = search_fields(fmt, &note);
+                        let title = stitle;
+                        let rec = record_of(&note, &rel);
                         match idx.get(note.id)? {
                             None => {
                                 idx.upsert(&rec)?;
-                                search_owned.push((note.id, note.body, note.tags));
+                                search_owned.push((note.id, sbody, title, note.tags));
                                 stats.added += 1;
                             }
                             Some(prev) if prev.hash == rec.hash && prev.preview == rec.preview => {
@@ -596,7 +936,7 @@ impl Vault {
                             }
                             Some(_) => {
                                 idx.upsert(&rec)?;
-                                search_owned.push((note.id, note.body, note.tags));
+                                search_owned.push((note.id, sbody, title, note.tags));
                                 stats.updated += 1;
                             }
                         }
@@ -609,20 +949,27 @@ impl Vault {
                     }
                 }
             }
-            for path in self.files.list_trash_files() {
+            for path in self.files.scan_trash() {
                 if let Ok(Some(note)) = self.files.read_memo(&path) {
-                    let rec = record_of(&note);
+                    let rel = self
+                        .paths
+                        .relative_path(&path)
+                        .and_then(|r| r.strip_prefix(".trash/").map(|s| s.to_string()))
+                        .unwrap_or_default();
+                    let (sbody, stitle) =
+                        search_fields(crate::memo::NoteFormat::from_rel(&rel), &note);
+                    let rec = record_of(&note, &rel);
                     idx.upsert(&rec)?;
-                    search_owned.push((note.id, note.body, note.tags));
+                    search_owned.push((note.id, sbody, stitle, note.tags));
                     stats.trashed_memos += 1;
                 }
             }
-            // One tantivy commit for everything that changed.
             let batch: Vec<crate::store::search::Upsert<'_>> = search_owned
                 .iter()
-                .map(|(id, body, tags)| crate::store::search::Upsert {
+                .map(|(id, body, title, tags)| crate::store::search::Upsert {
                     id: *id,
                     body,
+                    title: title.as_deref(),
                     tags,
                 })
                 .collect();
@@ -630,28 +977,12 @@ impl Vault {
             Ok(stats)
         })
     }
-    /// One-time migrations run on first use:
-    /// 1. Rename the live memo tree from `notes/` to `memos/` if the legacy
-    ///    path is non-empty and the new one is absent.
-    /// 2. Rebuild the index when the cached preview format lags the current
-    ///    `make_preview` (or the marker is absent), so existing memos' card
-    ///    previews pick up line-break preservation.
+    /// One-time migration: rebuild the index when the cached preview format
+    /// lags the current `make_preview` (or the marker is absent), so existing
+    /// notes' card previews pick up changes.
     ///
-    /// Idempotent: subsequent calls are no-ops once both markers are current.
+    /// Idempotent: a no-op once the marker is current.
     pub fn migrate(&self) -> Result<()> {
-        // Rename the legacy live tree to its new name BEFORE ensure_initialized,
-        // which would otherwise create an empty `memos/` and make the
-        // `!new_root.exists()` guard permanently false.
-        let old_root = self.paths.vault.join("notes");
-        let new_root = self.paths.memos_root();
-        if old_root.exists()
-            && old_root != new_root
-            && !new_root.exists()
-            && std::fs::read_dir(&old_root)?.next().is_some()
-        {
-            tracing::info!(from = %old_root.display(), to = %new_root.display(), "renaming vault memos root");
-            std::fs::rename(&old_root, &new_root)?;
-        }
         self.ensure_initialized()?;
         let marker = self.paths.index_fmt_marker_path();
         let wants = INDEX_FORMAT_VERSION.to_string();
@@ -662,10 +993,7 @@ impl Vault {
         {
             return Ok(());
         }
-        tracing::info!(
-            version = INDEX_FORMAT_VERSION,
-            "migrating index preview format"
-        );
+        tracing::info!(version = INDEX_FORMAT_VERSION, "migrating index format");
         self.reindex()?;
         std::fs::write(&marker, &wants)?;
         Ok(())
@@ -690,10 +1018,15 @@ impl Vault {
             return Ok(());
         }
         match self.files.read_memo(path)? {
-            Some(note) => self.with_redb_and_search(|idx, search| {
-                idx.upsert(&record_of(&note))?;
-                search.upsert(note.id, &note.body, &note.tags)
-            }),
+            Some(note) => {
+                let rel = self.paths.relative_path(path).unwrap_or_default();
+                let fmt = crate::memo::NoteFormat::from_rel(&rel);
+                let (sbody, stitle) = search_fields(fmt, &note);
+                self.with_redb_and_search(|idx, search| {
+                    idx.upsert(&record_of(&note, &rel))?;
+                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                })
+            }
             None => Ok(()),
         }
     }
@@ -703,8 +1036,6 @@ impl Vault {
     pub fn watch(&self) -> Result<crate::watcher::MemoWatcher> {
         let debounce = Duration::from_millis(self.config.read().index.watcher_debounce_ms as u64);
         let vault_path = self.paths.vault.clone();
-        // Re-open a Vault per callback: each op takes its own lock, so the
-        // watcher coordinates with concurrent CLI/GUI access naturally.
         let on_change: crate::watcher::OnChange = std::sync::Arc::new(move |path| {
             let Ok(v) = Vault::open(Some(&vault_path)) else {
                 return;
@@ -712,7 +1043,7 @@ impl Vault {
             v.reindex_path(&path);
         });
         crate::watcher::MemoWatcher::spawn(
-            vec![self.paths.memos_root(), self.paths.trash_root()],
+            vec![self.paths.vault.clone(), self.paths.trash_root()],
             debounce,
             on_change,
         )
@@ -744,15 +1075,15 @@ impl Vault {
                     seen.insert(note.id);
                     // Categories have no format validity — only orphan/index
                     // consistency is checked here.
-                    let recomputed =
-                        hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
+                    let recomputed = hash::hash_memo(note.body.as_bytes(), note.favorite);
                     if recomputed != note.hash {
                         // Report only *unresolved* mismatches. When --fix
                         // rewrites successfully the memo is no longer a
                         // mismatch; a failed rewrite is counted separately.
                         let repaired = if fix {
                             note.hash = recomputed;
-                            match self.files.write(&note) {
+                            let rel = self.paths.relative_path(path).unwrap_or_default();
+                            match self.files.write_note_at(&rel, &note) {
                                 Ok(_) => true,
                                 Err(e) => {
                                     report.hash_repair_failed += 1;
@@ -817,97 +1148,22 @@ impl Vault {
         Ok(report)
     }
 
-    /// Rename a category, migrating every note whose `category` matches `old`
-    /// to `new`. Each migrated note is rewritten (category, updated_at, hash),
-    /// re-added to the redb index and the tantivy search index, and the
-    /// category registry is updated and persisted. Returns the number of
-    /// notes migrated.
-    ///
-    /// Rules:
-    /// - `old` and `new` are normalized (trimmed + lowercased).
-    /// - Neither side may be the built-in `inbox` (immutable).
-    /// - `old` must exist in the registry; `new` must not collide.
-    /// - `old == new` is rejected.
-    pub fn rename_category(&self, old: String, new: String) -> Result<u64> {
-        let old = normalize_id(&old);
-        let new = normalize_id(&new);
-        if old == crate::memo::DEFAULT_CATEGORY || new == crate::memo::DEFAULT_CATEGORY {
-            return Err(CoreError::other("inbox id is immutable"));
-        }
-        if old == new {
-            return Err(CoreError::other("old == new"));
-        }
-
-        // validate + mutate registry under write lock, but defer save until after migration
-        {
-            let cfg = self.config.read();
-            if !cfg.categories.items.iter().any(|c| c.id == old) {
-                return Err(CoreError::other(format!("category '{old}' not found")));
-            }
-            if cfg.categories.items.iter().any(|c| c.id == new) {
-                return Err(CoreError::other(format!("category '{new}' exists")));
-            }
-        }
-
-        let mut migrated = 0u64;
-        self.with_redb_and_search(|idx, search| {
-            for rec in idx.export_since(None)? {
-                if rec.category != old {
-                    continue;
-                }
-                let path = self.paths.memo_path(rec.id, rec.created_at);
-                let mut note = self
-                    .files
-                    .read_memo(&path)?
-                    .ok_or_else(|| CoreError::NotFound(rec.id.to_string()))?;
-                note.category = new.clone();
-                note.updated_at = OffsetDateTime::now_utc();
-                note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.category);
-                self.files.write(&note)?;
-                idx.upsert(&record_of(&note))?;
-                search.upsert(note.id, &note.body, &note.tags)?;
-                migrated += 1;
-            }
-            Ok(())
-        })?;
-
-        // update registry + persist
-        {
-            let mut cfg = self.config.write();
-            for def in cfg.categories.items.iter_mut() {
-                if def.id == old {
-                    def.id = new.clone();
-                }
-            }
-            cfg.save(&self.paths)?;
-        }
-        Ok(migrated)
-    }
-
-    /// Wipe all memos, trash, and the derived redb + tantivy indexes,
-    /// returning the vault to an empty state. The source-of-truth `.md` files
-    /// (live + trash) are deleted and both indexes are cleared. Category/color
-    /// config is preserved. Backs the settings "reset" action.
+    /// Wipe all notes, trash, and the derived redb + tantivy indexes,
+    /// returning the vault to an empty state. Note files (identified by the
+    /// scanner) are deleted; `_assets/`, `.trash/`, config, and `TEMPLATE.md`
+    /// are preserved. Backs the settings "reset" action.
     pub fn reset(&self) -> Result<()> {
         self.ensure_initialized()?;
-        // Wipe under the exclusive index lock so a concurrent reader never
-        // observes an empty index pointing at files that still exist (or vice
-        // versa). Source-of-truth files go first; any removal error aborts the
-        // reset (indexes stay consistent with the surviving files) instead of
-        // being swallowed into a half-wiped vault.
-        let roots = [self.paths.memos_root(), self.paths.trash_root()];
         self.with_redb_and_search(|idx, search| {
-            for root in roots {
-                if root.exists() {
-                    for entry in std::fs::read_dir(&root)? {
-                        let path = entry?.path();
-                        if path.is_dir() {
-                            std::fs::remove_dir_all(&path)?;
-                        } else {
-                            std::fs::remove_file(&path)?;
-                        }
-                    }
-                }
+            // Delete all live note files the scanner finds.
+            for path in self.files.scan() {
+                std::fs::remove_file(&path)?;
+            }
+            // Wipe the trash.
+            let trash = self.paths.trash_root();
+            if trash.exists() {
+                std::fs::remove_dir_all(&trash)?;
+                std::fs::create_dir_all(&trash)?;
             }
             idx.clear()?;
             search.clear()?;
@@ -916,19 +1172,40 @@ impl Vault {
     }
 }
 
-/// Build an [`IndexRecord`] from a [`Memo`], deriving the card preview.
-fn record_of(n: &Memo) -> IndexRecord {
+/// Build an [`IndexRecord`] from a [`Memo`] + its vault-relative path. The
+/// format is derived from the path's extension.
+fn record_of(n: &Memo, path: &str) -> IndexRecord {
+    let fmt = crate::memo::NoteFormat::from_rel(path);
     IndexRecord {
         id: n.id,
         created_at: n.created_at,
         updated_at: n.updated_at,
         hash: n.hash.clone(),
         favorite: n.favorite,
-        category: n.category.clone(),
+        path: path.to_string(),
+        title: note_title(fmt, &n.body),
         tags: n.tags.clone(),
         deleted: n.deleted_at.is_some(),
         deleted_at: n.deleted_at,
-        preview: make_preview(&n.body),
+        preview: preview_of(fmt, &n.body),
+    }
+}
+
+/// Derived search-index fields for a note: the searchable body text and the
+/// title, both format-aware.
+fn search_fields(fmt: crate::memo::NoteFormat, note: &Memo) -> (String, Option<String>) {
+    (
+        searchable_body(fmt, &note.body).into_owned(),
+        note_title(fmt, &note.body),
+    )
+}
+
+/// Body prepared for wiki-link scanning: html comments (which carry the
+/// frontmatter) are removed so their contents cannot masquerade as links.
+fn link_scan_body<'a>(fmt: crate::memo::NoteFormat, body: &'a str) -> std::borrow::Cow<'a, str> {
+    match fmt {
+        crate::memo::NoteFormat::Markdown => std::borrow::Cow::Borrowed(body),
+        crate::memo::NoteFormat::Html => std::borrow::Cow::Owned(crate::html::strip_comments(body)),
     }
 }
 
@@ -985,26 +1262,39 @@ pub struct DoctorReport {
     pub vault_ok: bool,
 }
 
-/// Normalize a category id: trim surrounding whitespace and lowercase. ASCII
-/// slugs are the canonical form (brief §Task 3 — "ASCII slugs suffice"). If
-/// non-ASCII ids ever ship, prepend `.nfc().collect::<String>()` from
-/// `unicode-normalization` (already a dep).
-fn normalize_id(id: &str) -> String {
-    id.trim().to_lowercase()
+// -- graph data (§6.1 graph view) -------------------------------------
+
+/// A node in the wiki-link graph: one note.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GraphNode {
+    pub id: String,
+    pub title: String,
+    pub folder: String,
+    pub connections: u32,
+    /// OKLCH color string (may be empty — frontend recomputes via colorForFolder).
+    pub color: String,
 }
 
-/// Pick the first non-transparent `AUTO_COLORS` entry not already used by an
-/// existing item; falls back to the first real entry when every stop is in
-/// use. The inbox slot (`AUTO_COLORS[0]`, empty/transparent) is deliberately
-/// skipped so a new category always gets a real tint, never the transparent
-/// default. Used when `Vault::create_category` is called with `color=None`.
-fn pick_auto_color(items: &[CategoryDef]) -> String {
-    AUTO_COLORS
-        .iter()
-        .skip(1) // skip inbox's transparent slot
-        .find(|c| !items.iter().any(|item| &item.color == *c))
-        .map(|s| (*s).to_string())
-        .unwrap_or_else(|| AUTO_COLORS[1].to_string())
+/// A directed edge: source note links to target note via `[[...]]`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GraphEdge {
+    pub source: String,
+    pub target: String,
+}
+
+/// The full wiki-link graph for the graph view.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GraphData {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+/// A backlink: a note that links to the target note.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BacklinkInfo {
+    pub id: String,
+    pub title: String,
+    pub preview: String,
 }
 
 #[cfg(test)]
@@ -1168,112 +1458,143 @@ mod tests {
     }
 
     #[test]
-    fn category_crud_persists() {
-        let dir = tempfile::tempdir().unwrap();
-        let v = Vault::open(Some(dir.path())).unwrap();
+    fn folder_create_delete() {
+        let (_t, v) = tmp_vault();
         v.ensure_initialized().unwrap();
+        v.create_folder("novel").unwrap();
+        assert!(v.paths.vault.join("novel").exists());
+        // Cannot delete root.
+        assert!(v.delete_folder("").is_err());
+        // Empty folder can be deleted.
+        v.delete_folder("novel").unwrap();
+        assert!(!v.paths.vault.join("novel").exists());
+    }
 
-        // create
-        let c = v.create_category("urgent".into(), None).unwrap();
-        assert_eq!(c.id, "urgent");
-        assert!(!c.color.is_empty());
-
-        // duplicate rejected
-        assert!(v.create_category("urgent".into(), None).is_err());
-        // empty rejected
-        assert!(v.create_category("  ".into(), None).is_err());
-        // inbox collision rejected
-        assert!(v.create_category("inbox".into(), None).is_err());
-
-        // update color
-        v.update_category("urgent".into(), "oklch(0.6 0.2 25)".into())
+    #[test]
+    fn note_title_derives_filename() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("novel").unwrap();
+        let n = v
+            .create_note(
+                "novel",
+                "# 첫 번째 장\n\n본문".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
             .unwrap();
-        assert_eq!(
-            v.categories()
-                .iter()
-                .find(|c| c.id == "urgent")
-                .unwrap()
-                .color,
-            "oklch(0.6 0.2 25)"
+        let got = v.get_memo(n.id).unwrap();
+        assert_eq!(got.body, "# 첫 번째 장\n\n본문");
+        // The file should be named from the title.
+        let files: Vec<_> = std::fs::read_dir(v.paths.vault.join("novel"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            files.iter().any(|f| f.contains("첫-번째-장")),
+            "files: {files:?}"
         );
-
-        // delete
-        v.delete_category("urgent".into()).unwrap();
-        assert!(v.categories().iter().all(|c| c.id != "urgent"));
-
-        // inbox not deletable
-        assert!(v.delete_category("inbox".into()).is_err());
-        // unknown update/rename target rejected
-        assert!(v.update_category("nope".into(), "x".into()).is_err());
-
-        // persists across reopen
-        let v2 = Vault::open(Some(dir.path())).unwrap();
-        assert!(v2.categories().iter().all(|c| c.id != "urgent"));
     }
 
     #[test]
-    fn rename_category_migrates_notes() {
-        let dir = tempfile::tempdir().unwrap();
-        let v = Vault::open(Some(dir.path())).unwrap();
-        v.ensure_initialized().unwrap();
-
-        let a = v.create_memo("note A".into(), Some("todo".into())).unwrap();
-        let b = v.create_memo("note B".into(), Some("todo".into())).unwrap();
-        let c = v.create_memo("note C".into(), Some("idea".into())).unwrap();
-
-        let n = v.rename_category("todo".into(), "tasks".into()).unwrap();
-        assert_eq!(n, 2);
-
-        // migrated
-        assert_eq!(v.get_memo(a.id).unwrap().category, "tasks");
-        assert_eq!(v.get_memo(b.id).unwrap().category, "tasks");
-        // unaffected
-        assert_eq!(v.get_memo(c.id).unwrap().category, "idea");
-        // registry updated
-        assert!(v.categories().iter().any(|c| c.id == "tasks"));
-        assert!(v.categories().iter().all(|c| c.id != "todo"));
-
-        // inbox not renameable
-        assert!(v.rename_category("inbox".into(), "x".into()).is_err());
-        // collision
-        assert!(v.rename_category("tasks".into(), "idea".into()).is_err());
+    fn untitled_note_uses_timestamp_filename() {
+        let (_t, v) = tmp_vault();
+        let n = v
+            .create_note(
+                "",
+                "just a quick memo".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        // No H1 → timestamp filename at vault root.
+        let files: Vec<_> = std::fs::read_dir(&v.paths.vault)
+            .unwrap()
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.ends_with(".md") {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            files.iter().any(|f| f.len() >= "2026-08-13-143052.md".len()
+                && f.chars().filter(|c| c.is_ascii_digit()).count() >= 10),
+            "expected timestamp filename, got: {files:?}"
+        );
+        let _ = n;
     }
 
     #[test]
-    fn migrate_renames_legacy_notes_root() {
-        let dir = tempfile::tempdir().unwrap();
-        let v = Vault::open(Some(dir.path())).unwrap();
-        v.ensure_initialized().unwrap();
-        let _ = v.create_memo("hello".into(), None).unwrap();
-        let live = v.paths.memos_root();
-        let legacy = v.paths.vault.join("notes");
-        std::fs::rename(&live, &legacy).unwrap();
-        assert!(legacy.exists());
-        assert!(!live.exists());
-        // Idempotent on a fresh open: no-op.
-        let v2 = Vault::open(Some(dir.path())).unwrap();
-        v2.migrate().unwrap();
-        assert!(live.exists());
-        assert!(!legacy.exists());
+    fn update_renames_on_title_change() {
+        let (_t, v) = tmp_vault();
+        let n = v
+            .create_note(
+                "",
+                "# Old Title\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.update_note(n.id, Some("# New Title\nbody".into()), None)
+            .unwrap();
+        let files: Vec<_> = std::fs::read_dir(&v.paths.vault)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            files.iter().any(|f| f.contains("New-Title")),
+            "files: {files:?}"
+        );
+        assert!(
+            !files.iter().any(|f| f.contains("Old-Title")),
+            "files: {files:?}"
+        );
     }
 
     #[test]
-    fn migrate_preserves_existing_memos_root() {
-        let dir = tempfile::tempdir().unwrap();
-        let v = Vault::open(Some(dir.path())).unwrap();
+    fn folder_filter_in_listing() {
+        let (_t, v) = tmp_vault();
         v.ensure_initialized().unwrap();
-        let live = v.paths.memos_root();
-        let legacy = v.paths.vault.join("notes");
-        std::fs::create_dir_all(&legacy).unwrap();
-        std::fs::write(legacy.join("stale.md"), "stale").unwrap();
-        let new_id = v.create_memo("fresh".into(), None).unwrap();
-        assert!(live.exists());
-        assert!(legacy.exists());
+        v.create_folder("novel").unwrap();
+        v.create_note(
+            "novel",
+            "# Chapter 1".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+        v.create_note("", "quick note".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let all = v.list_memos(None, 10, MemoFilter::default()).unwrap();
+        assert_eq!(all.items.len(), 2);
+        let novel = v
+            .list_memos(
+                None,
+                10,
+                MemoFilter {
+                    folder: Some("novel".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(novel.items.len(), 1);
+    }
 
-        v.migrate().unwrap();
-        assert!(live.exists());
-        assert!(legacy.exists());
-        assert!(v.get_memo(new_id.id).is_ok());
+    #[test]
+    fn reset_clears_notes_and_indexes() {
+        let (_t, v) = tmp_vault();
+        v.create_note("", "one".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        v.create_note("", "two".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        assert_eq!(v.memo_stats().unwrap().memos, 2);
+        v.reset().unwrap();
+        assert_eq!(v.memo_stats().unwrap().memos, 0);
+        v.create_note("", "three".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        assert_eq!(v.memo_stats().unwrap().memos, 1);
     }
 
     #[test]
@@ -1333,5 +1654,319 @@ mod tests {
         // Malformed names must never reach the filesystem.
         assert!(v.read_asset("../../etc/passwd").is_none());
         assert!(v.read_asset("deadbeefdeadbeef.exe").is_none());
+    }
+
+    #[test]
+    fn graph_data_builds_nodes_and_edges() {
+        let (_t, v) = tmp_vault();
+        let a = v
+            .create_note(
+                "",
+                "# Alpha\n\nLinks to [[Beta]]".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        let b = v
+            .create_note(
+                "",
+                "# Beta\n\nLinks back to [[Alpha]]".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        let g = v.graph_data().unwrap();
+        // Two nodes, two edges (A→B and B→A).
+        assert_eq!(g.nodes.len(), 2);
+        assert_eq!(g.edges.len(), 2);
+        // Each node has 1 connection.
+        for n in &g.nodes {
+            assert_eq!(
+                n.connections, 1,
+                "node {} should have 1 connection",
+                n.title
+            );
+        }
+        // Edge source/target are correct.
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.source == a.id.to_string() && e.target == b.id.to_string())
+        );
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.source == b.id.to_string() && e.target == a.id.to_string())
+        );
+    }
+
+    #[test]
+    fn graph_data_excludes_deleted_and_self_loops() {
+        let (_t, v) = tmp_vault();
+        let a = v
+            .create_note(
+                "",
+                "# Solo\n\nSelf ref [[Solo]]".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.create_note(
+            "",
+            "# Ghost\n\nLinks [[Solo]]".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+        // Delete the ghost.
+        let page = v.list_memos(None, 10, MemoFilter::default()).unwrap();
+        let ghost = page
+            .items
+            .iter()
+            .find(|s| s.title.as_deref() == Some("Ghost"))
+            .unwrap();
+        v.delete_memo(ghost.id).unwrap();
+        let g = v.graph_data().unwrap();
+        // Only Solo remains; no self-loop edge.
+        assert_eq!(g.nodes.len(), 1);
+        assert_eq!(g.edges.len(), 0);
+        let _ = a;
+    }
+
+    #[test]
+    fn config_json_flattens_folders() {
+        let (_t, v) = tmp_vault();
+        let json = v.config_json();
+        // folders should be a plain array, not { items: [...] }
+        assert!(json["folders"].is_array());
+        assert_eq!(json["schema_version"], 3);
+    }
+
+    #[test]
+    fn set_folder_view_persists_and_unlocks() {
+        let (_t, v) = tmp_vault();
+        // Lock a folder to list view.
+        v.set_folder_view("novel", Some(crate::config::ViewMode::List))
+            .unwrap();
+        let json = v.config_json();
+        let folders = json["folders"].as_array().unwrap();
+        let novel = folders.iter().find(|f| f["path"] == "novel").unwrap();
+        assert_eq!(novel["view"], "list");
+
+        // Unlock: view removed.
+        v.set_folder_view("novel", None).unwrap();
+        let json2 = v.config_json();
+        let folders2 = json2["folders"].as_array().unwrap();
+        assert!(folders2.iter().all(|f| f["path"] != "novel"));
+    }
+
+    #[test]
+    fn move_note_changes_folder() {
+        let (_t, v) = tmp_vault();
+        v.create_folder("work").unwrap();
+        let n = v
+            .create_note(
+                "",
+                "# Project\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        // Initially at root.
+        let page = v.list_memos(None, 10, MemoFilter::default()).unwrap();
+        assert_eq!(page.items[0].path, "Project.md");
+
+        // Move to work/.
+        v.move_note(n.id, "work").unwrap();
+        let page2 = v.list_memos(None, 10, MemoFilter::default()).unwrap();
+        assert_eq!(page2.items[0].path, "work/Project.md");
+
+        // Old file is gone.
+        assert!(!v.paths().vault.join("Project.md").exists());
+        assert!(v.paths().vault.join("work/Project.md").exists());
+    }
+
+    #[test]
+    fn get_backlinks_finds_linking_notes() {
+        let (_t, v) = tmp_vault();
+        let target = v
+            .create_note(
+                "",
+                "# Target\n\nHello".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.create_note(
+            "",
+            "# Source A\n\nSee [[Target]] for details".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+        v.create_note(
+            "",
+            "# Source B\n\nAlso references [[Target|the target]]".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+        v.create_note(
+            "",
+            "# Unrelated\n\nNo links here".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+
+        let backlinks = v.get_backlinks(target.id).unwrap();
+        assert_eq!(backlinks.len(), 2, "should find 2 linking notes");
+        let titles: Vec<&str> = backlinks.iter().map(|b| b.title.as_str()).collect();
+        assert!(titles.contains(&"Source A"));
+        assert!(titles.contains(&"Source B"));
+    }
+
+    #[test]
+    fn rename_propagation_rewrites_links() {
+        let (_t, v) = tmp_vault();
+        // Create target note.
+        let target = v
+            .create_note(
+                "",
+                "# Old Title\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        // Create a note that links to it.
+        let linker = v
+            .create_note(
+                "",
+                "# Linker\n\nSee [[Old Title]] for more".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+
+        // Rename target by changing its H1.
+        v.update_note(target.id, Some("# New Title\n\nbody".into()), None)
+            .unwrap();
+
+        // The linker's body should now reference [[New Title]].
+        let updated = v.get_memo(linker.id).unwrap();
+        assert!(
+            updated.body.contains("[[New Title]]"),
+            "link should be updated, got: {}",
+            updated.body
+        );
+        assert!(
+            !updated.body.contains("[[Old Title]]"),
+            "old link should be gone, got: {}",
+            updated.body
+        );
+
+        // The linker's index record title must be its own ("Linker"), not
+        // the renamed note's title ("New Title") — regression guard for a
+        // bug that corrupted search titles during rename propagation.
+        let summary = v.get_note_summary(linker.id).unwrap();
+        assert_eq!(
+            summary.title.as_deref(),
+            Some("Linker"),
+            "linker's search title must not be corrupted by rename propagation"
+        );
+    }
+    #[test]
+    fn html_note_roundtrip_via_vault() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        let body =
+            "<h1>HTML 제목</h1>\n<p>본문 <a href=\"#\">링크</a></p>\n<p>#태그</p>".to_string();
+        let n = v
+            .create_note("", body, crate::memo::NoteFormat::Html)
+            .unwrap();
+
+        // File landed as .html and reads back identically.
+        let rec = v.with_redb(|idx| idx.get(n.id)).unwrap().unwrap();
+        assert!(rec.path.ends_with(".html"), "path: {}", rec.path);
+        assert_eq!(rec.title.as_deref(), Some("HTML 제목"));
+        assert!(rec.preview.contains("본문"), "preview: {}", rec.preview);
+
+        // Tags extracted from the html body.
+        assert!(n.tags.contains(&"태그".to_string()));
+
+        // Search finds the visible text.
+        let hits = v.search_memos("본문", 10).unwrap();
+        assert!(hits.iter().any(|m| m.id == n.id));
+    }
+
+    #[test]
+    fn create_note_auto_follows_folder_template() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("web").unwrap();
+        std::fs::write(
+            v.paths.vault.join("web/TEMPLATE.html"),
+            "<h1>{{date}} 노트</h1>\n<p></p>",
+        )
+        .unwrap();
+
+        // Blank body → html template applied → html file.
+        let n = v.create_note_auto("web", String::new()).unwrap();
+        let rec = v.with_redb(|idx| idx.get(n.id)).unwrap().unwrap();
+        assert!(rec.path.starts_with("web/"), "path: {}", rec.path);
+        assert!(rec.path.ends_with(".html"), "path: {}", rec.path);
+        assert!(n.body.contains("<h1>"), "body: {}", n.body);
+        assert!(n.body.contains("노트"));
+
+        // Folders without an html template stay markdown.
+        let md = v.create_note_auto("", "# 그냥 메모".into()).unwrap();
+        let rec2 = v.with_redb(|idx| idx.get(md.id)).unwrap().unwrap();
+        assert!(rec2.path.ends_with(".md"), "path: {}", rec2.path);
+    }
+
+    #[test]
+    fn html_frontmatter_comment_not_scanned_for_links() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        // Frontmatter inside an html comment contains a wiki-link-looking
+        // string; it must not create graph edges or backlinks.
+        let target = v
+            .create_note(
+                "",
+                "# Target\n\nx".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        let body = "<!--\n+++\ntitle = \"see [[Target]] inside\"\n+++\n-->\n<h1>Page</h1>\n<p>no links</p>"
+            .to_string();
+        let src = v
+            .create_note("", body, crate::memo::NoteFormat::Html)
+            .unwrap();
+
+        let links = v.get_backlinks(target.id).unwrap();
+        assert!(
+            links.iter().all(|b| b.id != src.id.to_string()),
+            "frontmatter comment must not count as a backlink"
+        );
+    }
+
+    #[test]
+    fn note_dto_derives_placement() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("web").unwrap();
+        let n = v
+            .create_note(
+                "web",
+                "<h1>페이지</h1>\n<p>#html</p>".into(),
+                crate::memo::NoteFormat::Html,
+            )
+            .unwrap();
+
+        let dto = v.note_dto(&n);
+        assert_eq!(dto.id, n.id);
+        assert_eq!(dto.title.as_deref(), Some("페이지"));
+        assert_eq!(dto.folder, "web");
+        assert!(dto.path.starts_with("web/") && dto.path.ends_with(".html"));
+        assert_eq!(dto.format, crate::memo::NoteFormat::Html);
+        assert_eq!(dto.body, n.body);
+
+        // Root markdown note: folder empty, format markdown.
+        let m = v
+            .create_note("", "# MD\n\nx".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let d2 = v.note_dto(&m);
+        assert_eq!(d2.folder, "");
+        assert_eq!(d2.format, crate::memo::NoteFormat::Markdown);
+        assert_eq!(d2.title.as_deref(), Some("MD"));
     }
 }

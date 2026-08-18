@@ -5,14 +5,34 @@
  * safe range.
  */
 
-import type { CategoryDef } from "./types";
+import type { FolderDef } from "./types";
 
 /** Inbox neutral fallback. */
 const INBOX_NEUTRAL = ""; // transparent → paperFor/edgeFor return the default card surface
 
-/** Look up a category id's color from the registry. Orphan → inbox fallback. */
-export function colorForCategory(id: string, cats: CategoryDef[]): string {
-  return cats.find((c) => c.id === id)?.color ?? INBOX_NEUTRAL;
+/** Hash a string into one of the preset hues (stable color per folder path). */
+function hueFor(path: string): number {
+  let h = 0;
+  for (let i = 0; i < path.length; i++) h = (h * 31 + path.charCodeAt(i)) | 0;
+  const hues = [25, 75, 145, 195, 250, 310];
+  return hues[Math.abs(h) % hues.length];
+}
+
+/** Look up a folder path's color from the folder registry. */
+export function colorForFolder(
+  path: string,
+  folders: FolderDef[] = [],
+): string {
+  const def = folders.find((f) => f.path === path);
+  if (def?.color) return def.color;
+  if (path === "" || path === "inbox") return INBOX_NEUTRAL;
+  // Stable hue from the path so every folder always has a color.
+  return `oklch(0.75 0.13 ${hueFor(path)})`;
+}
+
+/** Backwards-compat: same shape as colorForCategory so existing callers compile. */
+export function colorForCategory(id: string, cats: FolderDef[]): string {
+  return colorForFolder(id === "inbox" ? "" : id, cats);
 }
 
 export const COLOR_PRESETS = [

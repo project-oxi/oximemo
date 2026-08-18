@@ -2,7 +2,6 @@
 
 use std::io::{self, Write};
 
-use oximemo_core::config::CategoryDef;
 use oximemo_core::memo::MemoSummary;
 use oximemo_core::sync::{FullRecord, ManifestRecord};
 
@@ -93,68 +92,36 @@ pub fn print_full(items: &[FullRecord], fmt: Format) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn print_categories(items: &[CategoryDef], fmt: Format) -> anyhow::Result<()> {
-    let stdout = io::stdout();
-    match fmt {
-        Format::Json => println!("{}", serde_json::to_string_pretty(items)?),
-        Format::Ndjson => {
-            let mut h = stdout.lock();
-            for it in items {
-                writeln!(h, "{}", serde_json::to_string(it)?)?;
-            }
-        }
-        Format::Table => {
-            let mut h = stdout.lock();
-            writeln!(h, "{:<16} {:<28} KIND", "ID", "COLOR")?;
-            for it in items {
-                writeln!(
-                    h,
-                    "{:<16} {:<28} {}",
-                    it.id,
-                    it.color,
-                    if it.builtin { "builtin" } else { "user" }
-                )?;
-            }
-        }
-    }
-    Ok(())
-}
-
 fn print_summary_table(items: &[MemoSummary]) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut h = stdout.lock();
     if items.is_empty() {
-        writeln!(h, "(no memos)")?;
+        writeln!(h, "(no notes)")?;
         return Ok(());
     }
     writeln!(
         h,
-        "{:<10} {:<19} {:<3} {:<10}  PREVIEW",
-        "ID", "UPDATED", "FAV", "CAT"
+        "{:<10} {:<19} {:<3} {:<20}  PREVIEW",
+        "ID", "UPDATED", "FAV", "TITLE"
     )?;
     for s in items {
         let id = s.id.to_string();
         let short = &id[..8.min(id.len())];
         let star = if s.favorite { "*" } else { "" };
-        let cat = if s.category.is_empty() {
-            "-"
-        } else {
-            &s.category
-        };
+        let title: String = s.title.as_deref().unwrap_or("-").chars().take(20).collect();
         let preview: String = s.preview.chars().take(60).collect();
         writeln!(
             h,
-            "{:<10} {:<19} {:<3} {:<10}  {}",
+            "{:<10} {:<19} {:<3} {:<20}  {}",
             short,
             rfc3339(s.updated_at),
             star,
-            cat,
+            title,
             preview
         )?;
     }
     Ok(())
 }
-
 /// Render an `OffsetDateTime` as RFC 3339 (or "?" on failure).
 fn rfc3339(t: time::OffsetDateTime) -> String {
     use time::format_description::well_known::Rfc3339;

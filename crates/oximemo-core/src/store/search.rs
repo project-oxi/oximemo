@@ -19,17 +19,18 @@ use crate::memo::MemoId;
 pub struct Upsert<'a> {
     pub id: MemoId,
     pub body: &'a str,
+    pub title: Option<&'a str>,
     pub tags: &'a [String],
 }
 
 /// Swappable search boundary (§5.1).
 pub trait SearchIndex: Send + Sync {
-    fn upsert(&self, id: MemoId, body: &str, tags: &[String]) -> Result<()>;
+    fn upsert(&self, id: MemoId, body: &str, title: Option<&str>, tags: &[String]) -> Result<()>;
     /// Upsert many notes in one transaction. The default loops [`Self::upsert`];
     /// `TantivySearch` overrides it to commit once for fast bulk reindex.
     fn upsert_batch(&self, notes: &[Upsert<'_>]) -> Result<()> {
         for n in notes {
-            self.upsert(n.id, n.body, n.tags)?;
+            self.upsert(n.id, n.body, n.title, n.tags)?;
         }
         Ok(())
     }
@@ -43,6 +44,7 @@ pub struct TantivySearch {
     writer: Mutex<Option<IndexWriter>>,
     reader: IndexReader,
     id_field: Field,
+    title_field: Field,
     body_field: Field,
     tags_field: Field,
 }
@@ -53,7 +55,7 @@ impl TantivySearch {
     pub fn open(dir: &std::path::Path) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let schema = build_schema();
-        let (id_field, body_field, tags_field) = fields(&schema);
+        let (id_field, title_field, body_field, tags_field) = fields(&schema);
         let index = if dir.join("meta.json").exists() {
             Index::open_in_dir(dir)?
         } else {
@@ -68,6 +70,7 @@ impl TantivySearch {
             writer: Mutex::new(None),
             reader,
             id_field,
+            title_field,
             body_field,
             tags_field,
         })
@@ -91,15 +94,19 @@ impl TantivySearch {
 }
 
 impl SearchIndex for TantivySearch {
-    fn upsert(&self, id: MemoId, body: &str, tags: &[String]) -> Result<()> {
+    fn upsert(&self, id: MemoId, body: &str, title: Option<&str>, tags: &[String]) -> Result<()> {
         let mut guard = self.ensure_writer()?;
         let writer = guard.as_mut().expect("writer initialized");
         writer.delete_term(self.id_term(id));
-        writer.add_document(doc!(
+        let mut doc = doc!(
             self.id_field => id.to_string(),
             self.body_field => body,
             self.tags_field => tags.join(" "),
-        ))?;
+        );
+        if let Some(t) = title {
+            doc.add_text(self.title_field, t);
+        }
+        writer.add_document(doc)?;
         writer.commit()?;
         self.reader.reload()?;
         Ok(())
@@ -112,13 +119,16 @@ impl SearchIndex for TantivySearch {
         let writer = guard.as_mut().expect("writer initialized");
         for n in notes {
             writer.delete_term(self.id_term(n.id));
-            writer.add_document(doc!(
+            let mut doc = doc!(
                 self.id_field => n.id.to_string(),
                 self.body_field => n.body,
                 self.tags_field => n.tags.join(" "),
-            ))?;
+            );
+            if let Some(t) = n.title {
+                doc.add_text(self.title_field, t);
+            }
+            writer.add_document(doc)?;
         }
-        // Single commit for the whole batch — avoids one fsync per note (H1).
         writer.commit()?;
         self.reader.reload()?;
         Ok(())
@@ -135,7 +145,10 @@ impl SearchIndex for TantivySearch {
 
     fn search(&self, query: &str, limit: u32) -> Result<Vec<MemoId>> {
         let searcher = self.reader.searcher();
-        let parser = QueryParser::for_index(&self.index, vec![self.body_field, self.tags_field]);
+        let parser = QueryParser::for_index(
+            &self.index,
+            vec![self.title_field, self.body_field, self.tags_field],
+        );
         let q = parser.parse_query(query)?;
         let hits: Vec<(tantivy::Score, tantivy::DocAddress)> =
             searcher.search(&q, &TopDocs::with_limit(limit as usize))?;
@@ -165,16 +178,18 @@ impl SearchIndex for TantivySearch {
 fn build_schema() -> Schema {
     let mut b = Schema::builder();
     b.add_text_field("id", STRING | STORED);
+    b.add_text_field("title", TEXT);
     b.add_text_field("body", TEXT);
     b.add_text_field("tags", TEXT);
     b.build()
 }
 
-fn fields(schema: &Schema) -> (Field, Field, Field) {
+fn fields(schema: &Schema) -> (Field, Field, Field, Field) {
     let id = schema.get_field("id").expect("id field");
+    let title = schema.get_field("title").expect("title field");
     let body = schema.get_field("body").expect("body field");
     let tags = schema.get_field("tags").expect("tags field");
-    (id, body, tags)
+    (id, title, body, tags)
 }
 
 #[cfg(test)]
@@ -187,10 +202,18 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let s = TantivySearch::open(dir.path()).unwrap();
         let id = MemoId::now();
-        s.upsert(id, "the quick brown fox", &["animal".into()])
-            .unwrap();
+        s.upsert(
+            id,
+            "the quick brown fox",
+            Some("Fox Story"),
+            &["animal".into()],
+        )
+        .unwrap();
         let hits = s.search("quick", 10).unwrap();
         assert!(hits.contains(&id));
+        // Title is also searchable.
+        let title_hits = s.search("Fox", 10).unwrap();
+        assert!(title_hits.contains(&id));
     }
 
     #[test]
@@ -198,7 +221,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let s = TantivySearch::open(dir.path()).unwrap();
         let id = MemoId::now();
-        s.upsert(id, "sphinx of black quartz", &[]).unwrap();
+        s.upsert(id, "sphinx of black quartz", None, &[]).unwrap();
         s.remove(id).unwrap();
         assert!(s.search("quartz", 10).unwrap().is_empty());
     }

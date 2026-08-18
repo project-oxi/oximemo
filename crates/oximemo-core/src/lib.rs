@@ -14,9 +14,13 @@ pub mod assets;
 pub mod config;
 pub mod error;
 pub mod hash;
+pub mod html;
 pub mod memo;
+pub mod migrate;
 pub mod paths;
 pub mod tags;
+pub mod template;
+pub mod wiki;
 
 pub mod lock;
 pub mod store;
@@ -25,10 +29,12 @@ pub mod vault;
 pub mod watcher;
 
 pub use assets::{AssetInfo, AssetRef};
-pub use config::{Theme, VaultConfig};
+pub use config::{FolderDef, Theme, VaultConfig, ViewMode};
 pub use error::{CoreError, Result};
 pub use memo::{
-    Cursor, Facets, IndexStats, Memo, MemoFilter, MemoHash, MemoId, MemoStats, MemoSummary, Page,
+    Cursor, Facets, IndexStats, Memo, MemoFilter, MemoHash, MemoId, MemoStats, MemoSummary,
+    NoteFormat, Page, derive_title, note_title, preview_of, searchable_body, slugify, tags_of,
+    timestamp_filename,
 };
 pub use paths::Paths;
-pub use vault::{DoctorReport, Vault};
+pub use vault::{BacklinkInfo, DoctorReport, GraphData, GraphEdge, GraphNode, Vault};

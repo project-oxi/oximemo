@@ -2,16 +2,40 @@
 
 export type MemoId = string;
 
+export type NoteFormat = "markdown" | "html";
+
 export interface Memo {
   id: MemoId;
   created_at: string;
   updated_at: string;
   hash: string;
   favorite: boolean;
-  category: string;
+  /** Vault-relative folder path. "" = root. */
+  folder: string;
+  /** Vault-relative file path, e.g. "novel/장.html". */
+  path: string;
+  /** Serialization format, derived from the path extension. */
+  format: NoteFormat;
+  /** Derived title (from H1/<h1> or timestamp); null when untitled. */
+  title: string | null;
   tags: string[];
   body: string;
   deleted_at: string | null;
+}
+
+export interface BrainStatus {
+  online: boolean;
+  disabled?: boolean;
+  server_version?: string;
+  episodes?: number | null;
+  entities?: number | null;
+  statements?: number | null;
+  contradictions?: number | null;
+}
+
+export interface BrainLayer {
+  kind: string;
+  text: string;
 }
 
 export interface MemoSummary {
@@ -20,7 +44,11 @@ export interface MemoSummary {
   updated_at: string;
   hash: string;
   favorite: boolean;
-  category: string;
+  folder: string;
+  /** Vault-relative file path. */
+  path: string;
+  /** Derived title; null when untitled (Rust omits the key when None). */
+  title: string | null;
   tags: string[];
   preview: string;
   deleted: boolean;
@@ -58,11 +86,46 @@ export interface MemoStats {
 
 export interface Facets {
   tags: [string, number][];
-  categories: [string, number][];
+  folders: [string, number][];
 }
 
-export interface CategoryDef {
+export interface FolderEntry {
+  /** Vault-relative path. "" = root. */
+  path: string;
+  note_count: number;
+}
+
+export type ViewMode = "grid" | "list" | "timeline" | "graph";
+
+export interface FolderDef {
+  path: string;
+  view?: ViewMode;
+  color?: string;
+}
+
+export interface Config {
+  schema_version: number;
+  general?: { trash_retention_days?: number };
+  capture?: { double_tap_threshold_ms?: number; overlay_max_height?: number };
+  appearance?: { theme?: "system" | "light" | "dark"; show_dock_icon?: boolean };
+  folders?: FolderDef[];
+  brain?: { enabled?: boolean; socket?: string; space?: string };
+}
+
+export interface GraphData {
+  nodes: Array<{
+    id: string;
+    title: string;
+    folder: string;
+    connections: number;
+    /** oklch() color string keyed off the folder */
+    color: string;
+  }>;
+  edges: Array<{ source: string; target: string }>;
+}
+
+export interface BacklinkInfo {
   id: string;
-  color: string;
-  builtin: boolean;
+  title: string;
+  preview: string;
 }

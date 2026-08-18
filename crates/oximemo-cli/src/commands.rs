@@ -18,7 +18,8 @@ pub fn cmd_new(
     vault: &Vault,
     text: Option<String>,
     tags: Vec<String>,
-    category: Option<String>,
+    folder: Option<String>,
+    html: bool,
 ) -> Result<()> {
     let mut body = match text {
         Some(t) => t,
@@ -44,10 +45,23 @@ pub fn cmd_new(
             body.push_str(&suffix);
         }
     }
-    if body.is_empty() {
+    let fmt = if html {
+        oximemo_core::memo::NoteFormat::Html
+    } else {
+        oximemo_core::memo::NoteFormat::Markdown
+    };
+    // An empty body is only acceptable when a folder template will fill it.
+    if body.is_empty()
+        && oximemo_core::template::load_template(
+            vault.paths(),
+            folder.as_deref().unwrap_or(""),
+            fmt,
+        )
+        .is_none()
+    {
         return Err(anyhow!("refusing to create an empty note"));
     }
-    let note = vault.create_memo(body, category)?;
+    let note = vault.create_note(folder.as_deref().unwrap_or(""), body, fmt)?;
     println!("{}", note.id);
     Ok(())
 }
@@ -57,13 +71,13 @@ pub fn cmd_list(
     vault: &Vault,
     limit: u32,
     tag: Vec<String>,
-    category: Vec<String>,
+    folder: Option<String>,
     favorites: bool,
     fmt: Format,
 ) -> Result<()> {
     let filter = MemoFilter {
         include_tags: tag,
-        categories: category,
+        folder,
         match_all: false,
         favorites_only: favorites,
         ..Default::default()
@@ -161,26 +175,25 @@ pub fn cmd_doctor(vault: &Vault, fix: bool) -> Result<()> {
     Ok(())
 }
 
-/// `oximemo update` — edit an existing memo's body, favorite flag, or category.
+/// `oximemo update` — edit an existing note's body or favorite flag.
 pub fn cmd_update(
     vault: &Vault,
     id: MemoId,
     body: Option<String>,
     body_stdin: bool,
     favorite: Option<bool>,
-    category: Option<String>,
 ) -> Result<()> {
     let body = if body_stdin {
         Some(read_stdin()?)
     } else {
         body
     };
-    if body.is_none() && favorite.is_none() && category.is_none() {
+    if body.is_none() && favorite.is_none() {
         return Err(anyhow!(
-            "no changes specified; pass --body/--body-stdin, --favorite/--unfavorite, or --category"
+            "no changes specified; pass --body/--body-stdin or --favorite/--unfavorite"
         ));
     }
-    let note = vault.update_memo(id, body, favorite, category)?;
+    let note = vault.update_note(id, body, favorite)?;
     let summary: oximemo_core::memo::MemoSummary = oximemo_core::memo::MemoSummary::from(note);
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
@@ -198,54 +211,6 @@ pub fn cmd_restore(vault: &Vault, id: MemoId) -> Result<()> {
 pub fn cmd_stats(vault: &Vault) -> Result<()> {
     let stats = vault.memo_stats()?;
     println!("{}", serde_json::to_string_pretty(&stats)?);
-    Ok(())
-}
-
-// -- categories --------------------------------------------------------
-
-/// `oximemo category list`.
-pub fn cmd_category_list(vault: &Vault, fmt: Format) -> Result<()> {
-    let defs = vault.categories();
-    format::print_categories(&defs, fmt)
-}
-
-/// `oximemo category new`.
-pub fn cmd_category_new(vault: &Vault, id: String, color: Option<String>) -> Result<()> {
-    let def = vault.create_category(id, color)?;
-    println!("{}", serde_json::to_string_pretty(&def)?);
-    Ok(())
-}
-
-/// `oximemo category recolor` — `--none` clears the color.
-pub fn cmd_category_recolor(
-    vault: &Vault,
-    id: String,
-    color: Option<String>,
-    none: bool,
-) -> Result<()> {
-    let color = if none {
-        String::new()
-    } else if let Some(c) = color {
-        c
-    } else {
-        return Err(anyhow!("pass a COLOR argument or --none to clear"));
-    };
-    vault.update_category(id.clone(), color)?;
-    println!("recolored {id}");
-    Ok(())
-}
-
-/// `oximemo category rename` — moves all memos; reports the count moved.
-pub fn cmd_category_rename(vault: &Vault, old: String, new: String) -> Result<()> {
-    let moved = vault.rename_category(old, new)?;
-    println!("moved {moved}");
-    Ok(())
-}
-
-/// `oximemo category delete`.
-pub fn cmd_category_delete(vault: &Vault, id: String) -> Result<()> {
-    vault.delete_category(id.clone())?;
-    println!("deleted {id}");
     Ok(())
 }
 
@@ -378,26 +343,16 @@ mod tests {
     }
 
     #[test]
-    fn update_body_favorite_and_category() {
+    fn update_body_and_favorite() {
         let t = TmpVault::new();
         let id = make_memo(t.v(), "first body");
 
-        // favorite on via cmd_update
-        cmd_update(t.v(), id, None, false, Some(true), None).unwrap();
+        cmd_update(t.v(), id, None, false, Some(true)).unwrap();
         let after = t.v().get_memo(id).unwrap();
         assert!(after.favorite);
         assert_eq!(after.body, "first body");
 
-        // body replacement re-extracts tags
-        cmd_update(
-            t.v(),
-            id,
-            Some("new body #urgent".into()),
-            false,
-            None,
-            None,
-        )
-        .unwrap();
+        cmd_update(t.v(), id, Some("new body #urgent".into()), false, None).unwrap();
         let after = t.v().get_memo(id).unwrap();
         assert_eq!(after.body, "new body #urgent");
         assert!(after.tags.iter().any(|x| x == "urgent"));
@@ -407,7 +362,7 @@ mod tests {
     fn update_without_changes_is_an_error() {
         let t = TmpVault::new();
         let id = make_memo(t.v(), "x");
-        assert!(cmd_update(t.v(), id, None, false, None, None).is_err());
+        assert!(cmd_update(t.v(), id, None, false, None).is_err());
     }
 
     #[test]
@@ -421,76 +376,11 @@ mod tests {
     }
 
     #[test]
-    fn category_lifecycle() {
-        let t = TmpVault::new();
-        // builtins exist
-        assert!(t.v().categories().iter().any(|c| c.id == "inbox"));
-
-        // create (id normalized to lowercase)
-        cmd_category_new(t.v(), "Work".into(), Some("oklch(0.7 0.15 250)".into())).unwrap();
-        let defs = t.v().categories();
-        let work = defs.iter().find(|c| c.id == "work").expect("normalized");
-        assert_eq!(work.color, "oklch(0.7 0.15 250)");
-
-        // recolor --none clears
-        cmd_category_recolor(t.v(), "work".into(), None, true).unwrap();
-        assert_eq!(
-            t.v()
-                .categories()
-                .iter()
-                .find(|c| c.id == "work")
-                .unwrap()
-                .color,
-            ""
-        );
-
-        // recolor with a color sets it
-        cmd_category_recolor(
-            t.v(),
-            "work".into(),
-            Some("oklch(0.8 0.1 100)".into()),
-            false,
-        )
-        .unwrap();
-        assert_eq!(
-            t.v()
-                .categories()
-                .iter()
-                .find(|c| c.id == "work")
-                .unwrap()
-                .color,
-            "oklch(0.8 0.1 100)"
-        );
-
-        // rename moves memos assigned to the category
-        let id = make_memo(t.v(), "categorized");
-        cmd_update(t.v(), id, None, false, None, Some("work".into())).unwrap();
-        let moved = t
-            .v()
-            .rename_category("work".into(), "project".into())
-            .unwrap();
-        assert_eq!(moved, 1);
-        assert_eq!(t.v().get_memo(id).unwrap().category, "project");
-
-        // delete user category (inbox is protected)
-        cmd_category_delete(t.v(), "project".into()).unwrap();
-        assert!(!t.v().categories().iter().any(|c| c.id == "project"));
-    }
-
-    #[test]
     fn stats_counts_memos_and_favorites() {
         let t = TmpVault::new();
         make_memo(t.v(), "a");
         make_memo(t.v(), "b");
-        cmd_update(
-            t.v(),
-            make_memo(t.v(), "fav"),
-            None,
-            false,
-            Some(true),
-            None,
-        )
-        .unwrap();
+        cmd_update(t.v(), make_memo(t.v(), "fav"), None, false, Some(true)).unwrap();
         cmd_stats(t.v()).unwrap();
         let s = t.v().memo_stats().unwrap();
         assert_eq!(s.memos, 3);

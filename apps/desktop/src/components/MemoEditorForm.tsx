@@ -1,23 +1,18 @@
 /**
  * MemoDetail 전용 편집 폼 (§4.3). 본문은 atomic-editor 기반
  * `MarkdownEditor`, 추출된 `#태그`는 `TagChipRow`, 하단에 컬러 + 완료.
- *
- * 기존 `MemoComposeForm`에서 textarea+mirror 오버레이 분기를 떼어내고
- * 본문 영역을 atomic-editor로 교체한 형태. 두 폼이 사용 의도가 다르므로
- * (MemoDetail=본격 편집, CaptureOverlay=빠른 캡처) 공통 컴포넌트로 묶지
- * 않고 의도적으로 분리함.
  */
 import { Check, Image as ImageIcon } from "lucide-react";
 import { type Ref, useEffect, useMemo, useRef } from "react";
 
-import { createCategory } from "../lib/api";
+import { createFolder } from "../lib/api";
 import { useI18n } from "../lib/i18n";
-import { CategoryCombobox, type CategoryComboboxHandle } from "./CategoryCombobox";
+import { FolderCombobox, type FolderComboboxHandle } from "./FolderCombobox";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { TagChipRow } from "./TagChipRow";
 import { imagePickerKeymap, insertImagesAt, type ImageViewHandle } from "../lib/cm6Images";
 import { wikiLinks, type AtomicCodeMirrorEditorHandle } from "@atomic-editor/editor";
-import type { CategoryDef } from "../lib/types";
+import type { FolderEntry } from "../lib/types";
 import { buildWikiLinksConfig } from "../lib/memoLinks";
 import { embedExtension } from "../lib/embeds";
 import { useUI } from "../stores/ui";
@@ -30,20 +25,16 @@ export interface MemoEditorFormProps {
   body: string;
   onBodyChange: (v: string) => void;
   documentId: string;
-  category: string;
-  onCategoryChange: (c: string) => void;
-  categories: CategoryDef[];
+  folder: string;
+  onFolderChange: (f: string) => void;
+  folders: FolderEntry[];
   /** Primary action — "done" in MemoDetail. */
   onConfirm: () => void;
   confirmLabel: string;
   confirmDisabled?: boolean;
-  /** Keyboard hint rendered inside the confirm button (e.g. "⌘⏎"). */
   confirmKbd?: string;
-  /** Optional ref to the category picker so a parent shortcut (⌘L) can
-   *  open it imperatively. */
-  categoryPickerRef?: Ref<CategoryComboboxHandle>;
+  folderPickerRef?: Ref<FolderComboboxHandle>;
   className?: string;
-  /** Immersive (long-form) mode: grow the editor to fill available height. */
   immersive?: boolean;
 }
 
@@ -51,21 +42,19 @@ export function MemoEditorForm({
   body,
   onBodyChange,
   documentId,
-  category,
-  onCategoryChange,
-  categories,
+  folder,
+  onFolderChange,
+  folders,
   onConfirm,
   confirmLabel,
   confirmDisabled,
   confirmKbd,
-  categoryPickerRef,
+  folderPickerRef,
   className,
   immersive,
 }: MemoEditorFormProps) {
   const { t, locale } = useI18n();
   const select = useUI((s) => s.select);
-  // Editor extensions: ⌘I image picker, [[memo-id]] wiki-links, ![[memo-id]]
-  // embeds — all CM6-layer so they engage inside the editor.
   const editorHandleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null);
   const viewHandleRef = useRef<ImageViewHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -77,21 +66,15 @@ export function MemoEditorForm({
     ],
     [select, locale, t],
   );
-  // Autofocus the body when the editor mounts (or swaps documents) so input
-  // works immediately without an extra click.
   useEffect(() => {
     const id = requestAnimationFrame(() => editorHandleRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [documentId]);
-  // After the immersive toggle is flipped by a mouse click on the toolbar
-  // button, focus is stranded on the button — nudge it back to the editor.
   useEffect(() => {
     const id = requestAnimationFrame(() => editorHandleRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [immersive]);
 
-  // Insert image files picked from the native chooser (or dragged, pasted) at
-  // the editor cursor. Shared by the toolbar button, ⌘I, and the hidden input.
   const insertPicked = (list: FileList | null) => {
     const view = viewHandleRef.current?.view;
     if (!view || !list?.length) return;
@@ -111,19 +94,19 @@ export function MemoEditorForm({
       />
       <TagChipRow body={body} />
       <div className="flex flex-wrap items-center gap-2.5">
-        <CategoryCombobox
-          ref={categoryPickerRef}
-          value={category || "inbox"}
-          onValueChange={onCategoryChange}
-          categories={categories}
-          triggerAriaLabel={t.set_category}
+        <FolderCombobox
+          ref={folderPickerRef}
+          value={folder}
+          onValueChange={onFolderChange}
+          folders={folders}
+          triggerAriaLabel={t.set_folder ?? "Set folder"}
           onClose={() => editorHandleRef.current?.focus()}
-          onCreate={async (id) => {
+          onCreate={async (path) => {
             try {
-              const def = await createCategory(id, null);
-              onCategoryChange(def.id);
+              await createFolder(path);
+              onFolderChange(path);
             } catch {
-              // Rejected (e.g. duplicate id) — leave selection unchanged.
+              // Rejected (e.g. duplicate path) — leave selection unchanged.
             }
           }}
         />

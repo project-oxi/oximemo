@@ -35,14 +35,17 @@ struct Cli {
 enum Cmd {
     /// Create a note from an argument or stdin.
     New {
-        /// Memo body. If omitted, reads from stdin.
+        /// Note body. If omitted, reads from stdin.
         text: Option<String>,
         /// Inline tag appended to the body as `#TAG` (repeatable).
         #[arg(long = "tag", value_name = "TAG")]
         tags: Vec<String>,
-        /// Category id, e.g. `todo`, `idea` (defaults to `inbox`).
-        #[arg(long, value_name = "ID")]
-        category: Option<String>,
+        /// Folder path (e.g. `novel`, `diary`). Empty = vault root.
+        #[arg(long, value_name = "PATH")]
+        folder: Option<String>,
+        /// Create an html note (`.html`) instead of markdown.
+        #[arg(long)]
+        html: bool,
     },
 
     /// List notes (newest first).
@@ -52,9 +55,9 @@ enum Cmd {
         /// Include notes with this tag (repeatable; OR).
         #[arg(long = "tag", value_name = "TAG")]
         tag: Vec<String>,
-        /// Only notes in this category (repeatable; OR).
-        #[arg(long = "category", value_name = "ID")]
-        category: Vec<String>,
+        /// Only notes in this folder (path prefix, e.g. `novel`).
+        #[arg(long, value_name = "PATH")]
+        folder: Option<String>,
         #[arg(long)]
         favorites: bool,
         /// table | json | ndjson
@@ -103,7 +106,7 @@ enum Cmd {
 
     /// Soft-delete a note (moves to trash).
     Delete { id: String },
-    /// Edit an existing memo (body / favorite / category).
+    /// Edit an existing note (body / favorite).
     Update {
         id: String,
         /// Replace the body with TEXT.
@@ -118,9 +121,6 @@ enum Cmd {
         /// Remove favorite.
         #[arg(long)]
         unfavorite: bool,
-        /// Move to this category id.
-        #[arg(long, value_name = "ID")]
-        category: Option<String>,
     },
     /// Restore a soft-deleted (trashed) memo.
     Restore { id: String },
@@ -148,17 +148,15 @@ enum Cmd {
         #[command(subcommand)]
         sub: Option<VaultCmd>,
     },
-    /// Category registry management.
-    Category {
-        #[command(subcommand)]
-        sub: CategoryCmd,
+
+    /// Migrate vault from v2 (categories) to v3 (folders) layout.
+    Migrate {
+        /// Preview changes without writing.
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Check for a newer release and self-update.
-    ///
-    /// Inside the OxiMemo app this replaces the whole bundle (GUI + CLI
-    /// together); as a standalone binary it replaces just the binary. Use
-    /// `--check` to only report availability.
     Upgrade {
         /// Report availability without installing.
         #[arg(long)]
@@ -170,36 +168,6 @@ enum Cmd {
 enum VaultCmd {
     /// Print the vault root path.
     Path,
-}
-
-#[derive(Subcommand)]
-enum CategoryCmd {
-    /// List categories (id, color, builtin).
-    List {
-        /// table | json | ndjson
-        #[arg(long, default_value = "table")]
-        format: String,
-    },
-    /// Create a category.
-    New {
-        id: String,
-        /// OKLCH color; auto-picks one if omitted.
-        #[arg(long, value_name = "COLOR")]
-        color: Option<String>,
-    },
-    /// Change a category's color.
-    Recolor {
-        id: String,
-        /// OKLCH color string.
-        color: Option<String>,
-        /// Clear the color.
-        #[arg(long)]
-        none: bool,
-    },
-    /// Rename a category (moves all its memos).
-    Rename { old: String, new: String },
-    /// Delete a user category (inbox cannot be deleted).
-    Delete { id: String },
 }
 
 fn main() -> ExitCode {
@@ -228,18 +196,19 @@ fn run() -> Result<()> {
         Cmd::New {
             text,
             tags,
-            category,
-        } => commands::cmd_new(&vault, text, tags, category),
+            folder,
+            html,
+        } => commands::cmd_new(&vault, text, tags, folder, html),
         Cmd::List {
             limit,
             tag,
-            category,
+            folder,
             favorites,
             format,
         } => {
             let fmt = format::Format::from_arg(&format)
                 .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
-            commands::cmd_list(&vault, limit, tag, category, favorites, fmt)
+            commands::cmd_list(&vault, limit, tag, folder, favorites, fmt)
         }
         Cmd::Get { id, md } => commands::cmd_get(&vault, parse_id(&id)?, md),
         Cmd::Search {
@@ -270,7 +239,6 @@ fn run() -> Result<()> {
             body_stdin,
             favorite,
             unfavorite,
-            category,
         } => {
             let fav = if unfavorite {
                 Some(false)
@@ -279,7 +247,7 @@ fn run() -> Result<()> {
             } else {
                 None
             };
-            commands::cmd_update(&vault, parse_id(&id)?, body, body_stdin, fav, category)
+            commands::cmd_update(&vault, parse_id(&id)?, body, body_stdin, fav)
         }
         Cmd::Restore { id } => commands::cmd_restore(&vault, parse_id(&id)?),
         Cmd::Stats => commands::cmd_stats(&vault),
@@ -292,19 +260,14 @@ fn run() -> Result<()> {
         Cmd::Vault { sub } => match sub {
             Some(VaultCmd::Path) | None => commands::cmd_vault_path(&vault),
         },
-        Cmd::Category { sub } => match sub {
-            CategoryCmd::List { format } => {
-                let fmt = format::Format::from_arg(&format)
-                    .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
-                commands::cmd_category_list(&vault, fmt)
+        Cmd::Migrate { dry_run } => {
+            let report = oximemo_core::migrate::migrate_vault(vault.paths(), dry_run)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if !dry_run && report.files_moved > 0 {
+                vault.reindex()?;
             }
-            CategoryCmd::New { id, color } => commands::cmd_category_new(&vault, id, color),
-            CategoryCmd::Recolor { id, color, none } => {
-                commands::cmd_category_recolor(&vault, id, color, none)
-            }
-            CategoryCmd::Rename { old, new } => commands::cmd_category_rename(&vault, old, new),
-            CategoryCmd::Delete { id } => commands::cmd_category_delete(&vault, id),
-        },
+            Ok(())
+        }
         // Handled before the vault is opened (see above).
         Cmd::Upgrade { .. } => unreachable!(),
     }

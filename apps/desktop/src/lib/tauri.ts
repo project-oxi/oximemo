@@ -1,13 +1,13 @@
 /**
  * `invoke`/`listen` shim. In a Tauri shell it calls the native bridge; in plain
  * browser dev (e.g. `vite dev` without `tauri dev`) it falls back to a
- * localStorage-backed store so the full memo flow (create → list → edit →
+ * localStorage-backed store so the full note flow (create → list → edit →
  * delete → search) is exercisable standalone. The browser store is a dev
  * convenience only — it never touches the real vault and is single-user.
  */
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Memo, MemoSummary } from "./types";
+import type { FolderEntry, Memo, MemoSummary } from "./types";
 import { extractTags } from "./tags";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -54,7 +54,7 @@ export async function listen<T>(
 }
 
 // --- Browser-mode localStorage store --------------------------------------
-const STORE_KEY = "oximemo:memos:v1";
+const STORE_KEY = "oximemo:memos:v3";
 const PREVIEW_MAX = 160;
 
 function loadStore(): Record<string, Memo> {
@@ -82,6 +82,19 @@ function makePreview(body: string): string {
   return chars.slice(0, PREVIEW_MAX - 1).join("") + "\u2026";
 }
 
+/** Extract first `# ...` H1 (md) or `<h1>` (html); null when untitled. */
+function deriveTitle(body: string, format: "markdown" | "html" = "markdown"): string | null {
+  if (format === "html") {
+    const m = body.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) ?? body.match(/<title>([\s\S]*?)<\/title>/i);
+    return m ? m[1].replace(/<[^>]+>/g, "").trim() || null : null;
+  }
+  for (const line of body.split("\n")) {
+    const t = line.trim();
+    if (t.startsWith("# ")) return t.slice(2).trim();
+  }
+  return null;
+}
+
 function summaryOf(n: Memo): MemoSummary {
   return {
     id: n.id,
@@ -89,7 +102,9 @@ function summaryOf(n: Memo): MemoSummary {
     updated_at: n.updated_at,
     hash: n.hash,
     favorite: n.favorite,
-    category: n.category,
+    folder: n.folder,
+    path: n.path,
+    title: n.title,
     tags: n.tags,
     preview: makePreview(n.body),
     deleted: n.deleted_at !== null,
@@ -123,13 +138,13 @@ async function browserFallback(
       const include = (args?.includeTags as string[] | undefined) ?? [];
       const exclude = (args?.excludeTags as string[] | undefined) ?? [];
       const matchAll = (args?.matchAll as boolean | undefined) ?? false;
-      const categories = (args?.categories as string[] | undefined) ?? [];
+      const folder = (args?.folder as string | null | undefined) ?? null;
       const favoritesOnly = (args?.favoritesOnly as boolean | undefined) ?? false;
       const has = (n: Memo, t: string) =>
         n.tags.some((x) => x.toLowerCase() === t.toLowerCase());
       const memos = liveSorted(loadStore()).filter((n) => {
         if (favoritesOnly && !n.favorite) return false;
-        if (categories.length && !categories.includes(n.category)) return false;
+        if (folder !== null && folder !== undefined && n.folder !== folder) return false;
         if (exclude.some((t) => has(n, t))) return false;
         if (include.length) {
           const ok = matchAll
@@ -175,13 +190,21 @@ async function browserFallback(
     case "create_memo": {
       const now = new Date().toISOString();
       const body = (args?.body as string | undefined) ?? "";
+      const folder = (args?.folder as string | null | undefined) ?? "";
+      const format = (args?.format as "markdown" | "html" | undefined) ?? "markdown";
+      const title = deriveTitle(body, format);
+      const ext = format === "html" ? ".html" : ".md";
+      const base = (title ?? `note-${Date.now()}`).replace(/[^\p{L}\p{N}]+/gu, "-");
       const memo: Memo = {
         id: crypto.randomUUID(),
         created_at: now,
         updated_at: now,
         hash: fakeHash(),
         favorite: false,
-        category: (args?.category as string | null | undefined) ?? "",
+        folder,
+        path: `${folder ? `${folder}/` : ""}${base}${ext}`,
+        format,
+        title,
         tags: extractTags(body),
         body,
         deleted_at: null,
@@ -200,10 +223,10 @@ async function browserFallback(
       if (!n) throw new Error(`memo not found: ${id}`);
       if (typeof args?.body === "string") {
         n.body = args.body;
+        n.title = deriveTitle(n.body, n.format);
         n.tags = extractTags(n.body);
       }
       if (typeof args?.favorite === "boolean") n.favorite = args.favorite;
-      if (typeof args?.category === "string") n.category = args.category;
       n.updated_at = new Date().toISOString();
       n.hash = fakeHash();
       store[id] = n;
@@ -230,14 +253,14 @@ async function browserFallback(
     case "list_facets": {
       const live = liveSorted(loadStore());
       const tagMap = new Map<string, number>();
-      const catMap = new Map<string, number>();
+      const folderMap = new Map<string, number>();
       for (const n of live) {
         for (const t of n.tags) tagMap.set(t, (tagMap.get(t) ?? 0) + 1);
-        if (n.category) catMap.set(n.category, (catMap.get(n.category) ?? 0) + 1);
+        folderMap.set(n.folder, (folderMap.get(n.folder) ?? 0) + 1);
       }
       return {
         tags: [...tagMap.entries()].sort((a, b) => a[0].localeCompare(b[0])),
-        categories: [...catMap.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+        folders: [...folderMap.entries()].sort((a, b) => a[0].localeCompare(b[0])),
       };
     }
 
@@ -259,67 +282,47 @@ async function browserFallback(
         vault_ok: true,
       };
 
-    case "list_categories":
-      return [
-        { id: "inbox", color: "oklch(0.78 0.02 250)", builtin: true },
-        { id: "todo", color: "oklch(0.78 0.15 75)", builtin: true },
-        { id: "idea", color: "oklch(0.72 0.15 310)", builtin: true },
-        { id: "bookmark", color: "oklch(0.75 0.12 195)", builtin: true },
-        { id: "snippet", color: "oklch(0.75 0.13 145)", builtin: true },
-      ];
-
-    case "create_category": {
-      const id = String(args?.id ?? "").trim().toLowerCase();
-      if (!id) throw new Error("category id must not be empty");
-      // Builtins from list_categories
-      const builtins: Array<{ id: string }> = [
-        { id: "inbox" },
-        { id: "todo" },
-        { id: "idea" },
-        { id: "bookmark" },
-        { id: "snippet" },
-      ];
-      if (builtins.some((c) => c.id === id))
-        throw new Error(`category '${id}' already exists`);
-      const color = (args?.color as string | null | undefined) ?? "oklch(0.78 0.02 250)";
-      return { id, color, builtin: false };
-    }
-
-    case "update_category": {
-      const id = String(args?.id ?? "").trim().toLowerCase();
-      if (!id) throw new Error("category id must not be empty");
-      emitBrowser("memos:changed");
-      return null;
-    }
-
-    case "rename_category": {
-      const oldId = String(args?.old ?? "").trim().toLowerCase();
-      const newId = String(args?.new ?? "").trim().toLowerCase();
-      if (!oldId || !newId) throw new Error("category id must not be empty");
-      const store = loadStore();
-      let migrated = 0;
-      for (const n of Object.values(store)) {
-        if (n.category === oldId) {
-          n.category = newId;
-          n.updated_at = new Date().toISOString();
-          n.hash = fakeHash();
-          migrated++;
-        }
+    case "list_folders": {
+      const live = liveSorted(loadStore());
+      const folderMap = new Map<string, number>();
+      for (const n of live) {
+        folderMap.set(n.folder, (folderMap.get(n.folder) ?? 0) + 1);
       }
-      if (migrated > 0) saveStore(store);
-      emitBrowser("memos:changed");
-      return migrated;
+      return [...folderMap.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([path, note_count]): FolderEntry => ({ path, note_count }));
     }
 
-    case "delete_category": {
-      const id = String(args?.id ?? "").trim().toLowerCase();
-      if (!id) throw new Error("category id must not be empty");
+    case "create_folder":
+      return null;
+    case "delete_folder":
       emitBrowser("memos:changed");
       return null;
-    }
+
+    case "move_note":
+      emitBrowser("memos:changed");
+      return null;
+
+    case "graph_data":
+      return { nodes: [], edges: [] };
+
+    case "get_config":
+      return { schema_version: 3, folders: [] };
+
+    case "set_folder_view":
+      return null;
+
+    case "brain_status":
+      // Browser preview has no daemon: offline is a normal state.
+      return { online: false };
+    case "brain_gather":
+      throw new Error("Brain is offline");
+
+    case "install_cli":
+    case "uninstall_cli":
+      throw new Error("CLI setup is only available in the desktop app");
 
     case "cli_status":
-      // CLI is never installed in browser/dev mode.
       return "not-installed";
     case "install_cli":
     case "uninstall_cli":

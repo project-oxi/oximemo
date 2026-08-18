@@ -1,12 +1,12 @@
-//! Filesystem layout for a vault and its derived index (§5.1, §5.2).
+//! Filesystem layout for a vault and its derived index.
 //!
 //! Layout:
 //! ```text
 //! <vault>/
-//! ├── memos/<YYYY>/<MM>/<id>.md
-//! ├── assets/<blake3hex>.<ext>   # images referenced as oximg://<name>
-//! ├── .trash/<id>.md
-//! └── config.toml
+//! ├── <folder>/<title-slug>.md     # notes in physical folders
+//! ├── _assets/<blake3hex>.<ext>     # images referenced as oximg://<name>
+//! ├── .trash/<original-path>        # deleted files (path preserved)
+//! └── oximemo.toml                  # vault config
 //! <app_support>/index/
 //!     ├── meta.redb
 //!     ├── meta.redb.lock
@@ -15,9 +15,6 @@
 //! ```
 
 use std::path::{Path, PathBuf};
-use time::{Month, OffsetDateTime};
-
-use crate::memo::MemoId;
 
 pub const APP_SUPPORT_SUBDIR: &str = "com.oximemo.app";
 pub const VAULT_DEFAULT_SUBDIR: &str = "vault";
@@ -25,11 +22,16 @@ pub const INDEX_SUBDIR: &str = "index";
 pub const META_DB_NAME: &str = "meta.redb";
 pub const META_LOCK_NAME: &str = "meta.redb.lock";
 pub const SEARCH_SUBDIR: &str = "search";
-pub const MEMOS_DIR: &str = "memos";
 pub const TRASH_DIR: &str = ".trash";
-pub const ASSETS_DIR: &str = "assets";
+pub const ASSETS_DIR: &str = "_assets";
 pub const BY_VAULT_SUBDIR: &str = "by-vault";
-pub const CONFIG_NAME: &str = "config.toml";
+pub const CONFIG_NAME: &str = "oximemo.toml";
+/// Legacy config filename (pre-v3). Loaded as fallback for backward compat.
+pub const LEGACY_CONFIG_NAME: &str = "config.toml";
+/// Filename reserved for per-folder markdown templates; excluded from listings.
+pub const TEMPLATE_NAME: &str = "TEMPLATE.md";
+/// Filename reserved for per-folder HTML templates; excluded from listings.
+pub const TEMPLATE_HTML_NAME: &str = "TEMPLATE.html";
 
 /// Resolved filesystem locations for one vault.
 #[derive(Debug, Clone)]
@@ -69,8 +71,10 @@ impl Paths {
         }
     }
 
-    pub fn memos_root(&self) -> PathBuf {
-        self.vault.join(MEMOS_DIR)
+    /// Root directory to scan for notes (= vault root). Files live directly
+    /// in physical folders, not date-sharded subdirectories.
+    pub fn scan_root(&self) -> &Path {
+        &self.vault
     }
 
     pub fn trash_root(&self) -> PathBuf {
@@ -88,7 +92,21 @@ impl Paths {
         self.assets_root().join(name)
     }
 
+    /// Config path: prefer `oximemo.toml`, fall back to legacy `config.toml`.
     pub fn config_path(&self) -> PathBuf {
+        let new = self.vault.join(CONFIG_NAME);
+        if new.exists() {
+            return new;
+        }
+        let legacy = self.vault.join(LEGACY_CONFIG_NAME);
+        if legacy.exists() {
+            return legacy;
+        }
+        new
+    }
+
+    /// Where new config should be written (always `oximemo.toml`).
+    pub fn config_write_path(&self) -> PathBuf {
         self.vault.join(CONFIG_NAME)
     }
 
@@ -111,37 +129,29 @@ impl Paths {
         self.index_dir.join(SEARCH_SUBDIR)
     }
 
-    /// Where a live note's file lives, sharded by creation year/month.
-    pub fn memo_path(&self, id: MemoId, created_at: OffsetDateTime) -> PathBuf {
-        let (year, month) = shard(created_at);
-        self.memos_root()
-            .join(year.to_string())
-            .join(month)
-            .join(format!("{}.md", id))
+    /// Full path for a note file: `<vault>/<folder>/<filename><ext>`.
+    /// Empty `folder` = vault root. The extension comes from the format.
+    pub fn note_path(&self, folder: &str, filename: &str, fmt: crate::memo::NoteFormat) -> PathBuf {
+        let name = format!("{filename}{}", fmt.ext());
+        match folder.is_empty() {
+            true => self.vault.join(name),
+            false => self.vault.join(folder).join(name),
+        }
     }
 
-    pub fn trash_path(&self, id: MemoId) -> PathBuf {
-        self.trash_root().join(format!("{}.md", id))
+    /// Trash path preserving the original relative location.
+    pub fn trash_path(&self, rel_path: &str) -> PathBuf {
+        self.trash_root().join(rel_path)
     }
-}
 
-/// Year + zero-padded 2-digit month for directory sharding.
-fn shard(t: OffsetDateTime) -> (i32, String) {
-    let month = match t.month() {
-        Month::January => "01",
-        Month::February => "02",
-        Month::March => "03",
-        Month::April => "04",
-        Month::May => "05",
-        Month::June => "06",
-        Month::July => "07",
-        Month::August => "08",
-        Month::September => "09",
-        Month::October => "10",
-        Month::November => "11",
-        Month::December => "12",
-    };
-    (t.year(), month.to_string())
+    /// Convert an absolute path inside the vault to a vault-relative string.
+    /// Returns `None` if the path is outside the vault.
+    pub fn relative_path(&self, abs: &Path) -> Option<String> {
+        abs.strip_prefix(&self.vault)
+            .ok()
+            .and_then(|p| p.to_str())
+            .map(|s| s.to_string())
+    }
 }
 
 /// `~/Library/Application Support/com.oximemo.app` (macOS default).
@@ -195,5 +205,40 @@ mod tests {
         let a = Paths::resolve(Some(Path::new("/tmp/vault-a")));
         let b = Paths::resolve(Some(Path::new("/tmp/vault-b")));
         assert_ne!(a.index_dir, b.index_dir);
+    }
+
+    #[test]
+    fn note_path_root_folder() {
+        let p = Paths::resolve(Some(Path::new("/tmp/v")));
+        assert_eq!(
+            p.note_path("", "2026-08-13-143052", crate::memo::NoteFormat::Markdown),
+            PathBuf::from("/tmp/v/2026-08-13-143052.md")
+        );
+    }
+
+    #[test]
+    fn note_path_nested_folder() {
+        let p = Paths::resolve(Some(Path::new("/tmp/v")));
+        assert_eq!(
+            p.note_path(
+                "novel/act1",
+                "첫-번째-장",
+                crate::memo::NoteFormat::Markdown
+            ),
+            PathBuf::from("/tmp/v/novel/act1/첫-번째-장.md")
+        );
+        assert_eq!(
+            p.note_path("wiki", "아키텍처", crate::memo::NoteFormat::Html),
+            PathBuf::from("/tmp/v/wiki/아키텍처.html")
+        );
+    }
+
+    #[test]
+    fn trash_path_preserves_structure() {
+        let p = Paths::resolve(Some(Path::new("/tmp/v")));
+        assert_eq!(
+            p.trash_path("novel/act1/old.md"),
+            PathBuf::from("/tmp/v/.trash/novel/act1/old.md")
+        );
     }
 }

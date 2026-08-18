@@ -5,7 +5,21 @@
  * standalone.
  */
 import { invoke } from "./tauri";
-import type { Memo, MemoSummary, IndexStats, DoctorReport, MemoStats, Facets, CategoryDef } from "./types";
+import type {
+  BacklinkInfo,
+  BrainStatus,
+  Config,
+  FolderDef,
+  FolderEntry,
+  GraphData,
+  Memo,
+  MemoSummary,
+  MemoStats,
+  IndexStats,
+  DoctorReport,
+  Facets,
+  ViewMode,
+} from "./types";
 
 export async function listMemos(
   after: string | null,
@@ -14,7 +28,7 @@ export async function listMemos(
     include_tags?: string[];
     exclude_tags?: string[];
     match_all?: boolean;
-    categories?: string[];
+    folder?: string | null;
     favorites_only?: boolean;
   } = {},
 ) {
@@ -25,7 +39,7 @@ export async function listMemos(
     includeTags: filter.include_tags ?? [],
     excludeTags: filter.exclude_tags ?? [],
     matchAll: filter.match_all ?? false,
-    categories: filter.categories ?? [],
+    folder: filter.folder ?? null,
     favoritesOnly: filter.favorites_only ?? false,
   });
 }
@@ -39,17 +53,29 @@ export async function memoForAsset(name: string): Promise<string | null> {
   return invoke<string | null>("memo_for_asset", { name });
 }
 
-export async function createMemo(body: string, category: string | null) {
-  return invoke<Memo>("create_memo", { body, category });
+export async function createMemo(
+  body: string,
+  folder: string | null,
+  format?: "markdown" | "html",
+) {
+  return invoke<Memo>("create_memo", { body, folder, format: format ?? null });
 }
 
 export async function updateMemo(
   id: string,
   body: string | null,
   favorite: boolean | null,
-  category: string | null,
 ) {
-  return invoke<Memo>("update_memo", { id, body, favorite, category });
+  return invoke<Memo>("update_memo", { id, body, favorite });
+}
+
+export async function brainStatus(): Promise<BrainStatus> {
+  return invoke<BrainStatus>("brain_status");
+}
+
+/** Recall layers for a query; throws when the daemon is offline. */
+export async function brainGather(query: string, budget = 4000): Promise<unknown> {
+  return invoke<unknown>("brain_gather", { query, budget });
 }
 
 export async function listFacets() {
@@ -88,26 +114,44 @@ export async function memoStats() {
   return invoke<MemoStats>("memo_stats");
 }
 
-export async function listCategories(): Promise<CategoryDef[]> {
-  return invoke<CategoryDef[]>("list_categories");
+// --- folders --------------------------------------------------------------
+
+export async function listFolders(): Promise<FolderEntry[]> {
+  return invoke<FolderEntry[]>("list_folders");
 }
 
-/** Create a persistent category. Persists in core config (survives restarts).
- *  Duplicate IDs (builtin or user-created) return an error. */
-export async function createCategory(id: string, color: string | null): Promise<CategoryDef> {
-  return invoke<CategoryDef>("create_category", { id, color });
+export async function createFolder(path: string): Promise<void> {
+  await invoke<void>("create_folder", { path });
 }
 
-export async function updateCategory(id: string, color: string) {
-  return invoke<void>("update_category", { id, color });
+export async function deleteFolder(path: string): Promise<void> {
+  await invoke<void>("delete_folder", { path });
 }
 
-export async function renameCategory(oldId: string, newId: string) {
-  return invoke<number>("rename_category", { old: oldId, new: newId });
+export async function moveNote(id: string, folder: string): Promise<void> {
+  await invoke<void>("move_note", { id, folder });
 }
 
-export async function deleteCategory(id: string) {
-  return invoke<void>("delete_category", { id });
+export async function getBacklinks(id: string): Promise<BacklinkInfo[]> {
+  return invoke<BacklinkInfo[]>("get_backlinks", { id });
+}
+
+// --- config & graph -------------------------------------------------------
+
+export async function getConfig(): Promise<Config> {
+  return invoke<Config>("get_config");
+}
+
+export async function setFolderView(path: string, view: ViewMode | null): Promise<void> {
+  await invoke<void>("set_folder_view", { path, view });
+}
+
+export async function graphData(): Promise<GraphData> {
+  return invoke<GraphData>("graph_data");
+}
+
+export function getFolderDef(config: Config, path: string): FolderDef | null {
+  return config.folders?.find((f) => f.path === path) ?? null;
 }
 
 // --- CLI command install (Settings → "Install command") -------------------

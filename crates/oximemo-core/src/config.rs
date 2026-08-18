@@ -14,8 +14,11 @@ pub struct VaultConfig {
     pub general: GeneralConfig,
     pub capture: CaptureConfig,
     pub appearance: AppearanceConfig,
-    pub categories: CategoriesConfig,
+    pub folders: FoldersConfig,
     pub index: IndexConfig,
+    /// oxibrain integration (spec D13). The desktop panel degrades to a
+    /// one-line status when the daemon is unreachable.
+    pub brain: BrainConfig,
     /// Forward-compatible schema marker. Unknown fields are ignored.
     pub schema_version: u32,
 }
@@ -26,9 +29,33 @@ impl Default for VaultConfig {
             general: GeneralConfig::default(),
             capture: CaptureConfig::default(),
             appearance: AppearanceConfig::default(),
-            categories: CategoriesConfig::default(),
+            folders: FoldersConfig::default(),
             index: IndexConfig::default(),
-            schema_version: 2,
+            brain: BrainConfig::default(),
+            schema_version: 3,
+        }
+    }
+}
+
+/// oxibrain daemon connection settings. `socket` empty = use
+/// `~/.oxi/brain/oxibrain.sock` (the daemon default).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BrainConfig {
+    /// Panel visibility and context gathering master switch.
+    pub enabled: bool,
+    /// Absolute path to the daemon's Unix socket; empty = default location.
+    pub socket: String,
+    /// Knowledge space name; "personal" matches the daemon's own default.
+    pub space: String,
+}
+
+impl Default for BrainConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            socket: String::new(),
+            space: "personal".to_string(),
         }
     }
 }
@@ -87,59 +114,50 @@ impl Default for AppearanceConfig {
         }
     }
 }
-/// Five default category color stops (OKLCH). The order and ids are the
-/// canonical built-in palette; `CategoriesConfig::default` ships them as the
-/// initial `items` so a fresh vault inherits a usable sidebar. The previous
-/// sixth entry, the `note` (blue) category, was retired: orphan refs (memos
-/// with `category = "note"`) fall back to the default card surface via
-/// [`resolve_category_color`] because the id is no longer in `items`.
-pub const AUTO_COLORS: &[&str] = &[
-    "",                     // inbox — transparent (renders default card surface)
-    "oklch(0.78 0.15 75)",  // todo — amber
-    "oklch(0.72 0.15 310)", // idea — purple
-    "oklch(0.75 0.12 195)", // bookmark — teal
-    "oklch(0.75 0.13 145)", // snippet — green
-];
-
-/// Resolve a category id to its OKLCH color string. Returns the inbox color
-/// (empty/transparent) when the id is empty or not in `items`, so an unknown
-/// / legacy category never crashes rendering — it falls back to the default
-/// card surface (no tint).
-pub fn resolve_category_color(id: &str, items: &[CategoryDef]) -> String {
-    if let Some(def) = items.iter().find(|c| c.id == id) {
-        return def.color.clone();
-    }
-    AUTO_COLORS[0].to_string()
+/// View mode for a folder (§6.1). Grid is the global default; folders can
+/// override and optionally lock their choice.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ViewMode {
+    #[default]
+    Grid,
+    List,
+    Timeline,
+    Graph,
 }
 
+/// A user-configured folder: path, optional locked view, optional color.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CategoryDef {
-    pub id: String,
-    pub color: String,
-    #[serde(default)]
-    pub builtin: bool,
+pub struct FolderDef {
+    /// Vault-root-relative folder path (e.g. `"novel"`, `"diary"`).
+    /// Empty string = root.
+    pub path: String,
+    /// Locked view mode. `None` = use global default (grid).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<ViewMode>,
+    /// OKLCH color for sidebar dot / card accent. `None` = no tint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct CategoriesConfig {
-    pub items: Vec<CategoryDef>,
+pub struct FoldersConfig {
+    pub items: Vec<FolderDef>,
 }
 
-impl Default for CategoriesConfig {
-    fn default() -> Self {
-        let ids = ["inbox", "todo", "idea", "bookmark", "snippet"];
-        let items = ids
-            .iter()
-            .zip(AUTO_COLORS.iter())
-            .map(|(id, color)| CategoryDef {
-                id: (*id).to_string(),
-                color: (*color).to_string(),
-                builtin: true,
-            })
-            .collect();
-        Self { items }
-    }
+/// Resolve a folder path to its OKLCH color. Returns `None` when the folder
+/// has no color configured (caller renders default surface).
+pub fn resolve_folder_color(path: &str, items: &[FolderDef]) -> Option<String> {
+    items
+        .iter()
+        .find(|f| f.path == path)
+        .and_then(|f| f.color.clone())
+}
+
+/// Resolve a folder path to its locked view mode. Returns `None` when unlocked.
+pub fn resolve_folder_view(path: &str, items: &[FolderDef]) -> Option<ViewMode> {
+    items.iter().find(|f| f.path == path).and_then(|f| f.view)
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -181,18 +199,29 @@ impl VaultConfig {
         toml::to_string_pretty(self)
     }
 
-    /// Persist this config to `<vault>/config.toml`. Used after category CRUD
-    /// to write user-defined categories back to disk so they survive restarts.
+    /// Persist this config to `<vault>/oximemo.toml`.
     pub fn save(&self, paths: &Paths) -> Result<()> {
         let text = self.to_toml()?;
-        let path = paths.config_path();
+        let path = paths.config_write_path();
         // Crash-safe: write to a temp sibling then atomically rename (APFS).
-        // A torn write would otherwise silently revert the user's category
-        // setup to built-ins on next load (load() degrades to defaults).
         let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, text)?;
         std::fs::rename(&tmp, path)?;
         Ok(())
+    }
+
+    /// Serialize to a JSON value with `folders` flattened to a plain array
+    /// (the frontend `Config` type expects `folders: FolderDef[]`, not
+    /// `{ items: [...] }`).
+    pub fn config_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "schema_version": self.schema_version,
+            "general": self.general,
+            "capture": self.capture,
+            "appearance": self.appearance,
+            "folders": self.folders.items,
+            "brain": self.brain,
+        })
     }
 }
 
@@ -206,7 +235,35 @@ mod tests {
         let s = c.to_toml().unwrap();
         let back: VaultConfig = toml::from_str(&s).unwrap();
         assert_eq!(back.general.trash_retention_days, 30);
-        assert_eq!(back.schema_version, 2);
+        assert_eq!(back.schema_version, 3);
+    }
+
+    #[test]
+    fn brain_section_defaults_and_roundtrip() {
+        let c = VaultConfig::default();
+        assert!(c.brain.enabled);
+        assert_eq!(c.brain.socket, "");
+        assert_eq!(c.brain.space, "personal");
+
+        let s = c.to_toml().unwrap();
+        let back: VaultConfig = toml::from_str(&s).unwrap();
+        assert!(back.brain.enabled);
+
+        // Explicit override wins.
+        let t = r#"
+[brain]
+enabled = false
+socket = "/tmp/custom.sock"
+space = "work"
+"#;
+        let c2: VaultConfig = toml::from_str(t).unwrap();
+        assert!(!c2.brain.enabled);
+        assert_eq!(c2.brain.socket, "/tmp/custom.sock");
+        assert_eq!(c2.brain.space, "work");
+
+        // Exposed via config_json for the frontend.
+        let j = c2.config_json();
+        assert_eq!(j["brain"]["socket"], "/tmp/custom.sock");
     }
 
     #[test]
@@ -219,18 +276,33 @@ unknown_future_field = true
         let c: VaultConfig = toml::from_str(t).unwrap();
         assert_eq!(c.general.trash_retention_days, 7);
     }
+
     #[test]
-    fn save_roundtrips_categories() {
+    fn save_roundtrips_folders() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::resolve(Some(dir.path()));
         let mut cfg = VaultConfig::default();
-        cfg.categories.items.push(CategoryDef {
-            id: "custom".into(),
-            color: "oklch(0.7 0.1 200)".into(),
-            builtin: false,
+        cfg.folders.items.push(FolderDef {
+            path: "novel".into(),
+            view: Some(ViewMode::List),
+            color: Some("oklch(0.7 0.1 200)".into()),
         });
         cfg.save(&paths).unwrap();
         let reloaded = VaultConfig::load(&paths);
-        assert!(reloaded.categories.items.iter().any(|c| c.id == "custom"));
+        assert!(reloaded.folders.items.iter().any(|f| f.path == "novel"));
+    }
+
+    #[test]
+    fn old_config_with_categories_loads() {
+        // Old config with [categories] section — unknown field ignored by serde.
+        let t = r#"schema_version = 2
+[categories]
+[[categories.items]]
+id = "todo"
+color = "oklch(0.78 0.15 75)"
+builtin = true
+"#;
+        let c: VaultConfig = toml::from_str(t).unwrap();
+        assert!(c.folders.items.is_empty());
     }
 }

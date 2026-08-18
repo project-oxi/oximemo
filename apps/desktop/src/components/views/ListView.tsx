@@ -1,0 +1,75 @@
+/**
+ * ListView — a flat two-column list (title + preview). Rendered for users
+ * who want denser scan over many notes at once (§7.2).
+ */
+import { Star } from "lucide-react";
+
+import type { FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
+import { relativeTime } from "../../lib/time";
+import { useI18n } from "../../lib/i18n";
+
+interface Props {
+  items: MemoSummary[];
+  folders: FolderDef[];
+  folderEntries: FolderEntry[];
+  onSelect: (id: string) => void;
+  onToggleFavorite: (id: string, favorite: boolean) => void;
+  onMoveFolder: (id: string, folder: string) => void;
+  onCopyBody: (id: string) => void;
+  onDelete: (id: string) => void;
+  onNewNote?: () => void;
+}
+
+export function ListView({ items, onSelect, onToggleFavorite }: Props) {
+  const { t, locale } = useI18n();
+  return (
+    <ul className="divide-y divide-line">
+      {items.map((n) => (
+        <li
+          key={n.id}
+          className="group flex cursor-pointer items-baseline gap-3 px-3 py-2.5 transition-colors hover:bg-surface-muted"
+          onClick={() => onSelect(n.id)}
+        >
+          <button
+            type="button"
+            aria-label={n.favorite ? t.action_unfavorite : t.action_favorite}
+            className={`shrink-0 self-center rounded-md p-1 transition-colors ${
+              n.favorite
+                ? "text-hue-amber"
+                : "text-transparent hover:text-hue-amber group-hover:text-text-subtle"
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(n.id, n.favorite);
+            }}
+          >
+            <Star size={13} className={n.favorite ? "fill-hue-amber" : undefined} />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
+              {n.title ? (
+                <span className="truncate text-sm font-semibold text-text">{n.title}</span>
+              ) : (
+                <span className="truncate text-sm text-text-subtle">{t.empty_memo}</span>
+              )}
+              {n.folder && (
+                <span className="shrink-0 font-mono text-[10px] text-text-subtle">
+                  {n.folder}/
+                </span>
+              )}
+            </div>
+            <div className="mt-0.5 line-clamp-1 text-xs text-text-subtle">{n.preview || ""}</div>
+          </div>
+          <div className="flex shrink-0 items-baseline gap-2 text-[11px] text-text-subtle">
+            {n.tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="rounded-full bg-status-warning-subtle px-1.5 py-0.5 text-hue-amber">
+                #{tag}
+              </span>
+            ))}
+            <span className="w-16 text-right tabular-nums">{relativeTime(n.updated_at, locale)}</span>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
