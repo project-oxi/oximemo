@@ -135,14 +135,32 @@ impl Vault {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::rename(&from_dir, &to_dir)?;
+
+        // Move the matching `.trash/<from>/` subtree to `.trash/<to>/` so
+        // tombstone files stay aligned with their re-pathed index records.
+        // Without this, restore_memo finds no trash file at the new path
+        // and silently no-ops, leaking the old `.trash/<from>/...` copy
+        // until purge deletes the (possibly restored+live) note's
+        // index/search records; reindex would also revert the re-path by
+        // reading `.trash/<from>/` and rebuilding records at the old path.
+        // The trash subtree is optional — many folders have no trashed
+        // notes — so the move is a silent no-op when the source is absent.
+        let trash_from = self.paths.trash_path(from);
+        let trash_to = self.paths.trash_path(to);
+        if trash_from.is_dir() {
+            if let Some(parent) = trash_to.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::rename(&trash_from, &trash_to)?;
+        }
+
         // Re-path index records under `from/`. Live notes: read the file at
         // its new on-disk location and re-upsert the record + search entry
         // so the search index keeps the up-to-date body and title.
-        // Tombstones (soft-deleted within retention): their file lives in
-        // `.trash/` while the record keeps its ORIGINAL `from/...` path —
-        // re-path the record-only without a file read or search upsert.
-        // A tombstone must never keep referencing `from/...` after the
-        // disk tree moved, and a tombstone re-path is not a failure.
+        // Tombstones (soft-deleted within retention): the trash subtree
+        // was moved above so the tombstone file now lives at
+        // `.trash/<to>/<rest>` — read it from there and re-upsert both
+        // up-to-date body). Tombstone re-path is not a failure.
         let prefix = format!("{from}/");
         let recs = self.with_redb(|idx| idx.export_since(None))?;
         let mut index_failures: u32 = 0;
@@ -2260,27 +2278,45 @@ watcher_retry_interval_ms = 200
                 crate::memo::NoteFormat::Markdown,
             )
             .unwrap();
-        // Soft-delete: file moves to .trash/, record stays as `novel/...`
-        // but with `deleted: true`. The tombstone's `path` is what the
-        // rename_folder loop sees; before the fix this caused a false
-        // "N index entries need reindex" error on every rename of a
-        // folder containing any trashed note.
+        // Soft-delete: file moves to .trash/novel/Ghost.md, record stays
+        // as `novel/Ghost.md` with `deleted: true`.
         v.delete_memo(n.id).unwrap();
-        // Rename must succeed (no error) and the tombstone record must
-        // be re-pathed to the new prefix.
+        // Rename moves the live tree AND the matching trash subtree so
+        // tombstone files stay aligned with their re-pathed index
+        // records. Without the trash move, restore_memo finds no
+        // `.trash/book/Ghost.md` and silently no-ops; the stale
+        // `.trash/novel/...` copy leaks and a later purge deletes the
+        // (possibly restored+live) note's index/search records.
         v.rename_folder("novel", "book").unwrap();
+        // Record is re-pathed to the new prefix; tombstone stays deleted.
         let rec = v.with_redb(|idx| idx.get(n.id)).unwrap().unwrap();
         assert!(rec.deleted, "tombstone stays deleted after rename");
         assert_eq!(
             rec.path, "book/Ghost.md",
             "tombstone record re-pathed under the new prefix"
         );
-        // File stays at the trashed path recorded at delete time —
-        // rename_folder only moves live tree, not `.trash/`. The tombstone
-        // record's `path` field is now logical (`book/Ghost.md`), pointing
-        // at a path that no longer exists on disk until restore; until
-        // then the file still lives where delete_memo parked it.
-        assert!(v.paths().trash_path("novel/Ghost.md").exists());
+        // Trash subtree moved with the rename: file now under the new
+        // trash path, old trash dir is gone.
+        assert!(
+            v.paths().trash_path("book/Ghost.md").exists(),
+            "tombstone file moved to .trash/<to>/..."
+        );
+        assert!(
+            !v.paths().trash_path("novel").exists(),
+            "old .trash/<from>/ subtree is gone"
+        );
+        // restore_memo must find the trash file at the re-pathed location
+        // and bring the note back live at vault/<to>/Ghost.md.
+        let restored = v.restore_memo(n.id).unwrap();
+        assert!(restored.deleted_at.is_none(), "deleted_at cleared");
+        assert!(
+            v.paths().vault.join("book/Ghost.md").exists(),
+            "note restored to live tree under new folder"
+        );
+        assert!(
+            !v.paths().trash_path("book/Ghost.md").exists(),
+            "trash file is gone after restore"
+        );
     }
 
     #[test]
