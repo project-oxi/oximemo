@@ -42,3 +42,6 @@ Thumbs.db
 
 # --- App data ---
 data/
+
+# --- Local git worktrees ---
+.worktrees/
