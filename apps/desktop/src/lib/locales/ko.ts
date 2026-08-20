@@ -154,6 +154,7 @@ export const dict = {
   brain_layer_other: "기타",
   dock_saved: "저장됨",
   dock_saving: "저장 중…",
+  folder_root: "최상위",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

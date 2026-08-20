@@ -29,38 +29,32 @@ interface FolderNode {
 }
 
 function buildTree(entries: FolderEntry[]): FolderNode[] {
-  const root: FolderNode = {
-    name: "(root)",
-    fullPath: "",
-    note_count: 0,
-    children: [],
-  };
+  // Physical folders only — the vault root itself is not a node. Loose
+  // root notes are reachable via the "all memos" entry above the tree, so
+  // the `path: ""` row from `list_folders` is skipped.
+  const tops: FolderNode[] = [];
   const byPath = new Map<string, FolderNode>();
-  byPath.set("", root);
-  // Normalize once: Rust's `list_folders` already returns `{ path, note_count }`,
-  // but any future IPC shape change (or a stale mock) must not crash the tree.
   const rows = entries
     .map((e) => ({ path: e.path ?? "", note_count: e.note_count ?? 0 }))
+    .filter((e) => e.path !== "")
     .sort((a, b) => a.path.localeCompare(b.path));
+  // Path sort guarantees parents precede children, so every child finds
+  // its parent already registered; a parentless row would be promoted to
+  // the top level (cannot happen with the dir-scanning backend).
   for (const e of rows) {
-    if (e.path === "") {
-      root.note_count = e.note_count;
-      continue;
-    }
     const segs = e.path.split("/");
-    const parentPath = segs.slice(0, -1).join("/");
-    const parent = byPath.get(parentPath);
-    if (!parent) continue;
     const node: FolderNode = {
       name: segs.at(-1) ?? e.path,
       fullPath: e.path,
       note_count: e.note_count,
       children: [],
     };
-    parent.children.push(node);
+    const parent = byPath.get(segs.slice(0, -1).join("/"));
+    if (parent) parent.children.push(node);
+    else tops.push(node);
     byPath.set(e.path, node);
   }
-  return [root];
+  return tops;
 }
 
 function FolderTreeNode({
@@ -104,14 +98,14 @@ function FolderTreeNode({
         )}
         <button
           type="button"
-          onClick={() => onSelect(node.fullPath || null)}
+          onClick={() => onSelect(node.fullPath)}
           className="flex flex-1 items-center gap-2 truncate text-left"
         >
           <Folder
             size={12}
-            style={node.fullPath ? { color: colorForFolder(node.fullPath, folders) } : undefined}
+            style={{ color: colorForFolder(node.fullPath, folders) }}
           />
-          <span className="truncate">{node.fullPath || "(root)"}</span>
+          <span className="truncate">{node.fullPath}</span>
           <span className="ml-auto text-[10px] text-text-subtle">{node.note_count}</span>
         </button>
       </div>
@@ -236,7 +230,7 @@ export function Sidebar() {
       <div className="flex flex-col px-2 pt-1">
         {tree.map((n) => (
           <FolderTreeNode
-            key={n.fullPath || "(root)"}
+            key={n.fullPath}
             node={n}
             depth={0}
             selectedPath={folderFilter}

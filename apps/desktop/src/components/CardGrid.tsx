@@ -238,7 +238,7 @@ export function CardGrid() {
         qc.invalidateQueries({ queryKey: ["memos"] });
         qc.invalidateQueries({ queryKey: ["facets"] });
         qc.invalidateQueries({ queryKey: ["folders"] });
-        setToast(`→ ${folder || "(root)"}`);
+        setToast(`→ ${folder || t.folder_root}`);
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   };

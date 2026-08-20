@@ -11,6 +11,8 @@ import {
   useRef,
   useState,
 } from "react";
+
+import { useI18n } from "../lib/i18n";
 import { Folder, FolderPlus, X } from "lucide-react";
 
 import { colorForFolder } from "../lib/color";
@@ -51,16 +53,17 @@ function SlashFolderMenu({
   onSelect: (path: string) => void;
   onCreate: (path: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-32 overflow-y-auto rounded-xl bg-surface-raised/80 px-1 py-1 shadow-lg ring-1 ring-line backdrop-blur-xl">
       {filtered.map((f, i) => (
         <button
-          key={f.path || "(root)"}
+          key={f.path || "root"}
           className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-text ${i === sel ? "bg-surface-muted" : ""}`}
           onClick={() => onSelect(f.path)}
         >
           <Folder size={14} className="shrink-0 text-text-subtle" />
-          <span className="truncate">{f.path || "(root)"}</span>
+          <span className="truncate">{f.path || t.folder_root}</span>
           <span className="ml-auto text-[10px] text-text-subtle">{f.note_count}</span>
         </button>
       ))}
@@ -94,8 +97,7 @@ function FolderChip({
           style={{ backgroundColor: color }}
         />
       )}
-      <Folder size={11} className="text-text-subtle" />
-      {path || "(root)"}
+      {path}
       <button
         type="button"
         onClick={(e) => {
@@ -140,7 +142,7 @@ export function QuickCaptureForm({
   const [slashQuery, setSlashQuery] = useState("");
   const [sel, setSel] = useState(0);
   const filtered = useMemo(
-    () => folders.filter((f) => f.path.toLowerCase().includes(slashQuery.toLowerCase())),
+    () => folders.filter((f) => f.path !== "" && f.path.toLowerCase().includes(slashQuery.toLowerCase())),
     [folders, slashQuery],
   );
   const isNew =

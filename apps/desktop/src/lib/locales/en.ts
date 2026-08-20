@@ -155,4 +155,5 @@ export const dict: Record<keyof typeof ko, string> = {
   brain_layer_other: "Other",
   dock_saved: "Saved",
   dock_saving: "Saving…",
+  folder_root: "Top level",
 };

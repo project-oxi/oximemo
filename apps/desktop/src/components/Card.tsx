@@ -110,8 +110,8 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
           <CtxSubmenu icon={FolderInput} label={t.action_move_folder ?? "Move to folder"}>
             {folderEntries.map((f) => (
               <CtxItem
-                key={f.path || "(root)"}
-                label={f.path || "(root)"}
+                key={f.path || "root"}
+                label={f.path || t.folder_root}
                 disabled={memo.folder === f.path}
                 onClick={() => onMoveFolder(memo.id, f.path)}
               />

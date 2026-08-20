@@ -135,10 +135,10 @@ export function MemoDetail() {
                 type="button"
                 onClick={() => folderPickerRef.current?.open()}
                 className="inline-flex items-center gap-1 rounded-[var(--tag-radius)] bg-surface-muted px-2 py-1 text-xs text-text-subtle transition-colors duration-150 hover:bg-surface hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                title={folder || "(root)"}
+                title={folder || t.folder_root}
               >
                 <Folder size={12} />
-                {folder || "(root)"}
+                {folder || t.folder_root}
               </button>
               <button
                 type="button"

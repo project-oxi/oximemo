@@ -416,7 +416,9 @@ function FoldersSection() {
   const setFolderFilter = useUI((s) => s.setFolderFilter);
 
   const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
-  const list = foldersQ.data ?? [];
+  // Manage real folders only; the vault root (`path: ""`) is not a folder
+  // and can neither be deleted nor filtered meaningfully.
+  const list = (foldersQ.data ?? []).filter((f) => f.path !== "");
 
   const [newPath, setNewPath] = useState("");
   const newInputRef = useRef<HTMLInputElement>(null);
@@ -459,22 +461,22 @@ function FoldersSection() {
       )}
       {list.map((f: FolderEntry) => (
         <div
-          key={f.path || "(root)"}
+          key={f.path}
           className="group flex items-center gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5"
         >
           <Folder size={14} className="shrink-0 text-text-subtle" />
           <button
             type="button"
-            onClick={() => setFolderFilter(f.path || null)}
+            onClick={() => setFolderFilter(f.path)}
             className="min-w-0 flex-1 truncate text-left text-xs text-text-muted hover:text-text"
           >
-            {f.path || "(root)"}
+            {f.path}
           </button>
           <span className="text-[10px] text-text-subtle">{f.note_count}</span>
           <button
             type="button"
             onClick={() => void onDelete(f.path)}
-            disabled={f.note_count > 0 || !f.path}
+            disabled={f.note_count > 0}
             aria-label={t.action_delete}
             title={f.note_count > 0 ? "Folder has notes — empty it first" : t.action_delete}
             className="rounded-md p-1 text-text-subtle transition-colors hover:bg-status-error-subtle hover:text-status-error disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
@@ -834,7 +836,7 @@ export function SettingsMenu() {
         )}
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 backdrop-blur-sm" />
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <Dialog.Popup
           className="fixed right-0 top-0 z-50 flex h-full w-[380px] max-w-[92vw] translate-x-full flex-col overflow-hidden border-l border-line bg-surface shadow-lg transition-transform duration-200 ease-out data-[open]:translate-x-0"
         >
