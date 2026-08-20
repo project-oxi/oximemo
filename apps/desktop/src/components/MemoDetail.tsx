@@ -10,7 +10,6 @@ import { useEffect, useRef, useState } from "react";
 import { Folder, Maximize2, Minimize2, Star } from "lucide-react";
 
 import { deleteMemo, getMemo, updateMemo, listFolders } from "../lib/api";
-import { colorForFolder, paperFor } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { BacklinksPanel } from "./BacklinksPanel";
@@ -130,9 +129,9 @@ export function MemoDetail() {
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-text/35 backdrop-blur-sm" />
         <Dialog.Popup
-          className={`fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-line bg-surface-raised shadow-2xl ${popupSize}`}
+          className={`fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-lg ${popupSize}`}
         >
           <div className="flex h-full flex-col">
             <Dialog.Title className="sr-only">{t.done}</Dialog.Title>
@@ -140,7 +139,7 @@ export function MemoDetail() {
               <button
                 type="button"
                 onClick={() => folderPickerRef.current?.open()}
-                className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 py-1 text-xs text-text-subtle hover:bg-surface-raised"
+                className="inline-flex items-center gap-1 rounded-[var(--tag-radius)] bg-surface-muted px-2 py-1 text-xs text-text-subtle transition-colors duration-150 hover:bg-surface hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                 title={folder || "(root)"}
               >
                 <Folder size={12} />
@@ -150,8 +149,8 @@ export function MemoDetail() {
                 type="button"
                 onClick={() => edit(setFavorite)(!favorite)}
                 aria-label={favorite ? t.action_unfavorite : t.action_favorite}
-                className={`ml-auto rounded-md p-1.5 ${
-                  favorite ? "text-hue-amber" : "text-text-subtle hover:text-hue-amber"
+                className={`ml-auto rounded-md p-1.5 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+                  favorite ? "text-hue-amber hover:bg-surface-muted" : "text-text-subtle hover:bg-surface-muted hover:text-hue-amber"
                 }`}
               >
                 <Star size={14} className={favorite ? "fill-hue-amber" : undefined} />
@@ -159,7 +158,7 @@ export function MemoDetail() {
               <button
                 type="button"
                 onClick={() => setImmersive((v) => !v)}
-                className="rounded-md p-1.5 text-text-subtle hover:bg-surface-muted hover:text-text"
+                className="rounded-md p-1.5 text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                 aria-label={immersive ? "Exit immersive" : "Enter immersive"}
               >
                 {immersive ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -167,18 +166,11 @@ export function MemoDetail() {
               <button
                 type="button"
                 onClick={close}
-                className="rounded-md bg-interactive-primary px-3 py-1.5 text-xs font-medium text-interactive-primary-foreground"
+                className="rounded-[var(--button-radius)] bg-interactive-primary px-3 py-1.5 text-xs font-medium text-interactive-primary-foreground transition-colors duration-150 hover:bg-interactive-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
               >
                 {t.done}
               </button>
             </div>
-            {folder && (
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0 -z-10"
-                style={{ backgroundColor: paperFor(colorForFolder(folder)) }}
-              />
-            )}
             {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
               <div className="flex h-full items-center justify-center text-text-subtle">…</div>
             ) : memo.data.format === "html" ? (
@@ -198,9 +190,6 @@ export function MemoDetail() {
                 folders={folders}
                 body={body}
                 onBodyChange={edit(setBody)}
-                onConfirm={close}
-                confirmLabel={t.done}
-                confirmKbd="⌘⏎"
                 folderPickerRef={folderPickerRef}
                 immersive={immersive}
               />

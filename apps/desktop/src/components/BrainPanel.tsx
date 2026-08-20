@@ -135,7 +135,7 @@ export function BrainPanel({ noteId, title, tags }: Props) {
               : t.brain_offline
           }
           className={`ml-1 inline-block h-1.5 w-1.5 rounded-full ${
-            online ? "bg-status-ok" : "bg-text-subtle/40"
+            online ? "bg-status-success" : "bg-text-subtle/40"
           }`}
         />
       </button>

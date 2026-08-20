@@ -1,14 +1,11 @@
 /**
- * Card component for a memo summary. The memo's color fills the whole card as
- * colored "paper" (post-it), not just a side accent — see `paperFor` in
- * lib/color.ts, which washes the OKLCH color toward the theme's card surface.
- * Renders the preview text, tags, the favorite star (pinned top-right, always
- * yellow when favorited), and hover actions (copy/delete).
+ * Neutral note card. Folder hue is carried by a compact marker rather than a
+ * full tinted surface, preserving ink-on-paper readability in both themes.
  */
 import { Star, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import { edgeFor, paperFor, colorForFolder } from "../lib/color";
+import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
 import { relativeTime } from "../lib/time";
@@ -28,59 +25,49 @@ interface Props {
 
 export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete }: Props) {
   const { t, locale } = useI18n();
-  const [copied, setCopied] = useState(false);
-  const shortId = memo.id.slice(0, 8);
+  const folderColor = colorForFolder(memo.folder, folders);
 
   const previewHtml = useMemo(
     () => (memo.preview ? renderPreviewMarkdown(memo.preview) : ""),
     [memo.preview],
   );
-  const color = colorForFolder(memo.folder, folders);
-
   return (
     <CtxRoot>
       <CtxTrigger
         render={
           <article
             onClick={() => onSelect(memo.id)}
-            style={{
-              backgroundColor: paperFor(color),
-              borderColor: edgeFor(color),
-            }}
-            className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+            className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-colors duration-150 hover:border-line-strong hover:bg-surface"
           />
         }
       >
-      <div className="flex items-center gap-1.5 pr-7 text-text-subtle">
-        <span className="text-[11px]">{relativeTime(memo.updated_at, locale)}</span>
+      <div className="flex min-w-0 items-center gap-2 pr-8 text-text-subtle">
+        {folderColor && (
+          <span
+            aria-hidden
+            className="size-2 shrink-0 rounded-[2px]"
+            style={{ backgroundColor: folderColor }}
+          />
+        )}
+        <span className="truncate text-xs font-medium text-text-muted">
+          {memo.folder || t.all_memos}
+        </span>
+        <span aria-hidden className="text-text-subtle">·</span>
+        <time className="shrink-0 text-[11px]">{relativeTime(memo.updated_at, locale)}</time>
         {memo.path?.endsWith(".html") && (
-          <span className="rounded bg-surface-muted px-1 py-px font-mono text-[9px] font-semibold tracking-wide text-text-subtle">
+          <span className="rounded-[var(--tag-radius)] bg-surface-muted px-1 py-px font-mono text-[9px] font-semibold tracking-wide text-text-subtle">
             HTML
           </span>
         )}
-        {memo.title && (
-          <>
-            <span aria-hidden className="text-text-subtle">
-              ·
-            </span>
-            <span className="truncate text-[11px] font-medium text-text">
-              {memo.title}
-            </span>
-          </>
-        )}
-        <span aria-hidden className="ml-auto text-text-subtle">·</span>
-        <span className="font-mono text-[10px] text-text-subtle">
-          {shortId}
-        </span>
       </div>
       <button
         type="button"
         aria-label={memo.favorite ? t.action_unfavorite : t.action_favorite}
         title={memo.favorite ? t.action_unfavorite : t.action_favorite}
-        className={`absolute right-2 top-2 z-10 rounded-md p-1.5 transition-all duration-150 ${
+        className={`absolute right-2 top-2 z-10 rounded-md p-1.5 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
           memo.favorite
-            ? "text-hue-amber hover:text-hue-amber"
-            : "text-text-subtle opacity-0 hover:bg-surface-muted hover:text-hue-amber group-hover:opacity-100"
+            ? "text-hue-amber hover:bg-surface-muted"
+            : "text-text-subtle hover:bg-surface-muted hover:text-hue-amber"
         }`}
         onClick={(e) => {
           e.stopPropagation();
@@ -104,7 +91,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
           {memo.tags.slice(0, 3).map((tag) => (
             <span
               key={tag}
-              className="rounded-full bg-status-warning-subtle px-2 py-0.5 text-[10px] font-medium text-hue-amber"
+              className="rounded-[var(--tag-radius)] bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-text-muted"
             >
               {tag}
             </span>
@@ -114,34 +101,6 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
           )}
         </div>
       )}
-      <div className="mt-3 flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-        <button
-          type="button"
-          aria-label={t.copy}
-          className="rounded-md p-1.5 text-text-subtle hover:bg-surface-muted hover:text-text"
-          onClick={(e) => {
-            e.stopPropagation();
-            void navigator.clipboard.writeText(memo.id).then(() => {
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 800);
-            });
-          }}
-        >
-          <Copy size={14} />
-          {copied && <span className="ml-1 text-[10px]">{t.copied}</span>}
-        </button>
-        <button
-          type="button"
-          aria-label={t.action_delete}
-          className="rounded-md p-1.5 text-text-subtle hover:bg-status-error-subtle hover:text-status-error"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(memo.id);
-          }}
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
         <CtxMenu>
           <CtxItem
             icon={Star}
@@ -164,10 +123,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
             icon={Copy}
             label={t.action_copy_id}
             onClick={() => {
-              void navigator.clipboard.writeText(memo.id).then(() => {
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 800);
-              });
+              void navigator.clipboard.writeText(memo.id);
             }}
           />
           <CtxSeparator />

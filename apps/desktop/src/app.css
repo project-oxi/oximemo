@@ -115,6 +115,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+input:not([type="file"]):focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: var(--input-shadow-focus);
+}
+
 /* Title-bar drag region for the main window. */
 [data-tauri-drag-region] {
   -webkit-user-select: none;
@@ -142,13 +156,22 @@ body {
   --atomic-editor-blockquote-fg: var(--color-text-muted);
 }
 
-.atomic-cm-editor {
+.atomic-cm-editor,
+.atomic-cm-editor .cm-content {
   font-family: var(--font-sans);
-  font-size: 0.875rem; /* text-sm */
+}
+.atomic-cm-editor .cm-atomic-h1 {
+  font-family: var(--font-display);
 }
 
-/* Card preview markdown output (lib/markdownPreview.ts). */
-.md-preview h1,
+/* Card previews surface the note title as the primary hierarchy. */
+.md-preview h1 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0.2rem 0 0.35rem;
+}
 .md-preview h2,
 .md-preview h3,
 .md-preview h4,
@@ -177,14 +200,14 @@ body {
 .md-preview code {
   background: var(--color-surface-muted);
   padding: 0 0.2rem;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   font-family: var(--font-mono);
   font-size: 0.85em;
 }
 .md-preview pre {
   background: var(--color-surface-muted);
   padding: 0.4rem 0.5rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
 }
 .md-preview pre code {

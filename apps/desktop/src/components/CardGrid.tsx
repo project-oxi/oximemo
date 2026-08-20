@@ -277,7 +277,7 @@ export function CardGrid() {
         type="button"
         onClick={toggleSidebar}
         aria-label={sidebarCollapsed ? t.show_sidebar : t.hide_sidebar}
-        className="rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
+        className="rounded-[var(--button-radius)] p-1.5 text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text"
       >
         {sidebarCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
       </button>
@@ -293,14 +293,14 @@ export function CardGrid() {
     <div
       role="group"
       aria-label="View mode"
-      className="inline-flex items-center gap-1 rounded-full border border-line bg-surface-raised/70 p-0.5 text-xs"
+      className="inline-flex items-center gap-1 rounded-[var(--button-radius)] border border-line bg-surface-raised p-0.5 text-xs"
     >
       {(["grid", "list", "timeline", "graph"] as const).map((v) => (
         <button
           key={v}
           type="button"
           onClick={() => setNoteViewLocked(v)}
-          className={`rounded-full px-2.5 py-1 capitalize transition-colors ${
+          className={`rounded-[var(--tag-radius)] px-2.5 py-1 capitalize transition-colors duration-150 ${
             noteView === v
               ? "bg-interactive-primary text-interactive-primary-foreground"
               : "text-text-subtle hover:bg-surface-muted hover:text-text"
@@ -320,7 +320,7 @@ export function CardGrid() {
         title={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
         aria-label={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
         aria-pressed={isLocked}
-        className={`inline-flex h-6 w-6 items-center justify-center rounded-full transition-colors ${
+        className={`inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
           isLocked
             ? "text-hue-amber hover:bg-hue-amber/15"
             : "text-text-subtle hover:bg-surface-muted hover:text-text"
@@ -364,7 +364,7 @@ export function CardGrid() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           data-tauri-drag-region="deep"
-          className="flex h-12 items-center gap-3 border-b border-line bg-surface-raised/80 pl-4 pr-4 backdrop-blur"
+          className="flex h-12 items-center gap-3 border-b border-line bg-surface-raised pl-4 pr-4"
         >
           <div className="flex-1" />
           {viewSwitcher}
@@ -378,7 +378,7 @@ export function CardGrid() {
                 setSearch(e.target.value);
               }}
               placeholder={t.search_placeholder}
-              className="w-full rounded-full bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-text-subtle shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
+              className="w-full rounded-[var(--input-radius)] bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-text-subtle shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
             />
           </div>
           <div className="flex shrink-0 items-center">
@@ -387,7 +387,7 @@ export function CardGrid() {
               onClick={() => onNewNote()}
               aria-label={t.new_memo}
               title={t.new_note_md}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-l-full bg-interactive-primary text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-l-[var(--button-radius)] bg-interactive-primary text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
             >
               <Plus size={15} strokeWidth={2.5} />
             </button>
@@ -396,7 +396,7 @@ export function CardGrid() {
               onClick={onNewHtmlNote}
               aria-label={t.new_note_html}
               title={t.new_note_html}
-              className="ml-px inline-flex h-7 items-center justify-center rounded-r-full border-l border-interactive-primary/40 bg-interactive-primary px-1.5 font-mono text-[10px] font-semibold tracking-wider text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95"
+              className="ml-px inline-flex h-7 items-center justify-center rounded-r-[var(--button-radius)] border-l border-interactive-primary/40 bg-interactive-primary px-1.5 font-mono text-[10px] font-semibold tracking-wider text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
             >
               HTML
             </button>
@@ -411,7 +411,7 @@ export function CardGrid() {
               <button
                 type="button"
                 onClick={() => listing.refetch()}
-                className="mt-1 inline-flex items-center gap-2 rounded-full bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95"
+                className="mt-1 inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
               >
                 {t.retry}
               </button>
@@ -423,7 +423,7 @@ export function CardGrid() {
                 <button
                   type="button"
                   onClick={clearAllFilters}
-                  className="inline-flex items-center gap-2 rounded-full bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95"
+                  className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
                 >
                   {t.clear_filters}
                 </button>
@@ -431,7 +431,7 @@ export function CardGrid() {
                 <button
                   type="button"
             onClick={() => onNewNote()}
-                  className="inline-flex items-center gap-2 rounded-full bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95"
+                  className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
                 >
                   <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
                 </button>

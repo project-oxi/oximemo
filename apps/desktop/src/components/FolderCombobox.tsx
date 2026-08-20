@@ -63,7 +63,7 @@ export const FolderCombobox = forwardRef<
           <button
             type="button"
             aria-label={triggerAriaLabel}
-            className={`inline-flex items-center gap-1 rounded-full bg-surface-muted px-2.5 py-1 text-xs text-text hover:bg-surface-raised ${className ?? ""}`}
+            className={`inline-flex items-center gap-1 rounded-[var(--tag-radius)] bg-surface-muted px-2.5 py-1 text-xs text-text transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${className ?? ""}`}
           >
             <Folder size={12} className="text-text-subtle" />
             <span>{selected}</span>
@@ -72,13 +72,13 @@ export const FolderCombobox = forwardRef<
       />
       <Popover.Portal>
         <Popover.Positioner sideOffset={4}>
-          <Popover.Popup className="z-50 w-72 rounded-lg border border-line bg-surface-raised p-2 shadow-lg">
+          <Popover.Popup className="z-50 w-72 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg">
             <input
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Filter or new path…"
-              className="mb-2 w-full rounded-md border border-line bg-transparent px-2 py-1 text-xs outline-none focus:border-interactive-primary"
+              className="mb-2 w-full rounded-[var(--input-radius)] bg-transparent px-2 py-1 text-xs shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
             />
             <ul className="max-h-56 overflow-y-auto" role="listbox">
               <li>

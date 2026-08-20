@@ -33,10 +33,10 @@ export function ListView({ items, onSelect, onToggleFavorite }: Props) {
           <button
             type="button"
             aria-label={n.favorite ? t.action_unfavorite : t.action_favorite}
-            className={`shrink-0 self-center rounded-md p-1 transition-colors ${
+            className={`shrink-0 self-center rounded-md p-1 transition-colors duration-150 ${
               n.favorite
                 ? "text-hue-amber"
-                : "text-transparent hover:text-hue-amber group-hover:text-text-subtle"
+                : "text-text-subtle hover:bg-surface-muted hover:text-hue-amber"
             }`}
             onClick={(e) => {
               e.stopPropagation();
@@ -62,7 +62,7 @@ export function ListView({ items, onSelect, onToggleFavorite }: Props) {
           </div>
           <div className="flex shrink-0 items-baseline gap-2 text-[11px] text-text-subtle">
             {n.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="rounded-full bg-status-warning-subtle px-1.5 py-0.5 text-hue-amber">
+              <span key={tag} className="rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-text-muted">
                 #{tag}
               </span>
             ))}

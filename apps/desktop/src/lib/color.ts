@@ -7,8 +7,8 @@
 
 import type { FolderDef } from "./types";
 
-/** Inbox neutral fallback. */
-const INBOX_NEUTRAL = ""; // transparent → paperFor/edgeFor return the default card surface
+/** Inbox and root deliberately have no folder hue marker. */
+const INBOX_NEUTRAL = "";
 
 /** Hash a string into one of the preset hues (stable color per folder path). */
 function hueFor(path: string): number {
@@ -68,21 +68,4 @@ export function toString(l: number, c: number, h: number): string {
 
 export function isValidOklch(s: string): boolean {
   return s.length === 0 || /^oklch\(/i.test(s);
-}
-
-/**
- * Post-it paper fill: the memo color mixed toward the card surface so the
- * card reads as colored paper — a clear pastel in light mode, a muted tint
- * in dark. Mixed at 60% (not a faint wash) so the picked color actually
- * reads, and the ColorPicker swatches preview this exact value (WYSIWYG).
- */
-export function paperFor(color: string): string {
-  if (!color) return "var(--color-surface-raised)";
-  return `color-mix(in oklch, ${color} 60%, var(--color-surface-raised))`;
-}
-
-/** Card edge: more saturated than the fill (80%) for clear definition. */
-export function edgeFor(color: string): string {
-  if (!color) return "var(--color-line)";
-  return `color-mix(in oklch, ${color} 80%, var(--color-line))`;
 }

@@ -1,8 +1,6 @@
 /**
- * 캡처 입력창 셸 — 보더리스 유리 캡슐, 단일 auto-grow 입력,
- * 폴더 칩은 입력 위, `/` 슬래시 메뉴도 입력 위 부양. 키보드 전용
- * (버튼 없음) — `Enter` 저장 · `Shift+Enter` 줄바꿈 · `Esc` 닫기 ·
- * `/` 폴더 선택.
+ * Fast capture shell. A neutral, keyboard-first input keeps the captured
+ * thought primary; a selected folder carries its hue only in the compact chip.
  */
 import {
   type Ref,
@@ -15,7 +13,7 @@ import {
 } from "react";
 import { Folder, FolderPlus, X } from "lucide-react";
 
-import { colorForFolder, paperFor } from "../lib/color";
+import { colorForFolder } from "../lib/color";
 import { createFolder } from "../lib/api";
 import type { FolderEntry } from "../lib/types";
 
@@ -43,7 +41,6 @@ function SlashFolderMenu({
   filtered,
   isNew,
   sel,
-  onSelChange,
   onSelect,
   onCreate,
 }: {
@@ -51,7 +48,6 @@ function SlashFolderMenu({
   filtered: FolderEntry[];
   isNew: boolean;
   sel: number;
-  onSelChange: (i: number) => void;
   onSelect: (path: string) => void;
   onCreate: (path: string) => void;
 }) {
@@ -62,7 +58,6 @@ function SlashFolderMenu({
           key={f.path || "(root)"}
           className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-text ${i === sel ? "bg-surface-muted" : ""}`}
           onClick={() => onSelect(f.path)}
-          onMouseEnter={() => onSelChange(i)}
         >
           <Folder size={14} className="shrink-0 text-text-subtle" />
           <span className="truncate">{f.path || "(root)"}</span>
@@ -73,7 +68,6 @@ function SlashFolderMenu({
         <button
           className={`mt-0.5 flex w-full items-center gap-2 rounded-md border-t border-line px-2.5 py-1.5 text-left text-sm text-hue-purple ${filtered.length === sel ? "bg-surface-muted" : ""}`}
           onClick={() => onCreate(query)}
-          onMouseEnter={() => onSelChange(filtered.length)}
         >
           <FolderPlus size={14} />
           <span className="truncate">'{query}' 만들기</span>
@@ -92,18 +86,23 @@ function FolderChip({
 }) {
   const color = colorForFolder(path);
   return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-text-inverse"
-      style={{ backgroundColor: color }}
-    >
-      <Folder size={11} />
+    <span className="inline-flex items-center gap-1 rounded-[var(--tag-radius)] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text">
+      {color && (
+        <span
+          aria-hidden
+          className="size-1.5 rounded-[2px]"
+          style={{ backgroundColor: color }}
+        />
+      )}
+      <Folder size={11} className="text-text-subtle" />
       {path || "(root)"}
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           onDismiss();
         }}
-        className="ml-0.5 text-text-inverse/70 hover:text-text-inverse"
+        className="ml-0.5 text-text-subtle transition-colors duration-150 hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
       >
         <X size={11} />
       </button>
@@ -231,17 +230,7 @@ export function QuickCaptureForm({
 
   return (
     <div className={cx("flex w-full flex-col", className)}>
-      <div
-        className={cx(
-          "relative rounded-2xl px-3 py-2.5 shadow-md ring-1 ring-line backdrop-blur-xl transition-colors",
-          folder ? undefined : "bg-surface-raised/70",
-        )}
-        style={
-          folder
-            ? { backgroundColor: paperFor(colorForFolder(folder)) }
-            : undefined
-        }
-      >
+      <div className="relative rounded-[var(--popover-radius)] bg-surface-raised px-3 py-2.5 shadow-[var(--input-shadow)] transition-shadow duration-150 focus-within:shadow-[var(--input-shadow-focus)]">
         {folder && (
           <div className="mb-1.5 flex items-center gap-1">
             <FolderChip path={folder} onDismiss={() => onFolderChange("")} />
@@ -254,21 +243,19 @@ export function QuickCaptureForm({
               filtered={filtered}
               isNew={isNew}
               sel={sel}
-              onSelChange={setSel}
               onSelect={handleSlashSelect}
               onCreate={handleSlashCreate}
             />
           )}
           <textarea
             ref={setRef}
-            value={body}
             onChange={(e) => handleChange(e.target.value)}
             spellCheck={false}
             rows={1}
             {...bodyProps}
             onKeyDown={handleKeyDown}
             className={cx(
-              "block w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-relaxed text-text placeholder:text-text-subtle focus:outline-none focus:ring-0",
+              "block w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-relaxed text-text placeholder:text-text-subtle focus:outline-none",
               "min-h-[1.5rem] max-h-[7.5rem] overflow-y-auto",
               bodyClassName,
             )}

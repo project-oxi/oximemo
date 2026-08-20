@@ -1,8 +1,8 @@
 /**
- * MemoDetail 전용 편집 폼 (§4.3). 본문은 atomic-editor 기반
- * `MarkdownEditor`, 추출된 `#태그`는 `TagChipRow`, 하단에 컬러 + 완료.
+ * MemoDetail 전용 편집 폼. 본문은 atomic-editor 기반 `MarkdownEditor`,
+ * 추출된 `#태그`와 폴더·이미지 보조 제어만 제공한다.
  */
-import { Check, Image as ImageIcon } from "lucide-react";
+import { Image as ImageIcon } from "lucide-react";
 import { type Ref, useEffect, useMemo, useRef } from "react";
 
 import { createFolder } from "../lib/api";
@@ -28,11 +28,6 @@ export interface MemoEditorFormProps {
   folder: string;
   onFolderChange: (f: string) => void;
   folders: FolderEntry[];
-  /** Primary action — "done" in MemoDetail. */
-  onConfirm: () => void;
-  confirmLabel: string;
-  confirmDisabled?: boolean;
-  confirmKbd?: string;
   folderPickerRef?: Ref<FolderComboboxHandle>;
   className?: string;
   immersive?: boolean;
@@ -45,10 +40,6 @@ export function MemoEditorForm({
   folder,
   onFolderChange,
   folders,
-  onConfirm,
-  confirmLabel,
-  confirmDisabled,
-  confirmKbd,
   folderPickerRef,
   className,
   immersive,
@@ -115,7 +106,7 @@ export function MemoEditorForm({
           onClick={() => fileInputRef.current?.click()}
           aria-label={t.insert_image}
           title={`${t.insert_image} (⌘I)`}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-line text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--button-radius)] text-text-subtle shadow-[var(--input-shadow)] transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
         >
           <ImageIcon size={15} />
         </button>
@@ -130,25 +121,6 @@ export function MemoEditorForm({
             e.target.value = "";
           }}
         />
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={confirmDisabled}
-          aria-label={confirmLabel}
-          title={confirmLabel}
-          className="group ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-interactive-primary px-2 text-interactive-primary-foreground shadow-sm transition-all hover:bg-interactive-primary/90 active:scale-95 disabled:pointer-events-none disabled:opacity-40"
-        >
-          <Check
-            size={15}
-            strokeWidth={2.5}
-            className="transition-transform group-hover:scale-110"
-          />
-          {confirmKbd && (
-            <kbd className="font-mono text-[10px] leading-none text-interactive-primary-foreground/60">
-              {confirmKbd}
-            </kbd>
-          )}
-        </button>
       </div>
     </div>
   );
