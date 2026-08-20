@@ -15,6 +15,12 @@ interface UIState {
   /** Per-folder view mode override (folder sidebar view switcher). */
   noteView: ViewMode;
   setNoteView: (v: ViewMode) => void;
+  /** Search scope. "folder" limits results to the active folder; "all"
+   * searches the whole vault. */
+  searchScope: "folder" | "all";
+  setSearchScope: (s: "folder" | "all") => void;
+  /** Step up one folder in the browse tree. No-op in query mode or at root. */
+  navigateUp: () => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
   selectedId: string | null;
@@ -26,7 +32,8 @@ interface UIState {
   /** AND over the include set when true, OR when false. */
   matchAll: boolean;
   toggleMatchAll: () => void;
-  /** Selected folder. `null` = all notes (entire vault). */
+  /** Active folder. `null` = query mode (smart collection, "모든 노트");
+   * `""` = vault root browse; other strings = folder browse. */
   folderFilter: string | null;
   setFolderFilter: (f: string | null) => void;
   clearFolderFilter: () => void;
@@ -51,9 +58,20 @@ interface UIState {
 }
 
 const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
+const QUERY_VIEW_KEY = "oximemo.queryView";
+
 function loadCollapsed(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(COLLAPSED_KEY) === "1";
+}
+
+/** Persisted view mode for the query-mode ("모든 노트") smart collection.
+ * Folder browse reads/writes the per-folder pin from the backend config
+ * instead; this only covers the folder-less query case. */
+export function loadQueryView(): ViewMode {
+  if (typeof window === "undefined") return "grid";
+  const v = window.localStorage.getItem(QUERY_VIEW_KEY);
+  return v === "list" || v === "timeline" || v === "graph" ? v : "grid";
 }
 
 export const useUI = create<UIState>((set) => ({
@@ -61,8 +79,21 @@ export const useUI = create<UIState>((set) => ({
   setSearch: (s) => set({ search: s }),
   view: "memos",
   setView: (v) => set({ view: v }),
-  noteView: "grid",
-  setNoteView: (v) => set({ noteView: v }),
+  noteView: loadQueryView(),
+  setNoteView: (v) => {
+    set({ noteView: v });
+    if (typeof window !== "undefined" && useUI.getState().folderFilter === null) {
+      window.localStorage.setItem(QUERY_VIEW_KEY, v);
+    }
+  },
+  searchScope: "folder",
+  setSearchScope: (s) => set({ searchScope: s }),
+  navigateUp: () => {
+    const cur = useUI.getState().folderFilter;
+    if (cur === null || cur === "") return;
+    const next = cur.includes("/") ? cur.slice(0, cur.lastIndexOf("/")) : "";
+    set({ folderFilter: next });
+  },
   theme: loadTheme(),
   setTheme: (t) => set({ theme: t }),
   selectedId: null,
@@ -80,7 +111,8 @@ export const useUI = create<UIState>((set) => ({
   clearTagFilter: () => set({ tagFilter: {} }),
   matchAll: true,
   toggleMatchAll: () => set((s) => ({ matchAll: !s.matchAll })),
-  folderFilter: null,
+  /** `null` = query mode; `""` = vault root browse; path = folder browse. */
+  folderFilter: "" as string | null,
   setFolderFilter: (f) => set({ folderFilter: f }),
   clearFolderFilter: () => set({ folderFilter: null }),
   favoritesOnly: false,

@@ -26,7 +26,7 @@ import {
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
-import { useUI } from "../stores/ui";
+import { useUI, loadQueryView } from "../stores/ui";
 import type { MemoSummary, ViewMode } from "../lib/types";
 
 import { MemoDetail } from "./MemoDetail";
@@ -94,18 +94,28 @@ export function CardGrid() {
     return () => window.clearTimeout(h);
   }, [localSearch]);
 
-  // Sync locked view from config when the folder filter changes.
+  // Sync locked view from config when the folder filter changes. In query
+  // mode (folderFilter === null) there is no per-folder pin — restore the
+  // view from the persisted localStorage slot instead.
   useEffect(() => {
-    const def = configQ.data?.folders?.find((f) => f.path === (folderFilter ?? ""));
+    if (folderFilter === null) {
+      setNoteView(loadQueryView());
+      return;
+    }
+    const def = configQ.data?.folders?.find((f) => f.path === folderFilter);
     if (def?.view) setNoteView(def.view);
   }, [folderFilter, configQ.data, setNoteView]);
 
   const setNoteViewLocked = useCallback(
     (v: ViewMode) => {
       setNoteView(v);
-      // Switching the view pins it for the current context (folder, or the
-      // "" root entry when browsing all memos).
-      void setFolderView(folderFilter ?? "", v)
+      if (folderFilter === null) {
+        // Query mode: persistence already happened in setNoteView (localStorage
+        // oximemo.queryView). No per-folder pin exists for the smart
+        // collection, so skip the IPC roundtrip entirely.
+        return;
+      }
+      void setFolderView(folderFilter, v)
         .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
         .catch((e) => setToast(String(e).split("\n")[0]));
     },
@@ -121,6 +131,7 @@ export function CardGrid() {
         match_all: matchAll,
         folder: folderFilter,
         favorites_only: favoritesOnly,
+        immediate: folderFilter !== null,
       }),
     initialPageParam: null as string | null,
     refetchOnWindowFocus: true,
@@ -268,14 +279,32 @@ export function CardGrid() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // ⌘N / CtrlN — new note in current folder.
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         onNewNote();
+        return;
+      }
+      // ⌘↑ / Ctrl↑ — navigate up one folder (no-op in query mode or at root).
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "ArrowUp") {
+        e.preventDefault();
+        useUI.getState().navigateUp();
+        return;
+      }
+      // Escape — clear the current search box only. Does NOT navigate; the
+      // dialog/capture handlers below manage their own Escape behaviour.
+      if (e.key === "Escape") {
+        if (useUI.getState().selectedId) return;
+        if (localSearch === "") return;
+        e.preventDefault();
+        setLocalSearch("");
+        setDebounced("");
+        setSearch("");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onNewNote]);
+  }, [onNewNote, localSearch, setSearch]);
 
   const sidebarToggle = (
     <div className="fixed left-[82px] top-0 z-30 flex h-12 items-center">
@@ -291,9 +320,11 @@ export function CardGrid() {
   );
 
   const folders = configQ.data?.folders ?? [];
-  const isLocked = folderFilter !== null
-    ? !!folders.find((f) => f.path === folderFilter)?.view
-    : !!folders.find((f) => f.path === "")?.view;
+  // The lock only applies to per-folder pins; the query-mode smart
+  // collection does not have a backend pin to read.
+  const isLocked =
+    folderFilter !== null &&
+    !!folders.find((f) => f.path === folderFilter)?.view;
 
   const viewSwitcher = (
     <div
@@ -316,24 +347,26 @@ export function CardGrid() {
           {v}
         </button>
       ))}
-      <button
-        type="button"
-        onClick={() => {
-          void setFolderView(folderFilter ?? "", null)
-            .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-            .catch((e) => setToast(String(e).split("\n")[0]));
-        }}
-        title={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
-        aria-label={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
-        aria-pressed={isLocked}
-        className={`ml-1 inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
-          isLocked
-            ? "text-hue-amber hover:bg-hue-amber/15"
-            : "text-text-subtle hover:bg-surface-muted hover:text-text"
-        }`}
-      >
-        {isLocked ? <Lock size={11} /> : <LockOpen size={11} />}
-      </button>
+      {folderFilter !== null && (
+        <button
+          type="button"
+          onClick={() => {
+            void setFolderView(folderFilter, null)
+              .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+              .catch((e) => setToast(String(e).split("\n")[0]));
+          }}
+          title={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
+          aria-label={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
+          aria-pressed={isLocked}
+          className={`ml-1 inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
+            isLocked
+              ? "text-hue-amber hover:bg-hue-amber/15"
+              : "text-text-subtle hover:bg-surface-muted hover:text-text"
+          }`}
+        >
+          {isLocked ? <Lock size={11} /> : <LockOpen size={11} />}
+        </button>
+      )}
     </div>
   );
 
