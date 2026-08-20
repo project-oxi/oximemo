@@ -24,6 +24,8 @@ import {
   HardDrive,
   Info,
   Palette,
+  Pin,
+  PinOff,
   Plus,
   RefreshCw,
   Settings,
@@ -50,7 +52,9 @@ import {
   memoStats,
   reindex,
   resetVault,
+  restoreNotes,
   setAppearanceConfig,
+  setFolderPinned,
   setBrainConfig,
   setCaptureConfig,
   setGeneralConfig,
@@ -406,8 +410,11 @@ function AdvancedSection() {
   );
 }
 
-/** Folder management section: list, create, delete folders from the
- *  vault. Wired to the IPC bridge defined in `lib/api.ts`. */
+/** Folder management section: list, create, pin, delete folders from the
+ *  vault. Wired to the IPC bridge defined in `lib/api.ts`. Delete trashes
+ *  the folder's live notes (no more note_count guard) and offers undo via
+ *  restoreNotes; the button uses the same two-click arm as the reset row
+ *  because window.confirm no-ops in Tauri's WKWebView. */
 function FoldersSection() {
   const { t } = useI18n();
   const qc = useQueryClient();
@@ -416,15 +423,20 @@ function FoldersSection() {
   const setFolderFilter = useUI((s) => s.setFolderFilter);
 
   const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
+  const configQ = useQuery({ queryKey: ["config"], queryFn: getConfig });
   // Manage real folders only; the vault root (`path: ""`) is not a folder
   // and can neither be deleted nor filtered meaningfully.
   const list = (foldersQ.data ?? []).filter((f) => f.path !== "");
 
   const [newPath, setNewPath] = useState("");
   const newInputRef = useRef<HTMLInputElement>(null);
+  const [armedPath, setArmedPath] = useState<string | null>(null);
+  const armTimer = useRef<number | null>(null);
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["folders"] });
+    qc.invalidateQueries({ queryKey: ["folderChildren"] });
+    qc.invalidateQueries({ queryKey: ["config"] });
     qc.invalidateQueries({ queryKey: ["facets"] });
     qc.invalidateQueries({ queryKey: ["memos"] });
   };
@@ -442,14 +454,50 @@ function FoldersSection() {
     }
   };
 
-  const onDelete = async (path: string) => {
-    try {
-      await deleteFolder(path);
-      invalidateAll();
-      setToast(`Folder '${path}' deleted`);
-    } catch (e) {
-      setError(String(e).split("\n")[0]);
+  const disarm = () => {
+    setArmedPath(null);
+    if (armTimer.current) {
+      window.clearTimeout(armTimer.current);
+      armTimer.current = null;
     }
+  };
+
+  const onDeleteClick = (path: string) => {
+    if (armedPath !== path) {
+      // Two-click confirm: first click arms (red, confirm label), second
+      // within 4s commits — window.confirm is unreliable in the WKWebView.
+      disarm();
+      setArmedPath(path);
+      armTimer.current = window.setTimeout(disarm, 4000);
+      return;
+    }
+    disarm();
+    void deleteFolder(path)
+      .then((ids) => {
+        invalidateAll();
+        setToast(
+          t.folder_deleted.replace("{folder}", path.split("/").at(-1) ?? path),
+          {
+            label: t.undo,
+            onClick: () => {
+              void restoreNotes(ids)
+                .then(() => {
+                  if (ids.length === 0) void createFolder(path); // folder had no notes
+                  qc.invalidateQueries({ queryKey: ["folderChildren"] });
+                  qc.invalidateQueries({ queryKey: ["folders"] });
+                })
+                .catch((e) => setError(String(e).split("\n")[0]));
+            },
+          },
+        );
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+
+  const onTogglePin = (path: string, pinned: boolean) => {
+    void setFolderPinned(path, pinned)
+      .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+      .catch((e) => setError(String(e).split("\n")[0]));
   };
 
   return (
@@ -459,32 +507,58 @@ function FoldersSection() {
           …
         </p>
       )}
-      {list.map((f: FolderEntry) => (
-        <div
-          key={f.path}
-          className="group flex items-center gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5"
-        >
-          <Folder size={14} className="shrink-0 text-text-subtle" />
-          <button
-            type="button"
-            onClick={() => setFolderFilter(f.path)}
-            className="min-w-0 flex-1 truncate text-left text-xs text-text-muted hover:text-text"
+      {list.map((f: FolderEntry) => {
+        const pinned = configQ.data?.folders?.find((d) => d.path === f.path)?.pinned ?? false;
+        const armed = armedPath === f.path;
+        return (
+          <div
+            key={f.path}
+            className="group flex items-center gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5"
           >
-            {f.path}
-          </button>
-          <span className="text-[10px] text-text-subtle">{f.note_count}</span>
-          <button
-            type="button"
-            onClick={() => void onDelete(f.path)}
-            disabled={f.note_count > 0}
-            aria-label={t.action_delete}
-            title={f.note_count > 0 ? "Folder has notes — empty it first" : t.action_delete}
-            className="rounded-md p-1 text-text-subtle transition-colors hover:bg-status-error-subtle hover:text-status-error disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <Trash2 size={12} />
-          </button>
-        </div>
-      ))}
+            <Folder size={14} className="shrink-0 text-text-subtle" />
+            <button
+              type="button"
+              onClick={() => setFolderFilter(f.path)}
+              className="min-w-0 flex-1 truncate text-left text-xs text-text-muted hover:text-text"
+            >
+              {f.path}
+            </button>
+            <span className="text-[10px] text-text-subtle">{f.note_count}</span>
+            <button
+              type="button"
+              onClick={() => onTogglePin(f.path, !pinned)}
+              aria-label={pinned ? t.unpin_from_sidebar : t.pin_to_sidebar}
+              title={pinned ? t.unpin_from_sidebar : t.pin_to_sidebar}
+              className={`rounded-md p-1 transition-colors ${
+                pinned
+                  ? "text-hue-amber hover:bg-surface-muted"
+                  : "text-text-subtle hover:bg-surface-muted hover:text-text"
+              }`}
+            >
+              {pinned ? <Pin size={12} className="fill-hue-amber" /> : <PinOff size={12} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDeleteClick(f.path)}
+              aria-label={armed ? t.delete_confirm_arm : t.action_delete}
+              title={
+                armed
+                  ? t.delete_folder_confirm
+                      .replace("{folder}", f.path)
+                      .replace("{n}", String(f.note_count))
+                  : t.action_delete
+              }
+              className={`rounded-md p-1 transition-colors ${
+                armed
+                  ? "bg-status-error-subtle text-status-error"
+                  : "text-text-subtle hover:bg-status-error-subtle hover:text-status-error"
+              }`}
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        );
+      })}
       <div className="flex items-center gap-2 rounded-lg border border-dashed border-line px-2.5 py-1.5">
         <input
           ref={newInputRef}

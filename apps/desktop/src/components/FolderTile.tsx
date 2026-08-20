@@ -2,22 +2,104 @@
  * FolderTile — a 176px content-peek tile per the approved mockup C (§4.3).
  * Renders in the grid cell array ahead of note cards; opening the tile
  * navigates into the folder via the same store action the breadcrumb uses.
+ *
+ * FolderCtxMenu (exported) is the shared folder context menu — open, rename,
+ * sidebar pin, and the two-click armed delete — used by both the tile and
+ * the List view's folder rows (M20: 폴더 콘텍스트 타일·행 공통).
  */
-import { Folder, Plus } from "lucide-react";
+import { Folder, FolderOpen, PenLine, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
 
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { relativeTime } from "../lib/time";
 import type { FolderCard, FolderDef } from "../lib/types";
 
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
+
+/** A naming session: which folder is being (re)named, and whether it was
+ *  just created (cancel then DELETES the brand-new folder — T10's
+ *  existing-folder cancel is a no-op instead). */
+export interface NamingSession {
+  path: string;
+  isNew: boolean;
+}
+
+/** Shared folder context menu. The two-click delete arm lives in this
+ *  component's state: first click on 삭제… swaps the label to 삭제 확인
+ *  (danger styling + confirm wording as tooltip), the next click — in the
+ *  same menu session or after a re-open — commits. window.confirm is
+ *  unreliable in Tauri's WKWebView (see SettingsMenu's reset arm). */
+export function FolderCtxMenu({
+  path,
+  deep,
+  pinned,
+  onOpen,
+  onRename,
+  onTogglePin,
+  onDelete,
+}: {
+  path: string;
+  /** Recursive note count — powers the confirm wording and the commit. */
+  deep: number;
+  pinned: boolean;
+  onOpen: (path: string) => void;
+  onRename: (path: string) => void;
+  onTogglePin: (path: string, pinned: boolean) => void;
+  onDelete: (path: string, deep: number, confirmed: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const [armed, setArmed] = useState(false);
+  const name = path.split("/").at(-1) ?? path;
+  return (
+    <CtxMenu>
+      <CtxItem icon={FolderOpen} label={t.folder_open} onClick={() => onOpen(path)} />
+      <CtxSeparator />
+      <CtxItem icon={PenLine} label={t.rename_folder} onClick={() => onRename(path)} />
+      <CtxItem
+        icon={pinned ? PinOff : Pin}
+        label={pinned ? t.unpin_from_sidebar : t.pin_to_sidebar}
+        onClick={() => onTogglePin(path, !pinned)}
+      />
+      <CtxSeparator />
+      {armed ? (
+        <CtxItem
+          icon={Trash2}
+          label={t.delete_confirm_arm}
+          danger
+          title={t.delete_folder_confirm
+            .replace("{folder}", name)
+            .replace("{n}", String(deep))}
+          onClick={() => {
+            setArmed(false);
+            onDelete(path, deep, true);
+          }}
+        />
+      ) : (
+        <CtxItem
+          icon={Trash2}
+          label={t.delete_folder_action}
+          danger
+          onClick={() => setArmed(true)}
+        />
+      )}
+    </CtxMenu>
+  );
+}
+
 interface Props {
   card: FolderCard;
   folders: FolderDef[];
+  /** Current sidebar pin state for this folder (from config's FolderDef). */
+  pinned: boolean;
   onOpen: (path: string) => void;
   onOpenNote: (id: string) => void;
   onNewNote: (path: string) => void;
-  /** Path of a folder whose name is being edited (inline rename). */
-  namingPath: string | null;
+  onRename: (path: string) => void;
+  onTogglePin: (path: string, pinned: boolean) => void;
+  onDelete: (path: string, deep: number, confirmed: boolean) => void;
+  /** Naming session of the folder being edited (inline rename/create). */
+  namingPath: NamingSession | null;
   /** null = cancelled (Esc) → caller handles teardown; string = confirm (rename if changed). */
   onNameCommit: (value: string | null) => void;
 }
@@ -25,31 +107,40 @@ interface Props {
 export function FolderTile({
   card,
   folders,
+  pinned,
   onOpen,
   onOpenNote,
   onNewNote,
+  onRename,
+  onTogglePin,
+  onDelete,
   namingPath,
   onNameCommit,
 }: Props) {
   const { t, locale } = useI18n();
   const color = colorForFolder(card.path, folders);
-  const naming = namingPath === card.path;
+  const naming = namingPath?.path === card.path;
   return (
-    <article
-      data-folder-tile={card.path}
-      role="button"
-      aria-label={card.path}
-      tabIndex={0}
-      onClick={() => {
-        if (naming) return;
-        onOpen(card.path);
-      }}
-      onKeyDown={(e) => {
-        if (naming) return;
-        if (e.key === "Enter") onOpen(card.path);
-      }}
-      className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-[var(--folder-tile-bg)] p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm"
-    >
+    <CtxRoot>
+      <CtxTrigger
+        render={
+          <article
+            data-folder-tile={card.path}
+            role="button"
+            aria-label={card.path}
+            tabIndex={0}
+            onClick={() => {
+              if (naming) return;
+              onOpen(card.path);
+            }}
+            onKeyDown={(e) => {
+              if (naming) return;
+              if (e.key === "Enter") onOpen(card.path);
+            }}
+            className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-[var(--folder-tile-bg)] p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm"
+          />
+        }
+      >
       <span
         aria-hidden
         className="absolute left-4 top-0 h-[3px] w-7 rounded-b-[3px]"
@@ -121,6 +212,16 @@ export function FolderTile({
         {card.subfolder_count > 0 && <span>·</span>}
         <span>{card.recent[0] ? relativeTime(card.recent[0].updated_at, locale) : ""}</span>
       </div>
-    </article>
+        <FolderCtxMenu
+          path={card.path}
+          deep={card.note_count_deep}
+          pinned={pinned}
+          onOpen={onOpen}
+          onRename={onRename}
+          onTogglePin={onTogglePin}
+          onDelete={onDelete}
+        />
+      </CtxTrigger>
+    </CtxRoot>
   );
 }

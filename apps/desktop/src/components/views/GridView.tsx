@@ -8,7 +8,7 @@
 import type { Virtualizer } from "@tanstack/react-virtual";
 
 import { Card } from "../Card";
-import { FolderTile } from "../FolderTile";
+import { FolderTile, type NamingSession } from "../FolderTile";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
 export type Cell =
@@ -28,11 +28,13 @@ interface Props {
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
   onNewNoteIn: (folder: string) => void;
-  /** Path of a folder whose name is being edited (inline rename). */
-  namingPath: string | null;
+  onRenameFolder: (path: string) => void;
+  onToggleFolderPin: (path: string, pinned: boolean) => void;
+  /** Naming session of the folder being edited (inline rename/create). */
+  namingPath: NamingSession | null;
   /** null = cancelled (Esc) → caller handles teardown; string = confirm (rename if changed). */
   onNameCommit: (value: string | null) => void;
-  /** Delete folder (trash + undo toast); context menu lands in Task 12. */
+  /** Delete folder (trash + undo toast); armed confirm lives in FolderCtxMenu. */
   onDeleteFolder: (path: string, deep: number, confirmed?: boolean) => void;
 }
 
@@ -52,8 +54,11 @@ export function GridView({
   onCopyBody,
   onDelete,
   onNewNoteIn,
+  onRenameFolder,
+  onToggleFolderPin,
   namingPath,
   onNameCommit,
+  onDeleteFolder,
 }: Props) {
   const rowCount = Math.ceil(cells.length / cols);
   return (
@@ -86,9 +91,13 @@ export function GridView({
                     key={`f:${cell.card.path}`}
                     card={cell.card}
                     folders={folders}
+                    pinned={folders.find((f) => f.path === cell.card.path)?.pinned ?? false}
                     onOpen={onOpenFolder}
                     onOpenNote={onSelect}
                     onNewNote={onNewNoteIn}
+                    onRename={onRenameFolder}
+                    onTogglePin={onToggleFolderPin}
+                    onDelete={onDeleteFolder}
                     namingPath={namingPath}
                     onNameCommit={onNameCommit}
                   />

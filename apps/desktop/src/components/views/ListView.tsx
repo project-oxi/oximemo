@@ -6,6 +6,10 @@
  * subfolders appear as rows above the notes, mirroring the FolderTile layer
  * in the grid view. Each row carries `data-folder-row` for the eventual
  * drag-target hook (Task 14).
+ *
+ * M20: every row is a context-menu trigger — note rows share NoteCtxMenu
+ * with the grid Card, folder rows share FolderCtxMenu with the FolderTile
+ * (open / rename / pin / armed delete + inline rename input).
  */
 import { Folder, Star } from "lucide-react";
 
@@ -13,6 +17,10 @@ import { colorForFolder } from "../../lib/color";
 import { useI18n } from "../../lib/i18n";
 import { relativeTime } from "../../lib/time";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
+
+import { CtxRoot, CtxTrigger } from "../ContextMenu";
+import { FolderCtxMenu, type NamingSession } from "../FolderTile";
+import { NoteCtxMenu } from "../NoteCtxMenu";
 
 interface Props {
   items: MemoSummary[];
@@ -26,84 +34,153 @@ interface Props {
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
   onNewNote?: () => void;
+  onRenameFolder: (path: string) => void;
+  onToggleFolderPin: (path: string, pinned: boolean) => void;
+  onDeleteFolder: (path: string, deep: number, confirmed?: boolean) => void;
+  namingPath: NamingSession | null;
+  onNameCommit: (value: string | null) => void;
 }
 
 export function ListView({
   items,
   folders,
+  folderEntries,
   folderCards,
   onOpenFolder,
   onSelect,
   onToggleFavorite,
+  onMoveFolder,
+  onCopyBody,
+  onDelete,
+  onRenameFolder,
+  onToggleFolderPin,
+  onDeleteFolder,
+  namingPath,
+  onNameCommit,
 }: Props) {
   const { t, locale } = useI18n();
   return (
     <ul className="divide-y divide-line">
-      {folderCards.map((f) => (
-        <li
-          key={f.path}
-          data-folder-row={f.path}
-          onClick={() => onOpenFolder(f.path)}
-          className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-surface-muted"
-        >
-          <Folder size={13} style={{ color: colorForFolder(f.path, folders) }} />
-          <span className="text-sm font-semibold text-text">{f.path.split("/").at(-1)}</span>
-          <span className="text-xs text-text-subtle">
-            {t.folder_notes.replace("{n}", String(f.note_count_deep))}
-            {f.subfolder_count > 0
-              ? ` · ${t.folder_subfolders.replace("{n}", String(f.subfolder_count))}`
-              : ""}
-          </span>
-          <span className="ml-auto text-text-subtle">›</span>
-        </li>
-      ))}
-      {items.map((n) => (
-        <li
-          key={n.id}
-          className="group flex cursor-pointer items-baseline gap-3 px-3 py-2.5 transition-colors hover:bg-surface-muted"
-          onClick={() => onSelect(n.id)}
-        >
-          <button
-            type="button"
-            aria-label={n.favorite ? t.action_unfavorite : t.action_favorite}
-            className={`shrink-0 self-center rounded-md p-1 transition-colors duration-150 ${
-              n.favorite
-                ? "text-hue-amber"
-                : "text-text-subtle hover:bg-surface-muted hover:text-hue-amber"
-            }`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFavorite(n.id, n.favorite);
-            }}
-          >
-            <Star size={13} className={n.favorite ? "fill-hue-amber" : undefined} />
-          </button>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
-              {n.title ? (
-                <span className="truncate text-sm font-semibold text-text">{n.title}</span>
-              ) : (
-                <span className="truncate text-sm text-text-subtle">{t.empty_memo}</span>
-              )}
-              {n.folder && (
-                <span className="shrink-0 font-mono text-[10px] text-text-subtle">
-                  {n.folder}/
-                </span>
-              )}
-            </div>
-            <div className="mt-0.5 line-clamp-1 text-xs text-text-subtle">{n.preview || ""}</div>
-          </div>
-          <div className="flex shrink-0 items-baseline gap-2 text-[11px] text-text-subtle">
-            {n.tags.slice(0, 3).map((tag) => (
-              <span
-                key={tag}
-                className="rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-text-muted"
+      {folderCards.map((f) => {
+        const naming = namingPath?.path === f.path;
+        return (
+          <li key={f.path} data-folder-row={f.path}>
+            <CtxRoot>
+              <CtxTrigger
+                render={
+                  <div
+                    onClick={() => {
+                      if (!naming) onOpenFolder(f.path);
+                    }}
+                    className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-surface-muted"
+                  />
+                }
               >
-                #{tag}
-              </span>
-            ))}
-            <span className="w-16 text-right tabular-nums">{relativeTime(n.updated_at, locale)}</span>
-          </div>
+                <Folder size={13} style={{ color: colorForFolder(f.path, folders) }} />
+                {naming ? (
+                  <input
+                    autoFocus
+                    defaultValue={f.path.split("/").at(-1) ?? ""}
+                    onFocus={(e) => e.currentTarget.select()}
+                    ref={(el) => el?.select()}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={(e) => onNameCommit(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter") onNameCommit(e.currentTarget.value);
+                      else if (e.key === "Escape") onNameCommit(null);
+                    }}
+                    style={{ boxShadow: "none" }}
+                    className="min-w-0 flex-1 rounded-md bg-transparent px-1 py-0 text-sm font-semibold text-text outline-none"
+                  />
+                ) : (
+                  <span className="text-sm font-semibold text-text">
+                    {f.path.split("/").at(-1)}
+                  </span>
+                )}
+                <span className="text-xs text-text-subtle">
+                  {t.folder_notes.replace("{n}", String(f.note_count_deep))}
+                  {f.subfolder_count > 0
+                    ? ` · ${t.folder_subfolders.replace("{n}", String(f.subfolder_count))}`
+                    : ""}
+                </span>
+                <span className="ml-auto text-text-subtle">›</span>
+                <FolderCtxMenu
+                  path={f.path}
+                  deep={f.note_count_deep}
+                  pinned={folders.find((d) => d.path === f.path)?.pinned ?? false}
+                  onOpen={onOpenFolder}
+                  onRename={onRenameFolder}
+                  onTogglePin={onToggleFolderPin}
+                  onDelete={onDeleteFolder}
+                />
+              </CtxTrigger>
+            </CtxRoot>
+          </li>
+        );
+      })}
+      {items.map((n) => (
+        <li key={n.id}>
+          <CtxRoot>
+            <CtxTrigger
+              render={
+                <div
+                  className="group flex cursor-pointer items-baseline gap-3 px-3 py-2.5 transition-colors hover:bg-surface-muted"
+                  onClick={() => onSelect(n.id)}
+                />
+              }
+            >
+              <button
+                type="button"
+                aria-label={n.favorite ? t.action_unfavorite : t.action_favorite}
+                className={`shrink-0 self-center rounded-md p-1 transition-colors duration-150 ${
+                  n.favorite
+                    ? "text-hue-amber"
+                    : "text-text-subtle hover:bg-surface-muted hover:text-hue-amber"
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleFavorite(n.id, n.favorite);
+                }}
+              >
+                <Star size={13} className={n.favorite ? "fill-hue-amber" : undefined} />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  {n.title ? (
+                    <span className="truncate text-sm font-semibold text-text">{n.title}</span>
+                  ) : (
+                    <span className="truncate text-sm text-text-subtle">{t.empty_memo}</span>
+                  )}
+                  {n.folder && (
+                    <span className="shrink-0 font-mono text-[10px] text-text-subtle">
+                      {n.folder}/
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 line-clamp-1 text-xs text-text-subtle">{n.preview || ""}</div>
+              </div>
+              <div className="flex shrink-0 items-baseline gap-2 text-[11px] text-text-subtle">
+                {n.tags.slice(0, 3).map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-text-muted"
+                  >
+                    #{tag}
+                  </span>
+                ))}
+                <span className="w-16 text-right tabular-nums">{relativeTime(n.updated_at, locale)}</span>
+              </div>
+              <NoteCtxMenu
+                memo={n}
+                folderEntries={folderEntries}
+                onToggleFavorite={onToggleFavorite}
+                onMoveFolder={onMoveFolder}
+                onCopyBody={onCopyBody}
+                onDelete={onDelete}
+              />
+            </CtxTrigger>
+          </CtxRoot>
         </li>
       ))}
     </ul>

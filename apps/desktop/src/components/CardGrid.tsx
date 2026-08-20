@@ -12,6 +12,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clock,
+  CodeXml,
+  FilePlus2,
+  FolderPlus,
   LayoutGrid,
   List,
   Lock,
@@ -37,6 +40,7 @@ import {
   moveNote,
   renameFolder,
   searchMemos,
+  setFolderPinned,
   setFolderView,
   updateMemo,
   restoreNotes,
@@ -47,7 +51,8 @@ import { useUI, loadQueryView } from "../stores/ui";
 import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
 
 import { MemoDetail } from "./MemoDetail";
-
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
+import type { NamingSession } from "./FolderTile";
 import { Sidebar } from "./Sidebar";
 import { GalleryView } from "./GalleryView";
 import { SettingsMenu } from "./SettingsMenu";
@@ -368,11 +373,27 @@ export function CardGrid() {
     [select, setDraftId, setError, qc],
   );
 
-  // Minimal folder-create flow for the FolderChipBar `＋ 새 폴더` chip
-  // (T8). Task 12 replaces this with the full inline-rename flow that
-  // follows Sidebar.tsx's pattern (input + commit on blur). Until then
-  // we create at the current location and refetch the folder listings
-  // so the new folder surfaces in the chip bar immediately.
+  // Inline naming session (Task 10 rename + Task 12 optimistic create).
+  // The folder being edited is mirrored into `namingPath` as a NamingSession
+  // — `isNew` distinguishes a just-created folder (cancel DELETES it, since
+  // nothing of value existed yet) from an existing one (cancel is a no-op).
+  // FolderTile and the List view's folder row render the naming input when
+  // the path matches. Activated by the folder context menu's 이름 변경 item
+  // and by startFolderCreate.
+  const [namingPath, setNamingPath] = useState<NamingSession | null>(null);
+  // Per-session commit latch: keyed by the path being named so a second
+  // rename started while the first IPC roundtrip is still pending isn't
+  // silently dropped. The latch releases when the session ends (success,
+  // cancel, or error) and resets whenever a new naming session begins
+  // for a different path.
+  const namingCommitRef = useRef<{ path: string | null }>({ path: null });
+
+  // Optimistic folder-create flow (Task 12): create `loc/t.folder_new` at
+  // the current browse location, then hand the fresh tile to the inline
+  // naming session with `isNew: true` — cancel (Esc/empty) tears the
+  // just-created folder down, a typed name renames it, Enter on the
+  // untouched default keeps it. The chip bar `＋ 새 폴더` chip and the
+  // empty-area context menu both route through here.
   const startFolderCreate = useCallback(() => {
     const loc = folderFilter ?? "";
     const def = loc ? `${loc}/${t.folder_new}` : t.folder_new;
@@ -380,19 +401,32 @@ export function CardGrid() {
       .then(() => {
         qc.invalidateQueries({ queryKey: ["folderChildren"] });
         qc.invalidateQueries({ queryKey: ["folders"] });
-        setToast(`+ ${def}`);
+        setNamingPath({ path: def, isNew: true });
       })
       .catch((e) => setError(String(e).split("\n")[0]));
-  }, [folderFilter, t.folder_new, qc, setToast, setError]);
+  }, [folderFilter, t.folder_new, qc, setError]);
+
+  // Folder context menu → inline rename of an EXISTING folder (cancel is
+  // then a no-op, unlike the optimistic-create cancel above).
+  const onRenameFolder = useCallback((path: string) => {
+    setNamingPath({ path, isNew: false });
+  }, []);
+
+  // Folder context menu / Settings pin toggle → oximemo.toml [[folders]].
+  const onToggleFolderPin = useCallback(
+    (path: string, pinned: boolean) => {
+      void setFolderPinned(path, pinned)
+        .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+        .catch((e) => setError(String(e).split("\n")[0]));
+    },
+    [qc, setError],
+  );
+
   // Folder delete with trash + undo (Task 11). Every live note under the
   // folder is trashed structure-preserving by the backend; the returned
-  // ids power the 실행 취소 action on the toast. Activation entry point
-  // (the tile/row context menu's "삭제…" item) lands in Task 12 — until
-  // then this handler is dormant, wired the same way namingPath was.
-  // A caller-confirmed delete (deep>0 requires `confirmed`; empty folders
-  // delete immediately). Confirmation is the context menu's job: the
-  // two-click arm (삭제… → 삭제 확인, wording from delete_folder_confirm)
-  // lands with Task 12 — window.confirm is unreliable in Tauri's
+  // ids power the 실행 취소 action on the toast. The tile/row context
+  // menu's two-click arm (삭제… → 삭제 확인, FolderCtxMenu) supplies the
+  // `confirmed` flag for deep>0 — window.confirm is unreliable in Tauri's
   // WKWebView, see SettingsMenu's reset arm for the same precedent.
   const onDeleteFolder = (path: string, deep: number, confirmed = false) => {
     if (deep > 0 && !confirmed) return;
@@ -406,6 +440,8 @@ export function CardGrid() {
             .then(() => {
               if (ids.length === 0) void createFolder(path); // folder had no notes
               qc.invalidateQueries({ queryKey: ["folderChildren"] });
+              qc.invalidateQueries({ queryKey: ["folders"] });
+              qc.invalidateQueries({ queryKey: ["config"] });
             })
             .catch((e) => setError(String(e).split("\n")[0]));
         };
@@ -419,23 +455,12 @@ export function CardGrid() {
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   };
-  // Inline rename flow for folder tiles (Task 10). The path of the folder
-  // being edited is mirrored into `namingPath`; FolderTile renders the
-  // naming input when its `card.path` matches. The activation entry point
-  // (the tile context menu's "Rename…" item) lands in Task 12 — until
-  // then `namingPath` is dormant and no UI surface sets it. The keyboard
-  // shortcut or a manual DevTools state edit can flip it for verification.
-  const [namingPath, setNamingPath] = useState<string | null>(null);
-  // Per-session commit latch: keyed by the path being named so a second
-  // rename started while the first IPC roundtrip is still pending isn't
-  // silently dropped. The latch releases when the session ends (success,
-  // cancel, or error) and resets whenever a new naming session begins
-  // for a different path.
-  const namingCommitRef = useRef<{ path: string | null }>({ path: null });
+
   const commitFolderName = useCallback(
     (value: string | null) => {
       if (!namingPath) return;
-      const from = namingPath;
+      const session = namingPath;
+      const from = session.path;
       // Per-session latch: only block re-fire within the SAME session
       // (Enter + blur on one input). A second naming session for a
       // different path during the first IPC roundtrip is allowed
@@ -444,22 +469,25 @@ export function CardGrid() {
       namingCommitRef.current.path = from;
       setNamingPath(null);
       const name = (value ?? "").trim();
-      // Cancelled (Esc) or emptied → no-op for inline rename; the original
-      // Sidebar pattern called deleteFolder on a just-created default name,
-      // but rename is initiated on an existing folder, so we never delete
-      // here. Tile mistakes get a clear UI signal — the user reopens the
-      // tile and starts over.
-      if (value === null || !name) {
-        namingCommitRef.current.path = null;
-        return;
-      }
-      const loc = folderFilter ?? "";
-      const to = loc ? `${loc}/${name}` : name;
       const invalidate = () => {
         qc.invalidateQueries({ queryKey: ["folderChildren"] });
         qc.invalidateQueries({ queryKey: ["folders"] });
         qc.invalidateQueries({ queryKey: ["config"] });
       };
+      // Cancelled (Esc) or emptied: a brand-new folder is torn down — it
+      // only ever held the default name, so deleteFolder is safe; an
+      // existing folder keeps its name (no-op) and the user retries.
+      if (value === null || !name) {
+        if (session.isNew) {
+          void deleteFolder(from)
+            .then(invalidate)
+            .catch((e) => setError(String(e).split("\n")[0]));
+        }
+        namingCommitRef.current.path = null;
+        return;
+      }
+      const loc = folderFilter ?? "";
+      const to = loc ? `${loc}/${name}` : name;
       if (to === from) {
         // Unchanged — nothing to do, but still refetch in case the user's
         // commit cancelled an external edit.
@@ -491,6 +519,7 @@ export function CardGrid() {
     },
     [namingPath, folderFilter, qc, setError, t.rename_failed_left],
   );
+
 
 
   useEffect(() => {
@@ -625,7 +654,11 @@ export function CardGrid() {
     onDelete,
     onNewNote,
     onNewFolder: startFolderCreate,
+    onRenameFolder,
+    onToggleFolderPin,
     onDeleteFolder,
+    namingPath,
+    onNameCommit: commitFolderName,
   };
 
   return (
@@ -675,70 +708,90 @@ export function CardGrid() {
           <SettingsMenu />
         </header>
         <div ref={scrollerCallbackRef} className="flex-1 overflow-y-auto p-2">
-          {listing.isError ? (
-            <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
-              <p className="text-sm font-medium text-status-error">{t.load_error}</p>
-              <p className="max-w-md break-words text-xs text-text-subtle">{String(listing.error)}</p>
-              <button
-                type="button"
-                onClick={() => listing.refetch()}
-                className="mt-1 inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-              >
-                {t.retry}
-              </button>
-            </div>
-          ) : (noteView === "grid" || noteView === "list" ? cells.length : items.length) === 0 ? (
-            <div className="mt-24 flex flex-col items-center gap-4 text-center">
-              <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
-              {hasMemos ? (
+          {/* Empty-area context menu (M20/B3): new notes anywhere; 새 폴더
+              only while BROWSING a folder — query mode hides it so "new
+              folder" never lands in an ambiguous location. min-h-full keeps
+              the trigger covering the whole scrollable surface. */}
+          <CtxRoot>
+            <CtxTrigger className="min-h-full">
+            {listing.isError ? (
+              <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
+                <p className="text-sm font-medium text-status-error">{t.load_error}</p>
+                <p className="max-w-md break-words text-xs text-text-subtle">{String(listing.error)}</p>
                 <button
                   type="button"
-                  onClick={clearAllFilters}
-                  className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+                  onClick={() => listing.refetch()}
+                  className="mt-1 inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
                 >
-                  {t.clear_filters}
+                  {t.retry}
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => onNewNote()}
-                  className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-                >
-                  <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
-                </button>
-              )}
-            </div>
-          ) : noteView === "grid" ? (
-            <GridView
-              cells={cells}
-              virtualizer={virtualizer}
-              cols={cols}
-              folders={folders}
-              folderEntries={folderEntries}
-              onOpenFolder={setFolderFilter}
-              onSelect={select}
-              onToggleFavorite={onToggleFavorite}
-              onMoveFolder={onMoveFolder}
-              onCopyBody={onCopyBody}
-              onDelete={onDelete}
-              onNewNoteIn={onNewNoteIn}
-              namingPath={namingPath}
-              onNameCommit={commitFolderName}
-              onDeleteFolder={onDeleteFolder}
-            />
-          ) : noteView === "list" ? (
-            <ListView {...viewProps} />
-          ) : noteView === "timeline" ? (
-            <TimelineView {...viewProps} />
-          ) : (
-            <GraphView
-              items={items}
-              folders={folders}
-              folderCards={folderCards}
-              onOpenFolder={setFolderFilter}
-              onNewFolder={startFolderCreate}
-            />
-          )}
+              </div>
+            ) : (noteView === "grid" || noteView === "list" ? cells.length : items.length) === 0 ? (
+              <div className="mt-24 flex flex-col items-center gap-4 text-center">
+                <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
+                {hasMemos ? (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+                  >
+                    {t.clear_filters}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onNewNote()}
+                    className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+                  >
+                    <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
+                  </button>
+                )}
+              </div>
+            ) : noteView === "grid" ? (
+              <GridView
+                cells={cells}
+                virtualizer={virtualizer}
+                cols={cols}
+                folders={folders}
+                folderEntries={folderEntries}
+                onOpenFolder={setFolderFilter}
+                onSelect={select}
+                onToggleFavorite={onToggleFavorite}
+                onMoveFolder={onMoveFolder}
+                onCopyBody={onCopyBody}
+                onDelete={onDelete}
+                onNewNoteIn={onNewNoteIn}
+                onRenameFolder={onRenameFolder}
+                onToggleFolderPin={onToggleFolderPin}
+                namingPath={namingPath}
+                onNameCommit={commitFolderName}
+                onDeleteFolder={onDeleteFolder}
+              />
+            ) : noteView === "list" ? (
+              <ListView {...viewProps} />
+            ) : noteView === "timeline" ? (
+              <TimelineView {...viewProps} />
+            ) : (
+              <GraphView
+                items={items}
+                folders={folders}
+                folderCards={folderCards}
+                onOpenFolder={setFolderFilter}
+                onNewFolder={startFolderCreate}
+              />
+            )}
+              <CtxMenu>
+                <CtxItem icon={FilePlus2} label={t.new_note_md} onClick={() => onNewNote()} />
+                <CtxItem icon={CodeXml} label={t.new_note_html} onClick={onNewHtmlNote} />
+                {folderFilter !== null && (
+                  <>
+                    <CtxSeparator />
+                    <CtxItem icon={FolderPlus} label={t.folder_new} onClick={startFolderCreate} />
+                  </>
+                )}
+              </CtxMenu>
+            </CtxTrigger>
+          </CtxRoot>
         </div>
       </div>
       <MemoDetail />

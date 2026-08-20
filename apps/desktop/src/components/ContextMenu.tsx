@@ -34,7 +34,13 @@ export function CtxMenu({ children }: { children: ReactNode }) {
   return (
     <ContextMenu.Portal>
       <ContextMenu.Positioner className="z-[70]">
-        <ContextMenu.Popup className={POPUP_CLS}>{children}</ContextMenu.Popup>
+        {/* Menu items portal to <body>, but React synthetic events still
+            bubble through the React tree — an item click would reach the
+            trigger element's own onClick (e.g. open folder / select note).
+            Stop propagation at the popup so item clicks do only their item. */}
+        <ContextMenu.Popup className={POPUP_CLS} onClick={(e) => e.stopPropagation()}>
+          {children}
+        </ContextMenu.Popup>
       </ContextMenu.Positioner>
     </ContextMenu.Portal>
   );
@@ -48,6 +54,7 @@ export function CtxItem({
   danger,
   swatch,
   active,
+  title,
 }: {
   icon?: LucideIcon;
   label: string;
@@ -58,11 +65,14 @@ export function CtxItem({
   swatch?: string;
   /** Show a trailing check (e.g. the currently-selected value). */
   active?: boolean;
+  /** Native tooltip (e.g. the armed-delete confirmation wording). */
+  title?: string;
 }) {
   return (
     <ContextMenu.Item
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={
         "flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 outline-none data-[highlighted]:bg-surface-muted disabled:pointer-events-none disabled:opacity-30 " +
         (danger ? "text-status-error" : "")
