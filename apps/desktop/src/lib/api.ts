@@ -213,6 +213,10 @@ export async function setFolderView(path: string, view: ViewMode | null): Promis
   await invoke<void>("set_folder_view", { path, view });
 }
 
+export async function setFolderPinned(path: string, pinned: boolean): Promise<void> {
+  await invoke<void>("set_folder_pinned", { path, pinned });
+}
+
 export async function graphData(): Promise<GraphData> {
   return invoke<GraphData>("graph_data");
 }

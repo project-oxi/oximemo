@@ -119,6 +119,7 @@ export interface FolderDef {
   path: string;
   view?: ViewMode;
   color?: string;
+  pinned?: boolean;
 }
 
 export interface Config {

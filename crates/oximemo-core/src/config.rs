@@ -138,6 +138,9 @@ pub struct FolderDef {
     /// OKLCH color for sidebar dot / card accent. `None` = no tint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// Pinned to the sidebar favorites section. `None` = not pinned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -276,13 +279,15 @@ unknown_future_field = true
     #[test]
     fn save_roundtrips_folders() {
         let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::resolve(Some(dir.path()));
         let mut cfg = VaultConfig::default();
+        let paths = Paths::resolve(Some(dir.path()));
         cfg.folders.items.push(FolderDef {
             path: "novel".into(),
             view: Some(ViewMode::List),
             color: Some("oklch(0.7 0.1 200)".into()),
+            pinned: None,
         });
+
         cfg.save(&paths).unwrap();
         let reloaded = VaultConfig::load(&paths);
         assert!(reloaded.folders.items.iter().any(|f| f.path == "novel"));

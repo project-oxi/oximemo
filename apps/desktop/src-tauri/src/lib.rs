@@ -222,6 +222,7 @@ pub fn run() {
             commands::graph_data,
             commands::get_config,
             commands::set_folder_view,
+            commands::set_folder_pinned,
             commands::move_note,
             commands::brain_status,
             commands::brain_gather,
@@ -746,6 +747,18 @@ mod commands {
         state
             .vault
             .set_folder_view(&path, view)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn set_folder_pinned(
+        state: State<'_, AppState>,
+        path: String,
+        pinned: bool,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_folder_pinned(&path, pinned)
             .map_err(|e| e.to_string())
     }
 

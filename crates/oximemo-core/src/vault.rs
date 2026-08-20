@@ -897,17 +897,42 @@ impl Vault {
                         path: path.to_string(),
                         view: Some(v),
                         color: None,
+                        pinned: None,
                     });
                 }
             }
             None => {
                 if let Some(f) = cfg.folders.items.iter_mut().find(|f| f.path == path) {
                     f.view = None;
-                    // Drop the entry if it has no color either (clean config).
-                    if f.color.is_none() {
+                    // Drop the entry if it has no color or pin either (clean config).
+                    if f.color.is_none() && f.pinned.is_none() {
                         cfg.folders.items.retain(|f| f.path != path);
                     }
                 }
+            }
+        }
+        cfg.save(&self.paths)?;
+        Ok(())
+    }
+
+    /// Pin/unpin a folder to the sidebar favorites, persisted to `oximemo.toml`.
+    pub fn set_folder_pinned(&self, path: &str, pinned: bool) -> Result<()> {
+        let mut cfg = self.config.write();
+        if pinned {
+            if let Some(f) = cfg.folders.items.iter_mut().find(|f| f.path == path) {
+                f.pinned = Some(true);
+            } else {
+                cfg.folders.items.push(crate::config::FolderDef {
+                    path: path.to_string(),
+                    view: None,
+                    color: None,
+                    pinned: Some(true),
+                });
+            }
+        } else if let Some(f) = cfg.folders.items.iter_mut().find(|f| f.path == path) {
+            f.pinned = None;
+            if f.view.is_none() && f.color.is_none() {
+                cfg.folders.items.retain(|f| f.path != path);
             }
         }
         cfg.save(&self.paths)?;
@@ -2038,6 +2063,23 @@ watcher_retry_interval_ms = 200
         assert_eq!(json["schema_version"], 3);
     }
 
+    #[test]
+    fn set_folder_pinned_roundtrip() {
+        let (_t, v) = tmp_vault();
+        v.set_folder_pinned("novel", true).unwrap();
+        assert_eq!(
+            v.with_config(|c| c
+                .folders
+                .items
+                .iter()
+                .find(|f| f.path == "novel")
+                .and_then(|f| f.pinned)),
+            Some(true)
+        );
+        // Unpin with nothing else set → entry dropped (clean config).
+        v.set_folder_pinned("novel", false).unwrap();
+        assert!(v.with_config(|c| c.folders.items.iter().all(|f| f.path != "novel")));
+    }
     #[test]
     fn set_folder_view_persists_and_unlocks() {
         let (_t, v) = tmp_vault();

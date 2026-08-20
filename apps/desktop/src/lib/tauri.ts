@@ -56,6 +56,7 @@ export async function listen<T>(
 // --- Browser-mode localStorage store --------------------------------------
 const STORE_KEY = "oximemo:memos:v3";
 const VIEW_KEY = "oximemo:folderviews:v1";
+const PINS_KEY = "oximemo:folderpins:v1";
 const FOLDERS_KEY = "oximemo:folders:v1";
 
 type FolderViews = Record<string, string>;
@@ -66,6 +67,20 @@ function loadViews(): FolderViews {
   } catch {
     return {};
   }
+}
+
+/** Folder paths the user has pinned to the sidebar favorites. */
+function loadPins(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(PINS_KEY) ?? "[]") as unknown;
+    return Array.isArray(v) ? v.filter((p): p is string => typeof p === "string" && p !== "") : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePins(paths: string[]): void {
+  localStorage.setItem(PINS_KEY, JSON.stringify(paths));
 }
 
 /** Folder paths created in browser mode. The backend derives folders from
@@ -411,11 +426,11 @@ async function browserFallback(
         general: { trash_retention_days: 30 },
         capture: { double_tap_threshold_ms: 350, overlay_max_height: 400 },
         appearance: { theme: "system", show_dock_icon: true },
-        folders: Object.entries(loadViews()).map(([path, view]) => ({
-          path,
-          view,
-          color: null,
-        })),
+        folders: [
+          ...Object.entries(loadViews()).map(([path, view]) => ({ path, view, color: null,
+            pinned: loadPins().includes(path) ? true : null })),
+          ...loadPins().filter((p) => !(p in loadViews())).map((path) => ({ path, view: null, color: null, pinned: true })),
+        ],
         brain: { enabled: true, socket: "", space: "personal" },
         index: { watcher_debounce_ms: 300 },
       };
@@ -439,6 +454,15 @@ async function browserFallback(
       if (view) views[path] = view;
       else delete views[path];
       localStorage.setItem(VIEW_KEY, JSON.stringify(views));
+      return null;
+    }
+
+    case "set_folder_pinned": {
+      const path = args?.path as string;
+      const pinned = args?.pinned as boolean;
+      const pins = loadPins();
+      savePins(pinned ? (pins.includes(path) ? pins : [...pins, path]) : pins.filter((p) => p !== path));
+      emitBrowser("memos:changed");
       return null;
     }
 
