@@ -81,6 +81,8 @@ export const dict: Record<keyof typeof ko, string> = {
   focus_mode: "Focus mode",
   compact_mode: "Compact view",
   gallery: "Gallery",
+  view_pin_locked: "View pinned for this folder — click to unpin",
+  view_pin_unlocked: "No pinned view — switching view pins it for this folder",
   insert_image: "Insert image",
   adding_image: "Adding image…",
   gallery_empty: "No images yet. Paste an image into a memo.",

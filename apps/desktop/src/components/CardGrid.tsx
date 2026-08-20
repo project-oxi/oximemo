@@ -9,7 +9,7 @@
 import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeft, PanelLeftClose, Plus, Search } from "lucide-react";
+import { Lock, LockOpen, PanelLeft, PanelLeftClose, Plus, Search } from "lucide-react";
 
 import {
   createMemo,
@@ -102,17 +102,11 @@ export function CardGrid() {
   const setNoteViewLocked = useCallback(
     (v: ViewMode) => {
       setNoteView(v);
-      if (folderFilter !== null) {
-        void setFolderView(folderFilter, v)
-          .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-          .catch((e) => setToast(String(e).split("\n")[0]));
-      } else {
-        // Unlock: store null on the "" (root) entry so the global default
-        // takes over. The Rust side treats null as "unlock".
-        void setFolderView("", v)
-          .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-          .catch((e) => setToast(String(e).split("\n")[0]));
-      }
+      // Switching the view pins it for the current context (folder, or the
+      // "" root entry when browsing all memos).
+      void setFolderView(folderFilter ?? "", v)
+        .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+        .catch((e) => setToast(String(e).split("\n")[0]));
     },
     [folderFilter, qc, setNoteView, setToast],
   );
@@ -319,24 +313,20 @@ export function CardGrid() {
       <button
         type="button"
         onClick={() => {
-          if (folderFilter !== null) {
-            void setFolderView(folderFilter, null)
-              .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-              .catch((e) => setToast(String(e).split("\n")[0]));
-          } else {
-            void setFolderView("", null)
-              .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-              .catch((e) => setToast(String(e).split("\n")[0]));
-          }
+          void setFolderView(folderFilter ?? "", null)
+            .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+            .catch((e) => setToast(String(e).split("\n")[0]));
         }}
-        title={isLocked ? "Locked view (click to unlock)" : "Unlocked"}
-        className={`rounded-full px-2 py-1 text-[10px] font-bold transition-colors ${
+        title={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
+        aria-label={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
+        aria-pressed={isLocked}
+        className={`inline-flex h-6 w-6 items-center justify-center rounded-full transition-colors ${
           isLocked
-            ? "bg-hue-amber/20 text-hue-amber"
+            ? "text-hue-amber hover:bg-hue-amber/15"
             : "text-text-subtle hover:bg-surface-muted hover:text-text"
         }`}
       >
-        {isLocked ? "[LOCK]" : "[UNLOCK]"}
+        {isLocked ? <Lock size={11} /> : <LockOpen size={11} />}
       </button>
     </div>
   );

@@ -80,6 +80,8 @@ export const dict = {
   focus_mode: "몰입 모드",
   compact_mode: "기본 화면",
   gallery: "갤러리",
+  view_pin_locked: "이 폴더 보기 고정됨 — 클릭하면 해제",
+  view_pin_unlocked: "보기 미고정 — 보기를 바꾸면 이 폴더에 고정돼요",
   insert_image: "이미지 삽입",
   adding_image: "이미지 추가 중…",
   gallery_empty: "아직 이미지가 없어요. 메모에 이미지를 붙여넣어 보세요.",
