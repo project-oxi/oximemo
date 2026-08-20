@@ -99,7 +99,7 @@ export function GridView({
                     folders={folders}
                     folderEntries={folderEntries}
                     onSelect={onSelect}
-                    onToggleFavorite={(id) => onToggleFavorite(id, cell.note.favorite)}
+                    onToggleFavorite={onToggleFavorite}
                     onMoveFolder={onMoveFolder}
                     onCopyBody={onCopyBody}
                     onDelete={onDelete}

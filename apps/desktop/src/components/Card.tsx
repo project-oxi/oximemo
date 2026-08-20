@@ -2,7 +2,7 @@
  * Neutral note card. Folder hue is carried by a compact marker rather than a
  * full tinted surface, preserving ink-on-paper readability in both themes.
  */
-import { Star, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
+import { Star } from "lucide-react";
 import { useMemo } from "react";
 
 import { colorForFolder } from "../lib/color";
@@ -10,18 +10,20 @@ import { useI18n } from "../lib/i18n";
 import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
 import { relativeTime } from "../lib/time";
 import { renderPreviewMarkdown } from "../lib/markdownPreview";
-import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, CtxSubmenu } from "./ContextMenu";
+import { CtxRoot, CtxTrigger } from "./ContextMenu";
+import { NoteCtxMenu } from "./NoteCtxMenu";
 
 interface Props {
   memo: MemoSummary;
   folders: FolderDef[];
   folderEntries: FolderEntry[];
   onSelect: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
+  onToggleFavorite: (id: string, favorite: boolean) => void;
   onMoveFolder: (id: string, folder: string) => void;
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
 }
+
 
 export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete }: Props) {
   const { t, locale } = useI18n();
@@ -71,7 +73,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
         }`}
         onClick={(e) => {
           e.stopPropagation();
-          onToggleFavorite(memo.id);
+          onToggleFavorite(memo.id, memo.favorite);
         }}
       >
         <Star size={14} className={memo.favorite ? "fill-hue-amber" : undefined} />
@@ -101,34 +103,14 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
           )}
         </div>
       )}
-        <CtxMenu>
-          <CtxItem
-            icon={Star}
-            label={memo.favorite ? t.action_unfavorite : t.action_favorite}
-            onClick={() => onToggleFavorite(memo.id)}
-          />
-          <CtxSubmenu icon={FolderInput} label={t.action_move_folder ?? "Move to folder"}>
-            {folderEntries.map((f) => (
-              <CtxItem
-                key={f.path || "root"}
-                label={f.path || t.folder_root}
-                disabled={memo.folder === f.path}
-                onClick={() => onMoveFolder(memo.id, f.path)}
-              />
-            ))}
-          </CtxSubmenu>
-          <CtxSeparator />
-          <CtxItem icon={ClipboardCopy} label={t.action_copy_body} onClick={() => onCopyBody(memo.id)} />
-          <CtxItem
-            icon={Copy}
-            label={t.action_copy_id}
-            onClick={() => {
-              void navigator.clipboard.writeText(memo.id);
-            }}
-          />
-          <CtxSeparator />
-          <CtxItem icon={Trash2} label={t.action_delete} danger onClick={() => onDelete(memo.id)} />
-        </CtxMenu>
+        <NoteCtxMenu
+          memo={memo}
+          folderEntries={folderEntries}
+          onToggleFavorite={onToggleFavorite}
+          onMoveFolder={onMoveFolder}
+          onCopyBody={onCopyBody}
+          onDelete={onDelete}
+        />
       </CtxTrigger>
     </CtxRoot>
   );
