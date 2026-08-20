@@ -345,9 +345,29 @@ async function browserFallback(
       return null;
     }
 
-    case "move_note":
+    case "move_note": {
+      const id = args?.id as string;
+      const folder = ((args?.folder as string | undefined) ?? "").trim();
+      const store = loadStore();
+      const n = store[id];
+      if (!n) throw new Error(`memo not found: ${id}`);
+      const ext = n.format === "html" ? ".html" : ".md";
+      const base = (n.title ?? `note-${Date.now()}`).replace(/[^\p{L}\p{N}]+/gu, "-");
+      n.folder = folder;
+      n.path = `${folder ? `${folder}/` : ""}${base}${ext}`;
+      store[id] = n;
+      saveStore(store);
+      if (folder) {
+        const paths = loadFolders();
+        if (!paths.includes(folder)) {
+          paths.push(folder);
+          saveFolders(paths);
+        }
+      }
+      // oldRel is derived; nothing else references it.
       emitBrowser("memos:changed");
-      return null;
+      return n;
+    }
 
     case "graph_data":
       return { nodes: [], edges: [] };

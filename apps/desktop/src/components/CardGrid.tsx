@@ -19,6 +19,7 @@ import {
   listFolders,
   listMemos,
   memoStats,
+  moveNote,
   searchMemos,
   setFolderView,
   updateMemo,
@@ -230,12 +231,10 @@ export function CardGrid() {
   };
 
   const onMoveFolder = (id: string, folder: string) => {
-    void updateMemo(id, null, null)
+    void moveNote(id, folder)
       .then(() => {
-        // Folder moves go through a separate command surface; the core
-        // renames the file and updates the index. Until that lands, we
-        // invalidate so the user sees the move reflected via the watcher.
         qc.invalidateQueries({ queryKey: ["memos"] });
+        qc.invalidateQueries({ queryKey: ["search"] });
         qc.invalidateQueries({ queryKey: ["facets"] });
         qc.invalidateQueries({ queryKey: ["folders"] });
         setToast(`→ ${folder || t.folder_root}`);
