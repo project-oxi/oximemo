@@ -545,7 +545,17 @@ function FoldersSection() {
                 armed
                   ? t.delete_folder_confirm
                       .replace("{folder}", f.path)
-                      .replace("{n}", String(f.note_count))
+                      // Recursive count (entry + descendants from the flat
+                      // list) — the delete trashes nested notes too, so the
+                      // confirm must state the full scope, not note_count.
+                      .replace(
+                        "{n}",
+                        String(
+                          list
+                            .filter((e) => e.path === f.path || e.path.startsWith(`${f.path}/`))
+                            .reduce((sum, e) => sum + e.note_count, 0),
+                        ),
+                      )
                   : t.action_delete
               }
               className={`rounded-md p-1 transition-colors ${

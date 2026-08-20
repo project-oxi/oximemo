@@ -55,6 +55,7 @@ export function CtxItem({
   swatch,
   active,
   title,
+  keepOpen,
 }: {
   icon?: LucideIcon;
   label: string;
@@ -67,12 +68,16 @@ export function CtxItem({
   active?: boolean;
   /** Native tooltip (e.g. the armed-delete confirmation wording). */
   title?: string;
+  /** Keep the menu open after this item's click (e.g. the delete arm —
+   *  the confirm must appear in the SAME session, closing would reset it). */
+  keepOpen?: boolean;
 }) {
   return (
     <ContextMenu.Item
       onClick={onClick}
       disabled={disabled}
       title={title}
+      closeOnClick={keepOpen === true ? false : undefined}
       className={
         "flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 outline-none data-[highlighted]:bg-surface-muted disabled:pointer-events-none disabled:opacity-30 " +
         (danger ? "text-status-error" : "")

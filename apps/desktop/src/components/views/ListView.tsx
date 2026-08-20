@@ -19,7 +19,7 @@ import { relativeTime } from "../../lib/time";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
 import { CtxRoot, CtxTrigger } from "../ContextMenu";
-import { FolderCtxMenu, type NamingSession } from "../FolderTile";
+import { FolderMenu, type NamingSession } from "../FolderTile";
 import { NoteCtxMenu } from "../NoteCtxMenu";
 
 interface Props {
@@ -65,17 +65,23 @@ export function ListView({
         const naming = namingPath?.path === f.path;
         return (
           <li key={f.path} data-folder-row={f.path}>
-            <CtxRoot>
-              <CtxTrigger
-                render={
-                  <div
-                    onClick={() => {
-                      if (!naming) onOpenFolder(f.path);
-                    }}
-                    className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-surface-muted"
-                  />
-                }
-              >
+            <FolderMenu
+              path={f.path}
+              deep={f.note_count_deep}
+              pinned={folders.find((d) => d.path === f.path)?.pinned ?? false}
+              onOpen={onOpenFolder}
+              onRename={onRenameFolder}
+              onTogglePin={onToggleFolderPin}
+              onDelete={onDeleteFolder}
+              render={
+                <div
+                  onClick={() => {
+                    if (!naming) onOpenFolder(f.path);
+                  }}
+                  className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-surface-muted"
+                />
+              }
+            >
                 <Folder size={13} style={{ color: colorForFolder(f.path, folders) }} />
                 {naming ? (
                   <input
@@ -105,17 +111,7 @@ export function ListView({
                     : ""}
                 </span>
                 <span className="ml-auto text-text-subtle">›</span>
-                <FolderCtxMenu
-                  path={f.path}
-                  deep={f.note_count_deep}
-                  pinned={folders.find((d) => d.path === f.path)?.pinned ?? false}
-                  onOpen={onOpenFolder}
-                  onRename={onRenameFolder}
-                  onTogglePin={onToggleFolderPin}
-                  onDelete={onDeleteFolder}
-                />
-              </CtxTrigger>
-            </CtxRoot>
+            </FolderMenu>
           </li>
         );
       })}
