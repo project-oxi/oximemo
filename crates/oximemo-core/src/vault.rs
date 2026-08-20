@@ -131,6 +131,21 @@ impl Vault {
         if to_dir.exists() {
             return Err(CoreError::other(format!("folder '{to}' already exists")));
         }
+        // Fail-fast guard for the matching trash subtree: a previous
+        // `delete_folder` of a folder that lived at `to` would leave any
+        // trashed notes behind under `.trash/<to>/`; renaming a folder
+        // over that name would have the live-tree rename succeed but the
+        // trash-tree rename fail with ENOTEMPTY — unretryable state because
+        // the live tree already moved. Detect the collision before any
+        // fs mutation. Silently allowed when the trash subtree is absent
+        // (the common case — most folders have no trashed notes).
+        let trash_from = self.paths.trash_path(from);
+        let trash_to = self.paths.trash_path(to);
+        if trash_from.is_dir() && trash_to.exists() {
+            return Err(CoreError::other(format!(
+                "trashed notes under '{to}' already exist"
+            )));
+        }
         if let Some(parent) = to_dir.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -145,8 +160,6 @@ impl Vault {
         // reading `.trash/<from>/` and rebuilding records at the old path.
         // The trash subtree is optional — many folders have no trashed
         // notes — so the move is a silent no-op when the source is absent.
-        let trash_from = self.paths.trash_path(from);
-        let trash_to = self.paths.trash_path(to);
         if trash_from.is_dir() {
             if let Some(parent) = trash_to.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -154,14 +167,15 @@ impl Vault {
             std::fs::rename(&trash_from, &trash_to)?;
         }
 
-        // Re-path index records under `from/`. Live notes: read the file at
-        // its new on-disk location and re-upsert the record + search entry
-        // so the search index keeps the up-to-date body and title.
-        // Tombstones (soft-deleted within retention): the trash subtree
-        // was moved above so the tombstone file now lives at
-        // `.trash/<to>/<rest>` — read it from there and re-upsert both
-        // up-to-date body). Tombstone re-path is not a failure.
+        // Re-path index records under `from/`. Live notes: read the file
+        // at its new on-disk location and re-upsert the record + search
+        // entry so the search index keeps the up-to-date body and title.
+        // Tombstones (soft-deleted within retention): their trash files
+        // were moved with the subtree above so the records now line up
+        // again — the branch is record-only (no file read, no search
+        // upsert); a tombstone must not reappear in search.
         let prefix = format!("{from}/");
+
         let recs = self.with_redb(|idx| idx.export_since(None))?;
         let mut index_failures: u32 = 0;
         for r in recs {
@@ -2317,6 +2331,89 @@ watcher_retry_interval_ms = 200
             !v.paths().trash_path("book/Ghost.md").exists(),
             "trash file is gone after restore"
         );
+    }
+    #[test]
+    fn rename_folder_fails_fast_on_trash_collision() {
+        let (_t, v) = tmp_vault();
+        // Seed a tombstone under the rename TARGET so `.trash/<to>/`
+        // already exists non-empty before the rename fires. Reachable
+        // path: user has a folder named `other`, creates a note, deletes
+        // it (file → `.trash/other/...`), then deletes the now-empty
+        // folder — the trash file leaks behind. Renaming `novel → other`
+        // must fail BEFORE any fs mutation; otherwise the live tree
+        // rename would succeed but the trash subtree rename would hit
+        // ENOTEMPTY, leaving from_dir gone and unretryable.
+        v.create_folder("other").unwrap();
+        let leaked = v
+            .create_note(
+                "other",
+                "# Leak\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.delete_memo(leaked.id).unwrap();
+        v.delete_folder("other").unwrap();
+        assert!(
+            v.paths().trash_path("other/Leak.md").exists(),
+            "seeded leak: trash file present, live folder gone"
+        );
+        // Seed the rename source: live folder + pin + a tombstone under
+        // `novel`. The tombstone is required — without it `trash_from`
+        // is absent and the trash-rename silently no-ops (no collision),
+        // which would mask the bug. Real users routinely have trashed
+        // notes in any active folder.
+        v.create_folder("novel").unwrap();
+        let pinned = v
+            .create_note(
+                "novel",
+                "# Keep\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.set_folder_pinned("novel", true).unwrap();
+        let from_trash = v
+            .create_note(
+                "novel",
+                "# FromTrash\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.delete_memo(from_trash.id).unwrap();
+        assert!(
+            v.paths().trash_path("novel/FromTrash.md").exists(),
+            "seeded trash under source folder"
+        );
+        // Rename must Err BEFORE moving anything.
+        let err = v.rename_folder("novel", "other").unwrap_err();
+        assert!(
+            err.to_string().contains("trashed notes under 'other'"),
+            "error mentions the trash collision; got: {err}"
+        );
+        // Source tree still intact: live folder, its note, its pin,
+        // and its trash subtree (the rename never reached the fs stage).
+        assert!(v.paths().vault.join("novel").exists(), "live tree intact");
+        assert!(
+            v.paths().vault.join("novel/Keep.md").exists(),
+            "source note intact"
+        );
+        assert!(
+            v.paths().trash_path("novel/FromTrash.md").exists(),
+            "source trash subtree not touched by the failed rename"
+        );
+        assert!(
+            v.with_config(|c| c
+                .folders
+                .items
+                .iter()
+                .any(|f| f.path == "novel" && f.pinned == Some(true))),
+            "config pin untouched"
+        );
+        // Pre-existing leak still parked at the same trash path.
+        assert!(
+            v.paths().trash_path("other/Leak.md").exists(),
+            "pre-existing leak still in place"
+        );
+        let _ = pinned;
     }
 
     #[test]
