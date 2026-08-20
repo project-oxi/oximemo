@@ -194,13 +194,26 @@ export function CardGrid() {
       (noteView === "grid" || noteView === "list"),
   });
 
-  const folderCards: FolderCard[] = browseFoldersQ.data ?? [];
-  const folderCells: Cell[] = folderCards.map((card) => ({ kind: "folder" as const, card }));
-  const noteCells: Cell[] = items.map((note) => ({ kind: "note" as const, note }));
-  const cells = useMemo(
-    () => [...folderCells, ...noteCells],
-    [folderCells, noteCells],
-  );
+  // TanStack Query keeps `data` populated even after `enabled` flips false,
+  // so we have to gate the tile layer with the same predicate ourselves —
+  // otherwise folder tiles leak into search results and contradict the
+  // comment above. Brief-spec deps: [browseFoldersQ.data, items]; the
+  // boolean predicate is constant for the lifetime of this render pass
+  // because the views below either keep or discard the tile layer.
+  const showFolders =
+    folderFilter !== null &&
+    !inSearch &&
+    (noteView === "grid" || noteView === "list");
+  const cells = useMemo<Cell[]>(() => {
+    const folderCards = showFolders ? browseFoldersQ.data ?? [] : [];
+    const folderCells: Cell[] = folderCards.map((card) => ({
+      kind: "folder" as const,
+      card,
+    }));
+    const noteCells: Cell[] = items.map((note) => ({ kind: "note" as const, note }));
+    return [...folderCells, ...noteCells];
+  }, [browseFoldersQ.data, items, showFolders]);
+  const folderCards: FolderCard[] = showFolders ? browseFoldersQ.data ?? [] : [];
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const scrollerRoRef = useRef<ResizeObserver | null>(null);
@@ -527,7 +540,7 @@ export function CardGrid() {
                 {t.retry}
               </button>
             </div>
-          ) : cells.length === 0 ? (
+          ) : (noteView === "grid" || noteView === "list" ? cells.length : items.length) === 0 ? (
             <div className="mt-24 flex flex-col items-center gap-4 text-center">
               <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
               {hasMemos ? (
