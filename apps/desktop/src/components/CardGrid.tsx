@@ -74,6 +74,8 @@ export function CardGrid() {
   const select = useUI((s) => s.select);
   const tagFilter = useUI((s) => s.tagFilter);
   const matchAll = useUI((s) => s.matchAll);
+  const searchScope = useUI((s) => s.searchScope);
+  const setSearchScope = useUI((s) => s.setSearchScope);
   const folderFilter = useUI((s) => s.folderFilter);
   const favoritesOnly = useUI((s) => s.favoritesOnly);
   const sidebarCollapsed = useUI((s) => s.sidebarCollapsed);
@@ -180,7 +182,16 @@ export function CardGrid() {
     if (!inSearch) return base;
     return base.filter((n) => {
       if (favoritesOnly && !n.favorite) return false;
-      if (folderFilter !== null && folderFilter !== undefined && n.folder !== folderFilter) return false;
+      // Folder-scoped search (T13): scope to the browse location's
+      // RECURSIVE subtree. At root ("") the subtree is the whole vault, so
+      // 이 폴더 ≡ 전체 there — no folder test is applied (the chip still
+      // renders; toggling it at root makes no difference).
+      if (searchScope === "folder" && folderFilter !== null) {
+        const prefix = `${folderFilter}/`;
+        const inScope =
+          folderFilter === "" || n.folder === folderFilter || n.folder.startsWith(prefix);
+        if (!inScope) return false;
+      }
       if (excludeTags.some((tag) => n.tags.includes(tag))) return false;
       if (includeTags.length) {
         const ok = matchAll
@@ -190,7 +201,7 @@ export function CardGrid() {
       }
       return true;
     });
-  }, [inSearch, includeTags, excludeTags, folderFilter, favoritesOnly, listing.data, searching.data]);
+  }, [inSearch, includeTags, excludeTags, folderFilter, favoritesOnly, listing.data, searching.data, searchScope]);
 
   // Direct-children folder tiles for the current browse level. We rely on
   // browse-by-default semantics (T5): folderFilter !== null ⇒ show this
@@ -672,6 +683,16 @@ export function CardGrid() {
           {sidebarToggle}
           <BreadcrumbBar folders={folderEntries} folderDefs={folders} />
           {viewSwitcher}
+          {folderFilter !== null && debounced.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSearchScope(searchScope === "folder" ? "all" : "folder")}
+              title={searchScope === "folder" ? t.scope_this_folder : t.scope_all}
+              className="h-7 shrink-0 rounded-[var(--tag-radius)] border border-line bg-surface-raised px-2.5 text-xs text-text-muted transition-colors duration-150 hover:border-line-strong"
+            >
+              {searchScope === "folder" ? t.scope_this_folder : t.scope_all} ▾
+            </button>
+          )}
           <div className="relative w-56">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-subtle" />
             <input
@@ -752,6 +773,7 @@ export function CardGrid() {
                 cells={cells}
                 virtualizer={virtualizer}
                 cols={cols}
+                showFolderChip={folderFilter === null}
                 folders={folders}
                 folderEntries={folderEntries}
                 onOpenFolder={setFolderFilter}

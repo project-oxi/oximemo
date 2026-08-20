@@ -22,10 +22,12 @@ interface Props {
   onMoveFolder: (id: string, folder: string) => void;
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Query-mode folder chip under the tags row (T13). */
+  showFolderChip?: boolean;
 }
 
 
-export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete }: Props) {
+export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, showFolderChip }: Props) {
   const { t, locale } = useI18n();
   const folderColor = colorForFolder(memo.folder, folders);
 
@@ -88,18 +90,28 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
           {t.empty_memo}
         </p>
       )}
-      {memo.tags.length > 0 && (
-        <div className="mt-auto flex flex-wrap gap-1 pt-2">
-          {memo.tags.slice(0, 3).map((tag) => (
-            <span
-              key={tag}
-              className="rounded-[var(--tag-radius)] bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-text-muted"
-            >
-              {tag}
+      {(memo.tags.length > 0 || (showFolderChip && memo.folder)) && (
+        <div className="mt-auto pt-2">
+          {memo.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {memo.tags.slice(0, 3).map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-[var(--tag-radius)] bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-text-muted"
+                >
+                  {tag}
+                </span>
+              ))}
+              {memo.tags.length > 3 && (
+                <span className="text-[10px] text-text-subtle">+{memo.tags.length - 3}</span>
+              )}
+            </div>
+          )}
+          {showFolderChip && memo.folder && (
+            <span className="mt-1 flex items-center gap-1 text-[10px] text-text-subtle">
+              <i className="size-1.5 shrink-0 rounded-[2px]" style={{ backgroundColor: folderColor }} />
+              <span className="truncate">{memo.folder}</span>
             </span>
-          ))}
-          {memo.tags.length > 3 && (
-            <span className="text-[10px] text-text-subtle">+{memo.tags.length - 3}</span>
           )}
         </div>
       )}

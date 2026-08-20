@@ -36,6 +36,8 @@ interface Props {
   onNameCommit: (value: string | null) => void;
   /** Delete folder (trash + undo toast); armed confirm lives in FolderCtxMenu. */
   onDeleteFolder: (path: string, deep: number, confirmed?: boolean) => void;
+  /** Query-mode folder chip on note cards (T13): true when browsing is off. */
+  showFolderChip?: boolean;
 }
 
 const CARD_H = 176;
@@ -59,6 +61,7 @@ export function GridView({
   namingPath,
   onNameCommit,
   onDeleteFolder,
+  showFolderChip,
 }: Props) {
   const rowCount = Math.ceil(cells.length / cols);
   return (
@@ -112,6 +115,7 @@ export function GridView({
                     onMoveFolder={onMoveFolder}
                     onCopyBody={onCopyBody}
                     onDelete={onDelete}
+                    showFolderChip={showFolderChip}
                   />
                 ),
               )}
