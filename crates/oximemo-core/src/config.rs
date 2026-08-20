@@ -39,7 +39,7 @@ impl Default for VaultConfig {
 
 /// oxibrain daemon connection settings. `socket` empty = use
 /// `~/.oxi/brain/oxibrain.sock` (the daemon default).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BrainConfig {
     /// Panel visibility and context gathering master switch.
@@ -163,16 +163,12 @@ pub fn resolve_folder_view(path: &str, items: &[FolderDef]) -> Option<ViewMode> 
 #[serde(default)]
 pub struct IndexConfig {
     pub watcher_debounce_ms: u32,
-    pub watcher_retry_count: u32,
-    pub watcher_retry_interval_ms: u32,
 }
 
 impl Default for IndexConfig {
     fn default() -> Self {
         Self {
             watcher_debounce_ms: 300,
-            watcher_retry_count: 2,
-            watcher_retry_interval_ms: 200,
         }
     }
 }

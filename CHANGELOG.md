@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Settings GUI parity — every TOML field is now GUI-settable** — new
+  settings sections: Brain (enabled / socket / space with a live daemon
+  space picker, free-text fallback offline), Capture (double-tap threshold,
+  overlay height), Behavior (trash retention), Advanced (index debounce);
+  the Appearance section gains a dock-icon toggle (applies the macOS
+  activation policy immediately) and the theme Segmented now writes through
+  to `appearance.theme`. Section-granular config setters landed on the vault
+  with atomic persist. Dead TOML fields removed: `index.watcher_retry_count`,
+  `index.watcher_retry_interval_ms` (parsed-but-unused; old files still
+  parse). `capture.overlay_max_height` is now real — it sizes the capture
+  overlay window.
+
 ### Dependencies
 
 - **oxibrain-client v0.3.0 → v0.6.0** — picks up space enumeration

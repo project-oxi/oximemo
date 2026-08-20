@@ -156,6 +156,21 @@ pub fn run() {
                 .build(&tray_handle)?;
             app.state::<AppState>().tray.lock().replace(tray);
 
+            // Dock icon visibility from config; the tray icon remains
+            // either way (the tray is the app's resident surface).
+            let dock = app
+                .state::<AppState>()
+                .vault
+                .with_config(|c| c.appearance.show_dock_icon);
+            #[cfg(target_os = "macos")]
+            app.handle()
+                .set_activation_policy(if dock {
+                    tauri::ActivationPolicy::Regular
+                } else {
+                    tauri::ActivationPolicy::Accessory
+                })
+                .ok();
+
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -209,6 +224,12 @@ pub fn run() {
             commands::move_note,
             commands::brain_status,
             commands::brain_gather,
+            commands::brain_list_spaces,
+            commands::set_brain_config,
+            commands::set_general_config,
+            commands::set_capture_config,
+            commands::set_index_config,
+            commands::set_appearance_config,
             commands::set_menu_locale,
             commands::get_backlinks,
             commands::save_image_bytes,
@@ -307,7 +328,13 @@ fn show_capture(handle: &AppHandle) {
     // (which may be an unused/asleep display) means it never composites and the
     // user sees nothing. Fall back to the primary monitor only as a last resort.
     const W: f64 = 560.0;
-    const H: f64 = 200.0;
+    // Overlay height follows `[capture] overlay_max_height` (TOML ⇄ GUI
+    // parity), clamped to a sane composer range.
+    let h = handle
+        .try_state::<AppState>()
+        .map(|s| s.vault.with_config(|c| c.capture.overlay_max_height))
+        .unwrap_or(400);
+    let h_px: f64 = (h.clamp(120, 600)) as f64;
     const BOTTOM_GAP: f64 = 24.0;
     let monitor = handle
         .get_webview_window("main")
@@ -330,14 +357,14 @@ fn show_capture(handle: &AppHandle) {
     // bottom edge. JS auto-grows the height on input and re-anchors the
     // bottom edge on every resize.
     let x = pos.x as f64 / sf + mw / 2.0 - W / 2.0;
-    let y = pos.y as f64 / sf + mh - H - BOTTOM_GAP;
+    let y = pos.y as f64 / sf + mh - h_px - BOTTOM_GAP;
     tracing::info!(
         target_x = x,
         target_y = y,
         sf,
         "capture: positioning overlay"
     );
-    if let Err(e) = win.set_size(LogicalSize::new(W, H)) {
+    if let Err(e) = win.set_size(LogicalSize::new(W, h_px)) {
         tracing::warn!(error = ?e, "capture: set_size failed");
     }
     if let Err(e) = win.set_position(LogicalPosition::new(x, y)) {
@@ -778,6 +805,109 @@ mod commands {
             .recall(&query, &cfg.space, budget.unwrap_or(4000) as usize)
             .await
             .map_err(|e| format!("brain recall failed: {e}"))
+    }
+
+    /// Spaces the daemon exposes, for the settings picker. Offline is a
+    /// normal state (C1): `{online: false, spaces: []}` — the UI falls back
+    /// to a free-text input.
+    #[tauri::command]
+    pub async fn brain_list_spaces(
+        state: State<'_, AppState>,
+    ) -> Result<serde_json::Value, String> {
+        let cfg = state
+            .vault
+            .with_config(|c| crate::BrainEndpointConf::from_brain(&c.brain));
+        if !cfg.enabled {
+            return Ok(serde_json::json!({ "online": false, "spaces": [] }));
+        }
+        let (mut client, _caps) = match crate::brain_connect(&cfg).await {
+            Ok(c) => c,
+            Err(_) => return Ok(serde_json::json!({ "online": false, "spaces": [] })),
+        };
+        match client.list_spaces().await {
+            Ok(list) => Ok(serde_json::json!({
+                "online": true,
+                "spaces": list
+                    .iter()
+                    .map(|s| serde_json::json!({
+                        "name": s.name,
+                        "episodes": s.episode_count,
+                    }))
+                    .collect::<Vec<_>>(),
+            })),
+            Err(_) => Ok(serde_json::json!({ "online": false, "spaces": [] })),
+        }
+    }
+
+    // -- config sections (TOML ⇄ GUI parity) --------------------------------
+
+    #[tauri::command]
+    pub fn set_brain_config(
+        state: State<'_, AppState>,
+        brain: oximemo_core::config::BrainConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_brain_config(brain)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn set_general_config(
+        state: State<'_, AppState>,
+        general: oximemo_core::config::GeneralConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_general_config(general)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn set_capture_config(
+        state: State<'_, AppState>,
+        capture: oximemo_core::config::CaptureConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_capture_config(capture)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn set_index_config(
+        state: State<'_, AppState>,
+        index: oximemo_core::config::IndexConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_index_config(index)
+            .map_err(|e| e.to_string())
+    }
+
+    /// `[appearance]` — applies the dock-icon policy immediately after save.
+    #[tauri::command]
+    pub fn set_appearance_config(
+        app: AppHandle,
+        state: State<'_, AppState>,
+        appearance: oximemo_core::config::AppearanceConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_appearance_config(appearance)
+            .map_err(|e| e.to_string())?;
+        #[cfg(target_os = "macos")]
+        app.set_activation_policy(
+            if state.vault.with_config(|c| c.appearance.show_dock_icon) {
+                tauri::ActivationPolicy::Regular
+            } else {
+                tauri::ActivationPolicy::Accessory
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        #[cfg(not(target_os = "macos"))]
+        let _ = app;
+        Ok(())
     }
 
     #[tauri::command]

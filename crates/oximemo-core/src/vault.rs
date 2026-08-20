@@ -815,6 +815,41 @@ impl Vault {
         Ok(())
     }
 
+    /// Replace an entire config section and persist to `oximemo.toml`.
+    /// Section-granular (not per-field) on purpose: the TOML file is
+    /// section-shaped and the settings UI edits whole sections.
+    fn replace_section<T>(&self, set: impl FnOnce(&mut VaultConfig, T), value: T) -> Result<()> {
+        let mut cfg = self.config.write();
+        set(&mut cfg, value);
+        cfg.save(&self.paths)?;
+        Ok(())
+    }
+
+    /// `[brain]` — oxibrain daemon connection settings.
+    pub fn set_brain_config(&self, v: crate::config::BrainConfig) -> Result<()> {
+        self.replace_section(|c, v| c.brain = v, v)
+    }
+
+    /// `[general]` — trash retention and future behavior knobs.
+    pub fn set_general_config(&self, v: crate::config::GeneralConfig) -> Result<()> {
+        self.replace_section(|c, v| c.general = v, v)
+    }
+
+    /// `[capture]` — overlay and trigger tuning.
+    pub fn set_capture_config(&self, v: crate::config::CaptureConfig) -> Result<()> {
+        self.replace_section(|c, v| c.capture = v, v)
+    }
+
+    /// `[appearance]` — theme and dock visibility.
+    pub fn set_appearance_config(&self, v: crate::config::AppearanceConfig) -> Result<()> {
+        self.replace_section(|c, v| c.appearance = v, v)
+    }
+
+    /// `[index]` — vault watcher tuning.
+    pub fn set_index_config(&self, v: crate::config::IndexConfig) -> Result<()> {
+        self.replace_section(|c, v| c.index = v, v)
+    }
+
     /// Move a note to a different folder. Renames the file to
     /// `<new_folder>/<title-slug><ext>` (format preserved) and updates the
     /// index path.
@@ -1306,6 +1341,51 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let v = Vault::open(Some(dir.path())).unwrap();
         (dir, v)
+    }
+
+    #[test]
+    fn section_setters_roundtrip_and_removed_fields_still_parse() {
+        let (dir, v) = tmp_vault();
+
+        let brain = crate::config::BrainConfig {
+            enabled: false,
+            socket: "/tmp/other.sock".into(),
+            space: "work".into(),
+        };
+        v.set_brain_config(brain.clone()).unwrap();
+        v.set_general_config(crate::config::GeneralConfig {
+            trash_retention_days: 7,
+        })
+        .unwrap();
+        v.set_capture_config(crate::config::CaptureConfig {
+            double_tap_threshold_ms: 500,
+            overlay_max_height: 320,
+        })
+        .unwrap();
+        v.set_index_config(crate::config::IndexConfig {
+            watcher_debounce_ms: 120,
+        })
+        .unwrap();
+
+        // Reload from disk: every section persisted.
+        let re = Vault::open(Some(dir.path())).unwrap();
+        re.with_config(|c| {
+            assert_eq!(c.brain, brain);
+            assert_eq!(c.general.trash_retention_days, 7);
+            assert_eq!(c.capture.double_tap_threshold_ms, 500);
+            assert_eq!(c.index.watcher_debounce_ms, 120);
+        });
+
+        // A config written before the retry fields were removed still parses
+        // (unknown fields are ignored).
+        let legacy = r#"
+[index]
+watcher_debounce_ms = 300
+watcher_retry_count = 2
+watcher_retry_interval_ms = 200
+"#;
+        let parsed: crate::config::VaultConfig = toml::from_str(legacy).unwrap();
+        assert_eq!(parsed.index.watcher_debounce_ms, 300);
     }
 
     #[test]

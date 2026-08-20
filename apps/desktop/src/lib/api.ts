@@ -88,6 +88,55 @@ export async function brainGather(
   return invoke<BrainRecall>("brain_gather", { query, budget });
 }
 
+// --- TOML ⇄ GUI parity: config section setters ---------------------------
+
+export type BrainSection = NonNullable<Config["brain"]>;
+
+export async function setBrainConfig(brain: BrainSection): Promise<void> {
+  return invoke("set_brain_config", { brain });
+}
+
+export async function setGeneralConfig(general: {
+  trash_retention_days: number;
+}): Promise<void> {
+  return invoke("set_general_config", { general });
+}
+
+export async function setCaptureConfig(capture: {
+  double_tap_threshold_ms: number;
+  overlay_max_height: number;
+}): Promise<void> {
+  return invoke("set_capture_config", { capture });
+}
+
+export async function setAppearanceConfig(appearance: {
+  theme: "system" | "light" | "dark";
+  show_dock_icon: boolean;
+}): Promise<void> {
+  return invoke("set_appearance_config", { appearance });
+}
+
+export async function setIndexConfig(index: {
+  watcher_debounce_ms: number;
+}): Promise<void> {
+  return invoke("set_index_config", { index });
+}
+
+export interface BrainSpace {
+  name: string;
+  episodes: number;
+}
+
+export interface BrainSpaces {
+  online: boolean;
+  spaces: BrainSpace[];
+}
+
+/** Daemon-exposed spaces for the settings picker. Offline is normal (C1). */
+export async function brainListSpaces(): Promise<BrainSpaces> {
+  return invoke<BrainSpaces>("brain_list_spaces");
+}
+
 export async function listFacets() {
   return invoke<Facets>("list_facets");
 }

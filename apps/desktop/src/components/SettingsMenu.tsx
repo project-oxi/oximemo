@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import {
+  Brain,
   Check,
   Copy,
   DownloadCloud,
@@ -23,18 +24,20 @@ import {
   HardDrive,
   Info,
   Palette,
-
   Plus,
   RefreshCw,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Stethoscope,
   Terminal,
   Trash2,
   X,
+  Zap,
 } from "lucide-react";
 
 import {
+  brainListSpaces,
   cliStatus,
   installCli,
   uninstallCli,
@@ -42,10 +45,16 @@ import {
   createFolder,
   deleteFolder,
   doctor,
+  getConfig,
   listFolders,
   memoStats,
   reindex,
   resetVault,
+  setAppearanceConfig,
+  setBrainConfig,
+  setCaptureConfig,
+  setGeneralConfig,
+  setIndexConfig,
   vaultPath,
 } from "../lib/api";
 
@@ -105,6 +114,295 @@ function Section({
       </h2>
       {children}
     </section>
+  );
+}
+
+/** Boolean setting row with a switch. Commits immediately. */
+function ToggleRow({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
+      <span className="text-xs text-text-muted">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={
+          "relative h-5 w-9 shrink-0 rounded-full transition-colors " +
+          (checked ? "bg-interactive-primary" : "bg-line")
+        }
+      >
+        <span
+          className={
+            "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-surface-raised shadow transition-transform " +
+            (checked ? "translate-x-[18px]" : "translate-x-0")
+          }
+        />
+      </button>
+    </div>
+  );
+}
+
+/** Numeric setting row; commits on blur/Enter, clamped to [min, max]. */
+function NumberRow({
+  label,
+  value,
+  min,
+  max,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const n = Number.parseInt(draft, 10);
+    if (Number.isNaN(n)) {
+      setDraft(String(value));
+      return;
+    }
+    const clamped = Math.min(max, Math.max(min, n));
+    setDraft(String(clamped));
+    if (clamped !== value) onCommit(clamped);
+  };
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-sunken px-3 py-2">
+      <span className="min-w-0 truncate text-xs text-text-muted">{label}</span>
+      <input
+        type="number"
+        value={draft}
+        min={min}
+        max={max}
+        inputMode="numeric"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className="w-16 shrink-0 rounded-md bg-surface-raised px-2 py-1 text-right font-mono text-xs text-text outline-none focus:ring-1 focus:ring-line"
+      />
+    </div>
+  );
+}
+
+/** Text setting row; commits on blur/Enter. */
+function TextRow({
+  label,
+  value,
+  placeholder,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  onCommit: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    const v = draft.trim();
+    if (v !== value) onCommit(v);
+  };
+  return (
+    <div className="rounded-lg bg-surface-sunken px-3 py-2">
+      <p className="mb-1 text-[11px] text-text-subtle">{label}</p>
+      <input
+        value={draft}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          else if (e.key === "Escape") setDraft(value);
+        }}
+        className="w-full rounded-md bg-surface-raised px-2 py-1 font-mono text-xs text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
+      />
+    </div>
+  );
+}
+
+/** Shared config-section plumbing: load once, save a section, invalidate. */
+function useConfigSection() {
+  const qc = useQueryClient();
+  const setError = useUI((s) => s.setError);
+  const config = useQuery({ queryKey: ["config"], queryFn: getConfig });
+  const save = (op: Promise<void>, alsoInvalidate?: string[]) => {
+    op
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["config"] });
+        for (const key of alsoInvalidate ?? [])
+          qc.invalidateQueries({ queryKey: [key] });
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+  return { config, save };
+}
+
+/** `[brain]` — daemon connection. Space picker uses the live daemon list;
+ *  offline falls back to a free-text input (C1: offline is normal). */
+function BrainSection() {
+  const { t } = useI18n();
+  const { config, save } = useConfigSection();
+  const spaces = useQuery({
+    queryKey: ["brain-spaces"],
+    queryFn: brainListSpaces,
+    staleTime: 30_000,
+  });
+  const brain = config.data?.brain;
+
+  const patch = (p: Partial<NonNullable<typeof brain>>) =>
+    save(
+      setBrainConfig({
+        enabled: brain?.enabled ?? true,
+        socket: brain?.socket ?? "",
+        space: brain?.space ?? "personal",
+        ...p,
+      }),
+      ["brain-status", "brain-spaces"],
+    );
+
+  if (!brain && config.isLoading) {
+    return <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] text-text-subtle">…</p>;
+  }
+  const online = spaces.data?.online === true;
+  const list = spaces.data?.spaces ?? [];
+  const known = list.some((s) => s.name === brain?.space);
+
+  return (
+    <div className="space-y-1.5">
+      <ToggleRow
+        label={t.brain_enabled}
+        checked={brain?.enabled ?? true}
+        onChange={(v) => patch({ enabled: v })}
+      />
+      <TextRow
+        label={t.brain_socket}
+        value={brain?.socket ?? ""}
+        placeholder={t.brain_socket_ph}
+        onCommit={(v) => patch({ socket: v })}
+      />
+      <div className="rounded-lg bg-surface-sunken px-3 py-2">
+        <div className="mb-1 flex items-center justify-between">
+          <p className="text-[11px] text-text-subtle">{t.brain_space}</p>
+          <button
+            type="button"
+            aria-label={t.brain_retry}
+            onClick={() => spaces.refetch()}
+            className="rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
+          >
+            <RefreshCw size={12} className={spaces.isFetching ? "animate-spin" : ""} />
+          </button>
+        </div>
+        {online ? (
+          <select
+            value={brain?.space ?? "personal"}
+            onChange={(e) => patch({ space: e.target.value })}
+            className="w-full rounded-md bg-surface-raised px-2 py-1 text-xs text-text outline-none focus:ring-1 focus:ring-line"
+          >
+            {!known && brain?.space && (
+              <option value={brain.space}>{brain.space}</option>
+            )}
+            {list.map((s) => (
+              <option key={s.name} value={s.name}>
+                {s.name} · {t.brain_episodes.replace("{n}", String(s.episodes))}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            value={brain?.space ?? ""}
+            placeholder="personal"
+            onChange={(e) => patch({ space: e.target.value })}
+            className="w-full rounded-md bg-surface-raised px-2 py-1 font-mono text-xs text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
+          />
+        )}
+        {!online && (
+          <p className="mt-1 text-[10px] text-text-subtle">{t.brain_space_offline}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** `[general]` — behavior knobs. */
+function GeneralSection() {
+  const { t } = useI18n();
+  const { config, save } = useConfigSection();
+  return (
+    <NumberRow
+      label={t.general_trash_days}
+      value={config.data?.general?.trash_retention_days ?? 30}
+      min={1}
+      max={365}
+      onCommit={(v) => save(setGeneralConfig({ trash_retention_days: v }))}
+    />
+  );
+}
+
+/** `[capture]` — overlay and trigger tuning. */
+function CaptureSection() {
+  const { t } = useI18n();
+  const { config, save } = useConfigSection();
+  const capture = config.data?.capture;
+  return (
+    <div className="space-y-1.5">
+      <NumberRow
+        label={t.capture_threshold}
+        value={capture?.double_tap_threshold_ms ?? 350}
+        min={100}
+        max={1000}
+        onCommit={(v) =>
+          save(
+            setCaptureConfig({
+              double_tap_threshold_ms: v,
+              overlay_max_height: capture?.overlay_max_height ?? 400,
+            }),
+          )
+        }
+      />
+      <NumberRow
+        label={t.capture_overlay_height}
+        value={capture?.overlay_max_height ?? 400}
+        min={120}
+        max={600}
+        onCommit={(v) =>
+          save(
+            setCaptureConfig({
+              double_tap_threshold_ms: capture?.double_tap_threshold_ms ?? 350,
+              overlay_max_height: v,
+            }),
+          )
+        }
+      />
+    </div>
+  );
+}
+
+/** `[index]` — power-user watcher tuning. */
+function AdvancedSection() {
+  const { t } = useI18n();
+  const { config, save } = useConfigSection();
+  return (
+    <NumberRow
+      label={t.advanced_debounce}
+      value={config.data?.index?.watcher_debounce_ms ?? 300}
+      min={50}
+      max={2000}
+      onCommit={(v) => save(setIndexConfig({ watcher_debounce_ms: v }))}
+    />
   );
 }
 
@@ -446,9 +744,19 @@ export function SettingsMenu() {
 
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
 
+  const config = useQuery({ queryKey: ["config"], queryFn: getConfig });
+
   const onTheme = (v: Theme) => {
     setTheme(v);
     applyTheme(v);
+    // TOML ⇄ GUI parity: the theme Segmented writes through to
+    // `appearance.theme` (localStorage keeps its role as the instant cache).
+    setAppearanceConfig({
+      theme: v,
+      show_dock_icon: config.data?.appearance?.show_dock_icon ?? true,
+    })
+      .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+      .catch(() => {});
   };
 
   const copyVault = async () => {
@@ -565,10 +873,36 @@ export function SettingsMenu() {
                   ]}
                 />
               </div>
+              <div className="mt-2.5">
+                <ToggleRow
+                  label={t.dock_icon}
+                  checked={config.data?.appearance?.show_dock_icon ?? true}
+                  onChange={(v) =>
+                    setAppearanceConfig({
+                      theme: theme,
+                      show_dock_icon: v,
+                    })
+                      .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+                      .catch((e) => setError(String(e).split("\n")[0]))
+                  }
+                />
+              </div>
+            </Section>
+
+            <Section icon={<Brain size={12} />} title={t.section_brain}>
+              <BrainSection />
+            </Section>
+
+            <Section icon={<Zap size={12} />} title={t.section_capture}>
+              <CaptureSection />
             </Section>
 
             <Section icon={<FolderTree size={12} />} title="Folders">
               <FoldersSection />
+            </Section>
+
+            <Section icon={<Settings size={12} />} title={t.section_general}>
+              <GeneralSection />
             </Section>
 
             <Section icon={<HardDrive size={12} />} title={t.section_storage}>
@@ -650,6 +984,10 @@ export function SettingsMenu() {
 
             <Section icon={<Terminal size={12} />} title={t.section_cli}>
               <CliSection />
+            </Section>
+
+            <Section icon={<SlidersHorizontal size={12} />} title={t.section_advanced}>
+              <AdvancedSection />
             </Section>
 
             <Section icon={<DownloadCloud size={12} />} title={t.section_updates}>

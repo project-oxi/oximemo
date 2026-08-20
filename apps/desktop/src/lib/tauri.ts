@@ -322,12 +322,28 @@ async function browserFallback(
     case "get_config":
       return {
         schema_version: 3,
+        general: { trash_retention_days: 30 },
+        capture: { double_tap_threshold_ms: 350, overlay_max_height: 400 },
+        appearance: { theme: "system", show_dock_icon: true },
         folders: Object.entries(loadViews()).map(([path, view]) => ({
           path,
           view,
           color: null,
         })),
+        brain: { enabled: true, socket: "", space: "personal" },
+        index: { watcher_debounce_ms: 300 },
       };
+
+    case "set_brain_config":
+    case "set_general_config":
+    case "set_capture_config":
+    case "set_index_config":
+    case "set_appearance_config":
+      return null;
+
+    case "brain_list_spaces":
+      // Browser preview has no daemon: offline is a normal state (C1).
+      return { online: false, spaces: [] };
 
 
     case "set_folder_view": {
