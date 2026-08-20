@@ -146,3 +146,82 @@ restores them on click.
     plus the `>20 px` slack heuristic for restoration.
 - localStorage was cleared at the end (`localStorage.clear()`).
 - `bun run build` green after the change.
+
+---
+
+## Fix round 2 — terminate overflow loop (stale closure)
+
+### What changed
+- `BreadcrumbBar.tsx`:
+  - The `measure` closure no longer reads `collapsed` from render scope.
+    `collapsed` is mirrored into `collapsedRef = useRef(0)`, and every
+    `setCollapsed(n)` call is followed by a synchronous
+    `collapsedRef.current = n` write inside the same block so the next
+    `rAF` pass sees the committed value, not the value at effect-creation
+    time.
+  - The overflow flow is split into two strictly-bounded phases:
+    1. `collapse()`: collapses one MORE segment per pass. Loop terminates
+       when the bar fits OR `cur >= segs.length - 1`. Cannot oscillate
+       because each iteration hides, never restores.
+    2. `maybeRestore()`: runs ONCE after the collapse phase has settled,
+       and only if there is meaningful slack
+       (`clientWidth - scrollWidth > 80px`). One restore attempt max —
+       if restoring re-introduces overflow, the next `ResizeObserver`
+       tick will re-evaluate (and run collapse again if needed); we
+       deliberately do NOT chain more rAF.
+  - The earlier `>20px` heuristic has been replaced with a single,
+    explicit, one-shot `>80px` check (the worst-case segment width is
+    about 80px including the chevron-right + chevron-down buttons).
+  - The `ResizeObserver` callback now resets `collapsedRef.current = 0`
+    and `setCollapsed(0)` first, then runs `collapse()` + `maybeRestore()`
+    in the same bounded way. Re-fire storms from layout are still
+    bounded by the new termination contract.
+  - The dep comment that claimed updater-form access has been removed
+    (the code now genuinely mirrors state into a ref).
+
+### Smoke steps + observed DOM (browser tool, :5173)
+Re-seeded localStorage (folders + memos as before). Navigated to the
+deepest segment `작업/2026/Q4/주간/회고` via the dropdown chain. Final
+state with all 6 segments visible: `data-breadcrumb-path` count = 6,
+`scrollW === clientW === 498`. No `…` chip.
+
+Then forced the overflow regime by setting
+`nav.style.maxWidth = '200px'` (deliberately tight — 200px is wider than
+the last segment alone but tighter than the 6-segment chain, so the
+collapse phase must hide at least two segments).
+
+Method to detect a runaway loop: re-defined the `scrollWidth` and
+`clientWidth` getters on the nav element via
+`Object.defineProperty` to count reads (`window.__measureReads`). With
+this counter in place, a runaway rAF would show dozens of reads per
+second (one per frame minimum, with forced layout).
+
+- After forcing `maxWidth: 200px` and waiting 2 s: `__measureReads = 12`
+  total across the wait window (one burst during the initial layout
+  flush, then a quiet zero baseline). Far from a runaway — at ~6 reads/s
+  over the 2 s window this is consistent with the bounded
+  collapse → maybeRestore flow (collapse runs at most `segs.length - 1 = 5`
+  times, plus the one-shot restore and the ResizeObserver re-fires).
+- Visible DOM after the forced overflow:
+  `data-breadcrumb-path` = `["", "작업/2026/Q4", "작업/2026/Q4/주간",
+  "작업/2026/Q4/주간/회고"]` (4 visible, 2 collapsed — `작업` and
+  `작업/2026`). The ellipsis button is rendered with `title="작업/2026"`
+  (the deepest hidden segment's full path, matching the brief's
+  resolution note). `scrollW = 200`, `clientW = 200`.
+- Clicked the ellipsis button via
+  `nav.querySelector('button[title]').click()`:
+  `data-breadcrumb-path` returned to all 6 entries (`""`, `작업`,
+  `작업/2026`, `작업/2026/Q4`, `작업/2026/Q4/주간`,
+  `작업/2026/Q4/주간/회고`).
+- Widened back to default (cleared `maxWidth`): `__measureReads = 0` for
+  a fresh 3-second idle window — the loop fully terminates, no per-frame
+  reads, no background activity.
+- localStorage was cleared at the end (`localStorage.clear()`).
+
+### Verification of the previous Critical defect
+The earlier "restore tries to free one segment when fits + slack, but
+the partial restore re-introduces overflow, oscillating per frame" is
+now impossible: `maybeRestore` runs at most once per effect/ResizeObserver
+cycle, and the per-cycle restore never re-enters `collapse` from inside
+itself. Any overflow re-introduction from a restore is observed on the
+next ResizeObserver tick (which is layout-driven, not rAF-driven).

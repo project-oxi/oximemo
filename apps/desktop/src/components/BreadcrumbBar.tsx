@@ -94,6 +94,9 @@ export function BreadcrumbBar({ folders, folderDefs = [] }: BreadcrumbBarProps) 
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(0);
+  // Mirror `collapsed` into a ref so the rAF measure loop sees fresh
+  // values without the closure-staleness trap.
+  const collapsedRef = useRef(0);
   // Hide in gallery mode — it has its own header.
   if (view === "gallery") return null;
 
@@ -112,51 +115,79 @@ export function BreadcrumbBar({ folders, folderDefs = [] }: BreadcrumbBarProps) 
   for (let i = 0; i < segs.length; i++) paths.push(segs.slice(0, i + 1).join("/"));
 
   // Overflow: collapse leading segments while the bar exceeds its box.
-  // ResizeObserver re-measures on viewport / sidebar / header changes; the
-  // rAF loop lets React paint the new collapsed count before re-measuring.
+  //
+  // Termination contract:
+  //   1. collapse-only loop: each overflow pass hides +1 segment, paints,
+  //      re-measures. Terminates when bar fits OR collapsed === max.
+  //   2. After collapse settles, a single restore pass tries to free up
+  //      exactly ONE hidden segment if there is meaningful slack — done
+  //      once, not in a loop, so a partial restore that re-triggers
+  //      overflow will be re-evaluated on the next ResizeObserver tick
+  //      (or on the next folderFilter change), not on a self-perpetuating
+  //      rAF chain.
+  //   3. clientWidth === 0 (header siblings ate the bar) → bail with no
+  //      state mutation; ResizeObserver re-runs when layout settles.
   useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
+    collapsedRef.current = 0;
+    setCollapsed(0);
     let raf = 0;
-    let last: number | null = null;
-    const measure = () => {
-      if (!el) return;
-      // If there's nothing to overflow (≤1 seg), reset and stop.
-      if (segs.length <= 1) {
-        if (collapsed !== 0) setCollapsed(0);
-        last = 0;
-        return;
-      }
-      // If nav has 0 width (siblings ate it all), we can't reliably measure.
-      // Stop the loop until width returns.
-      if (el.clientWidth === 0) {
-        return;
-      }
-      if (el.scrollWidth > el.clientWidth) {
-        // Overflowing — collapse one more if we still can.
-        if (collapsed < segs.length - 1 && collapsed !== last) {
-          last = collapsed + 1;
-          setCollapsed(last);
-          raf = requestAnimationFrame(measure);
-        }
-        return;
-      }
-      // Fits. If we previously collapsed, try restoring one.
-      if (collapsed > 0) {
-        // Heuristic: room for restoration if there's enough slack.
-        if (el.clientWidth - el.scrollWidth > 20 || collapsed === last) {
-          last = collapsed - 1;
-          setCollapsed(last);
-          if (last > 0) raf = requestAnimationFrame(measure);
-        }
+    // Pass 1: collapse-only loop. Hides segments one by one until fits or
+    // no more collapsible segments. Cannot oscillate — each iteration
+    // hides one MORE segment, never restores.
+    const collapse = () => {
+      const node = wrapRef.current;
+      if (!node) return;
+      if (segs.length <= 1) return;
+      if (node.clientWidth === 0) return;
+      const cur = collapsedRef.current;
+      if (cur >= segs.length - 1) return;
+      if (node.scrollWidth <= node.clientWidth) return;
+      const next = cur + 1;
+      collapsedRef.current = next;
+      setCollapsed(next);
+      raf = requestAnimationFrame(collapse);
+    };
+    // Pass 2: optional one-shot restore. Only fires AFTER the collapse
+    // phase has fully settled and we have measurable slack. Restoring
+    // by 1 may re-introduce a small overflow that the next ResizeObserver
+    // tick will handle — we deliberately do NOT chain more rAF here.
+    const maybeRestore = () => {
+      const node = wrapRef.current;
+      if (!node) return;
+      if (node.clientWidth === 0) return;
+      const cur = collapsedRef.current;
+      if (cur === 0) return;
+      // Slack: enough room that one restore won't overflow even at the
+      // segment's worst-case label width (~80px including chevron-right +
+      // chevron-down buttons).
+      if (node.clientWidth - node.scrollWidth > 80) {
+        const next = cur - 1;
+        collapsedRef.current = next;
+        setCollapsed(next);
       }
     };
-    raf = requestAnimationFrame(measure);
+    raf = requestAnimationFrame(() => {
+      collapse();
+      // After collapse settles, schedule the restore check on a separate
+      // rAF so the just-painted state is what we measure against.
+      raf = requestAnimationFrame(maybeRestore);
+    });
     let ro: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => {
         cancelAnimationFrame(raf);
-        raf = requestAnimationFrame(measure);
+        // Restart the whole flow: reset → collapse → maybeRestore. This
+        // intentionally lets the restore pass shrink the collapse count
+        // toward zero when the bar widens, with the same single-step
+        // guarantee.
+        collapsedRef.current = 0;
+        setCollapsed(0);
+        raf = requestAnimationFrame(() => {
+          raf = requestAnimationFrame(collapse);
+          raf = requestAnimationFrame(maybeRestore);
+        });
       });
       ro.observe(el);
     }
@@ -164,9 +195,6 @@ export function BreadcrumbBar({ folders, folderDefs = [] }: BreadcrumbBarProps) 
       cancelAnimationFrame(raf);
       ro?.disconnect();
     };
-    // segs.length is the only stable input; collapsed and DOM refs are
-    // accessed via the setCollapsed updater / wrapRef.current.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folderFilter, segs.length]);
 
   if (query) {
