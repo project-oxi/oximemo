@@ -153,4 +153,6 @@ export const dict: Record<keyof typeof ko, string> = {
   brain_layer_high_salience_beliefs: "Core beliefs",
   brain_layer_summaries: "Summaries",
   brain_layer_other: "Other",
+  dock_saved: "Saved",
+  dock_saving: "Saving…",
 };

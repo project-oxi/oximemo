@@ -152,6 +152,8 @@ export const dict = {
   brain_layer_high_salience_beliefs: "핵심 신념",
   brain_layer_summaries: "요약",
   brain_layer_other: "기타",
+  dock_saved: "저장됨",
+  dock_saving: "저장 중…",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

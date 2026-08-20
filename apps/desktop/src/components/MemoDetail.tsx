@@ -7,13 +7,12 @@
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Folder, Maximize2, Minimize2, Star } from "lucide-react";
+import { Folder, Star } from "lucide-react";
 
 import { deleteMemo, getMemo, updateMemo, listFolders } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
-import { BacklinksPanel } from "./BacklinksPanel";
-import { BrainPanel } from "./BrainPanel";
+import { ContextDock } from "./ContextDock";
 import { TagChipRow } from "./TagChipRow";
 import { HtmlNoteEditor } from "./HtmlNoteEditor";
 import { MemoEditorForm } from "./MemoEditorForm";
@@ -42,7 +41,6 @@ export function MemoDetail() {
   const [favorite, setFavorite] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [seededId, setSeededId] = useState<string | null>(null);
-  const [immersive, setImmersive] = useState(false);
   const folderPickerRef = useRef<FolderComboboxHandle>(null);
 
   useEffect(() => {
@@ -56,7 +54,6 @@ export function MemoDetail() {
       setFavorite(memo.data.favorite);
       setDirty(false);
       setSeededId(memo.data.id);
-      setImmersive(false);
     }
     if (!open && seededId !== null) setSeededId(null);
   }, [open, memo.data, seededId]);
@@ -122,9 +119,7 @@ export function MemoDetail() {
     setter(v);
     setDirty(true);
   };
-  const popupSize = immersive
-    ? "h-[94vh] w-[min(900px,96vw)] p-6"
-    : "h-[80vh] w-[min(640px,92vw)] p-5";
+  const popupSize = "h-[80vh] w-[min(640px,92vw)] p-5";
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
@@ -157,14 +152,6 @@ export function MemoDetail() {
               </button>
               <button
                 type="button"
-                onClick={() => setImmersive((v) => !v)}
-                className="rounded-md p-1.5 text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                aria-label={immersive ? "Exit immersive" : "Enter immersive"}
-              >
-                {immersive ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-              </button>
-              <button
-                type="button"
                 onClick={close}
                 className="rounded-[var(--button-radius)] bg-interactive-primary px-3 py-1.5 text-xs font-medium text-interactive-primary-foreground transition-colors duration-150 hover:bg-interactive-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
               >
@@ -191,18 +178,15 @@ export function MemoDetail() {
                 body={body}
                 onBodyChange={edit(setBody)}
                 folderPickerRef={folderPickerRef}
-                immersive={immersive}
               />
             )}
-            {!immersive && memo.data && seededId === memo.data.id && (
-              <>
-                <BacklinksPanel noteId={memo.data.id} />
-                <BrainPanel
-                  noteId={memo.data.id}
-                  title={memo.data.title}
-                  tags={memo.data.tags}
-                />
-              </>
+            {memo.data && seededId === memo.data.id && (
+              <ContextDock
+                noteId={memo.data.id}
+                title={memo.data.title}
+                tags={memo.data.tags}
+                dirty={dirty}
+              />
             )}
           </div>
         </Dialog.Popup>

@@ -30,7 +30,6 @@ export interface MemoEditorFormProps {
   folders: FolderEntry[];
   folderPickerRef?: Ref<FolderComboboxHandle>;
   className?: string;
-  immersive?: boolean;
 }
 
 export function MemoEditorForm({
@@ -42,7 +41,6 @@ export function MemoEditorForm({
   folders,
   folderPickerRef,
   className,
-  immersive,
 }: MemoEditorFormProps) {
   const { t, locale } = useI18n();
   const select = useUI((s) => s.select);
@@ -61,10 +59,6 @@ export function MemoEditorForm({
     const id = requestAnimationFrame(() => editorHandleRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [documentId]);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => editorHandleRef.current?.focus());
-    return () => cancelAnimationFrame(id);
-  }, [immersive]);
 
   const insertPicked = (list: FileList | null) => {
     const view = viewHandleRef.current?.view;
