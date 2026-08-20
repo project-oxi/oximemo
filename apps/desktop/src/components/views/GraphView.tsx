@@ -1,9 +1,12 @@
+import { Globe } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+import { FolderChipBar } from "../FolderChipBar";
 import { graphData } from "../../lib/api";
-import type { GraphData, MemoSummary } from "../../lib/types";
+import type { FolderCard, FolderDef, GraphData, MemoSummary } from "../../lib/types";
 import { colorForFolder } from "../../lib/color";
+import { useI18n } from "../../lib/i18n";
 import { useUI } from "../../stores/ui";
 
 
@@ -20,6 +23,10 @@ interface SimNode {
 
 interface Props {
   items?: MemoSummary[];
+  folders?: FolderDef[];
+  folderCards?: FolderCard[];
+  onOpenFolder?: (path: string) => void;
+  onNewFolder?: () => void;
 }
 
 function emptyBrowserGraph(items: MemoSummary[] = []): GraphData {
@@ -46,7 +53,14 @@ function emptyBrowserGraph(items: MemoSummary[] = []): GraphData {
   };
 }
 
-export function GraphView({ items = [] }: Props) {
+export function GraphView({
+  items = [],
+  folders = [],
+  folderCards = [],
+  onOpenFolder,
+  onNewFolder,
+}: Props) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 800, h: 480 });
   const select = useUI((s) => s.select);
@@ -167,48 +181,63 @@ export function GraphView({ items = [] }: Props) {
   }
 
   return (
-    <div ref={ref} className="relative h-full w-full">
-      <svg width={size.w} height={size.h} className="absolute inset-0">
-        <g>
-          {data.edges.map((e, i) => {
-            const s = nodes[indexById.get(e.source) ?? -1];
-            const t = nodes[indexById.get(e.target) ?? -1];
-            if (!s || !t) return null;
-            return (
-              <line
-                key={i}
-                x1={s.x}
-                y1={s.y}
-                x2={t.x}
-                y2={t.y}
-                stroke="currentColor"
-                strokeOpacity={0.2}
-                strokeWidth={1}
-              />
-            );
-          })}
-          {nodes.map((n) => (
-            <g
-              key={n.id}
-              transform={`translate(${n.x},${n.y})`}
-              style={{ cursor: "pointer" }}
-              onClick={() => select(n.id)}
-            >
-              <circle r={5} fill={n.color || "currentColor"} stroke="var(--color-surface)" strokeWidth={1.5} />
-              <text
-                x={9}
-                y={4}
-                fontSize={10}
-                fill="currentColor"
-                opacity={0.7}
-                style={{ pointerEvents: "none" }}
+    <div className="flex h-full flex-col">
+      <FolderChipBar
+        cards={folderCards}
+        folderDefs={folders}
+        onOpen={(p) => onOpenFolder?.(p)}
+        onNewFolder={() => onNewFolder?.()}
+      />
+      <div ref={ref} className="relative min-h-0 flex-1 overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised">
+        <span
+          data-global-badge
+          className="absolute right-2.5 top-2.5 z-10 inline-flex items-center gap-1.5 rounded-[var(--tag-radius)] border border-line-strong bg-surface-muted px-2.5 py-1 text-[11px] text-text-muted"
+          title={t.global_badge_tooltip}
+        >
+          <Globe size={11} /> {t.global_badge}
+        </span>
+        <svg width="100%" height="100%" className="absolute inset-0 h-full w-full">
+          <g>
+            {data.edges.map((e, i) => {
+              const s = nodes[indexById.get(e.source) ?? -1];
+              const t2 = nodes[indexById.get(e.target) ?? -1];
+              if (!s || !t2) return null;
+              return (
+                <line
+                  key={i}
+                  x1={s.x}
+                  y1={s.y}
+                  x2={t2.x}
+                  y2={t2.y}
+                  stroke="currentColor"
+                  strokeOpacity={0.2}
+                  strokeWidth={1}
+                />
+              );
+            })}
+            {nodes.map((n) => (
+              <g
+                key={n.id}
+                transform={`translate(${n.x},${n.y})`}
+                style={{ cursor: "pointer" }}
+                onClick={() => select(n.id)}
               >
-                {n.title.length > 28 ? `${n.title.slice(0, 28)}…` : n.title}
-              </text>
-            </g>
-          ))}
-        </g>
-      </svg>
+                <circle r={5} fill={n.color || "currentColor"} stroke="var(--color-surface)" strokeWidth={1.5} />
+                <text
+                  x={9}
+                  y={4}
+                  fontSize={10}
+                  fill="currentColor"
+                  opacity={0.7}
+                  style={{ pointerEvents: "none" }}
+                >
+                  {n.title.length > 28 ? `${n.title.slice(0, 28)}…` : n.title}
+                </text>
+              </g>
+            ))}
+          </g>
+        </svg>
+      </div>
     </div>
   );
 }

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import {
+  createFolder,
   createMemo,
   deleteMemo,
   folderChildren,
@@ -135,9 +136,8 @@ export function CardGrid() {
     },
     [folderFilter, qc, setNoteView, setToast],
   );
-
   const listing = useInfiniteQuery({
-    queryKey: ["memos", includeTags, excludeTags, matchAll, folderFilter, favoritesOnly],
+    queryKey: ["memos", includeTags, excludeTags, matchAll, folderFilter, favoritesOnly, noteView],
     queryFn: ({ pageParam }) =>
       listMemos(pageParam, PAGE_SIZE, {
         include_tags: includeTags,
@@ -145,7 +145,11 @@ export function CardGrid() {
         match_all: matchAll,
         folder: folderFilter,
         favorites_only: favoritesOnly,
-        immediate: folderFilter !== null,
+        // Per-view listing scope (T8): grid/list are direct-only
+        // (`immediate: folderFilter !== null`); timeline/graph are recursive
+        // — show the folder's full subtree so the source chips make sense.
+        immediate:
+          folderFilter !== null && (noteView === "grid" || noteView === "list"),
       }),
     initialPageParam: null as string | null,
     refetchOnWindowFocus: true,
@@ -185,13 +189,19 @@ export function CardGrid() {
   // folder's subfolders as content-peek tiles above its notes. In query
   // mode (folderFilter === null) and during search the tile layer is
   // suppressed — search results are flat, no folder chrome.
+  //
+  // T8 also gates the FolderChipBar in Timeline/Graph on this query so
+ // those views get the same list of subfolders (chips instead of tiles).
   const browseFoldersQ = useQuery({
     queryKey: ["folderChildren", folderFilter],
     queryFn: () => folderChildren(folderFilter ?? ""),
     enabled:
       folderFilter !== null &&
       !inSearch &&
-      (noteView === "grid" || noteView === "list"),
+      (noteView === "grid" ||
+        noteView === "list" ||
+        noteView === "timeline" ||
+        noteView === "graph"),
   });
 
   // TanStack Query keeps `data` populated even after `enabled` flips false,
@@ -200,10 +210,17 @@ export function CardGrid() {
   // comment above. Brief-spec deps: [browseFoldersQ.data, items]; the
   // boolean predicate is constant for the lifetime of this render pass
   // because the views below either keep or discard the tile layer.
+  //
+  // The same predicate (without the view filter — search already nulled
+  // it out) also drives the chip bar visibility in TimelineView, which
+  // therefore mirrors the showFolders decision.
   const showFolders =
     folderFilter !== null &&
     !inSearch &&
-    (noteView === "grid" || noteView === "list");
+    (noteView === "grid" ||
+      noteView === "list" ||
+      noteView === "timeline" ||
+      noteView === "graph");
   const cells = useMemo<Cell[]>(() => {
     const folderCards = showFolders ? browseFoldersQ.data ?? [] : [];
     const folderCells: Cell[] = folderCards.map((card) => ({
@@ -348,6 +365,23 @@ export function CardGrid() {
     [select, setDraftId, setError, qc],
   );
 
+  // Minimal folder-create flow for the FolderChipBar `＋ 새 폴더` chip
+  // (T8). Task 12 replaces this with the full inline-rename flow that
+  // follows Sidebar.tsx's pattern (input + commit on blur). Until then
+  // we create at the current location and refetch the folder listings
+  // so the new folder surfaces in the chip bar immediately.
+  const startFolderCreate = useCallback(() => {
+    const loc = folderFilter ?? "";
+    const def = loc ? `${loc}/${t.folder_new}` : t.folder_new;
+    void createFolder(def)
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["folderChildren"] });
+        qc.invalidateQueries({ queryKey: ["folders"] });
+        setToast(`+ ${def}`);
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  }, [folderFilter, t.folder_new, qc, setToast, setError]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // ⌘N / CtrlN — new note in current folder.
@@ -479,6 +513,7 @@ export function CardGrid() {
     onCopyBody,
     onDelete,
     onNewNote,
+    onNewFolder: startFolderCreate,
   };
 
   return (
@@ -581,7 +616,13 @@ export function CardGrid() {
           ) : noteView === "timeline" ? (
             <TimelineView {...viewProps} />
           ) : (
-            <GraphView />
+            <GraphView
+              items={items}
+              folders={folders}
+              folderCards={folderCards}
+              onOpenFolder={setFolderFilter}
+              onNewFolder={startFolderCreate}
+            />
           )}
         </div>
       </div>

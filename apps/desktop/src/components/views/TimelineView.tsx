@@ -2,23 +2,33 @@
  * TimelineView — a chronological list grouped by day, ideal for diary-style
  * folders. Renders items in descending updated_at order with a sticky day
  * header for each group.
+ *
+ * Timeline scope is recursive (T5: folder-filtered results include all
+ * descendants), so the FolderChipBar above the first group lets the user
+ * pivot to a sibling without using the breadcrumb, and each item carries
+ * its source folder chip so a note from `작업/회고` shown under the root
+ * timeline is clearly attributable.
  */
 import { useMemo } from "react";
 
-import type { FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
+import { FolderChipBar } from "../FolderChipBar";
+import { colorForFolder } from "../../lib/color";
 import { relativeTime } from "../../lib/time";
 import { useI18n } from "../../lib/i18n";
+import type { FolderCard, FolderDef, MemoSummary } from "../../lib/types";
 
 interface Props {
   items: MemoSummary[];
   folders: FolderDef[];
-  folderEntries: FolderEntry[];
+  folderCards: FolderCard[];
+  onOpenFolder: (path: string) => void;
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string, favorite: boolean) => void;
   onMoveFolder: (id: string, folder: string) => void;
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
   onNewNote?: () => void;
+  onNewFolder: () => void;
 }
 
 function dayKey(iso: string): string {
@@ -26,7 +36,14 @@ function dayKey(iso: string): string {
   return iso.slice(0, 10);
 }
 
-export function TimelineView({ items, onSelect }: Props) {
+export function TimelineView({
+  items,
+  folders,
+  folderCards,
+  onOpenFolder,
+  onSelect,
+  onNewFolder,
+}: Props) {
   const { t, locale } = useI18n();
   const groups = useMemo(() => {
     const m = new Map<string, MemoSummary[]>();
@@ -41,6 +58,12 @@ export function TimelineView({ items, onSelect }: Props) {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 pb-12">
+      <FolderChipBar
+        cards={folderCards}
+        folderDefs={folders}
+        onOpen={onOpenFolder}
+        onNewFolder={onNewFolder}
+      />
       {groups.map(([day, group]) => (
         <section key={day}>
           <h2 className="sticky top-0 z-10 -mx-2 mb-2 bg-surface-raised/80 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-text-subtle backdrop-blur">
@@ -75,6 +98,18 @@ export function TimelineView({ items, onSelect }: Props) {
                       </span>
                     ))}
                   </div>
+                )}
+                {n.folder && (
+                  <span
+                    data-note-folder={n.folder}
+                    className="mt-1.5 inline-flex items-center gap-1 font-mono text-[10px] text-text-subtle"
+                  >
+                    <i
+                      className="size-1.5 rounded-[2px]"
+                      style={{ backgroundColor: colorForFolder(n.folder, folders) }}
+                    />
+                    {n.folder}/
+                  </span>
                 )}
               </li>
             ))}

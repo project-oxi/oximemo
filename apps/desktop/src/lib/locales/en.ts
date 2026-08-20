@@ -172,4 +172,5 @@ export const dict: Record<keyof typeof ko, string> = {
   global_badge: "Global",
   jump_to_folder: "Go to Folder…",
   show_all_folders: "Show all {n} folders",
+  global_badge_tooltip: "This view shows the entire vault",
 };

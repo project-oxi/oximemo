@@ -171,6 +171,7 @@ export const dict = {
   global_badge: "전역",
   jump_to_folder: "폴더로 이동…",
   show_all_folders: "폴더 {n}개 모두 보기",
+  global_badge_tooltip: "이 뷰는 볼트 전체를 보여줍니다",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;
