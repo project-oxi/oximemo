@@ -468,6 +468,15 @@ mod commands {
 
     use super::AppState;
 
+    /// One row of `list_folders`. Serialized as an object so the JS side can
+    /// rely on `entry.path` (Rust tuples serialize as JSON arrays, which would
+    /// be `[path, note_count]` and lose the key).
+    #[derive(serde::Serialize)]
+    pub struct ListFolderResult {
+        pub path: String,
+        pub note_count: u32,
+    }
+
     #[tauri::command]
     #[allow(clippy::too_many_arguments)]
     pub fn list_memos(
@@ -633,8 +642,12 @@ mod commands {
     // -- folders ----------------------------------------------------------
 
     #[tauri::command]
-    pub fn list_folders(state: State<'_, AppState>) -> Result<Vec<(String, u32)>, String> {
-        state.vault.list_folders().map_err(|e| e.to_string())
+    pub fn list_folders(state: State<'_, AppState>) -> Result<Vec<ListFolderResult>, String> {
+        state
+            .vault
+            .list_folders()
+            .map(|rows| rows.into_iter().map(|(path, note_count)| ListFolderResult { path, note_count }).collect())
+            .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -931,5 +944,38 @@ mod commands {
         }
         out.push('"');
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::commands::ListFolderResult;
+
+    /// `list_folders` must serialize as `[{"path":"…","note_count":N}]`, NOT
+    /// `[["…",N]]`. The JS side reaches `entry.path` directly; a tuple-as-array
+    /// shape would silently make every entry `path: undefined` and crash the
+    /// sidebar tree.
+    #[test]
+    fn list_folders_serializes_as_objects() {
+        let rows = vec![
+            ListFolderResult { path: String::new(), note_count: 3 },
+            ListFolderResult { path: "novel".into(), note_count: 2 },
+        ];
+        let json = serde_json::to_string(&rows).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        let arr = v.as_array().expect("top-level must be an array");
+        assert_eq!(arr.len(), 2);
+        for (i, item) in arr.iter().enumerate() {
+            let obj = item
+                .as_object()
+                .unwrap_or_else(|| panic!("entry {i} should be object, got {item}"));
+            assert!(obj.contains_key("path"), "entry {i} missing `path` key");
+            assert!(obj.contains_key("note_count"), "entry {i} missing `note_count` key");
+        }
+        assert_eq!(arr[0]["path"], serde_json::Value::String(String::new()));
+        assert_eq!(arr[0]["note_count"], serde_json::json!(3));
+        assert_eq!(arr[1]["path"], serde_json::Value::String("novel".into()));
+        assert_eq!(arr[1]["note_count"], serde_json::json!(2));
     }
 }
