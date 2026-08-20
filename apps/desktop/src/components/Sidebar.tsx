@@ -11,6 +11,7 @@ import { useState } from "react";
 
 import { listFacets, memoStats, listFolders, getConfig, setFolderPinned } from "../lib/api";
 import { colorForFolder } from "../lib/color";
+import { useFolderDrop } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
 import { useUI, type TagState } from "../stores/ui";
@@ -22,7 +23,7 @@ const STATE_CLASS: Record<TagState, string> = {
   out: "border border-hue-amber text-hue-amber line-through",
 };
 
-export function Sidebar() {
+export function Sidebar({ onMoveNote }: { onMoveNote: (id: string, folder: string) => void }) {
   const { t } = useI18n();
   const facets = useQuery({ queryKey: ["facets"], queryFn: listFacets });
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
@@ -41,12 +42,6 @@ export function Sidebar() {
   const setView = useUI((s) => s.setView);
   const setError = useUI((s) => s.setError);
   const qc = useQueryClient();
-
-  // Track which pinned row the user is currently hovering OR has keyboard-focused
-  // so the ⋯ button stays visible in both cases. The ⋯ is the row's primary
-  // unpin affordance; we mirror hover with focus so keyboard users can reach it.
-  const [hoveredPath, setHoveredPath] = useState<string | null>(null);
-  const [focusedPath, setFocusedPath] = useState<string | null>(null);
 
   const tags = facets.data?.tags ?? [];
   const folders: FolderDef[] = configQ.data?.folders ?? [];
@@ -167,78 +162,116 @@ export function Sidebar() {
             </span>
           </div>
           <div className="flex flex-col px-2 pt-1">
-            {shownPaths.map((path) => {
-              const selected = folderFilter === path;
-              // Reveal the ⋯ button on hover OR keyboard focus (so keyboard
-              // users can tab to it; without this the button stays invisible
-              // even when focused, since opacity-0 hides the focus ring too).
-              const showMore = explicit && (hoveredPath === path || focusedPath === path);
-              return (
-                <div
-                  key={path}
-                  data-sidebar-folder={path}
-                  onMouseEnter={() => setHoveredPath(path)}
-                  onMouseLeave={() => setHoveredPath((cur) => (cur === path ? null : cur))}
-                  className={`group flex items-center gap-1 rounded-md py-0.5 pr-1 text-[13px] ${
-                    selected
-                      ? "bg-surface-muted font-semibold text-text"
-                      : "hover:bg-surface-muted text-text-muted"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => openFolder(path)}
-                    className="flex flex-1 items-center gap-2 truncate px-2 py-0.5 text-left"
-                  >
-                    <Folder
-                      size={12}
-                      style={{ color: colorForFolder(path, folders) }}
-                    />
-                    <span className="truncate">{path}</span>
-                  </button>
-                  {explicit && (
-                    <CtxRoot>
-                      <CtxTrigger
-                        render={
-                          <button
-                            type="button"
-                            aria-label={t.folder_unpin}
-                            title={t.folder_unpin}
-                            // Base UI's ContextMenu.Trigger only opens on
-                            // right-click/long-press — left-click / Enter on
-                            // the rendered button does nothing on its own.
-                            // We want one-click unpin (the row's primary
-                            // affordance) and keep the menu for the secondary
-                            // "open" path, so we wire onClick=unpin too.
-                            onClick={() => unpin(path)}
-                            onFocus={() => setFocusedPath(path)}
-                            onBlur={() => setFocusedPath((cur) => (cur === path ? null : cur))}
-                            className={`grid size-5 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text ${
-                              showMore ? "opacity-100" : "opacity-0"
-                            }`}
-                          />
-                        }
-                      >
-                        <MoreHorizontal size={12} />
-                      </CtxTrigger>
-                      <CtxMenu>
-                        <CtxItem
-                          label={t.folder_open}
-                          onClick={() => openFolder(path)}
-                        />
-                        <CtxItem
-                          label={t.folder_unpin}
-                          onClick={() => unpin(path)}
-                        />
-                      </CtxMenu>
-                    </CtxRoot>
-                  )}
-                </div>
-              );
-            })}
+            {shownPaths.map((path) => (
+              <SidebarFolderRow
+                key={path}
+                path={path}
+                folders={folders}
+                selected={folderFilter === path}
+                explicit={explicit}
+                onOpen={openFolder}
+                onUnpin={unpin}
+                onMoveNote={onMoveNote}
+              />
+            ))}
           </div>
         </>
       )}
     </aside>
+  );
+}
+
+/** One pinned/seeded FOLDERS row: a drop target (T14) with its own
+ *  hover/focus state (the ⋯ unpin button reveal). Extracted so
+ *  useFolderDrop runs at a stable hook index inside the paths map. */
+function SidebarFolderRow({
+  path,
+  folders,
+  selected,
+  explicit,
+  onOpen,
+  onUnpin,
+  onMoveNote,
+}: {
+  path: string;
+  folders: FolderDef[];
+  selected: boolean;
+  explicit: boolean;
+  onOpen: (path: string) => void;
+  onUnpin: (path: string) => void;
+  onMoveNote: (id: string, folder: string) => void;
+}) {
+  const { t } = useI18n();
+  // Reveal the ⋯ button on hover OR keyboard focus (so keyboard users can
+  // tab to it; without this the button stays invisible even when focused,
+  // since opacity-0 hides the focus ring too).
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const showMore = explicit && (hovered || focused);
+  // M16: the row is inert while the dragged note already lives here.
+  const { dropCls, ...dropProps } = useFolderDrop(path, (id) =>
+    onMoveNote(id, path),
+  );
+  return (
+    <div
+      data-sidebar-folder={path}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      {...dropProps}
+      className={`group flex items-center gap-1 rounded-md py-0.5 pr-1 text-[13px] ${
+        selected
+          ? "bg-surface-muted font-semibold text-text"
+          : "hover:bg-surface-muted text-text-muted"
+      } ${dropCls ?? ""}`}
+    >
+      <button
+        type="button"
+        onClick={() => onOpen(path)}
+        className="flex flex-1 items-center gap-2 truncate px-2 py-0.5 text-left"
+      >
+        <Folder
+          size={12}
+          style={{ color: colorForFolder(path, folders) }}
+        />
+        <span className="truncate">{path}</span>
+      </button>
+      {explicit && (
+        <CtxRoot>
+          <CtxTrigger
+            render={
+              <button
+                type="button"
+                aria-label={t.folder_unpin}
+                title={t.folder_unpin}
+                // Base UI's ContextMenu.Trigger only opens on
+                // right-click/long-press — left-click / Enter on
+                // the rendered button does nothing on its own.
+                // We want one-click unpin (the row's primary
+                // affordance) and keep the menu for the secondary
+                // "open" path, so we wire onClick=unpin too.
+                onClick={() => onUnpin(path)}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                className={`grid size-5 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text ${
+                  showMore ? "opacity-100" : "opacity-0"
+                }`}
+              />
+            }
+          >
+            <MoreHorizontal size={12} />
+          </CtxTrigger>
+          <CtxMenu>
+            <CtxItem
+              label={t.folder_open}
+              onClick={() => onOpen(path)}
+            />
+            <CtxItem
+              label={t.folder_unpin}
+              onClick={() => onUnpin(path)}
+            />
+          </CtxMenu>
+        </CtxRoot>
+      )}
+    </div>
   );
 }

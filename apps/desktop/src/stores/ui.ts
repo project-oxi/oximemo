@@ -2,7 +2,7 @@
  *  holds only ephemeral UI state per §7.4. */
 import { create } from "zustand";
 import { loadTheme, type Theme } from "../lib/theme";
-import type { ViewMode } from "../lib/types";
+import type { MemoSummary, ViewMode } from "../lib/types";
 
 export type TagState = "off" | "in" | "out";
 
@@ -60,6 +60,11 @@ interface UIState {
    * while still empty so no orphan notes accumulate. */
   draftId: string | null;
   setDraftId: (id: string | null) => void;
+  /** Note currently being HTML5-dragged (T14). Set by the drag source's
+   * dragstart, cleared on dragend; drop targets read it for M16
+   * own-folder suppression and the grid's edge auto-scroll gates on it. */
+  draggingNote: MemoSummary | null;
+  setDraggingNote: (m: MemoSummary | null) => void;
   /** Available update version surfaced on the settings gear, or null. */
   updateAvailable: string | null;
   setUpdateAvailable: (v: string | null) => void;
@@ -139,6 +144,8 @@ export const useUI = create<UIState>((set) => ({
   setToast: (msg, action) => set({ toast: msg === null ? null : { msg, action } }),
   draftId: null,
   setDraftId: (id) => set({ draftId: id }),
+  draggingNote: null,
+  setDraggingNote: (m) => set({ draggingNote: m }),
   updateAvailable: null,
   setUpdateAvailable: (v) => set({ updateAvailable: v }),
 }));

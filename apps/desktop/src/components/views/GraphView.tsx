@@ -27,6 +27,8 @@ interface Props {
   folderCards?: FolderCard[];
   onOpenFolder?: (path: string) => void;
   onNewFolder?: () => void;
+  /** Move a dragged note into a chip's folder (T14 drop target). */
+  onMoveNote?: (id: string, folder: string) => void;
 }
 
 function emptyBrowserGraph(items: MemoSummary[] = []): GraphData {
@@ -59,6 +61,7 @@ export function GraphView({
   folderCards = [],
   onOpenFolder,
   onNewFolder,
+  onMoveNote,
 }: Props) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
@@ -187,6 +190,7 @@ export function GraphView({
         folderDefs={folders}
         onOpen={(p) => onOpenFolder?.(p)}
         onNewFolder={() => onNewFolder?.()}
+        onMoveNote={(id, p) => onMoveNote?.(id, p)}
       />
       <div ref={ref} className="relative min-h-0 flex-1 overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised">
         <span

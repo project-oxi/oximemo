@@ -75,6 +75,7 @@ export function TimelineView({
         folderDefs={folders}
         onOpen={onOpenFolder}
         onNewFolder={onNewFolder}
+        onMoveNote={onMoveFolder}
       />
       {groups.map(([day, group]) => (
         <section key={day}>

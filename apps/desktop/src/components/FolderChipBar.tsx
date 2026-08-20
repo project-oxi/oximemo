@@ -13,6 +13,7 @@ import { Folder, Plus } from "lucide-react";
 
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
+import { useFolderDrop } from "../lib/dropTarget";
 import type { FolderCard, FolderDef } from "../lib/types";
 
 export interface FolderChipBarProps {
@@ -24,9 +25,11 @@ export interface FolderChipBarProps {
   onOpen: (path: string) => void;
   /** Called when the trailing `＋ {t.folder_new}` chip is clicked. */
   onNewFolder: () => void;
+  /** Move a dragged note into the chip's folder (T14 drop target). */
+  onMoveNote: (id: string, folder: string) => void;
 }
 
-export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder }: FolderChipBarProps) {
+export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder, onMoveNote }: FolderChipBarProps) {
   const { t } = useI18n();
   // Empty state hides the bar entirely — no orphan "＋ 새 폴더" chip alone
   // because creating a folder with no siblings is already covered by the
@@ -34,26 +37,15 @@ export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder }: Folder
   if (cards.length === 0) return null;
   return (
     <div role="list" className="mb-3 flex flex-wrap gap-1.5">
-      {cards.map((card) => {
-        const color = colorForFolder(card.path, folderDefs ?? []);
-        const name = card.path.split("/").at(-1) ?? card.path;
-        return (
-          <button
-            key={card.path}
-            type="button"
-            role="listitem"
-            data-chip-folder={card.path}
-            onClick={() => onOpen(card.path)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--tag-radius)] border border-line bg-surface-raised px-3 text-[13px] text-text transition-colors duration-150 hover:border-line-strong"
-          >
-            <Folder size={13} className="shrink-0" style={{ color }} />
-            <span className="truncate">{name}</span>
-            <span className="text-[11px] tabular-nums text-text-subtle">
-              {card.note_count_deep}
-            </span>
-          </button>
-        );
-      })}
+      {cards.map((card) => (
+        <FolderChip
+          key={card.path}
+          card={card}
+          folderDefs={folderDefs ?? []}
+          onOpen={onOpen}
+          onMoveNote={onMoveNote}
+        />
+      ))}
       <button
         type="button"
         role="listitem"
@@ -63,5 +55,42 @@ export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder }: Folder
         <Plus size={13} strokeWidth={2} /> {t.folder_new}
       </button>
     </div>
+  );
+}
+
+/** One folder chip: a drop target (T14) extracted so useFolderDrop runs
+ *  at a stable hook index inside the cards map. */
+function FolderChip({
+  card,
+  folderDefs,
+  onOpen,
+  onMoveNote,
+}: {
+  card: FolderCard;
+  folderDefs: FolderDef[];
+  onOpen: (path: string) => void;
+  onMoveNote: (id: string, folder: string) => void;
+}) {
+  const color = colorForFolder(card.path, folderDefs);
+  const name = card.path.split("/").at(-1) ?? card.path;
+  // M16: the chip is inert while the dragged note already lives here.
+  const { dropCls, ...dropProps } = useFolderDrop(card.path, (id) =>
+    onMoveNote(id, card.path),
+  );
+  return (
+    <button
+      type="button"
+      role="listitem"
+      data-chip-folder={card.path}
+      onClick={() => onOpen(card.path)}
+      {...dropProps}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-[var(--tag-radius)] border border-line bg-surface-raised px-3 text-[13px] text-text transition-colors duration-150 hover:border-line-strong ${dropCls ?? ""}`}
+    >
+      <Folder size={13} className="shrink-0" style={{ color }} />
+      <span className="truncate">{name}</span>
+      <span className="text-[11px] tabular-nums text-text-subtle">
+        {card.note_count_deep}
+      </span>
+    </button>
   );
 }

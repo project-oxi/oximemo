@@ -12,8 +12,10 @@ import { Folder, FolderOpen, PenLine, Pin, PinOff, Plus, Trash2 } from "lucide-r
 import { useEffect, useRef, useState } from "react";
 
 import { colorForFolder } from "../lib/color";
+import { useFolderDrop } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
 import { relativeTime } from "../lib/time";
+
 import type { FolderCard, FolderDef } from "../lib/types";
 
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
@@ -131,6 +133,8 @@ interface Props {
   onRename: (path: string) => void;
   onTogglePin: (path: string, pinned: boolean) => void;
   onDelete: (path: string, deep: number, confirmed: boolean) => void;
+  /** Move a dragged note into this tile's folder (T14 drop target). */
+  onMoveFolder: (id: string, folder: string) => void;
   /** Naming session of the folder being edited (inline rename/create). */
   namingPath: NamingSession | null;
   /** null = cancelled (Esc) → caller handles teardown; string = confirm (rename if changed). */
@@ -147,12 +151,17 @@ export function FolderTile({
   onRename,
   onTogglePin,
   onDelete,
+  onMoveFolder,
   namingPath,
   onNameCommit,
 }: Props) {
   const { t, locale } = useI18n();
   const color = colorForFolder(card.path, folders);
   const naming = namingPath?.path === card.path;
+  // M16: the tile is inert while the dragged note already lives here.
+  const { dropCls, ...dropProps } = useFolderDrop(card.path, (id) =>
+    onMoveFolder(id, card.path),
+  );
   return (
     <FolderMenu
       path={card.path}
@@ -165,6 +174,7 @@ export function FolderTile({
       render={
         <article
           data-folder-tile={card.path}
+          {...dropProps}
           role="button"
           aria-label={card.path}
           tabIndex={0}
@@ -176,7 +186,7 @@ export function FolderTile({
             if (naming) return;
             if (e.key === "Enter") onOpen(card.path);
           }}
-          className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-[var(--folder-tile-bg)] p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm"
+          className={`group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-[var(--folder-tile-bg)] p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm ${dropCls ?? ""}`}
         />
       }
     >

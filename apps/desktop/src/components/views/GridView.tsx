@@ -101,6 +101,7 @@ export function GridView({
                     onRename={onRenameFolder}
                     onTogglePin={onToggleFolderPin}
                     onDelete={onDeleteFolder}
+                    onMoveFolder={onMoveFolder}
                     namingPath={namingPath}
                     onNameCommit={onNameCommit}
                   />

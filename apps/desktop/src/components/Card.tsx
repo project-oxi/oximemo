@@ -10,6 +10,7 @@ import { useI18n } from "../lib/i18n";
 import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
 import { relativeTime } from "../lib/time";
 import { renderPreviewMarkdown } from "../lib/markdownPreview";
+import { useUI } from "../stores/ui";
 import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { NoteCtxMenu } from "./NoteCtxMenu";
 
@@ -29,8 +30,8 @@ interface Props {
 
 export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, showFolderChip }: Props) {
   const { t, locale } = useI18n();
+  const setDraggingNote = useUI((s) => s.setDraggingNote);
   const folderColor = colorForFolder(memo.folder, folders);
-
   const previewHtml = useMemo(
     () => (memo.preview ? renderPreviewMarkdown(memo.preview) : ""),
     [memo.preview],
@@ -40,6 +41,16 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
       <CtxTrigger
         render={
           <article
+            draggable
+            onDragStart={(e) => {
+              setDraggingNote(memo);
+              e.dataTransfer.setData(
+                "application/x-oximemo-notes",
+                JSON.stringify([memo.id]),
+              );
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragEnd={() => setDraggingNote(null)}
             onClick={() => onSelect(memo.id)}
             className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm"
           />

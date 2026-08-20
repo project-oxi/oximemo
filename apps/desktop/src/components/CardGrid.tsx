@@ -253,6 +253,10 @@ export function CardGrid() {
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const scrollerRoRef = useRef<ResizeObserver | null>(null);
+  // T14 edge auto-scroll state: `raf` is the live requestAnimationFrame
+  // handle (0 = idle), `dir` the current scroll direction (-1 up, +1 down,
+  // 0 stop) refreshed by every dragover while a note drag is in flight.
+  const dragScrollRef = useRef<{ raf: number; dir: number }>({ raf: 0, dir: 0 });
   const [cols, setCols] = useState(1);
 
   // Callback ref (not a plain ref + effect): the scroller <div> unmounts and
@@ -306,6 +310,47 @@ export function CardGrid() {
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: 0 });
   }, [includeTags, excludeTags, folderFilter, favoritesOnly, matchAll, noteView]);
+
+  const stopDragScroll = useCallback(() => {
+    if (dragScrollRef.current.raf)
+      cancelAnimationFrame(dragScrollRef.current.raf);
+    dragScrollRef.current = { raf: 0, dir: 0 };
+  }, []);
+
+  // T14: while a note drag hovers within 48px of the scroller's top or
+  // bottom edge, a rAF loop scrolls ±12px per frame. dragover refreshes
+  // the direction; actually leaving the scroller, dropping, or ending the
+  // drag clears it. `relatedTarget` guard: dragleave bubbles from every
+  // descendant, so moving between cards must NOT stop an ongoing scroll.
+  const onScrollerDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      // No note drag in flight (e.g. a foreign file drag) → no auto-scroll.
+      if (!useUI.getState().draggingNote) return;
+      const el = scrollerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const y = e.clientY;
+      const dir =
+        y < rect.top + 48 ? -1 : y > rect.bottom - 48 ? 1 : 0;
+      dragScrollRef.current.dir = dir;
+      if (dir === 0 || dragScrollRef.current.raf) return;
+      const step = () => {
+        if (dragScrollRef.current.dir === 0 || !useUI.getState().draggingNote) {
+          dragScrollRef.current.raf = 0;
+          return;
+        }
+        el.scrollBy({ top: dragScrollRef.current.dir * 12 });
+        dragScrollRef.current.raf = requestAnimationFrame(step);
+      };
+      dragScrollRef.current.raf = requestAnimationFrame(step);
+    },
+    [],
+  );
+
+  const onScrollerDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    stopDragScroll();
+  }, [stopDragScroll]);
 
   const onDelete = (id: string) => {
     void deleteMemo(id)
@@ -639,7 +684,7 @@ export function CardGrid() {
   if (view === "gallery") {
     return (
       <div className="flex h-full">
-        {!sidebarCollapsed && <Sidebar />}
+        {!sidebarCollapsed && <Sidebar onMoveNote={onMoveFolder} />}
         <div className="flex min-w-0 flex-1 flex-col">
           <GalleryView />
         </div>
@@ -674,14 +719,14 @@ export function CardGrid() {
 
   return (
     <div className="flex h-full">
-      {!sidebarCollapsed && <Sidebar />}
+      {!sidebarCollapsed && <Sidebar onMoveNote={onMoveFolder} />}
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           data-tauri-drag-region="deep"
           className="flex h-12 items-center gap-3 border-b border-line pr-4"
         >
           {sidebarToggle}
-          <BreadcrumbBar folders={folderEntries} folderDefs={folders} />
+          <BreadcrumbBar folders={folderEntries} folderDefs={folders} onMoveNote={onMoveFolder} />
           {viewSwitcher}
           {folderFilter !== null && debounced.length > 0 && (
             <button
@@ -728,7 +773,14 @@ export function CardGrid() {
           </div>
           <SettingsMenu />
         </header>
-        <div ref={scrollerCallbackRef} className="flex-1 overflow-y-auto p-2">
+        <div
+          ref={scrollerCallbackRef}
+          onDragOver={onScrollerDragOver}
+          onDragLeave={onScrollerDragLeave}
+          onDrop={stopDragScroll}
+          onDragEnd={stopDragScroll}
+          className="flex-1 overflow-y-auto p-2"
+        >
           {/* Empty-area context menu (M20/B3): new notes anywhere; 새 폴더
               only while BROWSING a folder — query mode hides it so "new
               folder" never lands in an ambiguous location. min-h-full keeps
@@ -800,6 +852,7 @@ export function CardGrid() {
                 folderCards={folderCards}
                 onOpenFolder={setFolderFilter}
                 onNewFolder={startFolderCreate}
+                onMoveNote={onMoveFolder}
               />
             )}
               <CtxMenu>

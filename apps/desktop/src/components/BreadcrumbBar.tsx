@@ -32,12 +32,15 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
+import { useFolderDrop } from "../lib/dropTarget";
 import type { FolderDef, FolderEntry } from "../lib/types";
 
 export interface BreadcrumbBarProps {
   folders: FolderEntry[];
   /** Folder definitions (for color + naming). */
   folderDefs?: FolderDef[];
+  /** Move a dragged note into a segment's folder (T14 drop target). */
+  onMoveNote: (id: string, folder: string) => void;
 }
 
 /** Direct children of `path` ("" = root level). */
@@ -83,7 +86,7 @@ function dropdownFor(
   return out;
 }
 
-export function BreadcrumbBar({ folders, folderDefs = [] }: BreadcrumbBarProps) {
+export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote }: BreadcrumbBarProps) {
   const { t } = useI18n();
   const folderFilter = useUI((s) => s.folderFilter);
   const setFolderFilter = useUI((s) => s.setFolderFilter);
@@ -235,6 +238,7 @@ export function BreadcrumbBar({ folders, folderDefs = [] }: BreadcrumbBarProps) 
         folderDefs={folderDefs}
         isRoot
         onClick={() => setFolderFilter("")}
+        onMoveNote={onMoveNote}
       />
       {collapsed > 0 && (
         <button
@@ -260,6 +264,7 @@ export function BreadcrumbBar({ folders, folderDefs = [] }: BreadcrumbBarProps) 
             folderDefs={folderDefs}
             last={last}
             onClick={() => setFolderFilter(path)}
+            onMoveNote={onMoveNote}
           />
         );
       })}
@@ -275,6 +280,8 @@ interface SegmentButtonProps {
   isRoot?: boolean;
   last?: boolean;
   onClick: () => void;
+  /** Move a dragged note into this segment's folder (T14 drop target). */
+  onMoveNote: (id: string, folder: string) => void;
 }
 
 function SegmentButton({
@@ -285,6 +292,7 @@ function SegmentButton({
   isRoot,
   last,
   onClick,
+  onMoveNote,
 }: SegmentButtonProps) {
   const { t } = useI18n();
   // Every segment carries a ▾ dropdown. For non-last: siblings + own
@@ -293,6 +301,12 @@ function SegmentButton({
   // sidebar tree (T9).
   const items = dropdownFor(folders, path, !!last);
   const isEmpty = items.length === 0;
+  // M16: the segment is inert while the dragged note already lives here.
+  // The root segment (path "") is a valid target — dropping on the vault
+  // icon moves the note to the vault root.
+  const { dropCls, ...dropProps } = useFolderDrop(path, (id) =>
+    onMoveNote(id, path),
+  );
 
   return (
     <span className="flex min-w-0 items-center gap-0.5">
@@ -302,7 +316,8 @@ function SegmentButton({
       {last ? (
         <span
           data-breadcrumb-path={path}
-          className="inline-flex min-w-0 items-center gap-1 truncate px-1 font-semibold text-text"
+          {...dropProps}
+          className={`inline-flex min-w-0 items-center gap-1 truncate px-1 font-semibold text-text ${dropCls ?? ""}`}
         >
           <span className="truncate">{label}</span>
         </span>
@@ -310,9 +325,10 @@ function SegmentButton({
         <button
           type="button"
           data-breadcrumb-path={path}
+          {...dropProps}
           onClick={onClick}
           aria-label={isRoot ? t.vault_root : label}
-          className="inline-flex min-w-0 items-center gap-1 truncate rounded-[var(--tag-radius)] px-1 py-0.5 text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text"
+          className={`inline-flex min-w-0 items-center gap-1 truncate rounded-[var(--tag-radius)] px-1 py-0.5 text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text ${dropCls ?? ""}`}
         >
           {isRoot ? <Folder size={13} aria-hidden="true" className="shrink-0 text-text-subtle" /> : null}
           <span className="truncate">{label}</span>
