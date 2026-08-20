@@ -137,11 +137,13 @@ impl Vault {
         // over that name would have the live-tree rename succeed but the
         // trash-tree rename fail with ENOTEMPTY — unretryable state because
         // the live tree already moved. Detect the collision before any
-        // fs mutation. Silently allowed when the trash subtree is absent
-        // (the common case — most folders have no trashed notes).
+        // fs mutation. Empty trash dirs are not a collision (POSIX
+        // rename(2) atomically replaces an empty destination); only
+        // non-empty ones are. Silently allowed when the trash subtree is
+        // absent or empty.
         let trash_from = self.paths.trash_path(from);
         let trash_to = self.paths.trash_path(to);
-        if trash_from.is_dir() && trash_to.exists() {
+        if trash_from.is_dir() && trash_to_is_nonempty(&trash_to) {
             return Err(CoreError::other(format!(
                 "trashed notes under '{to}' already exist"
             )));
@@ -1486,6 +1488,16 @@ fn search_fields(fmt: crate::memo::NoteFormat, note: &Memo) -> (String, Option<S
         note_title(fmt, &note.body),
     )
 }
+/// True iff `path` is a directory containing at least one entry. Used by
+/// the rename_folder collision guard: POSIX `rename(2)` atomically replaces
+/// an empty destination, so an empty `.trash/<to>/` is not a collision —
+/// only a non-empty one would ENOTEMPTY the trash rename.
+fn trash_to_is_nonempty(path: &Path) -> bool {
+    path.is_dir()
+        && std::fs::read_dir(path)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false)
+}
 
 /// Body prepared for wiki-link scanning: html comments (which carry the
 /// frontmatter) are removed so their contents cannot masquerade as links.
@@ -2414,6 +2426,57 @@ watcher_retry_interval_ms = 200
             "pre-existing leak still in place"
         );
         let _ = pinned;
+    }
+    #[test]
+    fn rename_folder_succeeds_when_trash_target_is_empty() {
+        // Mirrors the previous test but the pre-existing trash directory
+        // is EMPTY (purge removed the file but never pruned the dir — no
+        // code path does). The guard must treat this as NOT a collision
+        // (POSIX rename(2) atomically replaces an empty destination) and
+        // the rename proceeds; the moved trash subtree lands inside the
+        // empty target dir.
+        let (_t, v) = tmp_vault();
+        v.create_folder("other").unwrap();
+        let leaked = v
+            .create_note(
+                "other",
+                "# Leak\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.delete_memo(leaked.id).unwrap();
+        v.delete_folder("other").unwrap();
+        // Manually prune the trashed file (purge does this) but leave
+        // the parent directory empty — that's the bug scenario.
+        std::fs::remove_file(v.paths().trash_path("other/Leak.md")).unwrap();
+        assert!(
+            v.paths().trash_path("other").is_dir(),
+            "empty .trash/other/ left behind"
+        );
+        assert!(
+            !trash_to_is_nonempty(&v.paths().trash_path("other")),
+            "guard's emptiness check sees an empty dir"
+        );
+        // Seed rename source with a tombstone under it so the trash
+        // rename actually fires.
+        v.create_folder("novel").unwrap();
+        let note = v
+            .create_note(
+                "novel",
+                "# FromTrash\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.delete_memo(note.id).unwrap();
+        // Rename must succeed despite the pre-existing empty trash dir.
+        v.rename_folder("novel", "other").unwrap();
+        // Live tree moved.
+        assert!(v.paths().vault.join("other").exists());
+        assert!(!v.paths().vault.join("novel").exists());
+        // Trash subtree landed inside the previously-empty target dir;
+        // the empty-dir entry survived as the parent of the new subtree.
+        assert!(v.paths().trash_path("other/FromTrash.md").exists());
+        assert!(!v.paths().trash_path("novel").exists());
     }
 
     #[test]
