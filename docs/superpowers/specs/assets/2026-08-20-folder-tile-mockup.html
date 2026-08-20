@@ -167,4 +167,122 @@ document.write(`
 </section>
 `);
 </script>
+
+<style>
+/* ---- List 뷰 ---- */
+.lst{border:1px solid var(--line);border-radius:var(--card-radius);background:var(--raised);overflow:hidden}
+.lst li{list-style:none;display:flex;align-items:baseline;gap:12px;padding:10px 12px;border-top:1px solid var(--line);cursor:pointer}
+.lst li:first-child{border-top:0}
+.lst li:hover{background:var(--muted)}
+.lst .ttl{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lst .fpath{font:10px ui-monospace,SFMono-Regular,monospace;color:var(--text-subtle);flex:none}
+.lst .pv{margin-top:2px;font-size:12px;color:var(--text-subtle);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lst .lmid{min-width:0;flex:1}
+.lst .rt{display:flex;align-items:baseline;gap:8px;font-size:11px;color:var(--text-subtle);flex:none}
+.lst .rt .tag{font-size:10px}
+.lst .t{width:64px;text-align:right;font-variant-numeric:tabular-nums}
+.lst .frow{background:transparent}
+.lst .frow .ttl{font-weight:650}
+.lst .chev{color:var(--text-subtle);flex:none;font-size:13px}
+.lst .fmeta{font-size:12px;color:var(--text-subtle)}
+/* ---- Timeline 뷰 ---- */
+.tl{max-width:768px;margin:0 auto}
+.tl h3{position:sticky;top:0;background:color-mix(in oklab, var(--raised) 82%, transparent);backdrop-filter:blur(6px);
+  font-size:11px;font-weight:650;letter-spacing:.08em;color:var(--text-subtle);padding:4px 8px;margin:0 -8px 8px;text-transform:uppercase}
+.tl .grp{margin-bottom:22px}
+.tl li{list-style:none;border:1px solid transparent;border-radius:var(--tag-radius);padding:8px 12px;cursor:pointer;margin-bottom:6px}
+.tl li:hover{border-color:var(--line);background:var(--muted)}
+.tl .row1{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.tl .ttl{font-size:14px;font-weight:600}
+.tl .tm{font-size:11px;color:var(--text-subtle);flex:none;font-variant-numeric:tabular-nums}
+.tl .pv{margin-top:4px;font-size:12px;color:var(--text-subtle)}
+.tl .fchip{display:inline-flex;align-items:center;gap:4px;margin-top:6px;font:10px ui-monospace,monospace;color:var(--text-subtle)}
+.tl .fchip i{width:6px;height:6px;border-radius:2px;display:inline-block}
+/* ---- Graph 뷰 ---- */
+.gwrap{position:relative;border:1px solid var(--line);border-radius:var(--card-radius);background:var(--raised);height:260px;overflow:hidden}
+.badge{position:absolute;right:10px;top:10px;display:inline-flex;align-items:center;gap:5px;
+  border:1px solid var(--line-strong);border-radius:var(--tag-radius);background:var(--muted);
+  padding:3px 9px;font-size:11px;color:var(--text-muted)}
+.gnode{position:absolute;border-radius:50%;transform:translate(-50%,-50%)}
+.glabel{position:absolute;transform:translate(-50%,8px);font-size:10px;color:var(--text-subtle);white-space:nowrap}
+.gedge{position:absolute;height:1px;background:var(--line-strong);opacity:.55;transform-origin:0 50%}
+</style>
+<script>
+const chipBar = () => `<div class="bar">
+  ${TILES.map(t=>`<span class="chip">${F(`var(${t.color})`)} ${t.name} <span class="n">${t.deep}</span></span>`).join("")}
+  <span class="chip">＋ 새 폴더</span>
+</div>`;
+
+const listFolderRow = (t) => `<li class="frow">
+  ${F(`var(${t.color})`)}
+  <div class="lmid"><div class="ttl">${t.name}</div>
+    <div class="fmeta">노트 ${t.deep}${t.name==="회의록"?" · 폴더 2":""}</div></div>
+  <div class="rt"><span class="t">${t.foot[t.foot.length-1]}</span><span class="chev">›</span></div>
+</li>`;
+const listNoteRow = (n, title) => `<li>
+  ${star(n.fav)}
+  <div class="lmid"><div style="display:flex;align-items:baseline;gap:8px">
+    <span class="ttl">${title}</span><span class="fpath">${n.folder}/</span></div>
+    <div class="pv">${n.body}</div></div>
+  <div class="rt">${n.tags.slice(0,2).map(t=>`<span class="tag">#${t}</span>`).join("")}<span class="t">${n.time}</span></div>
+</li>`;
+const TITLES = ["주간 스프린트 회고","2026-Q4 로드맵 확정","인터뷰 정리 — 김OO","타일 높이 실험"];
+
+const tlItem = (n, title, folder, color) => `<li>
+  <div class="row1"><span class="ttl">${title}</span><span class="tm">${n.time}</span></div>
+  <div class="pv">${n.body.slice(0,68)}…</div>
+  <div class="fchip"><i style="background:var(${color})"></i>${folder}/</div>
+</li>`;
+
+const GN = [
+  [22,30,"--blue",7,"회의록"],[38,64,"--blue",6,""],[52,26,"--amber",6,"참고자료"],
+  [66,58,"--green",8,"작업"],[80,34,"--amber",5,""],[34,84,"--green",5,""],[88,72,"--blue",5,""],
+];
+const edges = [[0,1],[0,2],[2,4],[1,5],[3,6],[3,0],[3,4]];
+const graphBox = () => {
+  const nodes = GN.map(([x,y,c,r,l])=>`<span class="gnode" style="left:${x}%;top:${y}%;width:${r*2}px;height:${r*2}px;background:var(${c})"></span>`
+    + (l?`<span class="glabel" style="left:${x}%;top:${y}%">${l}</span>`:"")).join("");
+  const lines = edges.map(([a,b])=>{
+    const [x1,y1]=GN[a],[x2,y2]=GN[b];
+    const dx=(x2-x1)*8.2, dy=(y2-y1)*2.6, len=Math.hypot(dx,dy), ang=Math.atan2(dy,dx)*180/Math.PI;
+    return `<span class="gedge" style="left:${x1}%;top:${y1}%;width:${len}px;transform:rotate(${ang}deg)"></span>`;
+  }).join("");
+  return `<div class="gwrap"><span class="badge">${F("var(--text-muted)")} 전역 · 볼트 전체</span>${lines}${nodes}</div>`;
+};
+
+document.write(`
+<section>
+  <h2>D · List 뷰 — 폴더 행<span class="verdict good">확정</span></h2>
+  <p class="sub">행 높이가 균일해 혼합이 자연스럽다. 폴더 행은 이름 + <code>노트 n · 폴더 m</code> + 최근 활동 + 진입 표시 <code>›</code>. 노트 행 위에 정렬.</p>
+  <ul class="lst">
+    ${TILES.slice(0,3).map(listFolderRow).join("")}
+    ${NOTES.slice(0,4).map((n,i)=>listNoteRow(n,TITLES[i])).join("")}
+  </ul>
+</section>
+
+<section>
+  <h2>E · Timeline 뷰 — 폴더 칩 바 + 항목 폴더 칩<span class="verdict good">확정</span></h2>
+  <p class="sub">날짜 축에 폴더를 끼우면 축이 오염된다. 폴더는 상단 32px 칩 바로 진입만 제공(기각했던 B안의 용도 재배치). 노트는 <b>재귀</b>로 모이므로 각 항목에 출처 폴더 칩을 붙인다.</p>
+  ${chipBar()}
+  <div class="tl">
+    <div class="grp"><h3>2026-08-20</h3><ul>
+      ${tlItem(NOTES[0],TITLES[0],"작업/회의록","--blue")}
+      ${tlItem(NOTES[1],TITLES[1],"작업","--green")}
+    </ul></div>
+    <div class="grp"><h3>2026-08-17</h3><ul>
+      ${tlItem(NOTES[2],TITLES[2],"작업/회의록","--blue")}
+      ${tlItem(NOTES[3],TITLES[3],"작업/참고자료","--amber")}
+    </ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>F · Graph 뷰 — 칩 바 + 전역 배지<span class="verdict mid">현행 유지 + 명시</span></h2>
+  <p class="sub">현재 <code>GraphView</code>는 <code>queryKey:["graph"]</code>로 위치·필터를 무시한 <b>전역</b> 그래프다(<code>CardGrid.tsx:465</code>에서 props 없이 렌더). 링크 구조 분석엔 전역이 맞으므로 유지하고, 대신 <b>전역 배지</b>로 명시한다. 노드 색은 이미 <code>colorForFolder</code>를 쓴다. 하위 진입은 칩 바 + 브레드크럼 드롭다운으로.</p>
+  ${chipBar()}
+  ${graphBox()}
+  <p class="note">위치 스코프 그래프(<code>graph_data(folder)</code>)는 Future. 배지 없이 두면 "폴더에 들어왔는데 전체가 보인다"는 혼란이 남는다.</p>
+</section>
+`);
+</script>
 </body></html>
