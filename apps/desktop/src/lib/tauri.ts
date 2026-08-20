@@ -56,6 +56,7 @@ export async function listen<T>(
 // --- Browser-mode localStorage store --------------------------------------
 const STORE_KEY = "oximemo:memos:v3";
 const VIEW_KEY = "oximemo:folderviews:v1";
+const FOLDERS_KEY = "oximemo:folders:v1";
 
 type FolderViews = Record<string, string>;
 
@@ -65,6 +66,22 @@ function loadViews(): FolderViews {
   } catch {
     return {};
   }
+}
+
+/** Folder paths created in browser mode. The backend derives folders from
+ * the filesystem; here an explicit set backs create/delete of empty folders
+ * (folders that hold notes are derived from the memo store). */
+function loadFolders(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(FOLDERS_KEY) ?? "[]") as unknown;
+    return Array.isArray(v) ? v.filter((p): p is string => typeof p === "string" && p !== "") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFolders(paths: string[]): void {
+  localStorage.setItem(FOLDERS_KEY, JSON.stringify(paths));
 }
 
 const PREVIEW_MAX = 160;
@@ -301,16 +318,32 @@ async function browserFallback(
         const folder = n.folder ?? "";
         folderMap.set(folder, (folderMap.get(folder) ?? 0) + 1);
       }
+      for (const p of loadFolders()) if (!folderMap.has(p)) folderMap.set(p, 0);
       return [...folderMap.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([path, note_count]): FolderEntry => ({ path, note_count }));
     }
 
-    case "create_folder":
-      return null;
-    case "delete_folder":
+    case "create_folder": {
+      const path = (args?.path as string | undefined)?.trim();
+      if (!path) throw new Error("folder path must not be empty");
+      const paths = loadFolders();
+      if (!paths.includes(path)) {
+        paths.push(path);
+        saveFolders(paths);
+      }
       emitBrowser("memos:changed");
       return null;
+    }
+    case "delete_folder": {
+      const path = args?.path as string;
+      if (liveSorted(loadStore()).some((n) => (n.folder ?? "") === path)) {
+        throw new Error(`folder '${path}' is not empty`);
+      }
+      saveFolders(loadFolders().filter((p) => p !== path));
+      emitBrowser("memos:changed");
+      return null;
+    }
 
     case "move_note":
       emitBrowser("memos:changed");
