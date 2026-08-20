@@ -25,9 +25,8 @@ export function buildWikiLinksConfig(opts: {
 }): WikiLinksConfig {
   const toSuggestion = (m: MemoSummary): WikiLinkSuggestion => {
     const detail = [
-      m.folder ? `📁 ${m.folder}` : null,
+      m.folder,
       relativeTime(m.updated_at, opts.locale) || null,
-      m.favorite ? "★" : null,
     ].filter(Boolean).join(" · ");
     const label = m.title || previewLabel(m.preview) || m.id.slice(0, 8);
     return {

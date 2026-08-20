@@ -13,6 +13,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Folder, FolderPlus, X } from "lucide-react";
 
 import { colorForFolder, paperFor } from "../lib/color";
 import { createFolder } from "../lib/api";
@@ -63,7 +64,7 @@ function SlashFolderMenu({
           onClick={() => onSelect(f.path)}
           onMouseEnter={() => onSelChange(i)}
         >
-          <span aria-hidden>📁</span>
+          <Folder size={14} className="shrink-0 text-text-subtle" />
           <span className="truncate">{f.path || "(root)"}</span>
           <span className="ml-auto text-[10px] text-text-subtle">{f.note_count}</span>
         </button>
@@ -74,7 +75,7 @@ function SlashFolderMenu({
           onClick={() => onCreate(query)}
           onMouseEnter={() => onSelChange(filtered.length)}
         >
-          <span>✨</span>
+          <FolderPlus size={14} />
           <span className="truncate">'{query}' 만들기</span>
         </button>
       )}
@@ -95,7 +96,8 @@ function FolderChip({
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-text-inverse"
       style={{ backgroundColor: color }}
     >
-      📁 {path || "(root)"}
+      <Folder size={11} />
+      {path || "(root)"}
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -103,7 +105,7 @@ function FolderChip({
         }}
         className="ml-0.5 text-text-inverse/70 hover:text-text-inverse"
       >
-        ✕
+        <X size={11} />
       </button>
     </span>
   );

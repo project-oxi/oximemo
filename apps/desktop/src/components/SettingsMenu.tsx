@@ -18,6 +18,7 @@ import {
   Check,
   Copy,
   DownloadCloud,
+  Folder,
   FolderTree,
   HardDrive,
   Info,
@@ -163,7 +164,7 @@ function FoldersSection() {
           key={f.path || "(root)"}
           className="group flex items-center gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5"
         >
-          <span aria-hidden>📁</span>
+          <Folder size={14} className="shrink-0 text-text-subtle" />
           <button
             type="button"
             onClick={() => setFolderFilter(f.path || null)}

@@ -7,6 +7,7 @@
  * silently swallowed.
  */
 import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
+import { TriangleAlert, X } from "lucide-react";
 
 import { useUI } from "../stores/ui";
 
@@ -64,15 +65,15 @@ export function ErrorToast() {
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
       <div className="pointer-events-auto flex max-w-md items-center gap-2 rounded-xl border border-status-error bg-status-error-subtle px-3.5 py-2 text-xs text-status-error-on-subtle shadow-lg">
-        <span className="font-medium">⚠</span>
+        <TriangleAlert size={14} className="shrink-0" />
         <span className="flex-1">{error}</span>
         <button
           type="button"
           onClick={() => setError(null)}
-          className="shrink-0 text-status-error hover:text-status-error"
+          className="inline-flex shrink-0 items-center rounded-md p-0.5 text-status-error hover:opacity-70"
           aria-label="dismiss"
         >
-          ✕
+          <X size={14} />
         </button>
       </div>
     </div>

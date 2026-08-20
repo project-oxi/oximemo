@@ -7,7 +7,7 @@
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Maximize2, Minimize2, Star } from "lucide-react";
+import { Folder, Maximize2, Minimize2, Star } from "lucide-react";
 
 import { deleteMemo, getMemo, updateMemo, listFolders } from "../lib/api";
 import { colorForFolder, paperFor } from "../lib/color";
@@ -140,10 +140,11 @@ export function MemoDetail() {
               <button
                 type="button"
                 onClick={() => folderPickerRef.current?.open()}
-                className="rounded-md bg-surface-muted px-2 py-1 text-xs text-text-subtle hover:bg-surface-raised"
+                className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 py-1 text-xs text-text-subtle hover:bg-surface-raised"
                 title={folder || "(root)"}
               >
-                📁 {folder || "(root)"}
+                <Folder size={12} />
+                {folder || "(root)"}
               </button>
               <button
                 type="button"

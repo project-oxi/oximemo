@@ -4,6 +4,7 @@
  */
 import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
 import { Popover } from "@base-ui-components/react";
+import { Folder, FolderPlus } from "lucide-react";
 
 import type { FolderEntry } from "../lib/types";
 
@@ -64,7 +65,7 @@ export const FolderCombobox = forwardRef<
             aria-label={triggerAriaLabel}
             className={`inline-flex items-center gap-1 rounded-full bg-surface-muted px-2.5 py-1 text-xs text-text hover:bg-surface-raised ${className ?? ""}`}
           >
-            <span aria-hidden>📁</span>
+            <Folder size={12} className="text-text-subtle" />
             <span>{selected}</span>
           </button>
         }
@@ -122,7 +123,7 @@ export const FolderCombobox = forwardRef<
                       setOpen(false);
                     }}
                   >
-                    <span>✨ Create '{trimmed}'</span>
+                    <FolderPlus size={12} /> Create '{trimmed}'
                   </button>
                 </li>
               )}

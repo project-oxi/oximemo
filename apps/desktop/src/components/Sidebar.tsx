@@ -6,7 +6,7 @@
  * CardGrid so it never moves between states.
  */
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Folder, Images, Layers, Star } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Folder, Images, Layers, Star } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { listFacets, memoStats, listFolders, getConfig } from "../lib/api";
@@ -32,15 +32,21 @@ function buildTree(entries: FolderEntry[]): FolderNode[] {
   const root: FolderNode = {
     name: "(root)",
     fullPath: "",
-    note_count: entries.find((e) => e.path === "")?.note_count ?? 0,
+    note_count: 0,
     children: [],
   };
   const byPath = new Map<string, FolderNode>();
   byPath.set("", root);
-  // Sort so parents appear before children.
-  const sorted = [...entries].sort((a, b) => a.path.localeCompare(b.path));
-  for (const e of sorted) {
-    if (e.path === "") continue;
+  // Normalize once: Rust's `list_folders` already returns `{ path, note_count }`,
+  // but any future IPC shape change (or a stale mock) must not crash the tree.
+  const rows = entries
+    .map((e) => ({ path: e.path ?? "", note_count: e.note_count ?? 0 }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  for (const e of rows) {
+    if (e.path === "") {
+      root.note_count = e.note_count;
+      continue;
+    }
     const segs = e.path.split("/");
     const parentPath = segs.slice(0, -1).join("/");
     const parent = byPath.get(parentPath);
@@ -196,9 +202,9 @@ export function Sidebar() {
         <button
           type="button"
           onClick={toggleMatchAll}
-          className="text-[10px] font-semibold text-hue-amber"
+          className="inline-flex items-center gap-1 text-[10px] font-semibold text-hue-amber"
         >
-          {matchAll ? t.match_all : t.match_any} ⇅
+          {matchAll ? t.match_all : t.match_any} <ArrowUpDown size={10} />
         </button>
       </div>
       <div className="flex flex-wrap gap-1.5 px-3 pt-1">
