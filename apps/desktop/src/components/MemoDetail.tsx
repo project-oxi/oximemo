@@ -101,6 +101,24 @@ export function MemoDetail() {
     select(null);
   };
 
+  const closeRef = useRef(close);
+  closeRef.current = close;
+
+  // ⌘⏎ — the kbd hint shown on the Done button. Saves (close() flushes the
+  // pending edit) and closes the dialog from any focus: editor, HTML mode,
+  // or a toolbar control.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        closeRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   const edit = <T,>(setter: (v: T) => void) => (v: T) => {
     setter(v);
     setDirty(true);
