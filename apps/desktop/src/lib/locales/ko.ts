@@ -166,6 +166,8 @@ export const dict = {
   folder_notes: "노트 {n}",
   folder_subfolders: "폴더 {n}",
   folder_empty: "비어 있음",
+  folder_name_invalid: "폴더 이름에 '/'를 쓸 수 없어요",
+  no_folder_results: "일치하는 폴더가 없어요",
   rename_failed_left: "{n}개 노트가 '{from}'에 남아 있습니다",
   delete_folder_confirm: "'{folder}'와 노트 {n}개를 휴지통으로 보낼까요?",
   undo: "실행 취소",

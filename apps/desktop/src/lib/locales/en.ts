@@ -167,6 +167,8 @@ export const dict: Record<keyof typeof ko, string> = {
   folder_notes: "{n} notes",
   folder_subfolders: "{n} folders",
   folder_empty: "Empty",
+  folder_name_invalid: "Folder names cannot contain '/'",
+  no_folder_results: "No matching folders",
   rename_failed_left: "{n} notes remain in '{from}'",
   delete_folder_confirm: "Send \"{folder}\" and {n} notes to trash?",
   undo: "Undo",

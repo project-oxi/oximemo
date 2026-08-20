@@ -476,7 +476,28 @@ export function CardGrid() {
   // empty-area context menu both route through here.
   const startFolderCreate = useCallback(() => {
     const loc = folderFilter ?? "";
-    const def = loc ? `${loc}/${t.folder_new}` : t.folder_new;
+    // Auto-suffix "새 폴더" → "새 폴더 2" → "새 폴더 3" when the base
+    // name is already taken. The backend create_folder now rejects
+    // duplicates with an authoritative error (vault.rs create_folder
+    // existence guard), so this client-side guard avoids a round-trip
+    // and a visible toast for the common case. Falls back to the
+    // backend error if the loop somehow misses (race between typing
+    // and an external delete, etc).
+    const existing = new Set<string>(folderEntries.map((f) => f.path));
+    let def = loc ? `${loc}/${t.folder_new}` : t.folder_new;
+    let n = 2;
+    while (existing.has(def)) {
+      const candidate = loc ? `${loc}/${t.folder_new} ${n}` : `${t.folder_new} ${n}`;
+      if (!existing.has(candidate)) {
+        def = candidate;
+        break;
+      }
+      n += 1;
+      if (n > 999) {
+        setError(t.folder_name_invalid);
+        return;
+      }
+    }
     void createFolder(def)
       .then(() => {
         qc.invalidateQueries({ queryKey: ["folderChildren"] });
@@ -484,7 +505,7 @@ export function CardGrid() {
         setNamingPath({ path: def, isNew: true });
       })
       .catch((e) => setError(String(e).split("\n")[0]));
-  }, [folderFilter, t.folder_new, qc, setError]);
+  }, [folderFilter, t.folder_new, t.folder_name_invalid, folderEntries, qc, setError]);
 
   // Folder context menu → inline rename of an EXISTING folder (cancel is
   // then a no-op, unlike the optimistic-create cancel above).
@@ -566,6 +587,17 @@ export function CardGrid() {
         namingCommitRef.current.path = null;
         return;
       }
+      // Reject names that contain "/": CardGrid's inline rename
+      // commits by calling renameFolder(from, loc/name). Without this
+      // guard, a "/" silently nested the folder into a non-existent
+      // parent and the rename errored afterwards with a confusing
+      // "not found" instead of a clear invalid-name toast.
+      if (name.includes("/")) {
+        invalidate();
+        namingCommitRef.current.path = null;
+        setError(t.folder_name_invalid);
+        return;
+      }
       const loc = folderFilter ?? "";
       const to = loc ? `${loc}/${name}` : name;
       if (to === from) {
@@ -631,8 +663,12 @@ export function CardGrid() {
         return;
       }
       // ⌘↑ / Ctrl↑ — navigate up one folder (no-op in query mode or at
-      // root; inert under the palette modal).
+      // root; inert under the palette modal). Mirrors the ⌘⇧O and
+      // Escape branches — a memo dialog open (selectedId) wins; without
+      // this guard the editor loses key focus to the parent-folder
+      // jump while the user is reading a note.
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "ArrowUp") {
+        if (useUI.getState().selectedId) return;
         if (paletteOpen) return;
         e.preventDefault();
         useUI.getState().navigateUp();
@@ -756,6 +792,12 @@ export function CardGrid() {
       <div className="flex h-full">
         {!sidebarCollapsed && <Sidebar onMoveNote={onMoveFolder} />}
         <div className="flex min-w-0 flex-1 flex-col">
+          <header
+            data-tauri-drag-region="deep"
+            className="flex h-12 shrink-0 items-center border-b border-line pr-4"
+          >
+            {sidebarToggle}
+          </header>
           <GalleryView />
         </div>
         <MemoDetail />

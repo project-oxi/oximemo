@@ -342,6 +342,7 @@ function SegmentButton({
         folderDefs={folderDefs}
         currentPath={path}
         rootLabel={t.vault_root}
+        triggerLabel={`${label} ${t.folder_open}`}
         emptyLabel={t.folder_empty}
         disabled={isEmpty}
       />
@@ -354,6 +355,7 @@ function SegmentPopover({
   folderDefs,
   currentPath,
   rootLabel,
+  triggerLabel,
   emptyLabel,
   disabled,
 }: {
@@ -361,6 +363,10 @@ function SegmentPopover({
   folderDefs: FolderDef[];
   currentPath: string;
   rootLabel: string;
+  /** Display label for non-root triggers (e.g. "<segment> Open" — kept
+   * distinct from rootLabel so screen readers can tell siblings apart).
+   * Root segments ignore this and use rootLabel. */
+  triggerLabel: string;
   emptyLabel: string;
   disabled: boolean;
 }) {
@@ -383,7 +389,7 @@ function SegmentPopover({
         render={
           <button
             type="button"
-            aria-label={rootLabel}
+            aria-label={currentPath === "" ? rootLabel : triggerLabel}
             className="inline-flex h-5 w-5 items-center justify-center rounded text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text"
           >
             <ChevronDown size={10} aria-hidden="true" />

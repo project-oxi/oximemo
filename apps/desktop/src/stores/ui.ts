@@ -92,7 +92,14 @@ export const useUI = create<UIState>((set) => ({
   setSearch: (s) => set({ search: s }),
   view: "memos",
   setView: (v) => set({ view: v }),
-  noteView: loadQueryView(),
+  // Boot in grid — the per-folder view pin (backend config) and the
+  // query-mode view preference are loaded lazily by the effect below
+  // (folderFilter === null branch) and by the per-folder query under
+  // folder browse. Initialising from loadQueryView() here would leak
+  // the query-mode preference into root browse on fresh start (H9
+  // scope violation — the smart collection must not impose its view
+  // on every folder).
+  noteView: "grid",
   setNoteView: (v) => {
     set({ noteView: v });
     if (typeof window !== "undefined" && useUI.getState().folderFilter === null) {

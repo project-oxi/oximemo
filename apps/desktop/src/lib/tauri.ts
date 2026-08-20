@@ -375,11 +375,33 @@ async function browserFallback(
     case "create_folder": {
       const path = (args?.path as string | undefined)?.trim();
       if (!path) throw new Error("folder path must not be empty");
+      // Existence guard: the optimistic folder-create flow attaches a
+      // naming session to the new folder and Esc/empty-commit tears it
+      // down. If a folder with this name already exists, the teardown
+      // would mass-trash whatever lived there. Backend `create_folder`
+      // is authoritative (vault.rs `create_folder`); this browser-mode
+      // fallback mirrors the same guard so dev-mode callers get the
+      // same surface error string.
       const paths = loadFolders();
-      if (!paths.includes(path)) {
-        paths.push(path);
-        saveFolders(paths);
+      if (paths.includes(path)) {
+        throw new Error(`folder '${path}' already exists`);
       }
+      const store = loadStore();
+      const prefix = `${path}/`;
+      const memoClash = Object.values(store).some(
+        (n) =>
+          (n.deleted_at === null || n.deleted_at === undefined) &&
+          (n.folder === path ||
+            (n.folder ?? "").startsWith(prefix) ||
+            n.path === `${path}.md` ||
+            n.path === `${path}.html` ||
+            n.path.startsWith(prefix)),
+      );
+      if (memoClash) {
+        throw new Error(`folder '${path}' already exists`);
+      }
+      paths.push(path);
+      saveFolders(paths);
       emitBrowser("memos:changed");
       return null;
     }
@@ -399,6 +421,10 @@ async function browserFallback(
       }
       saveStore(store);
       saveFolders(loadFolders().filter((p) => p !== path && !p.startsWith(prefix)));
+      // Mirror the backend's FolderDef prune: drop the pin row + any
+      // descendant pins for the deleted folder so the sidebar's pinned
+      // section does not show ghost rows pointing at a missing path.
+      savePins(loadPins().filter((p) => p !== path && !p.startsWith(prefix)));
       emitBrowser("memos:changed");
       return ids;
     }
@@ -424,6 +450,29 @@ async function browserFallback(
       const from = args?.from as string;
       const to = args?.to as string;
       if (!from || !to || from === to) throw new Error("invalid rename");
+      // Target-exists guard: backend `rename_folder` (vault.rs) errors
+      // with "folder '<to>' already exists" when `to_dir.exists()`. The
+      // browser-mode fallback must mirror that or the optimistic
+      // rename would silently overwrite. Include memo paths: a memo
+      // file at the destination is effectively a folder there.
+      {
+        const paths = loadFolders();
+        if (paths.includes(to)) {
+          throw new Error(`folder '${to}' already exists`);
+        }
+        const store0 = loadStore();
+        const memoClash = Object.values(store0).some(
+          (n) =>
+            (n.folder ?? "") === to ||
+            (n.folder ?? "").startsWith(`${to}/`) ||
+            n.path === `${to}.md` ||
+            n.path === `${to}.html` ||
+            n.path.startsWith(`${to}/`),
+        );
+        if (memoClash) {
+          throw new Error(`folder '${to}' already exists`);
+        }
+      }
       const store = loadStore();
       for (const n of Object.values(store)) {
         if (n.folder === from) n.folder = to;

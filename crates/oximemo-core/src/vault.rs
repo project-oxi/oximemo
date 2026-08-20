@@ -74,13 +74,21 @@ impl Vault {
         self.config.read().folders.items.clone()
     }
 
-    /// Create a physical folder (mkdir -p). No-op if it already exists.
+    /// Create a physical folder (mkdir -p). Returns an error when the
+    /// target directory already exists — the UI's optimistic
+    /// folder-create flow would otherwise attach a naming session to a
+    /// pre-existing folder and Esc/empty-commit would trash whatever
+    /// notes lived there. The companion UI guard (auto-suffix with ` 2`,
+    /// ` 3`, …) is advisory; this guard is authoritative.
     pub fn create_folder(&self, path: &str) -> Result<()> {
         let dir = if path.is_empty() {
             self.paths.vault.clone()
         } else {
             self.paths.vault.join(path)
         };
+        if dir.exists() {
+            return Err(CoreError::other(format!("folder '{path}' already exists")));
+        }
         std::fs::create_dir_all(&dir)?;
         Ok(())
     }
@@ -111,6 +119,19 @@ impl Vault {
         let dir = self.paths.vault.join(path);
         if dir.is_dir() {
             std::fs::remove_dir_all(&dir)?;
+        }
+        // Prune config FolderDef entries so the sidebar pin row and
+        // any pinned subfolder view rows die with the folder. Without
+        // this, a deleted pinned folder leaves a "ghost" sidebar row
+        // pointing at a path that no longer exists. Mirrors the
+        // re-path block in rename_folder above.
+        {
+            let mut cfg = self.config.write();
+            let fp = format!("{path}/");
+            cfg.folders
+                .items
+                .retain(|f| f.path != path && !f.path.starts_with(&fp));
+            cfg.save(&self.paths)?;
         }
         Ok(ids)
     }
@@ -1950,6 +1971,61 @@ watcher_retry_interval_ms = 200
         // Empty folder can be deleted.
         v.delete_folder("novel").unwrap();
         assert!(!v.paths.vault.join("novel").exists());
+    }
+
+    #[test]
+    fn create_folder_rejects_existing_directory() {
+        // Pre-existing folder at the same path must NOT silently succeed
+        // — the UI's optimistic folder-create flow would otherwise
+        // attach a naming session to a pre-existing folder and the
+        // empty-commit teardown would trash whatever lived there.
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        std::fs::create_dir_all(v.paths.vault.join("existing")).unwrap();
+        let err = v.create_folder("existing").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("already exists"),
+            "error must mention 'already exists', got: {msg}"
+        );
+        // Root always exists; creating "" must now error too rather
+        // than silently no-op.
+        assert!(v.create_folder("").is_err());
+    }
+
+    #[test]
+    fn delete_folder_prunes_pinned_config_entries() {
+        // Pin a folder, create a child, pin it too, then delete the
+        // parent. The sidebar reads `Config.folders` directly, so any
+        // stale entry shows up as a "ghost" pin row pointing at a path
+        // that no longer exists. The delete must prune both the exact
+        // entry and any descendants in one config write.
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("parent").unwrap();
+        v.create_folder("parent/child").unwrap();
+        v.set_folder_pinned("parent", true).unwrap();
+        v.set_folder_pinned("parent/child", true).unwrap();
+        // Sibling at root must survive.
+        v.create_folder("sibling").unwrap();
+        v.set_folder_pinned("sibling", true).unwrap();
+
+        v.delete_folder("parent").unwrap();
+
+        let cfg = v.folders();
+        let paths: Vec<&str> = cfg.iter().map(|f| f.path.as_str()).collect();
+        assert!(
+            !paths.iter().any(|p| *p == "parent"),
+            "exact entry for deleted folder must be pruned: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| *p == "parent/child"),
+            "descendant entries under deleted folder must be pruned: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| *p == "sibling"),
+            "unrelated sibling pin must survive: {paths:?}"
+        );
     }
 
     #[test]

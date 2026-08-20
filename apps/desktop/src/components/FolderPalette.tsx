@@ -126,7 +126,7 @@ export function FolderPalette({ open, onClose, folders, folderDefs, onNavigate }
           >
             {matches.length === 0 ? (
               <li className="px-2 py-3 text-center text-[13px] text-text-subtle">
-                {t.jump_to_folder}
+                {t.no_folder_results}
               </li>
             ) : (
               matches.map((f, i) => {
