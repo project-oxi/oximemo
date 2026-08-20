@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>oximemo · 폴더 타일 설계 검증 목업</title>
+<style>
+:root{
+  --p-neutral-0:oklch(0.985 0 0);--p-neutral-50:oklch(0.95 0 0);--p-neutral-100:oklch(0.90 0 0);
+  --p-neutral-300:oklch(0.75 0 0);--p-neutral-700:oklch(0.35 0 0);--p-neutral-900:oklch(0.18 0 0);
+  --surface:var(--p-neutral-0);--raised:oklch(1 0 0);--muted:oklch(0.96 0 0);
+  --text:var(--p-neutral-900);--text-muted:var(--p-neutral-700);--text-subtle:oklch(0.42 0 0);
+  --line:var(--p-neutral-100);--line-strong:oklch(0.82 0 0);
+  --amber:oklch(0.75 0.15 75);--blue:oklch(0.70 0.14 250);--green:oklch(0.75 0.13 145);
+  --card-radius:0.75rem;--tag-radius:0.5rem;
+}
+[data-theme="dark"]{
+  --p-neutral-100:oklch(0.28 0 0);--p-neutral-300:oklch(0.75 0 0);
+  --surface:oklch(0.13 0 0);--raised:oklch(0.22 0 0);--muted:oklch(0.20 0 0);
+  --text:oklch(0.985 0 0);--text-muted:oklch(0.75 0 0);--text-subtle:oklch(0.75 0 0);
+  --line:oklch(0.28 0 0);--line-strong:oklch(0.40 0 0);
+  --amber:oklch(0.78 0.14 75);--blue:oklch(0.74 0.13 250);--green:oklch(0.78 0.12 145);
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--surface);color:var(--text);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo",sans-serif;padding:24px 28px 48px}
+header.top{display:flex;align-items:baseline;gap:12px;margin-bottom:22px}
+header.top h1{font-size:15px;font-weight:650}
+header.top p{font-size:12px;color:var(--text-subtle)}
+header.top button{margin-left:auto;border:1px solid var(--line);background:var(--raised);color:var(--text-muted);
+  border-radius:var(--tag-radius);padding:5px 12px;font-size:12px;cursor:pointer}
+header.top button:hover{border-color:var(--line-strong);color:var(--text)}
+section{margin-bottom:30px}
+h2{font-size:12px;font-weight:650;color:var(--text-subtle);letter-spacing:.03em;margin:0 0 4px;text-transform:uppercase}
+h2 + .sub{font-size:12px;color:var(--text-subtle);margin:0 0 10px}
+.verdict{font-size:12px;font-weight:600;padding:1px 7px;border-radius:var(--tag-radius);margin-left:6px}
+.bad{background:oklch(0.75 0.15 25/.16);color:oklch(0.45 0.15 25)}
+.mid{background:oklch(0.75 0.15 75/.18);color:oklch(0.45 0.12 75)}
+.good{background:oklch(0.75 0.13 145/.18);color:oklch(0.40 0.11 145)}
+[data-theme="dark"] .bad{color:oklch(0.82 0.13 25)}
+[data-theme="dark"] .mid{color:oklch(0.85 0.12 75)}
+[data-theme="dark"] .good{color:oklch(0.84 0.11 145)}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(240px,1fr));gap:12px}
+/* ---- 실제 Card.tsx:40 크롬 ---- */
+.card{position:relative;height:176px;display:flex;flex-direction:column;overflow:hidden;
+  border-radius:var(--card-radius);border:1px solid var(--line);background:var(--raised);padding:16px;
+  box-shadow:0 1px 1px oklch(0 0 0/.04);transition:border-color .15s,box-shadow .15s;cursor:default}
+.card:hover{border-color:var(--line-strong);box-shadow:0 1px 3px oklch(0 0 0/.08)}
+.meta{display:flex;align-items:center;gap:8px;padding-right:32px;color:var(--text-subtle);min-width:0}
+.dot{width:8px;height:8px;border-radius:2px;flex:none}
+.meta .f{font-size:12px;font-weight:500;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta time{font-size:11px;flex:none}
+.body{margin-top:8px;flex:1;font-size:14px;line-height:1.625;color:var(--text);
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.tags{margin-top:auto;display:flex;flex-wrap:wrap;gap:4px;padding-top:8px}
+.tag{border-radius:var(--tag-radius);background:var(--muted);padding:2px 8px;font-size:10px;font-weight:500;color:var(--text-muted)}
+.star{position:absolute;right:8px;top:8px;color:var(--text-subtle);line-height:0}
+.star.on{color:var(--amber)}
+svg{display:block}
+/* ---- A: 원본 스펙 ---- */
+.fplain{align-items:flex-start;justify-content:center;gap:6px}
+.fplain .n{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}
+.fplain .c{font-size:12px;color:var(--text-subtle)}
+/* ---- B: 32px 위치 바 ---- */
+.bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;
+  border-radius:var(--tag-radius);border:1px solid var(--line);background:var(--raised);font-size:13px;cursor:default}
+.chip:hover{border-color:var(--line-strong)}
+.chip .n{font-size:11px;color:var(--text-subtle)}
+/* ---- C: 내용 미리보기 타일 ---- */
+.folder{background:var(--surface)}
+.folder::before{content:"";position:absolute;left:16px;top:0;width:28px;height:3px;
+  border-radius:0 0 3px 3px;background:var(--tab);opacity:.9}
+.fhead{display:flex;align-items:center;gap:8px;min-width:0}
+.fhead .fname{font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fhead .fcnt{margin-left:auto;flex:none;font-size:11px;color:var(--text-subtle);font-variant-numeric:tabular-nums}
+.rule{margin:8px 0 6px;border-top:1px solid var(--line)}
+.peek{flex:1;display:flex;flex-direction:column;gap:1px;min-height:0}
+.peek a{display:block;font-size:13px;line-height:1.45;color:var(--text-muted);text-decoration:none;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 4px;margin:0 -4px;border-radius:4px}
+.peek a:hover{background:var(--muted);color:var(--text)}
+.ffoot{margin-top:auto;padding-top:6px;font-size:11px;color:var(--text-subtle);display:flex;gap:6px}
+.empty{flex:1;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px}
+.empty span{font-size:13px;color:var(--text-subtle)}
+.mini{border:1px solid var(--line);background:var(--raised);border-radius:var(--tag-radius);
+  padding:4px 10px;font-size:12px;color:var(--text-muted);cursor:pointer}
+.mini:hover{border-color:var(--line-strong);color:var(--text)}
+/* ---- C2: 톤 강화 ---- */
+.c2 .folder{background:var(--muted);border-color:var(--line-strong)}
+.c2 .folder .mini{background:var(--surface)}
+.note{font-size:12px;color:var(--text-subtle);margin-top:8px;line-height:1.6}
+</style></head><body>
+<header class="top">
+  <h1>폴더 타일 설계 검증</h1>
+  <p>실제 토큰·카드 크롬(h-44 176px, --card-radius, border-line, bg-surface-raised) 그대로</p>
+  <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='dark'?'':'dark'">라이트 / 다크</button>
+</header>
+
+<script>
+const F = (c) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
+const NOTES = [
+  { dot:"--green", folder:"작업", time:"3시간 전", fav:true,
+    body:"스프린트 회고에서 나온 액션 아이템을 정리한다. 배포 파이프라인의 캐시 무효화 단계가 빠져 있어 스테이징에서 구버전이 잡히는 문제부터.", tags:["retro","infra"] },
+  { dot:"--blue", folder:"작업", time:"어제", fav:false,
+    body:"로드맵 확정: Q4는 탐색 UX 재설계에 집중. 브레드크럼·폴더 타일·이동 배선을 순서대로 처리한다.", tags:["roadmap"] },
+  { dot:"--amber", folder:"작업", time:"3일 전", fav:false,
+    body:"인터뷰 정리 — 김OO. 검색보다 폴더 이동을 훨씬 자주 쓴다는 응답이 반복됐다.", tags:["research"] },
+  { dot:"--blue", folder:"작업", time:"1주 전", fav:false,
+    body:"타일 높이 실험 노트. 176px에서 제목 3행 + 푸터가 안정적으로 들어간다.", tags:[] },
+];
+const star = (on) => `<span class="star ${on?"on":""}"><svg width="14" height="14" viewBox="0 0 24 24" fill="${on?"currentColor":"none"}" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M11.5 2.7a.6.6 0 0 1 1 0l2.4 5 5.4.8a.6.6 0 0 1 .3 1l-3.9 3.8.9 5.4a.6.6 0 0 1-.9.6L12 16.8l-4.8 2.5a.6.6 0 0 1-.9-.6l.9-5.4-3.9-3.8a.6.6 0 0 1 .3-1l5.4-.8Z"/></svg></span>`;
+const noteCard = (n) => `<article class="card">
+  <div class="meta"><span class="dot" style="background:var(${n.dot})"></span><span class="f">${n.folder}</span><span>·</span><time>${n.time}</time></div>
+  ${star(n.fav)}
+  <div class="body">${n.body}</div>
+  ${n.tags.length?`<div class="tags">${n.tags.map(t=>`<span class="tag">${t}</span>`).join("")}</div>`:""}
+</article>`;
+const notes = (k) => NOTES.slice(0,k).map(noteCard).join("");
+
+const folderPlain = (name, cnt, color) => `<article class="card fplain">
+  <div class="n">${F(`var(${color})`)} ${name}</div><div class="c">노트 ${cnt}</div></article>`;
+
+const folderTile = (o) => `<article class="card folder" style="--tab:var(${o.color})">
+  <div class="fhead">${F(`var(${o.color})`)}<span class="fname">${o.name}</span><span class="fcnt">${o.deep}</span></div>
+  <div class="rule"></div>
+  ${o.recent.length
+    ? `<div class="peek">${o.recent.map(r=>`<a href="#" onclick="return false">${r}</a>`).join("")}</div>`
+    : `<div class="empty"><span>비어 있음</span><button class="mini">＋ 새 노트</button></div>`}
+  <div class="ffoot">${o.foot.map(f=>`<span>${f}</span>`).join('<span>·</span>')}</div>
+</article>`;
+
+const TILES = [
+  { name:"회의록", color:"--blue", deep:12, recent:["주간 스프린트 회고","2026-Q4 로드맵 확정","인터뷰 정리 — 김OO"], foot:["폴더 2","3시간 전"] },
+  { name:"참고자료", color:"--amber", deep:4, recent:["Finder 브레드크럼 패턴 조사","가상화 스크롤 레퍼런스"], foot:["노트 4","어제"] },
+  { name:"초고", color:"--green", deep:0, recent:[], foot:["방금 만든 폴더"] },
+];
+
+document.write(`
+<section>
+  <h2>A · 원본 스펙 — 아이콘 + 이름 + 개수<span class="verdict bad">기각</span></h2>
+  <p class="sub">176px 중 120px 이상이 공백. Finder에서 폴더·파일 타일이 같은 크기인 건 둘 다 프리뷰가 없기 때문이라 이 앱에는 성립하지 않는다.</p>
+  <div class="grid">
+    ${folderPlain("회의록",12,"--blue")}${folderPlain("참고자료",4,"--amber")}${notes(2)}
+  </div>
+</section>
+
+<section>
+  <h2>B · 리뷰 1차안 — 32px 위치 바<span class="verdict mid">철회</span></h2>
+  <p class="sub">공백은 없앴지만 사용자 의도(타일 유지)와 어긋나고, 별도 섹션이라 가상화 <code>scrollMargin</code> 보정이 필요해진다.</p>
+  <div class="bar">
+    <span class="chip">${F("var(--blue)")} 회의록 <span class="n">12</span></span>
+    <span class="chip">${F("var(--amber)")} 참고자료 <span class="n">4</span></span>
+    <span class="chip">${F("var(--green)")} 초고 <span class="n">0</span></span>
+    <span class="chip">＋ 새 폴더</span>
+  </div>
+  <div class="grid">${notes(4)}</div>
+</section>
+
+<section>
+  <h2>C · 채택안 — 내용 미리보기 타일<span class="verdict good">채택</span></h2>
+  <p class="sub">176px를 최근 노트 제목 3건 + 재귀 카운트 + 하위 폴더 수로 채운다. 노트와 같은 셀 배열에 넣어 wrap되므로 <code>scrollMargin</code> 보정이 사라진다. 제목 행 클릭 = 그 노트 바로 열기.</p>
+  <div class="grid">${TILES.map(folderTile).join("")}${notes(4)}</div>
+  <p class="note">구분 신호 ① 상단 폴더색 탭 노치 ② 본문 문단 대신 제목 행 목록 ③ 배경 한 단계 낮은 톤(<code>surface</code>). 빈 폴더는 공백 대신 <code>＋ 새 노트</code> CTA.</p>
+</section>
+
+<section class="c2">
+  <h2>C2 · 채택안 변형 — 배경 톤·보더 강화<span class="verdict good">검토용</span></h2>
+  <p class="sub">C의 배경차(0.985 vs 1.0)가 실기기에서 거의 식별되지 않는다. 배경을 <code>surface-muted</code>(0.96), 보더를 <code>line-strong</code>으로 올린 안. 폴더가 "컨테이너"로 더 분명히 읽히는지 비교용.</p>
+  <div class="grid">${TILES.map(folderTile).join("")}${notes(4)}</div>
+</section>
+`);
+</script>
+</body></html>
