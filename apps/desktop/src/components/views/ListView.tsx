@@ -1,17 +1,25 @@
 /**
  * ListView — a flat two-column list (title + preview). Rendered for users
  * who want denser scan over many notes at once (§7.2).
+ *
+ * When browsing a folder (not in query mode) the current folder's direct
+ * subfolders appear as rows above the notes, mirroring the FolderTile layer
+ * in the grid view. Each row carries `data-folder-row` for the eventual
+ * drag-target hook (Task 14).
  */
-import { Star } from "lucide-react";
+import { Folder, Star } from "lucide-react";
 
-import type { FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
-import { relativeTime } from "../../lib/time";
+import { colorForFolder } from "../../lib/color";
 import { useI18n } from "../../lib/i18n";
+import { relativeTime } from "../../lib/time";
+import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
 interface Props {
   items: MemoSummary[];
   folders: FolderDef[];
   folderEntries: FolderEntry[];
+  folderCards: FolderCard[];
+  onOpenFolder: (path: string) => void;
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string, favorite: boolean) => void;
   onMoveFolder: (id: string, folder: string) => void;
@@ -20,10 +28,35 @@ interface Props {
   onNewNote?: () => void;
 }
 
-export function ListView({ items, onSelect, onToggleFavorite }: Props) {
+export function ListView({
+  items,
+  folders,
+  folderCards,
+  onOpenFolder,
+  onSelect,
+  onToggleFavorite,
+}: Props) {
   const { t, locale } = useI18n();
   return (
     <ul className="divide-y divide-line">
+      {folderCards.map((f) => (
+        <li
+          key={f.path}
+          data-folder-row={f.path}
+          onClick={() => onOpenFolder(f.path)}
+          className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-surface-muted"
+        >
+          <Folder size={13} style={{ color: colorForFolder(f.path, folders) }} />
+          <span className="text-sm font-semibold text-text">{f.path.split("/").at(-1)}</span>
+          <span className="text-xs text-text-subtle">
+            {t.folder_notes.replace("{n}", String(f.note_count_deep))}
+            {f.subfolder_count > 0
+              ? ` · ${t.folder_subfolders.replace("{n}", String(f.subfolder_count))}`
+              : ""}
+          </span>
+          <span className="ml-auto text-text-subtle">›</span>
+        </li>
+      ))}
       {items.map((n) => (
         <li
           key={n.id}
@@ -62,7 +95,10 @@ export function ListView({ items, onSelect, onToggleFavorite }: Props) {
           </div>
           <div className="flex shrink-0 items-baseline gap-2 text-[11px] text-text-subtle">
             {n.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-text-muted">
+              <span
+                key={tag}
+                className="rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-text-muted"
+              >
                 #{tag}
               </span>
             ))}

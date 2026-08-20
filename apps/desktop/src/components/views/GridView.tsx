@@ -1,47 +1,58 @@
 /**
- * GridView — the original virtualized multi-column card grid (§7.2).
- * Same responsive auto-fill layout as the original CardGrid body, just
- * extracted so CardGrid can switch between views.
+ * GridView — the original virtualized multi-column card grid (§7.2). The
+ * cell array is now FLAT: folders come first (via FolderTile), then notes
+ * (via Card). Both render in the same row slice — no scrollMargin, no
+ * separate section, so the virtualizer's `rowCount * ROW_H` height keeps
+ * every row anchored in the same coordinate space.
  */
 import type { Virtualizer } from "@tanstack/react-virtual";
 
 import { Card } from "../Card";
-import type { FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
+import { FolderTile } from "../FolderTile";
+import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
+
+export type Cell =
+  | { kind: "folder"; card: FolderCard }
+  | { kind: "note"; note: MemoSummary };
 
 interface Props {
-  items: MemoSummary[];
+  cells: Cell[];
   virtualizer: Virtualizer<HTMLDivElement, Element>;
   cols: number;
   folders: FolderDef[];
   folderEntries: FolderEntry[];
+  onOpenFolder: (path: string) => void;
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string, favorite: boolean) => void;
   onMoveFolder: (id: string, folder: string) => void;
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
+  onNewNoteIn: (folder: string) => void;
 }
 
 const CARD_H = 176;
 const ROW_GAP = 12;
 
 export function GridView({
-  items,
+  cells,
   virtualizer,
   cols,
   folders,
   folderEntries,
+  onOpenFolder,
   onSelect,
   onToggleFavorite,
   onMoveFolder,
   onCopyBody,
   onDelete,
+  onNewNoteIn,
 }: Props) {
-  const rowCount = Math.ceil(items.length / cols);
+  const rowCount = Math.ceil(cells.length / cols);
   return (
     <div style={{ height: virtualizer.getTotalSize() }} className="relative w-full">
       {virtualizer.getVirtualItems().map((v) => {
         const start = v.index * cols;
-        const row = items.slice(start, start + cols);
+        const row = cells.slice(start, start + cols);
         return (
           <div
             key={v.key}
@@ -61,19 +72,30 @@ export function GridView({
                 gap: `${ROW_GAP}px`,
               }}
             >
-              {row.map((n) => (
-                <Card
-                  key={n.id}
-                  memo={n}
-                  folders={folders}
-                  folderEntries={folderEntries}
-                  onSelect={onSelect}
-                  onToggleFavorite={(id) => onToggleFavorite(id, n.favorite)}
-                  onMoveFolder={onMoveFolder}
-                  onCopyBody={onCopyBody}
-                  onDelete={onDelete}
-                />
-              ))}
+              {row.map((cell) =>
+                cell.kind === "folder" ? (
+                  <FolderTile
+                    key={`f:${cell.card.path}`}
+                    card={cell.card}
+                    folders={folders}
+                    onOpen={onOpenFolder}
+                    onOpenNote={onSelect}
+                    onNewNote={onNewNoteIn}
+                  />
+                ) : (
+                  <Card
+                    key={cell.note.id}
+                    memo={cell.note}
+                    folders={folders}
+                    folderEntries={folderEntries}
+                    onSelect={onSelect}
+                    onToggleFavorite={(id) => onToggleFavorite(id, cell.note.favorite)}
+                    onMoveFolder={onMoveFolder}
+                    onCopyBody={onCopyBody}
+                    onDelete={onDelete}
+                  />
+                ),
+              )}
             </div>
           </div>
         );

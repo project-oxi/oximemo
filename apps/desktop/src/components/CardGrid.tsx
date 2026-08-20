@@ -26,6 +26,7 @@ import {
 import {
   createMemo,
   deleteMemo,
+  folderChildren,
   getMemo,
   getConfig,
   listFolders,
@@ -39,7 +40,7 @@ import {
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
 import { useUI, loadQueryView } from "../stores/ui";
-import type { MemoSummary, ViewMode } from "../lib/types";
+import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
 
 import { MemoDetail } from "./MemoDetail";
 
@@ -47,7 +48,7 @@ import { Sidebar } from "./Sidebar";
 import { GalleryView } from "./GalleryView";
 import { SettingsMenu } from "./SettingsMenu";
 import { BreadcrumbBar } from "./BreadcrumbBar";
-import { GridView } from "./views/GridView";
+import { GridView, type Cell } from "./views/GridView";
 import { ListView } from "./views/ListView";
 import { TimelineView } from "./views/TimelineView";
 import { GraphView } from "./views/GraphView";
@@ -179,6 +180,28 @@ export function CardGrid() {
     });
   }, [inSearch, includeTags, excludeTags, folderFilter, favoritesOnly, listing.data, searching.data]);
 
+  // Direct-children folder tiles for the current browse level. We rely on
+  // browse-by-default semantics (T5): folderFilter !== null ⇒ show this
+  // folder's subfolders as content-peek tiles above its notes. In query
+  // mode (folderFilter === null) and during search the tile layer is
+  // suppressed — search results are flat, no folder chrome.
+  const browseFoldersQ = useQuery({
+    queryKey: ["folderChildren", folderFilter],
+    queryFn: () => folderChildren(folderFilter ?? ""),
+    enabled:
+      folderFilter !== null &&
+      !inSearch &&
+      (noteView === "grid" || noteView === "list"),
+  });
+
+  const folderCards: FolderCard[] = browseFoldersQ.data ?? [];
+  const folderCells: Cell[] = folderCards.map((card) => ({ kind: "folder" as const, card }));
+  const noteCells: Cell[] = items.map((note) => ({ kind: "note" as const, note }));
+  const cells = useMemo(
+    () => [...folderCells, ...noteCells],
+    [folderCells, noteCells],
+  );
+
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const scrollerRoRef = useRef<ResizeObserver | null>(null);
   const [cols, setCols] = useState(1);
@@ -200,7 +223,7 @@ export function CardGrid() {
     scrollerRoRef.current = ro;
   }, []);
 
-  const rowCount = Math.ceil(items.length / cols);
+  const rowCount = Math.ceil(cells.length / cols);
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => scrollerRef.current,
@@ -224,6 +247,7 @@ export function CardGrid() {
       qc.invalidateQueries({ queryKey: ["stats"] });
       qc.invalidateQueries({ queryKey: ["folders"] });
       qc.invalidateQueries({ queryKey: ["config"] });
+      qc.invalidateQueries({ queryKey: ["folderChildren"] });
     }).then((u) => {
       un = u;
     });
@@ -289,6 +313,27 @@ export function CardGrid() {
   );
 
   const onNewHtmlNote = useCallback(() => onNewNote("html"), [onNewNote]);
+
+  // Create a new memo in a specific folder (used by FolderTile's empty-state
+  // "+ MD note" button — the tile lives next to its parent folder in the
+  // browse tree, so we want to anchor the draft inside that folder rather
+  // than the currently-viewed one).
+  const onNewNoteIn = useCallback(
+    (folder: string) => {
+      if (useUI.getState().selectedId) return;
+      void createMemo("", folder)
+        .then((n) => {
+          setDraftId(n.id);
+          select(n.id);
+          qc.invalidateQueries({ queryKey: ["memos"] });
+          qc.invalidateQueries({ queryKey: ["facets"] });
+          qc.invalidateQueries({ queryKey: ["folders"] });
+          qc.invalidateQueries({ queryKey: ["folderChildren"] });
+        })
+        .catch((e) => setError(String(e).split("\n")[0]));
+    },
+    [select, setDraftId, setError, qc],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -406,10 +451,15 @@ export function CardGrid() {
   }
 
   // Pick the view component for the current noteView.
+  // ListView needs both the folder registry (for color) and the live
+  // folderChildren cards (to render folder rows above note rows). Pass
+  // them through explicitly so the flat viewProps type stays simple.
   const viewProps = {
     items,
     folders,
     folderEntries,
+    folderCards,
+    onOpenFolder: setFolderFilter,
     onSelect: select,
     onToggleFavorite: onToggleFavorite,
     onMoveFolder,
@@ -477,7 +527,7 @@ export function CardGrid() {
                 {t.retry}
               </button>
             </div>
-          ) : items.length === 0 ? (
+          ) : cells.length === 0 ? (
             <div className="mt-24 flex flex-col items-center gap-4 text-center">
               <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
               {hasMemos ? (
@@ -500,16 +550,18 @@ export function CardGrid() {
             </div>
           ) : noteView === "grid" ? (
             <GridView
-              items={items}
+              cells={cells}
               virtualizer={virtualizer}
               cols={cols}
               folders={folders}
               folderEntries={folderEntries}
+              onOpenFolder={setFolderFilter}
               onSelect={select}
               onToggleFavorite={onToggleFavorite}
               onMoveFolder={onMoveFolder}
               onCopyBody={onCopyBody}
               onDelete={onDelete}
+              onNewNoteIn={onNewNoteIn}
             />
           ) : noteView === "list" ? (
             <ListView {...viewProps} />
