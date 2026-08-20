@@ -260,27 +260,33 @@ export function Sidebar() {
           <Plus size={12} />
         </button>
       </div>
-      {creating && (
-        <div className="px-2 pt-1">
-          <input
-            autoFocus
-            value={newPath}
-            placeholder="new/folder/path"
-            onChange={(e) => setNewPath(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commit();
-              else if (e.key === "Escape") {
-                commitRef.current = true;
-                setCreating(false);
-                setNewPath("");
-              }
-            }}
-            className="w-full rounded-md bg-surface-raised px-2 py-1 font-mono text-xs text-text outline-none placeholder:text-text-subtle focus-visible:ring-1 focus-visible:ring-line"
-          />
-        </div>
-      )}
       <div className="flex flex-col px-2 pt-1">
+        {creating && (
+          <div
+            className="flex items-center gap-1 rounded-md bg-surface-muted/60 py-0.5 pr-2 text-[13px]"
+            style={{ paddingLeft: "8px" }}
+          >
+            <span className="inline-block h-4 w-4 shrink-0" />
+            <Folder size={12} className="shrink-0 text-text-muted" />
+            <input
+              autoFocus
+              value={newPath}
+              placeholder={t.folder_new}
+              style={{ boxShadow: "none" }}
+              onChange={(e) => setNewPath(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commit();
+                else if (e.key === "Escape") {
+                  commitRef.current = true;
+                  setCreating(false);
+                  setNewPath("");
+                }
+              }}
+              className="w-full min-w-0 flex-1 bg-transparent px-0 py-0.5 text-[13px] text-text outline-none placeholder:text-text-subtle"
+            />
+          </div>
+        )}
         {tree.map((n) => (
           <FolderTreeNode
             key={n.fullPath}
