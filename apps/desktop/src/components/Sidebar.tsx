@@ -5,11 +5,11 @@
  * open; the collapse/expand toggle is a single fixed button rendered by
  * CardGrid so it never moves between states.
  */
-import { useQuery } from "@tanstack/react-query";
-import { ArrowUpDown, ChevronRight, Folder, Images, Layers, Star } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowUpDown, ChevronRight, Folder, Images, Layers, Plus, Star } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 
-import { listFacets, memoStats, listFolders, getConfig } from "../lib/api";
+import { listFacets, memoStats, listFolders, getConfig, createFolder } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI, type TagState } from "../stores/ui";
@@ -144,6 +144,30 @@ export function Sidebar() {
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const view = useUI((s) => s.view);
   const setView = useUI((s) => s.setView);
+  const setError = useUI((s) => s.setError);
+  const qc = useQueryClient();
+
+  const [creating, setCreating] = useState(false);
+  const [newPath, setNewPath] = useState("");
+  // Guard against Enter-commit being followed by the unmount blur.
+  const commitRef = useRef(false);
+  const commit = () => {
+    if (commitRef.current) return;
+    commitRef.current = true;
+    const path = newPath.trim();
+    if (path) {
+      void createFolder(path)
+        .then(() => qc.invalidateQueries({ queryKey: ["folders"] }))
+        .catch((e) => setError(String(e).split("\n")[0]));
+    }
+    setCreating(false);
+    setNewPath("");
+  };
+  const openInput = () => {
+    commitRef.current = false;
+    setNewPath("");
+    setCreating(true);
+  };
 
   const tags = facets.data?.tags ?? [];
   const tree = useMemo(() => buildTree(foldersQ.data ?? []), [foldersQ.data]);
@@ -225,8 +249,37 @@ export function Sidebar() {
       </div>
 
       <div className="mt-3 flex items-center justify-between px-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">Folders</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">{t.folders_section}</span>
+        <button
+          type="button"
+          aria-label={t.folder_new}
+          title={t.folder_new}
+          onClick={() => (creating ? commit() : openInput())}
+          className="grid size-4 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text"
+        >
+          <Plus size={12} />
+        </button>
       </div>
+      {creating && (
+        <div className="px-2 pt-1">
+          <input
+            autoFocus
+            value={newPath}
+            placeholder="new/folder/path"
+            onChange={(e) => setNewPath(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit();
+              else if (e.key === "Escape") {
+                commitRef.current = true;
+                setCreating(false);
+                setNewPath("");
+              }
+            }}
+            className="w-full rounded-md bg-surface-raised px-2 py-1 font-mono text-xs text-text outline-none placeholder:text-text-subtle focus-visible:ring-1 focus-visible:ring-line"
+          />
+        </div>
+      )}
       <div className="flex flex-col px-2 pt-1">
         {tree.map((n) => (
           <FolderTreeNode

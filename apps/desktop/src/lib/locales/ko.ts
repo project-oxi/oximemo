@@ -155,6 +155,8 @@ export const dict = {
   dock_saved: "저장됨",
   dock_saving: "저장 중…",
   folder_root: "최상위",
+  folders_section: "폴더",
+  folder_new: "새 폴더",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

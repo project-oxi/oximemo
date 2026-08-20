@@ -156,4 +156,6 @@ export const dict: Record<keyof typeof ko, string> = {
   dock_saved: "Saved",
   dock_saving: "Saving…",
   folder_root: "Top level",
+  folders_section: "Folders",
+  folder_new: "New folder",
 };
