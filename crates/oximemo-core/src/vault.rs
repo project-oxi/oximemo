@@ -127,7 +127,6 @@ impl Vault {
         Ok(counts.into_iter().collect())
     }
 
-
     pub fn paths(&self) -> &Paths {
         &self.paths
     }
@@ -1341,8 +1340,14 @@ pub struct BacklinkInfo {
 /// Recursively register physical directories (even note-less ones) as folder
 /// entries with count 0. Mirrors `scan_md_into`'s skip rules: hidden dirs
 /// (`.trash`, …) and `_assets/` are not folders.
-fn collect_folder_dirs(dir: &Path, rel: &str, counts: &mut std::collections::BTreeMap<String, u32>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+fn collect_folder_dirs(
+    dir: &Path,
+    rel: &str,
+    counts: &mut std::collections::BTreeMap<String, u32>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         if !entry.file_type().is_ok_and(|t| t.is_dir()) {
             continue;
@@ -1351,7 +1356,11 @@ fn collect_folder_dirs(dir: &Path, rel: &str, counts: &mut std::collections::BTr
         if name.starts_with('.') || name == crate::paths::ASSETS_DIR {
             continue;
         }
-        let child_rel = if rel.is_empty() { name } else { format!("{rel}/{name}") };
+        let child_rel = if rel.is_empty() {
+            name
+        } else {
+            format!("{rel}/{name}")
+        };
         counts.entry(child_rel.clone()).or_insert(0);
         collect_folder_dirs(&entry.path(), &child_rel, counts);
     }
@@ -1438,8 +1447,12 @@ watcher_retry_interval_ms = 200
     fn list_folders_includes_empty_directories() {
         let (_t, v) = tmp_vault();
         v.create_memo("root note".into(), None).unwrap();
-        v.create_note("novel", "in folder".into(), crate::memo::NoteFormat::Markdown)
-            .unwrap();
+        v.create_note(
+            "novel",
+            "in folder".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
         // Empty folder: created but holding no notes yet — must still be
         // listed so the UI can show and manage it.
         std::fs::create_dir_all(v.paths().vault.join("ideas/empty")).unwrap();

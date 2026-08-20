@@ -690,13 +690,21 @@ mod filter_tests {
 
     #[test]
     fn immediate_folder_filter_excludes_subfolders() {
-        let mut f = MemoFilter { folder: Some("novel".into()), immediate: true, ..Default::default() };
+        let mut f = MemoFilter {
+            folder: Some("novel".into()),
+            immediate: true,
+            ..Default::default()
+        };
         assert!(f.matches(&sum(&[], "novel/ch1.md", false)));
         assert!(!f.matches(&sum(&[], "novel/act1/ch2.md", false)));
         f.immediate = false;
         assert!(f.matches(&sum(&[], "novel/act1/ch2.md", false)));
         // Root is immediate-agnostic: loose only, both modes.
-        let root = MemoFilter { folder: Some(String::new()), immediate: true, ..Default::default() };
+        let root = MemoFilter {
+            folder: Some(String::new()),
+            immediate: true,
+            ..Default::default()
+        };
         assert!(root.matches(&sum(&[], "root-file.md", false)));
         assert!(!root.matches(&sum(&[], "sub/root-file.md", false)));
     }
