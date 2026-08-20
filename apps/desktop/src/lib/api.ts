@@ -7,6 +7,7 @@
 import { invoke } from "./tauri";
 import type {
   BacklinkInfo,
+  BrainLayer,
   BrainStatus,
   Config,
   FolderDef,
@@ -73,9 +74,18 @@ export async function brainStatus(): Promise<BrainStatus> {
   return invoke<BrainStatus>("brain_status");
 }
 
+/** Envelope the daemon's `recall` returns. `layers` stays optional — the
+ * panel defends against shape drift between daemon versions. */
+export interface BrainRecall {
+  layers?: BrainLayer[];
+}
+
 /** Recall layers for a query; throws when the daemon is offline. */
-export async function brainGather(query: string, budget = 4000): Promise<unknown> {
-  return invoke<unknown>("brain_gather", { query, budget });
+export async function brainGather(
+  query: string,
+  budget = 4000,
+): Promise<BrainRecall> {
+  return invoke<BrainRecall>("brain_gather", { query, budget });
 }
 
 export async function listFacets() {

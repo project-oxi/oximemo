@@ -646,7 +646,11 @@ mod commands {
         state
             .vault
             .list_folders()
-            .map(|rows| rows.into_iter().map(|(path, note_count)| ListFolderResult { path, note_count }).collect())
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|(path, note_count)| ListFolderResult { path, note_count })
+                    .collect()
+            })
             .map_err(|e| e.to_string())
     }
 
@@ -958,8 +962,14 @@ mod tests {
     #[test]
     fn list_folders_serializes_as_objects() {
         let rows = vec![
-            ListFolderResult { path: String::new(), note_count: 3 },
-            ListFolderResult { path: "novel".into(), note_count: 2 },
+            ListFolderResult {
+                path: String::new(),
+                note_count: 3,
+            },
+            ListFolderResult {
+                path: "novel".into(),
+                note_count: 2,
+            },
         ];
         let json = serde_json::to_string(&rows).unwrap();
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -971,7 +981,10 @@ mod tests {
                 .as_object()
                 .unwrap_or_else(|| panic!("entry {i} should be object, got {item}"));
             assert!(obj.contains_key("path"), "entry {i} missing `path` key");
-            assert!(obj.contains_key("note_count"), "entry {i} missing `note_count` key");
+            assert!(
+                obj.contains_key("note_count"),
+                "entry {i} missing `note_count` key"
+            );
         }
         assert_eq!(arr[0]["path"], serde_json::Value::String(String::new()));
         assert_eq!(arr[0]["note_count"], serde_json::json!(3));

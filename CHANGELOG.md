@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Dependencies
+
+- **oxibrain-client v0.3.0 → v0.6.0** — picks up space enumeration
+  (`list_spaces`, typed `SpaceSummary`), the `resources/read` scope-bypass
+  security fix, and the daemon-side vault watch surface (`sync_run` /
+  `SyncOutcome`). With oxibrain ≥ 0.6.0 the vault flows into the brain via
+  `oxibrain sync <vault>` + daemon watcher (ADR-010) — oximemo itself
+  stays read-only over the socket. `brainGather` now returns the typed
+  `BrainRecall` envelope (runtime shape defense unchanged).
+
 ### Changed
 - **Memo → Notebook transformation** — oximemo is no longer a flat
   category-based memo app. It is now a physical-folder markdown notebook

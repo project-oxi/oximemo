@@ -223,3 +223,10 @@ oximemo get/list/search/export   # 포맷 무관하게 그대로 동작
 3. (별도 이슈) vault watch 커넥터 — debounce + 최소 diff로 C4 준수.
 
 이 세 가지가 끝나야 루프가 닫힌다. 그 전에는 md 노트만 브레인에 흘러간다.
+
+> **후속 해소 (2026-08-20, oxibrain v0.6.0 · ADR-010):** 핸드오프 3항목 전부
+> 완료됐다. watch는 브레인 소유·데몬 호스팅으로 판정되었다(P8 단일 라이터
+> 락이 유일한 자동화 가능 위치). `oxibrain sync <vault>`가 등록 표면이고,
+> 데몬이 등록된 pull 소스를 debounce(2s) 와치한다. 실제 vault 등록·C4 편집
+> 검증 완료 — 루프가 닫혔다. 본 저장소는 `oxibrain-client` v0.6.0으로
+> 승격만 하면 된다(완료).
