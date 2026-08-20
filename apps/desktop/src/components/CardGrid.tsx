@@ -88,6 +88,7 @@ export function CardGrid() {
   const setFolderFilter = useUI((s) => s.setFolderFilter);
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const view = useUI((s) => s.view);
+  const setView = useUI((s) => s.setView);
   const noteView = useUI((s) => s.noteView);
   const setNoteView = useUI((s) => s.setNoteView);
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
@@ -606,24 +607,33 @@ export function CardGrid() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // ⌘N / CtrlN — new note in current folder.
+      // ⌘N / CtrlN — new note in current folder. Inert while the palette
+      // modal is open (opening MemoDetail underneath would stack two
+      // focus traps).
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
+        if (paletteOpen) return;
         e.preventDefault();
         onNewNote();
         return;
       }
       // ⌘⇧O / Ctrl⇧O — folder jump palette. Guarded while the memo dialog
-      // is open (selectedId): its own key handling wins. The capture
-      // overlay lives in its own window/document (App early-returns the
-      // capture route), so it can never see this listener.
+      // is open (selectedId): its own key handling wins. Gallery view is
+      // excluded too — <FolderPalette> only mounts in the memos tree, so
+      // toggling it from gallery would arm an invisible open that pops
+      // the moment the user leaves gallery. The capture overlay lives in
+      // its own window/document (App early-returns the capture route), so
+      // it can never see this listener.
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") {
         if (useUI.getState().selectedId) return;
+        if (useUI.getState().view === "gallery") return;
         e.preventDefault();
         setPaletteOpen((v) => !v);
         return;
       }
-      // ⌘↑ / Ctrl↑ — navigate up one folder (no-op in query mode or at root).
+      // ⌘↑ / Ctrl↑ — navigate up one folder (no-op in query mode or at
+      // root; inert under the palette modal).
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "ArrowUp") {
+        if (paletteOpen) return;
         e.preventDefault();
         useUI.getState().navigateUp();
         return;
@@ -644,20 +654,27 @@ export function CardGrid() {
     return () => window.removeEventListener("keydown", onKey);
   }, [onNewNote, localSearch, paletteOpen, setSearch]);
 
-  // Palette navigation: browse the target folder and drop any active
-  // search — a palette jump is a navigation command, so the destination
-  // must open in browse mode rather than folder-scoped search results.
-  // localSearch/debounced are CardGrid-local mirrors of the store search
-  // and are cleared here alongside it (the mirrors are NOT store-synced).
+  // Palette navigation mirrors the sidebar's openFolder convention
+  // (Sidebar.tsx): setView("memos") + favoritesOnly(false) + browse the
+  // folder — a jump from a favorites/tag smart collection must land in
+  // UNFILTERED browse of the destination, not a favorites-filtered one.
+  // Tags are intentionally left alone, exactly like openFolder. Any
+  // active search is dropped too — a palette jump is a navigation
+  // command, so the destination opens in browse mode rather than
+  // folder-scoped search results. localSearch/debounced are
+  // CardGrid-local mirrors of the store search and are cleared here
+  // alongside it (the mirrors are NOT store-synced).
   const jumpToFolder = useCallback(
     (path: string) => {
+      setView("memos");
+      setFavoritesOnly(false);
       setFolderFilter(path);
       setPaletteOpen(false);
       setLocalSearch("");
       setDebounced("");
       setSearch("");
     },
-    [setFolderFilter, setSearch],
+    [setView, setFavoritesOnly, setFolderFilter, setSearch],
   );
 
   // Sidebar toggle is the first inline element of the header now (see
