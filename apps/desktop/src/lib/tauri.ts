@@ -369,9 +369,6 @@ async function browserFallback(
 
     case "cli_status":
       return "not-installed";
-    case "install_cli":
-    case "uninstall_cli":
-      throw new Error("CLI setup is only available in the desktop app");
 
     default:
       return null;

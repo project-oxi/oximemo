@@ -3,17 +3,16 @@
  * Raw perceptual values; NEVER referenced by components or @theme utilities.
  * Components consume Tailwind utilities only (bg-surface, text-text, border-line).
  *
- * Neutral ramp: warm "paper" (hue 95) in light, cool "ink" (hue 265) in dark.
- * The warm→cool split happens here, once; semantic tokens stay neutral.
- * Source: oxi-design-system DESIGN.md §3.2. */
+ * Neutral ramp: true achromatic gray (C=0) in both light and dark — no hue
+ * tint at any lightness step. Source: oxi-design-system DESIGN.md §3.2. */
 :root {
-  --p-neutral-0:   oklch(0.985 0.004 95);
-  --p-neutral-50:  oklch(0.95 0.006 95);
-  --p-neutral-100: oklch(0.90 0.007 95);
-  --p-neutral-300: oklch(0.75 0.010 95);
-  --p-neutral-500: oklch(0.55 0.012 95);
-  --p-neutral-700: oklch(0.35 0.012 265);
-  --p-neutral-900: oklch(0.18 0.015 265);
-  --p-neutral-950: oklch(0.13 0.020 265);
+  --p-neutral-0:   oklch(0.985 0 0);
+  --p-neutral-50:  oklch(0.95 0 0);
+  --p-neutral-100: oklch(0.90 0 0);
+  --p-neutral-300: oklch(0.75 0 0);
+  --p-neutral-500: oklch(0.55 0 0);
+  --p-neutral-700: oklch(0.35 0 0);
+  --p-neutral-900: oklch(0.18 0 0);
+  --p-neutral-950: oklch(0.13 0 0);
   --p-neutral-999: oklch(0 0 0);
 }

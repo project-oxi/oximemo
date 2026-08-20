@@ -1,28 +1,29 @@
 /* Tier 2 — Dark theme overrides (.dark).
  *
- * Neutrals + label hues: L-only adjustment (C, H held).
+ * Neutrals + label hues: L-only adjustment (C, H held). Neutral surfaces/text
+ * are pure achromatic (C=0) in both modes — no warm/cool hue split.
  * Status hues: APCA-optimized per-mode (C/H may shift). Source: DESIGN.md §3.1, §3.3. */
 .dark {
   /* Primitive neutral overrides — only steps that differ from light */
-  --p-neutral-100: oklch(0.28 0.015 265); /* border on dark */
-  --p-neutral-500: oklch(0.65 0.012 265); /* muted text on dark */
-  --p-neutral-950: oklch(0.13 0.020 265); /* canvas (explicit) */
+  --p-neutral-100: oklch(0.28 0 0); /* border on dark */
+  --p-neutral-500: oklch(0.65 0 0); /* muted text on dark */
+  --p-neutral-950: oklch(0.13 0 0); /* canvas (explicit) */
 
   /* Surfaces */
   --color-surface:        var(--p-neutral-950);
-  --color-surface-raised: oklch(0.22 0.016 265);
-  --color-surface-sunken: oklch(0.11 0.018 265);
-  --color-surface-muted:  oklch(0.20 0.012 265);
+  --color-surface-raised: oklch(0.22 0 0);
+  --color-surface-sunken: oklch(0.11 0 0);
+  --color-surface-muted:  oklch(0.20 0 0);
 
   /* Text */
   --color-text:         var(--p-neutral-0);
   --color-text-muted:   var(--p-neutral-300);
-  --color-text-subtle:  oklch(0.75 0.012 265); /* L=0.75 passes on dark */
+  --color-text-subtle:  oklch(0.75 0 0); /* L=0.75 passes on dark */
   --color-text-inverse: var(--p-neutral-900);
 
   /* Lines */
-  --color-line:        oklch(0.28 0.015 265);
-  --color-line-strong: oklch(0.40 0.015 265);
+  --color-line:        oklch(0.28 0 0);
+  --color-line-strong: oklch(0.40 0 0);
   --color-focus-ring:  oklch(0.65 0.05 265);
 
   /* Hue labels: L +0.05 (C, H held) */
@@ -47,7 +48,7 @@
 
   /* Interactive primary — lighter fill (dark text passes) */
   --color-interactive-primary:            oklch(0.70 0.14 250);
-  --color-interactive-primary-foreground: oklch(0.15 0.015 265);
+  --color-interactive-primary-foreground: oklch(0.15 0 0);
 
   /* Status text on subtle — lighter for dark */
   --color-status-success-on-subtle: oklch(0.80 0.10 163);

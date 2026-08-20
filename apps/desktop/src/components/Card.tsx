@@ -37,7 +37,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
         render={
           <article
             onClick={() => onSelect(memo.id)}
-            className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-colors duration-150 hover:border-line-strong hover:bg-surface"
+            className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm"
           />
         }
       >

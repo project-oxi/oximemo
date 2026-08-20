@@ -21,17 +21,17 @@
   --color-surface:        var(--p-neutral-0);
   --color-surface-raised: oklch(1 0 0);
   --color-surface-sunken: var(--p-neutral-50);
-  --color-surface-muted:  oklch(0.96 0.005 265);
+  --color-surface-muted:  oklch(0.96 0 0);
 
   /* Text */
   --color-text:         var(--p-neutral-900);
   --color-text-muted:   var(--p-neutral-700);
-  --color-text-subtle:  oklch(0.42 0.010 95);
-  --color-text-inverse: oklch(0.985 0.004 95);
+  --color-text-subtle:  oklch(0.42 0 0);
+  --color-text-inverse: oklch(0.985 0 0);
 
   /* Lines / borders — named --color-line so the utility is `border-line` */
   --color-line:        var(--p-neutral-100);
-  --color-line-strong: oklch(0.82 0.008 265);
+  --color-line-strong: oklch(0.82 0 0);
   --color-focus-ring:  oklch(0.45 0.04 265);
 
   /* Functional hue labels (L≈0.70–0.75, C≈0.12–0.15) */

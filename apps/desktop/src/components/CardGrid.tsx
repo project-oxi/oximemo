@@ -154,18 +154,25 @@ export function CardGrid() {
     });
   }, [inSearch, includeTags, excludeTags, matchAll, folderFilter, favoritesOnly, listing.data, searching.data]);
 
-  const scrollerRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRoRef = useRef<ResizeObserver | null>(null);
   const [cols, setCols] = useState(1);
 
-  useEffect(() => {
-    const el = scrollerRef.current;
+  // Callback ref (not a plain ref + effect): the scroller <div> unmounts and
+  // remounts whenever `view` toggles to/from gallery, which would otherwise
+  // leave the ResizeObserver watching a detached node forever — permanently
+  // freezing `cols` at whatever it read on that unmount (often 0 → cols=1,
+  // i.e. grid view stuck rendering as a single vertical column).
+  const scrollerCallbackRef = useCallback((el: HTMLDivElement | null) => {
+    scrollerRef.current = el;
+    scrollerRoRef.current?.disconnect();
+    scrollerRoRef.current = null;
     if (!el) return;
-    const update = () =>
-      setCols(Math.max(1, Math.floor((el.clientWidth - 16) / MIN_COL_W)));
+    const update = () => setCols(Math.max(1, Math.floor((el.clientWidth - 16) / MIN_COL_W)));
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    scrollerRoRef.current = ro;
   }, []);
 
   const rowCount = Math.ceil(items.length / cols);
@@ -293,7 +300,7 @@ export function CardGrid() {
     <div
       role="group"
       aria-label="View mode"
-      className="inline-flex items-center gap-1 rounded-[var(--button-radius)] border border-line bg-surface-raised p-0.5 text-xs"
+      className="inline-flex items-center gap-0.5 text-xs"
     >
       {(["grid", "list", "timeline", "graph"] as const).map((v) => (
         <button
@@ -302,7 +309,7 @@ export function CardGrid() {
           onClick={() => setNoteViewLocked(v)}
           className={`rounded-[var(--tag-radius)] px-2.5 py-1 capitalize transition-colors duration-150 ${
             noteView === v
-              ? "bg-interactive-primary text-interactive-primary-foreground"
+              ? "bg-surface-muted font-semibold text-text"
               : "text-text-subtle hover:bg-surface-muted hover:text-text"
           }`}
           aria-pressed={noteView === v}
@@ -320,7 +327,7 @@ export function CardGrid() {
         title={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
         aria-label={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
         aria-pressed={isLocked}
-        className={`inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
+        className={`ml-1 inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
           isLocked
             ? "text-hue-amber hover:bg-hue-amber/15"
             : "text-text-subtle hover:bg-surface-muted hover:text-text"
@@ -364,7 +371,7 @@ export function CardGrid() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           data-tauri-drag-region="deep"
-          className="flex h-12 items-center gap-3 border-b border-line bg-surface-raised pl-4 pr-4"
+          className="flex h-12 items-center gap-3 border-b border-line pl-4 pr-4"
         >
           <div className="flex-1" />
           {viewSwitcher}
@@ -403,7 +410,7 @@ export function CardGrid() {
           </div>
           <SettingsMenu />
         </header>
-        <div ref={scrollerRef} className="flex-1 overflow-y-auto p-2">
+        <div ref={scrollerCallbackRef} className="flex-1 overflow-y-auto p-2">
           {listing.isError ? (
             <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
               <p className="text-sm font-medium text-status-error">{t.load_error}</p>
