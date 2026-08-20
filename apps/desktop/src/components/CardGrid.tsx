@@ -389,16 +389,13 @@ export function CardGrid() {
   // ids power the 실행 취소 action on the toast. Activation entry point
   // (the tile/row context menu's "삭제…" item) lands in Task 12 — until
   // then this handler is dormant, wired the same way namingPath was.
-  const onDeleteFolder = (path: string, deep: number) => {
-    if (
-      deep > 0 &&
-      !window.confirm(
-        t.delete_folder_confirm
-          .replace("{folder}", path.split("/").at(-1) ?? path)
-          .replace("{n}", String(deep)),
-      )
-    )
-      return;
+  // A caller-confirmed delete (deep>0 requires `confirmed`; empty folders
+  // delete immediately). Confirmation is the context menu's job: the
+  // two-click arm (삭제… → 삭제 확인, wording from delete_folder_confirm)
+  // lands with Task 12 — window.confirm is unreliable in Tauri's
+  // WKWebView, see SettingsMenu's reset arm for the same precedent.
+  const onDeleteFolder = (path: string, deep: number, confirmed = false) => {
+    if (deep > 0 && !confirmed) return;
     void deleteFolder(path)
       .then((ids) => {
         qc.invalidateQueries({ queryKey: ["folderChildren"] });

@@ -33,7 +33,7 @@ interface Props {
   /** null = cancelled (Esc) → caller handles teardown; string = confirm (rename if changed). */
   onNameCommit: (value: string | null) => void;
   /** Delete folder (trash + undo toast); context menu lands in Task 12. */
-  onDeleteFolder: (path: string, deep: number) => void;
+  onDeleteFolder: (path: string, deep: number, confirmed?: boolean) => void;
 }
 
 const CARD_H = 176;
