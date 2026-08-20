@@ -1,14 +1,20 @@
 /**
  * BreadcrumbBar — the single source of location (review §4.1).
  *
- * Browse mode renders one clickable segment per path component (root = vault
- * icon); each non-last segment exposes a ▾ dropdown listing its siblings
- * (children of the parent path) plus its own children. Query mode renders
- * one inert label with an icon reflecting the active query kind (search,
- * favorites, tag, all notes).
+ * Browse mode renders one segment per path component (root = vault icon);
+ * every segment — including the current one — carries a ▾ dropdown:
+ *   - non-last: siblings (children of parent) + own children
+ *   - last (current): own children only — siblings are reachable via parent
+ *   - root: top-level folders only
+ * This is the ONLY descent path in Timeline/Graph views and after T9
+ * removes the sidebar tree.
+ *
+ * Query mode renders one inert label with an icon reflecting the active
+ * query kind (search, favorites, tag, all notes).
  *
  * Overflow: when the bar exceeds the available width, leading segments are
- * hidden behind a `…` chip that restores them on click.
+ * hidden behind a `…` chip that restores them on click. A ResizeObserver
+ * re-measures on viewport / sidebar / header changes.
  */
 import { Popover } from "@base-ui-components/react";
 import {
@@ -52,17 +58,21 @@ function parentPath(path: string): string {
 
 /** Build the dropdown list for a segment at `path`:
  *  - root (path === ""): children of root only
+ *  - last (current) non-root: own children only — siblings are reached
+ *    through the parent segment's ▾
  *  - any other segment: children of parent (siblings incl. self) + own children
  */
-function dropdownFor(folders: FolderEntry[], path: string): FolderEntry[] {
+function dropdownFor(
+  folders: FolderEntry[],
+  path: string,
+  isLast: boolean,
+): FolderEntry[] {
   if (path === "") return childFolders(folders, "");
+  if (isLast) return childFolders(folders, path);
   const parent = parentPath(path);
   const siblings = childFolders(folders, parent);
-  // Sibling list does not include the current segment (we skip the exact
-  // path in childFolders). Add it so "this folder" is selectable.
   const self = folders.find((f) => f.path === path);
   const kids = childFolders(folders, path);
-  // Dedupe.
   const seen = new Set<string>();
   const out: FolderEntry[] = [];
   for (const f of [...siblings, ...(self ? [self] : []), ...kids]) {
@@ -102,22 +112,61 @@ export function BreadcrumbBar({ folders, folderDefs = [] }: BreadcrumbBarProps) 
   for (let i = 0; i < segs.length; i++) paths.push(segs.slice(0, i + 1).join("/"));
 
   // Overflow: collapse leading segments while the bar exceeds its box.
+  // ResizeObserver re-measures on viewport / sidebar / header changes; the
+  // rAF loop lets React paint the new collapsed count before re-measuring.
   useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    setCollapsed(0);
-    let h = 0;
     let raf = 0;
-    const check = () => {
+    let last: number | null = null;
+    const measure = () => {
       if (!el) return;
-      if (el.scrollWidth > el.clientWidth && h < segs.length - 1) {
-        h += 1;
-        setCollapsed(h);
-        raf = requestAnimationFrame(check);
+      // If there's nothing to overflow (≤1 seg), reset and stop.
+      if (segs.length <= 1) {
+        if (collapsed !== 0) setCollapsed(0);
+        last = 0;
+        return;
+      }
+      // If nav has 0 width (siblings ate it all), we can't reliably measure.
+      // Stop the loop until width returns.
+      if (el.clientWidth === 0) {
+        return;
+      }
+      if (el.scrollWidth > el.clientWidth) {
+        // Overflowing — collapse one more if we still can.
+        if (collapsed < segs.length - 1 && collapsed !== last) {
+          last = collapsed + 1;
+          setCollapsed(last);
+          raf = requestAnimationFrame(measure);
+        }
+        return;
+      }
+      // Fits. If we previously collapsed, try restoring one.
+      if (collapsed > 0) {
+        // Heuristic: room for restoration if there's enough slack.
+        if (el.clientWidth - el.scrollWidth > 20 || collapsed === last) {
+          last = collapsed - 1;
+          setCollapsed(last);
+          if (last > 0) raf = requestAnimationFrame(measure);
+        }
       }
     };
-    raf = requestAnimationFrame(check);
-    return () => cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(measure);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(measure);
+      });
+      ro.observe(el);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+    };
+    // segs.length is the only stable input; collapsed and DOM refs are
+    // accessed via the setCollapsed updater / wrapRef.current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folderFilter, segs.length]);
 
   if (query) {
@@ -151,7 +200,6 @@ export function BreadcrumbBar({ folders, folderDefs = [] }: BreadcrumbBarProps) 
       data-tauri-drag-region="false"
       className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden text-[13px]"
     >
-      {/* Root segment — always present, has its own dropdown for top-level folders. */}
       <SegmentButton
         label={t.vault_root}
         path=""
@@ -211,9 +259,12 @@ function SegmentButton({
   onClick,
 }: SegmentButtonProps) {
   const { t } = useI18n();
-  // Each non-last segment gets a ▾ dropdown (root is always non-last). The
-  // last segment is the "you are here" indicator and has no popover.
-  const items = last ? [] : dropdownFor(folders, path);
+  // Every segment carries a ▾ dropdown. For non-last: siblings + own
+  // children. For last (current): own children only — the dropdown is the
+  // ONLY way to descend further when Timeline/Graph views hide the
+  // sidebar tree (T9).
+  const items = dropdownFor(folders, path, !!last);
+  const isEmpty = items.length === 0;
 
   return (
     <span className="flex min-w-0 items-center gap-0.5">
@@ -239,15 +290,14 @@ function SegmentButton({
           <span className="truncate">{label}</span>
         </button>
       )}
-      {last ? null : (
-        <SegmentPopover
-          items={items}
-          folderDefs={folderDefs}
-          currentPath={path}
-          rootLabel={t.vault_root}
-          emptyLabel={t.folder_empty}
-        />
-      )}
+      <SegmentPopover
+        items={items}
+        folderDefs={folderDefs}
+        currentPath={path}
+        rootLabel={t.vault_root}
+        emptyLabel={t.folder_empty}
+        disabled={isEmpty}
+      />
     </span>
   );
 }
@@ -258,16 +308,28 @@ function SegmentPopover({
   currentPath,
   rootLabel,
   emptyLabel,
+  disabled,
 }: {
   items: FolderEntry[];
   folderDefs: FolderDef[];
   currentPath: string;
   rootLabel: string;
   emptyLabel: string;
+  disabled: boolean;
 }) {
   const setFolderFilter = useUI((s) => s.setFolderFilter);
   const [open, setOpen] = useState(false);
-
+  if (disabled) {
+    return (
+      <span
+        aria-disabled="true"
+        title={emptyLabel}
+        className="inline-flex h-5 w-5 items-center justify-center rounded text-text-subtle/40"
+      >
+        <ChevronDown size={10} aria-hidden="true" />
+      </span>
+    );
+  }
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
