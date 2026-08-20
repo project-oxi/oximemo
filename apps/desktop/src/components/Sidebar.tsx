@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpDown, ChevronRight, Folder, Images, Layers, Plus, Star } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
-import { listFacets, memoStats, listFolders, getConfig, createFolder } from "../lib/api";
+import { listFacets, memoStats, listFolders, getConfig, createFolder, deleteFolder } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI, type TagState } from "../stores/ui";
@@ -63,21 +63,32 @@ function FolderTreeNode({
   selectedPath,
   onSelect,
   folders,
+  namingPath,
+  onNameCommit,
 }: {
   node: FolderNode;
   depth: number;
   selectedPath: string | null;
   onSelect: (path: string | null) => void;
   folders: FolderDef[];
+  /** Path of a just-created folder whose name is being edited (optimistic create). */
+  namingPath: string | null;
+  /** null = cancelled (Esc) → delete the folder; string = confirm (rename if changed). */
+  onNameCommit: (value: string | null) => void;
 }) {
   const [open, setOpen] = useState(depth < 1);
   const isSelected = (selectedPath ?? "") === node.fullPath;
+  const naming = namingPath === node.fullPath;
   const indent = { paddingLeft: `${depth * 12 + 8}px` };
   return (
     <div>
       <div
         className={`flex items-center gap-1 rounded-md py-0.5 pr-2 text-[13px] ${
-          isSelected ? "bg-surface-muted font-semibold text-text" : "hover:bg-surface-muted text-text-muted"
+          naming
+            ? "bg-surface-muted/60"
+            : isSelected
+              ? "bg-surface-muted font-semibold text-text"
+              : "hover:bg-surface-muted text-text-muted"
         }`}
         style={indent}
       >
@@ -96,18 +107,37 @@ function FolderTreeNode({
         ) : (
           <span className="inline-block h-4 w-4" />
         )}
-        <button
-          type="button"
-          onClick={() => onSelect(node.fullPath)}
-          className="flex flex-1 items-center gap-2 truncate text-left"
-        >
-          <Folder
-            size={12}
-            style={{ color: colorForFolder(node.fullPath, folders) }}
-          />
-          <span className="truncate">{node.fullPath}</span>
-          <span className="ml-auto text-[10px] text-text-subtle">{node.note_count}</span>
-        </button>
+        {naming ? (
+          <div className="flex flex-1 items-center gap-2">
+            <Folder size={12} style={{ color: colorForFolder(node.fullPath, folders) }} />
+            <input
+              autoFocus
+              defaultValue={node.fullPath}
+              onFocus={(e) => e.currentTarget.select()}
+              ref={(el) => el?.select()}
+              onBlur={(e) => onNameCommit(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onNameCommit(e.currentTarget.value);
+                else if (e.key === "Escape") onNameCommit(null);
+              }}
+              style={{ boxShadow: "none" }}
+              className="w-full min-w-0 flex-1 bg-transparent px-0 py-0.5 text-[13px] text-text outline-none"
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onSelect(node.fullPath)}
+            className="flex flex-1 items-center gap-2 truncate text-left"
+          >
+            <Folder
+              size={12}
+              style={{ color: colorForFolder(node.fullPath, folders) }}
+            />
+            <span className="truncate">{node.fullPath}</span>
+            <span className="ml-auto text-[10px] text-text-subtle">{node.note_count}</span>
+          </button>
+        )}
       </div>
       {open && node.children.length > 0 && (
         <div>
@@ -119,6 +149,8 @@ function FolderTreeNode({
               selectedPath={selectedPath}
               onSelect={onSelect}
               folders={folders}
+              namingPath={namingPath}
+              onNameCommit={onNameCommit}
             />
           ))}
         </div>
@@ -147,26 +179,38 @@ export function Sidebar() {
   const setError = useUI((s) => s.setError);
   const qc = useQueryClient();
 
-  const [creating, setCreating] = useState(false);
-  const [newPath, setNewPath] = useState("");
-  // Guard against Enter-commit being followed by the unmount blur.
+  // Optimistic folder creation: the folder exists on disk the moment + is
+  // clicked (default name), and the tree node renders its name as a
+  // selected-for-edit field. Confirm keeps/renames it; Esc deletes it.
+  const [naming, setNaming] = useState<string | null>(null);
   const commitRef = useRef(false);
-  const commit = () => {
-    if (commitRef.current) return;
+  const refreshFolders = () => qc.invalidateQueries({ queryKey: ["folders"] });
+  const startCreate = () => {
+    const def = t.folder_new;
+    commitRef.current = false;
+    void createFolder(def)
+      .then(() => refreshFolders())
+      .then(() => setNaming(def))
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+  const finishNaming = (value: string | null) => {
+    if (commitRef.current || !naming) return;
     commitRef.current = true;
-    const path = newPath.trim();
-    if (path) {
-      void createFolder(path)
-        .then(() => qc.invalidateQueries({ queryKey: ["folders"] }))
+    const def = naming;
+    setNaming(null);
+    const name = (value ?? "").trim();
+    if (value === null || !name) {
+      // Cancelled or emptied → remove the optimistic folder.
+      void deleteFolder(def)
+        .then(refreshFolders)
+        .catch((e) => setError(String(e).split("\n")[0]));
+    } else if (name !== def) {
+      // Renamed: create+delete (the folder is empty by construction).
+      void createFolder(name)
+        .then(() => deleteFolder(def))
+        .then(refreshFolders)
         .catch((e) => setError(String(e).split("\n")[0]));
     }
-    setCreating(false);
-    setNewPath("");
-  };
-  const openInput = () => {
-    commitRef.current = false;
-    setNewPath("");
-    setCreating(true);
   };
 
   const tags = facets.data?.tags ?? [];
@@ -254,39 +298,18 @@ export function Sidebar() {
           type="button"
           aria-label={t.folder_new}
           title={t.folder_new}
-          onClick={() => (creating ? commit() : openInput())}
+          // While naming, the input's own blur commits — a second + just
+          // steals focus and ends editing; otherwise start a new folder.
+          onClick={() => {
+            if (naming) return;
+            startCreate();
+          }}
           className="grid size-4 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text"
         >
           <Plus size={12} />
         </button>
       </div>
       <div className="flex flex-col px-2 pt-1">
-        {creating && (
-          <div
-            className="flex items-center gap-1 rounded-md bg-surface-muted/60 py-0.5 pr-2 text-[13px]"
-            style={{ paddingLeft: "8px" }}
-          >
-            <span className="inline-block h-4 w-4 shrink-0" />
-            <Folder size={12} className="shrink-0 text-text-muted" />
-            <input
-              autoFocus
-              value={newPath}
-              placeholder={t.folder_new}
-              style={{ boxShadow: "none" }}
-              onChange={(e) => setNewPath(e.target.value)}
-              onBlur={commit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commit();
-                else if (e.key === "Escape") {
-                  commitRef.current = true;
-                  setCreating(false);
-                  setNewPath("");
-                }
-              }}
-              className="w-full min-w-0 flex-1 bg-transparent px-0 py-0.5 text-[13px] text-text outline-none placeholder:text-text-subtle"
-            />
-          </div>
-        )}
         {tree.map((n) => (
           <FolderTreeNode
             key={n.fullPath}
@@ -295,6 +318,8 @@ export function Sidebar() {
             selectedPath={folderFilter}
             onSelect={setFolderFilter}
             folders={folders}
+            namingPath={naming}
+            onNameCommit={finishNaming}
           />
         ))}
       </div>
