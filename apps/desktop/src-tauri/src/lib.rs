@@ -220,6 +220,7 @@ pub fn run() {
             commands::create_folder,
             commands::delete_folder,
             commands::rename_folder,
+            commands::restore_notes,
             commands::graph_data,
             commands::get_config,
             commands::set_folder_view,
@@ -718,13 +719,32 @@ mod commands {
         state: State<'_, AppState>,
         app: AppHandle,
         path: String,
-    ) -> Result<(), String> {
-        state
+    ) -> Result<Vec<String>, String> {
+        let ids = state
             .vault
             .delete_folder(&path)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
-        Ok(())
+        Ok(ids.into_iter().map(|id| id.to_string()).collect())
+    }
+
+    /// Undo for `delete_folder`: bring the trashed notes back live.
+    #[tauri::command]
+    pub fn restore_notes(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        ids: Vec<String>,
+    ) -> Result<Vec<String>, String> {
+        let parsed: Vec<MemoId> = ids
+            .iter()
+            .map(|s| MemoId::parse(s).map_err(|e| e.to_string()))
+            .collect::<Result<_, String>>()?;
+        let restored = state
+            .vault
+            .restore_notes(&parsed)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(restored.into_iter().map(|id| id.to_string()).collect())
     }
     #[tauri::command]
     pub fn rename_folder(

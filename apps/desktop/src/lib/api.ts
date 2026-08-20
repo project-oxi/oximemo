@@ -191,8 +191,17 @@ export async function createFolder(path: string): Promise<void> {
   await invoke<void>("create_folder", { path });
 }
 
-export async function deleteFolder(path: string): Promise<void> {
-  await invoke<void>("delete_folder", { path });
+/** Delete a folder: every live note under it is trashed (structure
+ * preserved) and the remaining tree removed. Returns the trashed note
+ * ids so the caller can offer undo via `restoreNotes`. */
+export async function deleteFolder(path: string): Promise<string[]> {
+  return invoke<string[]>("delete_folder", { path });
+}
+
+/** Undo for `deleteFolder`: restore the trashed notes (recreating
+ * their parent folders). Returns the restored ids. */
+export async function restoreNotes(ids: string[]): Promise<string[]> {
+  return invoke<string[]>("restore_notes", { ids });
 }
 
 export async function renameFolder(from: string, to: string): Promise<void> {

@@ -25,6 +25,7 @@ import {
 
 import {
   createFolder,
+  deleteFolder,
   createMemo,
   deleteMemo,
   folderChildren,
@@ -38,6 +39,7 @@ import {
   searchMemos,
   setFolderView,
   updateMemo,
+  restoreNotes,
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
@@ -382,6 +384,44 @@ export function CardGrid() {
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   }, [folderFilter, t.folder_new, qc, setToast, setError]);
+  // Folder delete with trash + undo (Task 11). Every live note under the
+  // folder is trashed structure-preserving by the backend; the returned
+  // ids power the 실행 취소 action on the toast. Activation entry point
+  // (the tile/row context menu's "삭제…" item) lands in Task 12 — until
+  // then this handler is dormant, wired the same way namingPath was.
+  const onDeleteFolder = (path: string, deep: number) => {
+    if (
+      deep > 0 &&
+      !window.confirm(
+        t.delete_folder_confirm
+          .replace("{folder}", path.split("/").at(-1) ?? path)
+          .replace("{n}", String(deep)),
+      )
+    )
+      return;
+    void deleteFolder(path)
+      .then((ids) => {
+        qc.invalidateQueries({ queryKey: ["folderChildren"] });
+        qc.invalidateQueries({ queryKey: ["folders"] });
+        qc.invalidateQueries({ queryKey: ["config"] });
+        const undo = () => {
+          void restoreNotes(ids)
+            .then(() => {
+              if (ids.length === 0) void createFolder(path); // folder had no notes
+              qc.invalidateQueries({ queryKey: ["folderChildren"] });
+            })
+            .catch((e) => setError(String(e).split("\n")[0]));
+        };
+        setToast(
+          t.folder_deleted.replace(
+            "{folder}",
+            path.split("/").at(-1) ?? path,
+          ),
+          { label: t.undo, onClick: undo },
+        );
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
   // Inline rename flow for folder tiles (Task 10). The path of the folder
   // being edited is mirrored into `namingPath`; FolderTile renders the
   // naming input when its `card.path` matches. The activation entry point
@@ -588,6 +628,7 @@ export function CardGrid() {
     onDelete,
     onNewNote,
     onNewFolder: startFolderCreate,
+    onDeleteFolder,
   };
 
   return (
@@ -686,6 +727,7 @@ export function CardGrid() {
               onNewNoteIn={onNewNoteIn}
               namingPath={namingPath}
               onNameCommit={commitFolderName}
+              onDeleteFolder={onDeleteFolder}
             />
           ) : noteView === "list" ? (
             <ListView {...viewProps} />

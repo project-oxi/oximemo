@@ -85,30 +85,36 @@ impl Vault {
         Ok(())
     }
 
-    /// Delete a physical folder. Fails if it contains notes.
-    pub fn delete_folder(&self, path: &str) -> Result<()> {
+    /// Delete a folder: every live note under it goes to trash
+    /// (structure-preserving, via `delete_memo`), then the remaining
+    /// tree (templates, empty dirs) is removed. Returns the trashed
+    /// ids so the UI can offer undo via [`Self::restore_notes`].
+    ///
+    /// `.trash/<path>/` is intentionally retained afterwards — that is
+    /// the undo data. The trash-collision guard in [`Self::rename_folder`]
+    /// exists precisely because of this residue: renaming another folder
+    /// onto this path must fail fast while those tombstones are parked.
+    pub fn delete_folder(&self, path: &str) -> Result<Vec<MemoId>> {
         if path.is_empty() {
             return Err(CoreError::other("cannot delete vault root"));
         }
+        let prefix = format!("{path}/");
+        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let ids: Vec<MemoId> = recs
+            .iter()
+            .filter(|r| !r.deleted && r.path.starts_with(&prefix))
+            .map(|r| r.id)
+            .collect();
+        for id in &ids {
+            self.delete_memo(*id)?;
+        }
         let dir = self.paths.vault.join(path);
-        if !dir.exists() {
-            return Err(CoreError::other(format!("folder '{path}' not found")));
+        if dir.is_dir() {
+            std::fs::remove_dir_all(&dir)?;
         }
-        let has_notes = std::fs::read_dir(&dir)
-            .ok()
-            .into_iter()
-            .flatten()
-            .flatten()
-            .any(|e| {
-                e.file_name().to_string_lossy().ends_with(".md")
-                    && e.file_name().to_string_lossy() != crate::paths::TEMPLATE_NAME
-            });
-        if has_notes {
-            return Err(CoreError::other(format!("folder '{path}' is not empty")));
-        }
-        std::fs::remove_dir_all(&dir)?;
-        Ok(())
+        Ok(ids)
     }
+
     /// Rename/move a folder tree. Disk rename first (atomic, preserves
     /// templates and subfolders), then index records under the old prefix
     /// are rewritten (best-effort; the watcher repairs any stragglers),
@@ -818,6 +824,17 @@ impl Vault {
             search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
         })?;
         Ok(note)
+    }
+
+    /// Restore trashed notes (undo for folder delete). Parent folders
+    /// are recreated by `restore_memo` → `restore_from_trash`.
+    pub fn restore_notes(&self, ids: &[MemoId]) -> Result<Vec<MemoId>> {
+        let mut ok = Vec::with_capacity(ids.len());
+        for id in ids {
+            self.restore_memo(*id)?;
+            ok.push(*id);
+        }
+        Ok(ok)
     }
 
     /// Hard-delete trashed notes whose `deleted_at` is older than `retention`.
@@ -1933,6 +1950,33 @@ watcher_retry_interval_ms = 200
         // Empty folder can be deleted.
         v.delete_folder("novel").unwrap();
         assert!(!v.paths.vault.join("novel").exists());
+    }
+
+    #[test]
+    fn delete_folder_trashes_then_restores() {
+        let (_t, v) = tmp_vault();
+        let a = v
+            .create_note(
+                "doomed",
+                "# one\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        let b = v
+            .create_note(
+                "doomed",
+                "# two\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        let ids = v.delete_folder("doomed").unwrap();
+        assert_eq!(ids.len(), 2);
+        assert!(!v.paths.vault.join("doomed").exists());
+        assert!(v.get_memo(a.id).unwrap().deleted_at.is_some());
+        let back = v.restore_notes(&[a.id, b.id]).unwrap();
+        assert_eq!(back.len(), 2);
+        assert!(v.paths.vault.join("doomed").is_dir()); // restore recreates parents
+        assert!(v.get_memo(a.id).unwrap().deleted_at.is_none());
     }
 
     #[test]

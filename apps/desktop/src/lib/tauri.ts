@@ -385,12 +385,40 @@ async function browserFallback(
     }
     case "delete_folder": {
       const path = args?.path as string;
-      if (liveSorted(loadStore()).some((n) => (n.folder ?? "") === path)) {
-        throw new Error(`folder '${path}' is not empty`);
+      if (!path) throw new Error("cannot delete vault root");
+      const prefix = `${path}/`;
+      const store = loadStore();
+      const now = new Date().toISOString();
+      const ids: string[] = [];
+      for (const n of Object.values(store)) {
+        const folder = n.folder ?? "";
+        if (n.deleted_at === null && (folder === path || folder.startsWith(prefix))) {
+          n.deleted_at = now;
+          ids.push(n.id);
+        }
       }
-      saveFolders(loadFolders().filter((p) => p !== path));
+      saveStore(store);
+      saveFolders(loadFolders().filter((p) => p !== path && !p.startsWith(prefix)));
       emitBrowser("memos:changed");
-      return null;
+      return ids;
+    }
+    case "restore_notes": {
+      const ids = (args?.ids as string[] | undefined) ?? [];
+      const store = loadStore();
+      const paths = loadFolders();
+      const restored: string[] = [];
+      for (const id of ids) {
+        const n = store[id];
+        if (!n) continue;
+        n.deleted_at = null;
+        restored.push(n.id);
+        const folder = n.folder ?? "";
+        if (folder && !paths.includes(folder)) paths.push(folder);
+      }
+      saveStore(store);
+      saveFolders(paths);
+      emitBrowser("memos:changed");
+      return restored;
     }
     case "rename_folder": {
       const from = args?.from as string;

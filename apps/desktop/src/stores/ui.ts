@@ -6,6 +6,12 @@ import type { ViewMode } from "../lib/types";
 
 export type TagState = "off" | "in" | "out";
 
+/** Inline action rendered right of a toast message (e.g. the undo
+ * button after a folder delete). */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
 interface UIState {
   search: string;
   setSearch: (s: string) => void;
@@ -45,9 +51,11 @@ interface UIState {
   /** Transient error message surfaced as a toast (H4). `null` = none. */
   error: string | null;
   setError: (msg: string | null) => void;
-  /** Transient neutral toast message. `null` = none. */
-  toast: string | null;
-  setToast: (msg: string | null) => void;
+  /** Transient neutral toast. `null` = none. `action` renders an inline
+   * button (e.g. 실행 취소) that outlives the 2.6s auto-dismiss a bit
+   * longer so it is actually clickable. */
+  toast: { msg: string; action?: ToastAction } | null;
+  setToast: (msg: string | null, action?: ToastAction) => void;
   /** Id of a note minted by "new memo" this session; discarded on close
    * while still empty so no orphan notes accumulate. */
   draftId: string | null;
@@ -128,7 +136,7 @@ export const useUI = create<UIState>((set) => ({
   error: null,
   setError: (msg) => set({ error: msg }),
   toast: null,
-  setToast: (msg) => set({ toast: msg }),
+  setToast: (msg, action) => set({ toast: msg === null ? null : { msg, action } }),
   draftId: null,
   setDraftId: (id) => set({ draftId: id }),
   updateAvailable: null,
