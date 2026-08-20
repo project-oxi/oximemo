@@ -1,17 +1,18 @@
 /**
- * Collapsible left sidebar (§7): All memos / Favorites navigation, the tag list
- * with 3-state filter chips + AND/OR toggle, and the folder tree. Counts come
- * from `list_facets` (page-independent). Rendered only when the sidebar is
- * open; the collapse/expand toggle is a single fixed button rendered by
- * CardGrid so it never moves between states.
+ * Collapsible left sidebar (§7): curation-only surface. Smart collections
+ * (모든 노트 / 즐겨찾기 / 갤러리) sit at the top, TAGS in the middle, and a
+ * flat FOLDERS list at the bottom. The FOLDERS list mirrors the user's
+ * explicit pins from config; before any pin exists we fall back to the
+ * top-level folders so the sidebar is never empty on first run.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpDown, ChevronRight, Folder, Images, Layers, Plus, Star } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { ArrowUpDown, Folder, Images, Layers, MoreHorizontal, Star } from "lucide-react";
+import { useState } from "react";
 
-import { listFacets, memoStats, listFolders, getConfig, createFolder, deleteFolder } from "../lib/api";
+import { listFacets, memoStats, listFolders, getConfig, setFolderPinned } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
 import { useUI, type TagState } from "../stores/ui";
 import type { FolderEntry, FolderDef } from "../lib/types";
 
@@ -20,144 +21,6 @@ const STATE_CLASS: Record<TagState, string> = {
   in: "bg-hue-amber font-semibold text-text-inverse",
   out: "border border-hue-amber text-hue-amber line-through",
 };
-
-interface FolderNode {
-  name: string;
-  fullPath: string;
-  note_count: number;
-  children: FolderNode[];
-}
-
-function buildTree(entries: FolderEntry[]): FolderNode[] {
-  // Physical folders only — the vault root itself is not a node. Loose
-  // root notes are reachable via the "all memos" entry above the tree, so
-  // the `path: ""` row from `list_folders` is skipped.
-  const tops: FolderNode[] = [];
-  const byPath = new Map<string, FolderNode>();
-  const rows = entries
-    .map((e) => ({ path: e.path ?? "", note_count: e.note_count ?? 0 }))
-    .filter((e) => e.path !== "")
-    .sort((a, b) => a.path.localeCompare(b.path));
-  // Path sort guarantees parents precede children, so every child finds
-  // its parent already registered; a parentless row would be promoted to
-  // the top level (cannot happen with the dir-scanning backend).
-  for (const e of rows) {
-    const segs = e.path.split("/");
-    const node: FolderNode = {
-      name: segs.at(-1) ?? e.path,
-      fullPath: e.path,
-      note_count: e.note_count,
-      children: [],
-    };
-    const parent = byPath.get(segs.slice(0, -1).join("/"));
-    if (parent) parent.children.push(node);
-    else tops.push(node);
-    byPath.set(e.path, node);
-  }
-  return tops;
-}
-
-function FolderTreeNode({
-  node,
-  depth,
-  selectedPath,
-  onSelect,
-  folders,
-  namingPath,
-  onNameCommit,
-}: {
-  node: FolderNode;
-  depth: number;
-  selectedPath: string | null;
-  onSelect: (path: string | null) => void;
-  folders: FolderDef[];
-  /** Path of a just-created folder whose name is being edited (optimistic create). */
-  namingPath: string | null;
-  /** null = cancelled (Esc) → delete the folder; string = confirm (rename if changed). */
-  onNameCommit: (value: string | null) => void;
-}) {
-  const [open, setOpen] = useState(depth < 1);
-  const isSelected = (selectedPath ?? "") === node.fullPath;
-  const naming = namingPath === node.fullPath;
-  const indent = { paddingLeft: `${depth * 12 + 8}px` };
-  return (
-    <div>
-      <div
-        className={`flex items-center gap-1 rounded-md py-0.5 pr-2 text-[13px] ${
-          naming
-            ? "bg-surface-muted/60"
-            : isSelected
-              ? "bg-surface-muted font-semibold text-text"
-              : "hover:bg-surface-muted text-text-muted"
-        }`}
-        style={indent}
-      >
-        {node.children.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            aria-label={open ? "Collapse" : "Expand"}
-            className="grid h-4 w-4 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted"
-          >
-            <ChevronRight
-              size={11}
-              className={`transition-transform ${open ? "rotate-90" : ""}`}
-            />
-          </button>
-        ) : (
-          <span className="inline-block h-4 w-4" />
-        )}
-        {naming ? (
-          <div className="flex flex-1 items-center gap-2">
-            <Folder size={12} style={{ color: colorForFolder(node.fullPath, folders) }} />
-            <input
-              autoFocus
-              defaultValue={node.fullPath}
-              onFocus={(e) => e.currentTarget.select()}
-              ref={(el) => el?.select()}
-              onBlur={(e) => onNameCommit(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onNameCommit(e.currentTarget.value);
-                else if (e.key === "Escape") onNameCommit(null);
-              }}
-              style={{ boxShadow: "none" }}
-              className="w-full min-w-0 flex-1 bg-transparent px-0 py-0.5 text-[13px] text-text outline-none"
-            />
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onSelect(node.fullPath)}
-            className="flex flex-1 items-center gap-2 truncate text-left"
-          >
-            <Folder
-              size={12}
-              style={{ color: colorForFolder(node.fullPath, folders) }}
-            />
-            <span className="truncate">{node.fullPath}</span>
-            <span className="ml-auto text-[10px] text-text-subtle">{node.note_count}</span>
-          </button>
-        )}
-      </div>
-      {open && node.children.length > 0 && (
-        <div>
-          {node.children.map((c) => (
-            <FolderTreeNode
-              key={c.fullPath}
-              node={c}
-              depth={depth + 1}
-              selectedPath={selectedPath}
-              onSelect={onSelect}
-              folders={folders}
-              namingPath={namingPath}
-              onNameCommit={onNameCommit}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function Sidebar() {
   const { t } = useI18n();
@@ -176,48 +39,41 @@ export function Sidebar() {
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const view = useUI((s) => s.view);
   const setView = useUI((s) => s.setView);
-  const setError = useUI((s) => s.setError);
   const qc = useQueryClient();
 
-  // Optimistic folder creation: the folder exists on disk the moment + is
-  // clicked (default name), and the tree node renders its name as a
-  // selected-for-edit field. Confirm keeps/renames it; Esc deletes it.
-  const [naming, setNaming] = useState<string | null>(null);
-  const commitRef = useRef(false);
-  const refreshFolders = () => qc.invalidateQueries({ queryKey: ["folders"] });
-  const startCreate = () => {
-    const def = t.folder_new;
-    commitRef.current = false;
-    void createFolder(def)
-      .then(() => refreshFolders())
-      .then(() => setNaming(def))
-      .catch((e) => setError(String(e).split("\n")[0]));
-  };
-  const finishNaming = (value: string | null) => {
-    if (commitRef.current || !naming) return;
-    commitRef.current = true;
-    const def = naming;
-    setNaming(null);
-    const name = (value ?? "").trim();
-    if (value === null || !name) {
-      // Cancelled or emptied → remove the optimistic folder.
-      void deleteFolder(def)
-        .then(refreshFolders)
-        .catch((e) => setError(String(e).split("\n")[0]));
-    } else if (name !== def) {
-      // Renamed: create+delete (the folder is empty by construction).
-      void createFolder(name)
-        .then(() => deleteFolder(def))
-        .then(refreshFolders)
-        .catch((e) => setError(String(e).split("\n")[0]));
-    }
-  };
+  // Track which pinned row the user is currently hovering so the ⋯ button
+  // only appears on the row under the cursor (it's the primary unpin affordance,
+  // not part of the resting visual weight).
+  const [hoveredPath, setHoveredPath] = useState<string | null>(null);
 
   const tags = facets.data?.tags ?? [];
-  const tree = useMemo(() => buildTree(foldersQ.data ?? []), [foldersQ.data]);
-  const folders = configQ.data?.folders ?? [];
+  const folders: FolderDef[] = configQ.data?.folders ?? [];
   const total = stats.data?.memos ?? 0;
   const favoritesCount = stats.data?.favorites ?? 0;
+
+  // FOLDERS section: explicit pinned rows when the user has set any pin;
+  // otherwise show top-level folder entries so the sidebar is never empty
+  // on first run. Nested folders stay out — browse is what reveals them.
+  const pins = folders.filter((f) => f.pinned);
+  const explicit = pins.length > 0;
+  const seed: FolderEntry[] = explicit
+    ? []
+    : (foldersQ.data ?? []).filter((f) => f.path !== "" && !f.path.includes("/"));
+  const shownPaths: string[] = explicit
+    ? pins.map((f) => f.path)
+    : seed.map((f) => f.path);
+
+  const openFolder = (path: string) => {
+    setView("memos");
+    setFavoritesOnly(false);
+    setFolderFilter(path);
+  };
+
+  const unpin = (path: string) => {
+    void setFolderPinned(path, false)
+      .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+      .then(() => qc.invalidateQueries({ queryKey: ["folders"] }));
+  };
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-line bg-surface-sunken/60">
@@ -283,7 +139,15 @@ export function Sidebar() {
             <button
               key={tag}
               type="button"
-              onClick={() => cycleTag(tag)}
+              onClick={() => {
+                // Picking a tag from the curation sidebar is a vault-wide
+                // intent — drop any folder/favorite scope so the "모든 노트"
+                // smart collection owns the view (Task 9 acceptance).
+                setView("memos");
+                setFavoritesOnly(false);
+                setFolderFilter(null);
+                cycleTag(tag);
+              }}
               className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${STATE_CLASS[st]}`}
             >
               #{tag} <span className="opacity-60">{count}</span>
@@ -292,37 +156,74 @@ export function Sidebar() {
         })}
       </div>
 
-      <div className="mt-3 flex items-center justify-between px-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">{t.folders_section}</span>
-        <button
-          type="button"
-          aria-label={t.folder_new}
-          title={t.folder_new}
-          // While naming, the input's own blur commits — a second + just
-          // steals focus and ends editing; otherwise start a new folder.
-          onClick={() => {
-            if (naming) return;
-            startCreate();
-          }}
-          className="grid size-4 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text"
-        >
-          <Plus size={12} />
-        </button>
-      </div>
-      <div className="flex flex-col px-2 pt-1">
-        {tree.map((n) => (
-          <FolderTreeNode
-            key={n.fullPath}
-            node={n}
-            depth={0}
-            selectedPath={folderFilter}
-            onSelect={setFolderFilter}
-            folders={folders}
-            namingPath={naming}
-            onNameCommit={finishNaming}
-          />
-        ))}
-      </div>
+      {shownPaths.length > 0 && (
+        <>
+          <div className="mt-3 flex items-center px-3">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+              {t.folders_pinned_section}
+            </span>
+          </div>
+          <div className="flex flex-col px-2 pt-1">
+            {shownPaths.map((path) => {
+              const selected = folderFilter === path;
+              const showMore = explicit && hoveredPath === path;
+              return (
+                <div
+                  key={path}
+                  data-sidebar-folder={path}
+                  onMouseEnter={() => setHoveredPath(path)}
+                  onMouseLeave={() => setHoveredPath((cur) => (cur === path ? null : cur))}
+                  className={`group flex items-center gap-1 rounded-md py-0.5 pr-1 text-[13px] ${
+                    selected
+                      ? "bg-surface-muted font-semibold text-text"
+                      : "hover:bg-surface-muted text-text-muted"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => openFolder(path)}
+                    className="flex flex-1 items-center gap-2 truncate px-2 py-0.5 text-left"
+                  >
+                    <Folder
+                      size={12}
+                      style={{ color: colorForFolder(path, folders) }}
+                    />
+                    <span className="truncate">{path}</span>
+                  </button>
+                  {explicit && (
+                    <CtxRoot>
+                      <CtxTrigger
+                        render={
+                          <button
+                            type="button"
+                            aria-label={t.folder_unpin}
+                            title={t.folder_unpin}
+                            className={`grid size-5 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text ${
+                              showMore ? "opacity-100" : "opacity-0"
+                            }`}
+                          />
+                        }
+                      >
+                        <MoreHorizontal size={12} />
+                      </CtxTrigger>
+                      <CtxMenu>
+                        <CtxItem
+                          label={t.folder_open}
+                          onClick={() => openFolder(path)}
+                        />
+                        <CtxItem
+                          label={t.folder_unpin}
+                          onClick={() => unpin(path)}
+                        />
+                      </CtxMenu>
+                    </CtxRoot>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </aside>
   );
 }
