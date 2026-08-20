@@ -278,6 +278,9 @@ pub struct MemoFilter {
     pub favorites_only: bool,
     /// When false, soft-deleted notes are excluded.
     pub include_deleted: bool,
+    /// `true` = only notes whose directory equals `folder` exactly
+    /// (no subfolders). Default `false` (recursive prefix match).
+    pub immediate: bool,
 }
 
 impl MemoFilter {
@@ -289,7 +292,7 @@ impl MemoFilter {
             return false;
         }
         if let Some(folder) = &self.folder
-            && !folder_matches(&s.path, folder)
+            && !folder_matches(&s.path, folder, self.immediate)
         {
             return false;
         }
@@ -320,7 +323,8 @@ impl MemoFilter {
 /// Check whether `path` (vault-relative, e.g. `"novel/act1/x.md"`) belongs to
 /// `folder`. `folder == ""` matches root-level files (no `/` before the stem).
 /// Otherwise the path's directory must equal or be nested under `folder`.
-fn folder_matches(path: &str, folder: &str) -> bool {
+/// When `immediate` is true, only the direct directory (no subfolders) matches.
+fn folder_matches(path: &str, folder: &str, immediate: bool) -> bool {
     // Strip the filename: keep the directory portion.
     let dir = match path.rfind('/') {
         Some(i) => &path[..i],
@@ -328,6 +332,9 @@ fn folder_matches(path: &str, folder: &str) -> bool {
     };
     if folder.is_empty() {
         return dir.is_empty();
+    }
+    if immediate {
+        return dir == folder;
     }
     dir == folder || dir.starts_with(&format!("{folder}/"))
 }
@@ -679,5 +686,18 @@ mod filter_tests {
         };
         assert!(f.matches(&sum(&[], "root-file.md", false)));
         assert!(!f.matches(&sum(&[], "novel/ch1.md", false)));
+    }
+
+    #[test]
+    fn immediate_folder_filter_excludes_subfolders() {
+        let mut f = MemoFilter { folder: Some("novel".into()), immediate: true, ..Default::default() };
+        assert!(f.matches(&sum(&[], "novel/ch1.md", false)));
+        assert!(!f.matches(&sum(&[], "novel/act1/ch2.md", false)));
+        f.immediate = false;
+        assert!(f.matches(&sum(&[], "novel/act1/ch2.md", false)));
+        // Root is immediate-agnostic: loose only, both modes.
+        let root = MemoFilter { folder: Some(String::new()), immediate: true, ..Default::default() };
+        assert!(root.matches(&sum(&[], "root-file.md", false)));
+        assert!(!root.matches(&sum(&[], "sub/root-file.md", false)));
     }
 }

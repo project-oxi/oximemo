@@ -515,6 +515,7 @@ mod commands {
         match_all: bool,
         folder: Option<String>,
         favorites_only: bool,
+        immediate: Option<bool>,
     ) -> Result<oximemo_core::Page<oximemo_core::MemoSummary>, String> {
         let after = match after {
             Some(s) => Some(Cursor::parse(&s).map_err(|e| e.to_string())?),
@@ -527,6 +528,7 @@ mod commands {
             folder,
             favorites_only,
             include_deleted: false,
+            immediate: immediate.unwrap_or(false),
         };
         state
             .vault

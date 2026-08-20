@@ -31,6 +31,7 @@ export async function listMemos(
     match_all?: boolean;
     folder?: string | null;
     favorites_only?: boolean;
+    immediate?: boolean;
   } = {},
 ) {
   return invoke<{ items: MemoSummary[]; next_cursor: string | null }>("list_memos", {
@@ -42,6 +43,7 @@ export async function listMemos(
     matchAll: filter.match_all ?? false,
     folder: filter.folder ?? null,
     favoritesOnly: filter.favorites_only ?? false,
+    immediate: filter.immediate ?? null,
   });
 }
 
