@@ -55,6 +55,18 @@ export async function listen<T>(
 
 // --- Browser-mode localStorage store --------------------------------------
 const STORE_KEY = "oximemo:memos:v3";
+const VIEW_KEY = "oximemo:folderviews:v1";
+
+type FolderViews = Record<string, string>;
+
+function loadViews(): FolderViews {
+  try {
+    return JSON.parse(localStorage.getItem(VIEW_KEY) ?? "{}") as FolderViews;
+  } catch {
+    return {};
+  }
+}
+
 const PREVIEW_MAX = 160;
 
 function loadStore(): Record<string, Memo> {
@@ -286,7 +298,8 @@ async function browserFallback(
       const live = liveSorted(loadStore());
       const folderMap = new Map<string, number>();
       for (const n of live) {
-        folderMap.set(n.folder, (folderMap.get(n.folder) ?? 0) + 1);
+        const folder = n.folder ?? "";
+        folderMap.set(folder, (folderMap.get(folder) ?? 0) + 1);
       }
       return [...folderMap.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
@@ -307,10 +320,26 @@ async function browserFallback(
       return { nodes: [], edges: [] };
 
     case "get_config":
-      return { schema_version: 3, folders: [] };
+      return {
+        schema_version: 3,
+        folders: Object.entries(loadViews()).map(([path, view]) => ({
+          path,
+          view,
+          color: null,
+        })),
+      };
 
-    case "set_folder_view":
+
+    case "set_folder_view": {
+      const views = loadViews();
+      const path = (args?.path as string | undefined) ?? "";
+      const view = (args?.view as string | null | undefined) ?? null;
+      if (view) views[path] = view;
+      else delete views[path];
+      localStorage.setItem(VIEW_KEY, JSON.stringify(views));
       return null;
+    }
+
 
     case "brain_status":
       // Browser preview has no daemon: offline is a normal state.
