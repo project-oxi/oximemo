@@ -39,12 +39,14 @@ export function Sidebar() {
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const view = useUI((s) => s.view);
   const setView = useUI((s) => s.setView);
+  const setError = useUI((s) => s.setError);
   const qc = useQueryClient();
 
-  // Track which pinned row the user is currently hovering so the ⋯ button
-  // only appears on the row under the cursor (it's the primary unpin affordance,
-  // not part of the resting visual weight).
+  // Track which pinned row the user is currently hovering OR has keyboard-focused
+  // so the ⋯ button stays visible in both cases. The ⋯ is the row's primary
+  // unpin affordance; we mirror hover with focus so keyboard users can reach it.
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
+  const [focusedPath, setFocusedPath] = useState<string | null>(null);
 
   const tags = facets.data?.tags ?? [];
   const folders: FolderDef[] = configQ.data?.folders ?? [];
@@ -72,7 +74,8 @@ export function Sidebar() {
   const unpin = (path: string) => {
     void setFolderPinned(path, false)
       .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-      .then(() => qc.invalidateQueries({ queryKey: ["folders"] }));
+      .then(() => qc.invalidateQueries({ queryKey: ["folders"] }))
+      .catch((e) => setError(String(e).split("\n")[0]));
   };
 
   return (
@@ -166,7 +169,10 @@ export function Sidebar() {
           <div className="flex flex-col px-2 pt-1">
             {shownPaths.map((path) => {
               const selected = folderFilter === path;
-              const showMore = explicit && hoveredPath === path;
+              // Reveal the ⋯ button on hover OR keyboard focus (so keyboard
+              // users can tab to it; without this the button stays invisible
+              // even when focused, since opacity-0 hides the focus ring too).
+              const showMore = explicit && (hoveredPath === path || focusedPath === path);
               return (
                 <div
                   key={path}
@@ -198,6 +204,15 @@ export function Sidebar() {
                             type="button"
                             aria-label={t.folder_unpin}
                             title={t.folder_unpin}
+                            // Base UI's ContextMenu.Trigger only opens on
+                            // right-click/long-press — left-click / Enter on
+                            // the rendered button does nothing on its own.
+                            // We want one-click unpin (the row's primary
+                            // affordance) and keep the menu for the secondary
+                            // "open" path, so we wire onClick=unpin too.
+                            onClick={() => unpin(path)}
+                            onFocus={() => setFocusedPath(path)}
+                            onBlur={() => setFocusedPath((cur) => (cur === path ? null : cur))}
                             className={`grid size-5 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text ${
                               showMore ? "opacity-100" : "opacity-0"
                             }`}
