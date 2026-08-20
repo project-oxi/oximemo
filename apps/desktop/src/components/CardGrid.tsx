@@ -384,16 +384,27 @@ export function CardGrid() {
   }, [folderFilter, t.folder_new, qc, setToast, setError]);
   // Inline rename flow for folder tiles (Task 10). The path of the folder
   // being edited is mirrored into `namingPath`; FolderTile renders the
-  // naming input when its `card.path` matches. Task 12 will surface this
-  // from the tile context menu; for now the entry point is exposed via the
-  // store so the tile-side activation can come from any caller.
+  // naming input when its `card.path` matches. The activation entry point
+  // (the tile context menu's "Rename…" item) lands in Task 12 — until
+  // then `namingPath` is dormant and no UI surface sets it. The keyboard
+  // shortcut or a manual DevTools state edit can flip it for verification.
   const [namingPath, setNamingPath] = useState<string | null>(null);
-  const namingCommitRef = useRef(false);
+  // Per-session commit latch: keyed by the path being named so a second
+  // rename started while the first IPC roundtrip is still pending isn't
+  // silently dropped. The latch releases when the session ends (success,
+  // cancel, or error) and resets whenever a new naming session begins
+  // for a different path.
+  const namingCommitRef = useRef<{ path: string | null }>({ path: null });
   const commitFolderName = useCallback(
     (value: string | null) => {
-      if (namingCommitRef.current || !namingPath) return;
-      namingCommitRef.current = true;
+      if (!namingPath) return;
       const from = namingPath;
+      // Per-session latch: only block re-fire within the SAME session
+      // (Enter + blur on one input). A second naming session for a
+      // different path during the first IPC roundtrip is allowed
+      // through; its own Enter/blur pair will be debounced internally.
+      if (namingCommitRef.current.path === from) return;
+      namingCommitRef.current.path = from;
       setNamingPath(null);
       const name = (value ?? "").trim();
       // Cancelled (Esc) or emptied → no-op for inline rename; the original
@@ -402,7 +413,7 @@ export function CardGrid() {
       // here. Tile mistakes get a clear UI signal — the user reopens the
       // tile and starts over.
       if (value === null || !name) {
-        namingCommitRef.current = false;
+        namingCommitRef.current.path = null;
         return;
       }
       const loc = folderFilter ?? "";
@@ -416,17 +427,17 @@ export function CardGrid() {
         // Unchanged — nothing to do, but still refetch in case the user's
         // commit cancelled an external edit.
         invalidate();
-        namingCommitRef.current = false;
+        namingCommitRef.current.path = null;
         return;
       }
       void renameFolder(from, to)
         .then(() => {
           invalidate();
-          namingCommitRef.current = false;
+          namingCommitRef.current.path = null;
         })
         .catch((e) => {
           invalidate();
-          namingCommitRef.current = false;
+          namingCommitRef.current.path = null;
           const raw = String(e).split("\n")[0];
           // Translate "X index entries need reindex" into the localized
           // "X notes remain in 'from'" wording so the UI surfaces the

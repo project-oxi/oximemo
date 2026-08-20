@@ -135,11 +135,14 @@ impl Vault {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::rename(&from_dir, &to_dir)?;
-
-        // Re-path index records under `from/`. Reads the note from its new
-        // on-disk location so the search index carries the up-to-date body
-        // and title. Reads happen after the disk rename so the file at
-        // `to_dir/strip(prefix)` is the post-rename truth.
+        // Re-path index records under `from/`. Live notes: read the file at
+        // its new on-disk location and re-upsert the record + search entry
+        // so the search index keeps the up-to-date body and title.
+        // Tombstones (soft-deleted within retention): their file lives in
+        // `.trash/` while the record keeps its ORIGINAL `from/...` path —
+        // re-path the record-only without a file read or search upsert.
+        // A tombstone must never keep referencing `from/...` after the
+        // disk tree moved, and a tombstone re-path is not a failure.
         let prefix = format!("{from}/");
         let recs = self.with_redb(|idx| idx.export_since(None))?;
         let mut index_failures: u32 = 0;
@@ -148,6 +151,14 @@ impl Vault {
                 continue;
             }
             let new_rel = format!("{to}/{}", &r.path[prefix.len()..]);
+            if r.deleted {
+                let mut rec2 = r.clone();
+                rec2.path = new_rel;
+                if self.with_redb(|idx| idx.upsert(&rec2)).is_err() {
+                    index_failures += 1;
+                }
+                continue;
+            }
             let stripped = &r.path[prefix.len()..];
             match self.files.read_memo(&to_dir.join(stripped)) {
                 Ok(Some(note)) => {
@@ -2223,7 +2234,6 @@ watcher_retry_interval_ms = 200
         assert!(!v.paths().vault.join("novel").exists());
         assert!(v.paths().vault.join("book").exists());
         assert!(v.paths().vault.join("book/Old-Home.md").exists());
-        assert!(!v.paths().vault.join("novel/Old-Home.md").exists());
         // Index: record path rewritten.
         let rec = v.with_redb(|idx| idx.get(n.id)).unwrap().unwrap();
         assert_eq!(rec.path, "book/Old-Home.md");
@@ -2238,6 +2248,39 @@ watcher_retry_interval_ms = 200
         // Target must not already exist.
         v.create_folder("other").unwrap();
         assert!(v.rename_folder("book", "other").is_err());
+    }
+
+    #[test]
+    fn rename_folder_repaths_tombstones() {
+        let (_t, v) = tmp_vault();
+        let n = v
+            .create_note(
+                "novel",
+                "# Ghost\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        // Soft-delete: file moves to .trash/, record stays as `novel/...`
+        // but with `deleted: true`. The tombstone's `path` is what the
+        // rename_folder loop sees; before the fix this caused a false
+        // "N index entries need reindex" error on every rename of a
+        // folder containing any trashed note.
+        v.delete_memo(n.id).unwrap();
+        // Rename must succeed (no error) and the tombstone record must
+        // be re-pathed to the new prefix.
+        v.rename_folder("novel", "book").unwrap();
+        let rec = v.with_redb(|idx| idx.get(n.id)).unwrap().unwrap();
+        assert!(rec.deleted, "tombstone stays deleted after rename");
+        assert_eq!(
+            rec.path, "book/Ghost.md",
+            "tombstone record re-pathed under the new prefix"
+        );
+        // File stays at the trashed path recorded at delete time —
+        // rename_folder only moves live tree, not `.trash/`. The tombstone
+        // record's `path` field is now logical (`book/Ghost.md`), pointing
+        // at a path that no longer exists on disk until restore; until
+        // then the file still lives where delete_memo parked it.
+        assert!(v.paths().trash_path("novel/Ghost.md").exists());
     }
 
     #[test]

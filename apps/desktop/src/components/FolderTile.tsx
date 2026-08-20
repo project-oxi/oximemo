@@ -60,7 +60,7 @@ export function FolderTile({
         {naming ? (
           <input
             autoFocus
-            defaultValue={card.path}
+            defaultValue={card.path.split("/").at(-1) ?? ""}
             onFocus={(e) => e.currentTarget.select()}
             ref={(el) => el?.select()}
             onClick={(e) => e.stopPropagation()}
