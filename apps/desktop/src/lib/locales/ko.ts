@@ -157,6 +157,20 @@ export const dict = {
   folder_root: "최상위",
   folders_section: "폴더",
   folder_new: "새 폴더",
+  vault_root: "볼트",
+  breadcrumb_label: "경로",
+  scope_this_folder: "이 폴더",
+  scope_all: "전체",
+  folder_notes: "노트 {n}",
+  folder_subfolders: "폴더 {n}",
+  folder_empty: "비어 있음",
+  query_all_notes: "모든 노트",
+  query_favorites: "즐겨찾기",
+  query_search: "검색: {q}",
+  query_tags: "태그",
+  global_badge: "전역",
+  jump_to_folder: "폴더로 이동…",
+  show_all_folders: "폴더 {n}개 모두 보기",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;

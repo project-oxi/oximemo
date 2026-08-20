@@ -14,6 +14,7 @@
   --color-surface-raised: oklch(0.22 0 0);
   --color-surface-sunken: oklch(0.11 0 0);
   --color-surface-muted:  oklch(0.20 0 0);
+  --folder-tile-bg: var(--color-surface-sunken);
 
   /* Text */
   --color-text:         var(--p-neutral-0);
@@ -53,7 +54,7 @@
   /* Status text on subtle — lighter for dark */
   --color-status-success-on-subtle: oklch(0.80 0.10 163);
   --color-status-warning-on-subtle: oklch(0.82 0.10 70);
-  --color-status-error-on-subtle:   oklch(0.78 0.12 27);
+  --color-status-error-on-subtle:   oklch(0.78 0.12 22);
   --color-status-info-on-subtle:    oklch(0.78 0.10 259);
 
   /* Elevation — dark alphas (higher, else shadows vanish) */

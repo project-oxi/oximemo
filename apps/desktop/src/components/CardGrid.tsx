@@ -1,15 +1,27 @@
 /**
  * Card grid (§7.2–7.5): a virtualized, responsive multi-column grid of memo
  * cards. Cursor-paged listing (with composite tag/folder filters) or BM25
- * search; the title-bar header holds the search field, new-memo button, and a
- * theme toggle. A collapsible left Sidebar owns navigation + filtering.
- * Selecting a card opens the MemoDetail editor; the grid refreshes on
- * `memos:changed` from the file watcher / other windows (§7.4).
+ * search; the title-bar header holds the BreadcrumbBar (location), the
+ * search field, view-mode switcher, new-memo split button, and a theme
+ * toggle. A collapsible left Sidebar owns navigation + filtering. Selecting
+ * a card opens the MemoDetail editor; the grid refreshes on `memos:changed`
+ * from the file watcher / other windows (§7.4).
  */
 import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Lock, LockOpen, PanelLeft, PanelLeftClose, Plus, Search } from "lucide-react";
+import {
+  Clock,
+  LayoutGrid,
+  List,
+  Lock,
+  LockOpen,
+  Network,
+  PanelLeft,
+  PanelLeftClose,
+  Plus,
+  Search,
+} from "lucide-react";
 
 import {
   createMemo,
@@ -34,6 +46,7 @@ import { MemoDetail } from "./MemoDetail";
 import { Sidebar } from "./Sidebar";
 import { GalleryView } from "./GalleryView";
 import { SettingsMenu } from "./SettingsMenu";
+import { BreadcrumbBar } from "./BreadcrumbBar";
 import { GridView } from "./views/GridView";
 import { ListView } from "./views/ListView";
 import { TimelineView } from "./views/TimelineView";
@@ -164,7 +177,7 @@ export function CardGrid() {
       }
       return true;
     });
-  }, [inSearch, includeTags, excludeTags, matchAll, folderFilter, favoritesOnly, listing.data, searching.data]);
+  }, [inSearch, includeTags, excludeTags, folderFilter, favoritesOnly, listing.data, searching.data]);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const scrollerRoRef = useRef<ResizeObserver | null>(null);
@@ -306,8 +319,11 @@ export function CardGrid() {
     return () => window.removeEventListener("keydown", onKey);
   }, [onNewNote, localSearch, setSearch]);
 
+  // Sidebar toggle is the first inline element of the header now (see
+  // <header> below). The wrapper provides the pl-1 inset and h-12 height so
+  // it aligns with sibling content.
   const sidebarToggle = (
-    <div className="fixed left-[82px] top-0 z-30 flex h-12 items-center">
+    <div className="flex h-12 shrink-0 items-center pl-1">
       <button
         type="button"
         onClick={toggleSidebar}
@@ -332,19 +348,26 @@ export function CardGrid() {
       aria-label="View mode"
       className="inline-flex items-center gap-0.5 text-xs"
     >
-      {(["grid", "list", "timeline", "graph"] as const).map((v) => (
+      {([
+        { v: "grid", Icon: LayoutGrid },
+        { v: "list", Icon: List },
+        { v: "timeline", Icon: Clock },
+        { v: "graph", Icon: Network },
+      ] as const).map(({ v, Icon }) => (
         <button
           key={v}
           type="button"
           onClick={() => setNoteViewLocked(v)}
-          className={`rounded-[var(--tag-radius)] px-2.5 py-1 capitalize transition-colors duration-150 ${
+          title={v}
+          aria-label={v}
+          className={`inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
             noteView === v
-              ? "bg-surface-muted font-semibold text-text"
+              ? "bg-surface-muted text-text"
               : "text-text-subtle hover:bg-surface-muted hover:text-text"
           }`}
           aria-pressed={noteView === v}
         >
-          {v}
+          <Icon size={13} strokeWidth={2} />
         </button>
       ))}
       {folderFilter !== null && (
@@ -373,7 +396,6 @@ export function CardGrid() {
   if (view === "gallery") {
     return (
       <div className="flex h-full">
-        {sidebarToggle}
         {!sidebarCollapsed && <Sidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           <GalleryView />
@@ -398,14 +420,14 @@ export function CardGrid() {
 
   return (
     <div className="flex h-full">
-      {sidebarToggle}
       {!sidebarCollapsed && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           data-tauri-drag-region="deep"
-          className="flex h-12 items-center gap-3 border-b border-line pl-4 pr-4"
+          className="flex h-12 items-center gap-3 border-b border-line pr-4"
         >
-          <div className="flex-1" />
+          {sidebarToggle}
+          <BreadcrumbBar folders={folderEntries} folderDefs={folders} />
           {viewSwitcher}
           <div className="relative w-56">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-subtle" />
@@ -469,7 +491,7 @@ export function CardGrid() {
               ) : (
                 <button
                   type="button"
-            onClick={() => onNewNote()}
+                  onClick={() => onNewNote()}
                   className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
                 >
                   <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
