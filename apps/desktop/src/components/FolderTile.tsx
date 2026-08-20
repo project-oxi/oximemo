@@ -176,7 +176,7 @@ export function FolderTile({
           data-folder-tile={card.path}
           {...dropProps}
           role="button"
-          aria-label={card.path}
+          aria-label={`${card.path} · ${card.note_count_deep}`}
           tabIndex={0}
           onClick={() => {
             if (naming) return;
@@ -186,7 +186,7 @@ export function FolderTile({
             if (naming) return;
             if (e.key === "Enter") onOpen(card.path);
           }}
-          className={`group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-[var(--folder-tile-bg)] p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm ${dropCls ?? ""}`}
+          className={`group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-[var(--folder-tile-bg)] p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${dropCls ?? ""}`}
         />
       }
     >

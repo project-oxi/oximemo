@@ -53,6 +53,7 @@ import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
 import { MemoDetail } from "./MemoDetail";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import type { NamingSession } from "./FolderTile";
+import { FolderPalette } from "./FolderPalette";
 import { Sidebar } from "./Sidebar";
 import { GalleryView } from "./GalleryView";
 import { SettingsMenu } from "./SettingsMenu";
@@ -276,7 +277,29 @@ export function CardGrid() {
     scrollerRoRef.current = ro;
   }, []);
 
-  const rowCount = Math.ceil(cells.length / cols);
+  // T15 folder overflow collapse: beyond 2*cols-1 subfolder tiles the
+  // first screen drowns in folders. Collapse to 2*cols-1 tiles plus one
+  // tile-sized "show all" toggle (a folderOverflow Cell GridView renders).
+  // Expansion is remembered PER BROWSE LOCATION in component session
+  // state — deliberately not the store: it is a transient reading aid,
+  // not navigation state (a remount or reload starts collapsed again).
+  const [folderExpansion, setFolderExpansion] = useState<Record<string, boolean>>({});
+  const folderCount = showFolders ? (browseFoldersQ.data?.length ?? 0) : 0;
+  const folderCollapsed = folderCount > 2 * cols - 1 && !folderExpansion[folderFilter ?? ""];
+  const visibleCells = useMemo<Cell[]>(() => {
+    if (!folderCollapsed) return cells;
+    const limit = 2 * cols - 1;
+    return [
+      ...cells.filter((c) => c.kind === "folder").slice(0, limit),
+      { kind: "folderOverflow" as const, total: folderCount },
+      ...cells.filter((c) => c.kind !== "folder"),
+    ];
+  }, [cells, folderCollapsed, cols, folderCount]);
+  const expandFolders = useCallback(() => {
+    setFolderExpansion((m) => ({ ...m, [folderFilter ?? ""]: true }));
+  }, [folderFilter]);
+
+  const rowCount = Math.ceil(visibleCells.length / cols);
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => scrollerRef.current,
@@ -578,12 +601,25 @@ export function CardGrid() {
 
 
 
+  // ⌘⇧O folder jump palette (T15). Session state — the palette is a
+  // transient overlay, so open/close never persists.
+  const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // ⌘N / CtrlN — new note in current folder.
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         onNewNote();
+        return;
+      }
+      // ⌘⇧O / Ctrl⇧O — folder jump palette. Guarded while the memo dialog
+      // is open (selectedId): its own key handling wins. The capture
+      // overlay lives in its own window/document (App early-returns the
+      // capture route), so it can never see this listener.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") {
+        if (useUI.getState().selectedId) return;
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
         return;
       }
       // ⌘↑ / Ctrl↑ — navigate up one folder (no-op in query mode or at root).
@@ -593,9 +629,10 @@ export function CardGrid() {
         return;
       }
       // Escape — clear the current search box only. Does NOT navigate; the
-      // dialog/capture handlers below manage their own Escape behaviour.
+      // dialog/palette handlers manage their own Escape behaviour.
       if (e.key === "Escape") {
         if (useUI.getState().selectedId) return;
+        if (paletteOpen) return;
         if (localSearch === "") return;
         e.preventDefault();
         setLocalSearch("");
@@ -605,7 +642,23 @@ export function CardGrid() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onNewNote, localSearch, setSearch]);
+  }, [onNewNote, localSearch, paletteOpen, setSearch]);
+
+  // Palette navigation: browse the target folder and drop any active
+  // search — a palette jump is a navigation command, so the destination
+  // must open in browse mode rather than folder-scoped search results.
+  // localSearch/debounced are CardGrid-local mirrors of the store search
+  // and are cleared here alongside it (the mirrors are NOT store-synced).
+  const jumpToFolder = useCallback(
+    (path: string) => {
+      setFolderFilter(path);
+      setPaletteOpen(false);
+      setLocalSearch("");
+      setDebounced("");
+      setSearch("");
+    },
+    [setFolderFilter, setSearch],
+  );
 
   // Sidebar toggle is the first inline element of the header now (see
   // <header> below). The wrapper provides the pl-1 inset and h-12 height so
@@ -822,7 +875,7 @@ export function CardGrid() {
               </div>
             ) : noteView === "grid" ? (
               <GridView
-                cells={cells}
+                cells={visibleCells}
                 virtualizer={virtualizer}
                 cols={cols}
                 showFolderChip={folderFilter === null}
@@ -840,6 +893,7 @@ export function CardGrid() {
                 namingPath={namingPath}
                 onNameCommit={commitFolderName}
                 onDeleteFolder={onDeleteFolder}
+                onExpandFolders={expandFolders}
               />
             ) : noteView === "list" ? (
               <ListView {...viewProps} />
@@ -870,6 +924,13 @@ export function CardGrid() {
         </div>
       </div>
       <MemoDetail />
+      <FolderPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        folders={folderEntries}
+        folderDefs={folders}
+        onNavigate={jumpToFolder}
+      />
     </div>
   );
 }

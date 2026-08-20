@@ -3,17 +3,22 @@
  * cell array is now FLAT: folders come first (via FolderTile), then notes
  * (via Card). Both render in the same row slice — no scrollMargin, no
  * separate section, so the virtualizer's `rowCount * ROW_H` height keeps
- * every row anchored in the same coordinate space.
+ * every row anchored in the same coordinate space. A `folderOverflow`
+ * cell (T15) renders the tile-sized "show all N folders" toggle that
+ * CardGrid appends when the folder layer is collapsed.
  */
 import type { Virtualizer } from "@tanstack/react-virtual";
+import { MoreHorizontal } from "lucide-react";
 
 import { Card } from "../Card";
 import { FolderTile, type NamingSession } from "../FolderTile";
+import { useI18n } from "../../lib/i18n";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
 export type Cell =
   | { kind: "folder"; card: FolderCard }
-  | { kind: "note"; note: MemoSummary };
+  | { kind: "note"; note: MemoSummary }
+  | { kind: "folderOverflow"; total: number };
 
 interface Props {
   cells: Cell[];
@@ -38,6 +43,8 @@ interface Props {
   onDeleteFolder: (path: string, deep: number, confirmed?: boolean) => void;
   /** Query-mode folder chip on note cards (T13): true when browsing is off. */
   showFolderChip?: boolean;
+  /** T15: expand the collapsed folder layer for this browse location. */
+  onExpandFolders: () => void;
 }
 
 const CARD_H = 176;
@@ -62,7 +69,9 @@ export function GridView({
   onNameCommit,
   onDeleteFolder,
   showFolderChip,
+  onExpandFolders,
 }: Props) {
+  const { t } = useI18n();
   const rowCount = Math.ceil(cells.length / cols);
   return (
     <div style={{ height: virtualizer.getTotalSize() }} className="relative w-full">
@@ -105,6 +114,18 @@ export function GridView({
                     namingPath={namingPath}
                     onNameCommit={onNameCommit}
                   />
+                ) : cell.kind === "folderOverflow" ? (
+                  <button
+                    key="folder-overflow"
+                    type="button"
+                    onClick={onExpandFolders}
+                    className="flex h-44 cursor-default flex-col items-center justify-center gap-2 rounded-[var(--card-radius)] border border-dashed border-line p-4 text-text-subtle transition-colors duration-150 hover:border-line-strong hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  >
+                    <MoreHorizontal size={16} aria-hidden />
+                    <span className="text-center text-xs font-medium">
+                      {t.show_all_folders.replace("{n}", String(cell.total))}
+                    </span>
+                  </button>
                 ) : (
                   <Card
                     key={cell.note.id}

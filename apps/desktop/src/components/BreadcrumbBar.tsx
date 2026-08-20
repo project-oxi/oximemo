@@ -208,7 +208,7 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote }: Breadcru
         data-tauri-drag-region="false"
         className="flex min-w-0 flex-1 items-center overflow-hidden text-[13px]"
       >
-        <span className="flex items-center gap-1.5 px-1 font-semibold text-text">
+        <span aria-current="page" className="flex items-center gap-1.5 px-1 font-semibold text-text">
           {search ? (
             <Search size={13} aria-hidden="true" />
           ) : favoritesOnly ? (
@@ -237,6 +237,7 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote }: Breadcru
         folders={folders}
         folderDefs={folderDefs}
         isRoot
+        last={segs.length === 0}
         onClick={() => setFolderFilter("")}
         onMoveNote={onMoveNote}
       />
@@ -316,9 +317,11 @@ function SegmentButton({
       {last ? (
         <span
           data-breadcrumb-path={path}
+          aria-current="page"
           {...dropProps}
           className={`inline-flex min-w-0 items-center gap-1 truncate px-1 font-semibold text-text ${dropCls ?? ""}`}
         >
+          {isRoot ? <Folder size={13} aria-hidden="true" className="shrink-0 text-text-subtle" /> : null}
           <span className="truncate">{label}</span>
         </span>
       ) : (
