@@ -7,7 +7,7 @@
  */
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { FolderEntry, Memo, MemoSummary } from "./types";
+import type { FolderCard, FolderEntry, Memo, MemoSummary } from "./types";
 import { extractTags } from "./tags";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -322,6 +322,39 @@ async function browserFallback(
       return [...folderMap.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([path, note_count]): FolderEntry => ({ path, note_count }));
+    }
+
+    case "folder_children": {
+      const parent = ((args?.path as string | undefined) ?? "").trim();
+      const live = liveSorted(loadStore());
+      const entries = (await browserFallback("list_folders")) as FolderEntry[];
+      const kids = entries.filter(
+        (e) =>
+          e.path !== "" &&
+          (parent === ""
+            ? !e.path.includes("/")
+            : e.path.startsWith(`${parent}/`) &&
+              !e.path.slice(parent.length + 1).includes("/")),
+      );
+      return kids.map((k): FolderCard => {
+        const kp = `${k.path}/`;
+        const inDeep = live.filter(
+          (n) => (n.folder ?? "") === k.path || (n.folder ?? "").startsWith(kp),
+        );
+        return {
+          path: k.path,
+          note_count: k.note_count,
+          note_count_deep: inDeep.length,
+          subfolder_count: entries.filter(
+            (e) => e.path.startsWith(kp) && !e.path.slice(kp.length).includes("/"),
+          ).length,
+          recent: inDeep.slice(0, 3).map((n) => ({
+            id: n.id,
+            title: n.title,
+            updated_at: n.updated_at,
+          })),
+        };
+      });
     }
 
     case "create_folder": {

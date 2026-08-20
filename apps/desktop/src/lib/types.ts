@@ -95,6 +95,24 @@ export interface FolderEntry {
   note_count: number;
 }
 
+export interface FolderRecent {
+  id: MemoId;
+  title: string | null;
+  updated_at: string;
+}
+
+export interface FolderCard {
+  path: string;
+  /** Direct note count as `list_folders` reports it. */
+  note_count: number;
+  /** Recursive note count (notes anywhere under this folder). */
+  note_count_deep: number;
+  /** Direct subfolder count. */
+  subfolder_count: number;
+  /** Up to 3 newest notes attributed to this folder (newest-first). */
+  recent: FolderRecent[];
+}
+
 export type ViewMode = "grid" | "list" | "timeline" | "graph";
 
 export interface FolderDef {

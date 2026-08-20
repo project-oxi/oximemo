@@ -216,6 +216,7 @@ pub fn run() {
             commands::memo_stats,
             commands::list_facets,
             commands::list_folders,
+            commands::folder_children,
             commands::create_folder,
             commands::delete_folder,
             commands::graph_data,
@@ -680,6 +681,19 @@ mod commands {
                     .map(|(path, note_count)| ListFolderResult { path, note_count })
                     .collect()
             })
+            .map_err(|e| e.to_string())
+    }
+
+    /// Folder cards for the Finder-style browser: direct + recursive counts
+    /// and a sample of recent note titles for each kid of `path`.
+    #[tauri::command]
+    pub fn folder_children(
+        state: State<'_, AppState>,
+        path: String,
+    ) -> Result<Vec<oximemo_core::FolderCard>, String> {
+        state
+            .vault
+            .folder_children(&path)
             .map_err(|e| e.to_string())
     }
 

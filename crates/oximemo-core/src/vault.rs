@@ -127,6 +127,100 @@ impl Vault {
         Ok(counts.into_iter().collect())
     }
 
+    /// Folder cards for one browse level: deep counts (reverse-sorted
+    /// prefix summation over `list_folders`), direct subfolder counts, and
+    /// up to 3 recent note titles attributed to the nearest displayed
+    /// ancestor (index scan, early exit).
+    pub fn folder_children(&self, parent: &str) -> Result<Vec<FolderCard>> {
+        let all = self.list_folders()?; // BTree-sorted (path, immediate)
+        let prefix = if parent.is_empty() {
+            String::new()
+        } else {
+            format!("{parent}/")
+        };
+        let is_child =
+            |p: &str| !p.is_empty() && p.starts_with(&prefix) && !p[prefix.len()..].contains('/');
+        let kids: Vec<&String> = all.iter().map(|(p, _)| p).filter(|p| is_child(p)).collect();
+
+        // Deep counts: reverse iteration guarantees children finalize first.
+        let mut deep: std::collections::BTreeMap<String, u32> = all.iter().cloned().collect();
+        for (p, _) in all.iter().rev() {
+            if let Some(i) = p.rfind('/') {
+                let d = deep[p];
+                *deep.entry(p[..i].to_string()).or_insert(0) += d;
+            }
+        }
+
+        let subfolder_count = |kid: &str| {
+            let kp = format!("{kid}/");
+            all.iter()
+                .filter(|(p, _)| p.starts_with(&kp) && !p[kp.len()..].contains('/'))
+                .count() as u32
+        };
+
+        // Recents from the newest-first index: walk each note's path up
+        // until it lands on a kid, capping the per-kid sample at
+        // min(3, its deep count) so empty / small folders finalize cleanly.
+        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let mut recent: Vec<(String, Vec<FolderRecent>)> =
+            kids.iter().map(|k| ((*k).clone(), Vec::new())).collect();
+        let target: Vec<usize> = kids
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| deep[k.as_str()] > 0)
+            .map(|(i, _)| i)
+            .collect();
+        let mut done = 0usize;
+        'scan: for r in recs.iter().filter(|r| !r.deleted) {
+            if done == target.len() {
+                break;
+            }
+            let mut probe = match r.path.rfind('/') {
+                Some(i) => &r.path[..i],
+                None => "",
+            };
+            loop {
+                if let Some(slot) = recent.iter_mut().find(|(p, _)| p == probe) {
+                    let cap = 3u32.min(deep[slot.0.as_str()]);
+                    if (slot.1.len() as u32) < cap {
+                        slot.1.push(FolderRecent {
+                            id: r.id,
+                            title: r.title.clone(),
+                            updated_at: r.updated_at,
+                        });
+                        if slot.1.len() as u32 == cap {
+                            done += 1;
+                        }
+                    }
+                    continue 'scan;
+                }
+                match probe.rfind('/') {
+                    Some(i) => probe = &probe[..i],
+                    None => continue 'scan,
+                }
+            }
+        }
+
+        Ok(kids
+            .iter()
+            .map(|k| FolderCard {
+                path: (*k).clone(),
+                note_count: all
+                    .iter()
+                    .find(|(p, _)| p == *k)
+                    .map(|(_, n)| *n)
+                    .unwrap_or(0),
+                note_count_deep: deep[k.as_str()],
+                subfolder_count: subfolder_count(k),
+                recent: recent
+                    .iter()
+                    .find(|(p, _)| p == *k)
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_default(),
+            })
+            .collect())
+    }
+
     pub fn paths(&self) -> &Paths {
         &self.paths
     }
@@ -1338,6 +1432,32 @@ pub struct BacklinkInfo {
 }
 
 /// Recursively register physical directories (even note-less ones) as folder
+
+/// A single recent note attributed to a folder card (newest-first sample).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FolderRecent {
+    pub id: crate::memo::MemoId,
+    pub title: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
+/// One folder tile: direct + recursive counts plus a sample of recent note
+/// titles attributed to the nearest displayed ancestor. Drives the folder
+/// picker in the Finder-style browser.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FolderCard {
+    pub path: String,
+    /// Direct note count as `list_folders` reports it.
+    pub note_count: u32,
+    /// Recursive note count (notes anywhere under this folder).
+    pub note_count_deep: u32,
+    /// Direct subfolder count.
+    pub subfolder_count: u32,
+    /// Up to 3 newest notes attributed to this folder (newest-first).
+    pub recent: Vec<FolderRecent>,
+}
+
 /// entries with count 0. Mirrors `scan_md_into`'s skip rules: hidden dirs
 /// (`.trash`, …) and `_assets/` are not folders.
 fn collect_folder_dirs(
@@ -1462,6 +1582,51 @@ watcher_retry_interval_ms = 200
         assert_eq!(get(""), Some(1), "loose root notes counted");
         assert_eq!(get("novel"), Some(1));
         assert_eq!(get("ideas/empty"), Some(0), "empty dir listed with count 0");
+    }
+
+    #[test]
+    fn folder_children_counts_recursively_and_peeks_recents() {
+        let (_t, v) = tmp_vault();
+        let a = v
+            .create_note(
+                "novel/act1",
+                "# Chapter One".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.create_note(
+            "novel/act1",
+            "# Chapter Two".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+        v.create_memo("# Loose".into(), None).unwrap();
+        v.create_folder("empty").unwrap();
+
+        let root = v.folder_children("").unwrap();
+        let novel = root.iter().find(|c| c.path == "novel").unwrap();
+        assert_eq!(
+            (
+                novel.note_count,
+                novel.note_count_deep,
+                novel.subfolder_count
+            ),
+            (0, 2, 1)
+        );
+        assert_eq!(novel.recent.len(), 2);
+        assert_eq!(novel.recent[0].title.as_deref(), Some("Chapter Two"));
+
+        let act1 = v.folder_children("novel").unwrap();
+        assert_eq!(act1.len(), 1);
+        assert_eq!(act1[0].path, "novel/act1");
+        assert_eq!((act1[0].note_count, act1[0].note_count_deep), (2, 2));
+        assert!(
+            v.folder_children("")
+                .unwrap()
+                .iter()
+                .any(|c| c.path == "empty" && c.recent.is_empty())
+        );
+        let _ = a;
     }
 
     #[test]

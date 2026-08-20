@@ -10,6 +10,7 @@ import type {
   BrainLayer,
   BrainStatus,
   Config,
+  FolderCard,
   FolderDef,
   FolderEntry,
   GraphData,
@@ -179,6 +180,11 @@ export async function memoStats() {
 
 export async function listFolders(): Promise<FolderEntry[]> {
   return invoke<FolderEntry[]>("list_folders");
+}
+
+/** Folder cards for one browse level: recursive counts + recent titles. */
+export async function folderChildren(path: string): Promise<FolderCard[]> {
+  return invoke<FolderCard[]>("folder_children", { path });
 }
 
 export async function createFolder(path: string): Promise<void> {

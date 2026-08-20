@@ -37,4 +37,6 @@ pub use memo::{
     timestamp_filename,
 };
 pub use paths::Paths;
-pub use vault::{BacklinkInfo, DoctorReport, GraphData, GraphEdge, GraphNode, Vault};
+pub use vault::{
+    BacklinkInfo, DoctorReport, FolderCard, FolderRecent, GraphData, GraphEdge, GraphNode, Vault,
+};
