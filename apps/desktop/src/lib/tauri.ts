@@ -392,6 +392,37 @@ async function browserFallback(
       emitBrowser("memos:changed");
       return null;
     }
+    case "rename_folder": {
+      const from = args?.from as string;
+      const to = args?.to as string;
+      if (!from || !to || from === to) throw new Error("invalid rename");
+      const store = loadStore();
+      for (const n of Object.values(store)) {
+        if (n.folder === from) n.folder = to;
+        else if (n.folder.startsWith(`${from}/`)) n.folder = `${to}/${n.folder.slice(from.length + 1)}`;
+        if (n.folder === to && !n.path.startsWith(`${to}/`)) {
+          n.path = `${to}/${n.path.split("/").pop()}`;
+        } else if (n.path.startsWith(`${from}/`)) {
+          n.path = `${to}/${n.path.slice(from.length + 1)}`;
+        }
+      }
+      saveStore(store);
+      saveFolders(
+        loadFolders().map((p) =>
+          p === from ? to : p.startsWith(`${from}/`) ? `${to}/${p.slice(from.length + 1)}` : p,
+        ),
+      );
+      const views = loadViews();
+      if (Object.hasOwn(views, from)) {
+        views[to] = views[from];
+        delete views[from];
+      }
+      localStorage.setItem(VIEW_KEY, JSON.stringify(views));
+      savePins(loadPins().map((p) => (p === from ? to : p)));
+      emitBrowser("memos:changed");
+      return null;
+    }
+
 
     case "move_note": {
       const id = args?.id as string;
@@ -429,7 +460,7 @@ async function browserFallback(
         folders: [
           ...Object.entries(loadViews()).map(([path, view]) => ({ path, view, color: null,
             pinned: loadPins().includes(path) ? true : null })),
-          ...loadPins().filter((p) => !(p in loadViews())).map((path) => ({ path, view: null, color: null, pinned: true })),
+          ...loadPins().filter((p) => !Object.hasOwn(loadViews(), p)).map((path) => ({ path, view: null, color: null, pinned: true })),
         ],
         brain: { enabled: true, socket: "", space: "personal" },
         index: { watcher_debounce_ms: 300 },

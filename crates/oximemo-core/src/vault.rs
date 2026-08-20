@@ -109,6 +109,91 @@ impl Vault {
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
+    /// Rename/move a folder tree. Disk rename first (atomic, preserves
+    /// templates and subfolders), then index records under the old prefix
+    /// are rewritten (best-effort; the watcher repairs any stragglers),
+    /// then config folder entries are re-pathed.
+    pub fn rename_folder(&self, from: &str, to: &str) -> Result<()> {
+        if from.is_empty() {
+            return Err(CoreError::other("cannot rename vault root"));
+        }
+        if to.is_empty() {
+            return Err(CoreError::other("rename target must not be empty"));
+        }
+        if from == to {
+            return Err(CoreError::other("rename target is the same as source"));
+        }
+        let from_dir = self.paths.vault.join(from);
+        let to_dir = self.paths.vault.join(to);
+        if !from_dir.is_dir() {
+            return Err(CoreError::NotFound(from.to_string()));
+        }
+        if to_dir.exists() {
+            return Err(CoreError::other(format!("folder '{to}' already exists")));
+        }
+        if let Some(parent) = to_dir.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::rename(&from_dir, &to_dir)?;
+
+        // Re-path index records under `from/`. Reads the note from its new
+        // on-disk location so the search index carries the up-to-date body
+        // and title. Reads happen after the disk rename so the file at
+        // `to_dir/strip(prefix)` is the post-rename truth.
+        let prefix = format!("{from}/");
+        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let mut index_failures: u32 = 0;
+        for r in recs {
+            if !r.path.starts_with(&prefix) {
+                continue;
+            }
+            let new_rel = format!("{to}/{}", &r.path[prefix.len()..]);
+            let stripped = &r.path[prefix.len()..];
+            match self.files.read_memo(&to_dir.join(stripped)) {
+                Ok(Some(note)) => {
+                    let fmt = crate::memo::NoteFormat::from_rel(&new_rel);
+                    let (sbody, stitle) = search_fields(fmt, &note);
+                    let mut rec2 = r.clone();
+                    rec2.path = new_rel;
+                    if self
+                        .with_redb_and_search(|idx, search| {
+                            idx.upsert(&rec2)?;
+                            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                        })
+                        .is_err()
+                    {
+                        index_failures += 1;
+                    }
+                }
+                _ => {
+                    index_failures += 1;
+                }
+            }
+        }
+
+        // Re-path config entries under `from/`. Exact match on `from` keeps
+        // the same `FolderDef` (preserving view/color/pin); prefix matches
+        // are rewritten by stripping and re-attaching the new prefix.
+        {
+            let mut cfg = self.config.write();
+            let fp = format!("{from}/");
+            for f in cfg.folders.items.iter_mut() {
+                if f.path == from {
+                    f.path = to.to_string();
+                } else if f.path.starts_with(&fp) {
+                    f.path = format!("{to}/{}", &f.path[fp.len()..]);
+                }
+            }
+            cfg.save(&self.paths)?;
+        }
+
+        if index_failures > 0 {
+            return Err(CoreError::other(format!(
+                "folder renamed on disk but {index_failures} index entries need reindex"
+            )));
+        }
+        Ok(())
+    }
 
     /// List the folder tree as a flat list of `(path, note_count)`.
     ///
@@ -2121,6 +2206,38 @@ watcher_retry_interval_ms = 200
         // Old file is gone.
         assert!(!v.paths().vault.join("Project.md").exists());
         assert!(v.paths().vault.join("work/Project.md").exists());
+    }
+    #[test]
+    fn rename_folder_moves_files_index_and_config() {
+        let (_t, v) = tmp_vault();
+        let n = v
+            .create_note(
+                "novel",
+                "# Old Home\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.set_folder_pinned("novel", true).unwrap();
+        v.rename_folder("novel", "book").unwrap();
+        // Disk: novel/ gone, book/ exists, memo file under book/.
+        assert!(!v.paths().vault.join("novel").exists());
+        assert!(v.paths().vault.join("book").exists());
+        assert!(v.paths().vault.join("book/Old-Home.md").exists());
+        assert!(!v.paths().vault.join("novel/Old-Home.md").exists());
+        // Index: record path rewritten.
+        let rec = v.with_redb(|idx| idx.get(n.id)).unwrap().unwrap();
+        assert_eq!(rec.path, "book/Old-Home.md");
+        // Config: novel entry moved to book with pinned preserved.
+        assert!(v.with_config(|c| {
+            c.folders
+                .items
+                .iter()
+                .any(|f| f.path == "book" && f.pinned == Some(true))
+        }));
+        assert!(v.with_config(|c| c.folders.items.iter().all(|f| f.path != "novel")));
+        // Target must not already exist.
+        v.create_folder("other").unwrap();
+        assert!(v.rename_folder("book", "other").is_err());
     }
 
     #[test]

@@ -16,19 +16,36 @@ interface Props {
   onOpen: (path: string) => void;
   onOpenNote: (id: string) => void;
   onNewNote: (path: string) => void;
+  /** Path of a folder whose name is being edited (inline rename). */
+  namingPath: string | null;
+  /** null = cancelled (Esc) → caller handles teardown; string = confirm (rename if changed). */
+  onNameCommit: (value: string | null) => void;
 }
 
-export function FolderTile({ card, folders, onOpen, onOpenNote, onNewNote }: Props) {
+export function FolderTile({
+  card,
+  folders,
+  onOpen,
+  onOpenNote,
+  onNewNote,
+  namingPath,
+  onNameCommit,
+}: Props) {
   const { t, locale } = useI18n();
   const color = colorForFolder(card.path, folders);
+  const naming = namingPath === card.path;
   return (
     <article
       data-folder-tile={card.path}
       role="button"
       aria-label={card.path}
       tabIndex={0}
-      onClick={() => onOpen(card.path)}
+      onClick={() => {
+        if (naming) return;
+        onOpen(card.path);
+      }}
       onKeyDown={(e) => {
+        if (naming) return;
         if (e.key === "Enter") onOpen(card.path);
       }}
       className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-[var(--folder-tile-bg)] p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm"
@@ -40,9 +57,27 @@ export function FolderTile({ card, folders, onOpen, onOpenNote, onNewNote }: Pro
       />
       <div className="flex min-w-0 items-center gap-2">
         <Folder size={13} className="shrink-0" style={{ color }} />
-        <span className="truncate text-sm font-semibold text-text">
-          {card.path.split("/").at(-1)}
-        </span>
+        {naming ? (
+          <input
+            autoFocus
+            defaultValue={card.path}
+            onFocus={(e) => e.currentTarget.select()}
+            ref={(el) => el?.select()}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={(e) => onNameCommit(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") onNameCommit(e.currentTarget.value);
+              else if (e.key === "Escape") onNameCommit(null);
+            }}
+            style={{ boxShadow: "none" }}
+            className="w-full min-w-0 flex-1 bg-transparent px-0 py-0 text-sm font-semibold text-text outline-none"
+          />
+        ) : (
+          <span className="truncate text-sm font-semibold text-text">
+            {card.path.split("/").at(-1)}
+          </span>
+        )}
         <span className="ml-auto shrink-0 text-[11px] tabular-nums text-text-subtle">
           {card.note_count_deep}
         </span>

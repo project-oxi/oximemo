@@ -219,6 +219,7 @@ pub fn run() {
             commands::folder_children,
             commands::create_folder,
             commands::delete_folder,
+            commands::rename_folder,
             commands::graph_data,
             commands::get_config,
             commands::set_folder_view,
@@ -721,6 +722,20 @@ mod commands {
         state
             .vault
             .delete_folder(&path)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(())
+    }
+    #[tauri::command]
+    pub fn rename_folder(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        from: String,
+        to: String,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .rename_folder(&from, &to)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(())

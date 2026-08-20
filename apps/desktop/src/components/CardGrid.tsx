@@ -34,6 +34,7 @@ import {
   listMemos,
   memoStats,
   moveNote,
+  renameFolder,
   searchMemos,
   setFolderView,
   updateMemo,
@@ -381,6 +382,68 @@ export function CardGrid() {
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   }, [folderFilter, t.folder_new, qc, setToast, setError]);
+  // Inline rename flow for folder tiles (Task 10). The path of the folder
+  // being edited is mirrored into `namingPath`; FolderTile renders the
+  // naming input when its `card.path` matches. Task 12 will surface this
+  // from the tile context menu; for now the entry point is exposed via the
+  // store so the tile-side activation can come from any caller.
+  const [namingPath, setNamingPath] = useState<string | null>(null);
+  const namingCommitRef = useRef(false);
+  const commitFolderName = useCallback(
+    (value: string | null) => {
+      if (namingCommitRef.current || !namingPath) return;
+      namingCommitRef.current = true;
+      const from = namingPath;
+      setNamingPath(null);
+      const name = (value ?? "").trim();
+      // Cancelled (Esc) or emptied → no-op for inline rename; the original
+      // Sidebar pattern called deleteFolder on a just-created default name,
+      // but rename is initiated on an existing folder, so we never delete
+      // here. Tile mistakes get a clear UI signal — the user reopens the
+      // tile and starts over.
+      if (value === null || !name) {
+        namingCommitRef.current = false;
+        return;
+      }
+      const loc = folderFilter ?? "";
+      const to = loc ? `${loc}/${name}` : name;
+      const invalidate = () => {
+        qc.invalidateQueries({ queryKey: ["folderChildren"] });
+        qc.invalidateQueries({ queryKey: ["folders"] });
+        qc.invalidateQueries({ queryKey: ["config"] });
+      };
+      if (to === from) {
+        // Unchanged — nothing to do, but still refetch in case the user's
+        // commit cancelled an external edit.
+        invalidate();
+        namingCommitRef.current = false;
+        return;
+      }
+      void renameFolder(from, to)
+        .then(() => {
+          invalidate();
+          namingCommitRef.current = false;
+        })
+        .catch((e) => {
+          invalidate();
+          namingCommitRef.current = false;
+          const raw = String(e).split("\n")[0];
+          // Translate "X index entries need reindex" into the localized
+          // "X notes remain in 'from'" wording so the UI surfaces the
+          // partial-failure path the brief calls out.
+          const m = raw.match(/(\d+)\s+index entries need reindex/i);
+          setError(
+            m
+              ? t.rename_failed_left
+                  .replace("{n}", m[1])
+                  .replace("{from}", from)
+              : raw,
+          );
+        });
+    },
+    [namingPath, folderFilter, qc, setError, t.rename_failed_left],
+  );
+
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -610,6 +673,8 @@ export function CardGrid() {
               onCopyBody={onCopyBody}
               onDelete={onDelete}
               onNewNoteIn={onNewNoteIn}
+              namingPath={namingPath}
+              onNameCommit={commitFolderName}
             />
           ) : noteView === "list" ? (
             <ListView {...viewProps} />

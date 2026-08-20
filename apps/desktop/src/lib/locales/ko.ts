@@ -166,6 +166,7 @@ export const dict = {
   folder_notes: "노트 {n}",
   folder_subfolders: "폴더 {n}",
   folder_empty: "비어 있음",
+  rename_failed_left: "{n}개 노트가 '{from}'에 남아 있습니다",
   query_all_notes: "모든 노트",
   query_favorites: "즐겨찾기",
   query_search: "검색: {q}",

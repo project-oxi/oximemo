@@ -195,6 +195,10 @@ export async function deleteFolder(path: string): Promise<void> {
   await invoke<void>("delete_folder", { path });
 }
 
+export async function renameFolder(from: string, to: string): Promise<void> {
+  await invoke<void>("rename_folder", { from, to });
+}
+
 export async function moveNote(id: string, folder: string): Promise<void> {
   await invoke<void>("move_note", { id, folder });
 }

@@ -167,6 +167,7 @@ export const dict: Record<keyof typeof ko, string> = {
   folder_notes: "{n} notes",
   folder_subfolders: "{n} folders",
   folder_empty: "Empty",
+  rename_failed_left: "{n} notes remain in '{from}'",
   query_all_notes: "All Notes",
   query_favorites: "Favorites",
   query_search: "Search: {q}",

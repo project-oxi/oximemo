@@ -28,6 +28,10 @@ interface Props {
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
   onNewNoteIn: (folder: string) => void;
+  /** Path of a folder whose name is being edited (inline rename). */
+  namingPath: string | null;
+  /** null = cancelled (Esc) → caller handles teardown; string = confirm (rename if changed). */
+  onNameCommit: (value: string | null) => void;
 }
 
 const CARD_H = 176;
@@ -46,6 +50,8 @@ export function GridView({
   onCopyBody,
   onDelete,
   onNewNoteIn,
+  namingPath,
+  onNameCommit,
 }: Props) {
   const rowCount = Math.ceil(cells.length / cols);
   return (
@@ -81,6 +87,8 @@ export function GridView({
                     onOpen={onOpenFolder}
                     onOpenNote={onSelect}
                     onNewNote={onNewNoteIn}
+                    namingPath={namingPath}
+                    onNameCommit={onNameCommit}
                   />
                 ) : (
                   <Card
