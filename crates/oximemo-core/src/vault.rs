@@ -30,7 +30,7 @@ use crate::memo::{
     preview_of, searchable_body, tags_of,
 };
 use crate::paths::Paths;
-use crate::store::files::FileStore;
+use crate::store::files::{FileStore, ParsedFile};
 use crate::store::index::{IndexRecord, MemoIndex, RedbIndex};
 use crate::store::search::{SearchIndex, TantivySearch};
 use crate::sync::{FullRecord, ManifestRecord};
@@ -667,6 +667,10 @@ impl Vault {
             return Err(CoreError::other("invalid date, expected YYYY-MM-DD"));
         }
         let folder = self.with_config(|c| c.daily.folder.clone());
+        let folder = folder.trim_end_matches('/');
+        if folder.is_empty() {
+            return Err(CoreError::other("[daily] folder must not be empty"));
+        }
         let md_path = format!("{folder}/{date}.md");
         let html_path = format!("{folder}/{date}.html");
         let hit = self.with_redb(|idx| {
@@ -677,6 +681,53 @@ impl Vault {
         })?;
         if let Some(rec) = hit {
             return self.get_memo(rec.id);
+        }
+        // Index miss does not mean the file is absent: the watcher may not
+        // have ingested it yet (debounce / startup lag). Adopt a canonical
+        // file found on disk — read, re-index, return — the same stale-index
+        // fallback get_memo uses, instead of letting create_note write a
+        // `-2` sibling (spec §2 adopt-if-exists).
+        for (rel, fmt) in [
+            (&md_path, crate::memo::NoteFormat::Markdown),
+            (&html_path, crate::memo::NoteFormat::Html),
+        ] {
+            let abs = self.paths.vault.join(rel);
+            if !abs.exists() {
+                continue;
+            }
+            let note = match self.files.read_memo(&abs)? {
+                Some(note) => note,
+                None => {
+                    // Body-only manual file (no frontmatter): adopt in
+                    // place — assign an identity and rewrite at the SAME
+                    // canonical path, preserving the body verbatim.
+                    let ParsedFile::BodyOnly { body } = self.files.read(&abs)? else {
+                        continue;
+                    };
+                    let now = OffsetDateTime::now_utc();
+                    let note = Memo {
+                        id: MemoId::now(),
+                        created_at: now,
+                        updated_at: now,
+                        hash: hash::hash_memo(body.as_bytes(), false),
+                        favorite: false,
+                        tags: tags_of(fmt, &body),
+                        body,
+                        deleted_at: None,
+                    };
+                    // Rewrite in place (same canonical path, no `-2`
+                    // sibling) so the identity sticks for later reads.
+                    let text = FileStore::serialize_as(&note, fmt)?;
+                    std::fs::write(&abs, text)?;
+                    note
+                }
+            };
+            let (sbody, stitle) = search_fields(fmt, &note);
+            self.with_redb_and_search(|idx, search| {
+                idx.upsert(&record_of(&note, rel))?;
+                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+            })?;
+            return Ok(note);
         }
         // Format follows the folder's templates (create_note_auto rule).
         let md_t =
@@ -2996,6 +3047,77 @@ watcher_retry_interval_ms = 200
             .unwrap();
         let m = v.open_daily("2026-08-21").unwrap();
         assert_eq!(m.id, manual.id, "must adopt, not duplicate");
+    }
+
+    #[test]
+    fn open_daily_adopts_unindexed_file_on_disk() {
+        // Watcher debounce / startup lag: the canonical file exists on
+        // disk but the index is cold. open_daily must adopt THAT file,
+        // not let create_note write a `-2` sibling.
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("daily").unwrap();
+        std::fs::write(
+            v.paths().vault.join("daily/2026-08-21.md"),
+            "# 2026-08-21\n직접 쓴 파일\n",
+        )
+        .unwrap();
+        let m = v.open_daily("2026-08-21").unwrap();
+        assert_eq!(m.body, "# 2026-08-21\n직접 쓴 파일\n");
+        let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
+        assert_eq!(rec.path, "daily/2026-08-21.md");
+        assert!(
+            !v.paths().vault.join("daily/2026-08-21-2.md").exists(),
+            "no suffixed sibling"
+        );
+        // Adoption is now indexed: re-open returns the same note.
+        let m2 = v.open_daily("2026-08-21").unwrap();
+        assert_eq!(m.id, m2.id);
+    }
+
+    #[test]
+    fn open_daily_adopts_unindexed_frontmatter_file() {
+        // Same cold-index situation, but the file carries frontmatter
+        // (e.g. synced from another machine): adopted with its own id.
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("daily").unwrap();
+        std::fs::write(
+            v.paths().vault.join("daily/2026-08-21.md"),
+            "+++\nid = \"017f22e2-79b6-749e-8c01-0f99a2217673\"\nhash = \"b3:0\"\ncreated_at = \"2026-08-20T00:00:00Z\"\nupdated_at = \"2026-08-20T00:00:00Z\"\n\n+++\n\n# 2026-08-21\n동기화된 파일\n",
+        )
+        .unwrap();
+        let m = v.open_daily("2026-08-21").unwrap();
+        assert_eq!(m.id.to_string(), "017f22e2-79b6-749e-8c01-0f99a2217673");
+        assert!(m.body.contains("동기화된 파일"));
+        let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
+        assert_eq!(rec.path, "daily/2026-08-21.md");
+        assert!(!v.paths().vault.join("daily/2026-08-21-2.md").exists());
+    }
+
+    #[test]
+    fn open_daily_clamps_trailing_slash_and_rejects_empty_folder() {
+        // Trailing slash would otherwise build "daily//2026-08-21.md".
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join("oximemo.toml"),
+            "[daily]\nfolder = \"daily/\"\n",
+        )
+        .unwrap();
+        let v = Vault::open(Some(dir.path())).unwrap();
+        v.ensure_initialized().unwrap();
+        let m = v.open_daily("2026-08-21").unwrap();
+        let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
+        assert_eq!(rec.path, "daily/2026-08-21.md");
+
+        // Empty folder would build "/2026-08-21.md" at the vault root.
+        let dir2 = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir2.path().join("oximemo.toml"), "[daily]\nfolder = \"\"\n").unwrap();
+        let v2 = Vault::open(Some(dir2.path())).unwrap();
+        v2.ensure_initialized().unwrap();
+        let err = v2.open_daily("2026-08-21").unwrap_err();
+        assert!(err.to_string().contains("[daily] folder must not be empty"));
+        let _ = (dir, dir2); // keep alive
     }
 
     #[test]
