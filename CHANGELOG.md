@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Daily notes** — sidebar DAILY section: mini month calendar (dots on
+  days with notes, click = open-or-create, past/future backfill) plus a
+  "Today's Note" smart-collection button. Notes live in `[daily].folder`
+  (default `daily`) titled by ISO date; the folder's `TEMPLATE.md` seeds
+  new entries with local-date variables. `Vault::open_daily` is the
+  idempotent create-or-open; `[daily] enabled = false` hides the UI.
 - **Settings GUI parity — every TOML field is now GUI-settable** — new
   settings sections: Brain (enabled / socket / space with a live daemon
   space picker, free-text fallback offline), Capture (double-tap threshold,

@@ -188,6 +188,10 @@ The capture overlay must appear in under one frame.
 
 The `id` is a time-sortable **UUIDv7**; the `hash` is **`b3:` + BLAKE3** over the normalized body, tags, favorite flag, and category — so a pure metadata edit (add a tag, change a category) bumps the hash and is detected by sync. Full parsing rules and the safe-writing guide are in [`doc/DESIGN.md`](doc/DESIGN.md) §5 and [`skills/oximemo/SKILL.md`](skills/oximemo/SKILL.md).
 
+### Daily notes
+
+A persistent sidebar calendar (DAILY section) opens — or creates — one note per day in the `[daily]` folder (`oximemo.toml`: `enabled`, `folder`, default `daily`). Notes are titled by ISO date (`2026-08-21.md`), so they are ordinary notes: searchable, taggable, movable. A `TEMPLATE.md` in the daily folder seeds new entries (`{{date}}`, `{{weekday}}`, … are filled with the *local* date); if the template's heading isn't the date, the date heading is prepended so filenames stay deterministic. Days with a note show a dot; past and future days can be created (backfilling and planning). Set `enabled = false` to hide the sidebar section and Today button.
+
 ## Architecture
 
 `oximemo-core` is a pure-Rust library that owns the file store, indexes, file-watching, and sync. The desktop app (Tauri) and the CLI are **thin adapters** over [`oximemo_core::Vault`](crates/oximemo-core/src/vault.rs) — so the GUI and CLI always behave identically and can share one live vault (guarded by an `fs2` advisory lock).
