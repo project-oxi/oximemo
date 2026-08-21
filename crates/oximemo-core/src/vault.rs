@@ -679,8 +679,10 @@ impl Vault {
             return self.get_memo(rec.id);
         }
         // Format follows the folder's templates (create_note_auto rule).
-        let md_t = crate::template::load_template(&self.paths, &folder, crate::memo::NoteFormat::Markdown);
-        let html_t = crate::template::load_template(&self.paths, &folder, crate::memo::NoteFormat::Html);
+        let md_t =
+            crate::template::load_template(&self.paths, &folder, crate::memo::NoteFormat::Markdown);
+        let html_t =
+            crate::template::load_template(&self.paths, &folder, crate::memo::NoteFormat::Html);
         let fmt = if html_t.is_some() && md_t.is_none() {
             crate::memo::NoteFormat::Html
         } else {
@@ -2986,7 +2988,11 @@ watcher_retry_interval_ms = 200
         let (_t, v) = tmp_vault();
         v.ensure_initialized().unwrap();
         let manual = v
-            .create_note("daily", "# 2026-08-21\n수동으로 만든 파일".into(), crate::memo::NoteFormat::Markdown)
+            .create_note(
+                "daily",
+                "# 2026-08-21\n수동으로 만든 파일".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
             .unwrap();
         let m = v.open_daily("2026-08-21").unwrap();
         assert_eq!(m.id, manual.id, "must adopt, not duplicate");

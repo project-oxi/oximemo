@@ -73,7 +73,10 @@ pub struct DailyConfig {
 
 impl Default for DailyConfig {
     fn default() -> Self {
-        Self { enabled: true, folder: "daily".into() }
+        Self {
+            enabled: true,
+            folder: "daily".into(),
+        }
     }
 }
 
