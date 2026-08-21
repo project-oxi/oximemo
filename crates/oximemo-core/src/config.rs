@@ -19,6 +19,8 @@ pub struct VaultConfig {
     /// oxibrain integration (spec D13). The desktop panel degrades to a
     /// one-line status when the daemon is unreachable.
     pub brain: BrainConfig,
+    /// Daily notes section (spec 2026-08-21 §1).
+    pub daily: DailyConfig,
     /// Forward-compatible schema marker. Unknown fields are ignored.
     pub schema_version: u32,
 }
@@ -32,6 +34,7 @@ impl Default for VaultConfig {
             folders: FoldersConfig::default(),
             index: IndexConfig::default(),
             brain: BrainConfig::default(),
+            daily: DailyConfig::default(),
             schema_version: 3,
         }
     }
@@ -57,6 +60,20 @@ impl Default for BrainConfig {
             socket: String::new(),
             space: "personal".to_string(),
         }
+    }
+}
+/// Daily notes (spec 2026-08-21 §1). `folder` is vault-relative; the
+/// folder is auto-created by the first note's write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DailyConfig {
+    pub enabled: bool,
+    pub folder: String,
+}
+
+impl Default for DailyConfig {
+    fn default() -> Self {
+        Self { enabled: true, folder: "daily".into() }
     }
 }
 
@@ -220,6 +237,7 @@ impl VaultConfig {
             "appearance": self.appearance,
             "folders": self.folders.items,
             "brain": self.brain,
+            "daily": self.daily,
         })
     }
 }
@@ -263,6 +281,32 @@ space = "work"
         // Exposed via config_json for the frontend.
         let j = c2.config_json();
         assert_eq!(j["brain"]["socket"], "/tmp/custom.sock");
+    }
+    #[test]
+    fn daily_section_defaults_and_overrides() {
+        let c = VaultConfig::default();
+        assert!(c.daily.enabled);
+        assert_eq!(c.daily.folder, "daily");
+
+        // Round-trips through TOML.
+        let s = c.to_toml().unwrap();
+        let back: VaultConfig = toml::from_str(&s).unwrap();
+        assert_eq!(back.daily.folder, "daily");
+
+        // Explicit override wins.
+        let t = r#"
+[daily]
+enabled = false
+folder = "journal"
+"#;
+        let c2: VaultConfig = toml::from_str(t).unwrap();
+        assert!(!c2.daily.enabled);
+        assert_eq!(c2.daily.folder, "journal");
+
+        // Exposed via config_json for the frontend.
+        let json = c.config_json();
+        assert_eq!(json["daily"]["enabled"], serde_json::json!(true));
+        assert_eq!(json["daily"]["folder"], serde_json::json!("daily"));
     }
 
     #[test]

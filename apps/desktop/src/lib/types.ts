@@ -129,6 +129,7 @@ export interface Config {
   appearance?: { theme?: "system" | "light" | "dark"; show_dock_icon?: boolean };
   folders?: FolderDef[];
   brain?: { enabled?: boolean; socket?: string; space?: string };
+  daily?: { enabled?: boolean; folder?: string };
   index?: { watcher_debounce_ms?: number };
 }
 
