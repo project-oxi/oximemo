@@ -82,7 +82,7 @@ export function Sidebar({
   const dailyDates = new Set(
     (dailyQ.data?.items ?? [])
       .filter((n) => n.path.startsWith(`${dailyFolder}/`))
-      .map((n) => n.path.match(/(\d{4}-\d{2}-\d{2})\.(md|html)$/)?.[1])
+      .map((n) => n.path.match(/\/(\d{4}-\d{2}-\d{2})\.(md|html)$/)?.[1])
       .filter((d): d is string => Boolean(d)),
   );
 
@@ -156,6 +156,7 @@ export function Sidebar({
       </button>
       {dailyEnabled && (
         <button
+          data-daily-today
           type="button"
           onClick={() => openDaily(todayLocalISO())}
           className="mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-text-muted hover:bg-surface-muted"

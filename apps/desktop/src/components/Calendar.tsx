@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { addMonths, monthGrid, monthTitle, weekdayLabels } from "../lib/dates";
-
+import { useI18n } from "../lib/i18n";
 export function Calendar({
   dates,
   today,
@@ -21,12 +21,14 @@ export function Calendar({
   locale: string;
   onSelect: (date: string) => void;
 }) {
-  const t = new Date();
-  const [viewed, setViewed] = useState({ year: t.getFullYear(), month: t.getMonth() + 1 });
+  const { t } = useI18n();
+  // Months derive from the `today` prop, not new Date(), so midnight
+  // rollover and E2E clock pinning stay consistent with the dots.
+  const [ty, tm] = today.split("-").map(Number);
+  const todayMonth = { year: ty, month: tm };
+  const [viewed, setViewed] = useState(todayMonth);
   const cells = monthGrid(viewed.year, viewed.month);
-  const todayMonth = { year: t.getFullYear(), month: t.getMonth() + 1 };
-  const atToday =
-    viewed.year === todayMonth.year && viewed.month === todayMonth.month;
+  const atToday = viewed.year === todayMonth.year && viewed.month === todayMonth.month;
 
   return (
     <div data-daily-calendar className="px-1 pb-1 pt-0.5 select-none">
@@ -38,7 +40,7 @@ export function Calendar({
           <button
             type="button"
             data-daily-prev
-            aria-label="previous month"
+            aria-label={t.prev_month}
             onClick={() => setViewed(addMonths(viewed.year, viewed.month, -1))}
             className="grid size-5 place-items-center rounded-[var(--button-radius)] text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text"
           >
@@ -47,7 +49,7 @@ export function Calendar({
           <button
             type="button"
             data-daily-next
-            aria-label="next month"
+            aria-label={t.next_month}
             onClick={() => setViewed(addMonths(viewed.year, viewed.month, 1))}
             className="grid size-5 place-items-center rounded-[var(--button-radius)] text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text"
           >
@@ -98,7 +100,7 @@ export function Calendar({
           onClick={() => setViewed(todayMonth)}
           className="mt-1 w-full rounded-[var(--button-radius)] px-1 py-0.5 text-[10px] text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text"
         >
-          ← Today
+          ← {t.today_back}
         </button>
       )}
     </div>

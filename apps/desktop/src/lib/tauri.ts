@@ -58,6 +58,24 @@ const STORE_KEY = "oximemo:memos:v3";
 const VIEW_KEY = "oximemo:folderviews:v1";
 const PINS_KEY = "oximemo:folderpins:v1";
 const FOLDERS_KEY = "oximemo:folders:v1";
+const CONFIG_KEY = "oximemo:config:v1";
+
+/** Deep-merge `patch` into `target` (plain objects recurse; arrays and
+ * scalars replace). Backs the localStorage config override below. */
+function deepMergeConfig(target: Record<string, unknown>, patch: unknown): void {
+  if (typeof patch !== "object" || patch === null || Array.isArray(patch)) return;
+  for (const [k, v] of Object.entries(patch)) {
+    const cur = target[k];
+    if (
+      typeof v === "object" && v !== null && !Array.isArray(v) &&
+      typeof cur === "object" && cur !== null && !Array.isArray(cur)
+    ) {
+      deepMergeConfig(cur as Record<string, unknown>, v);
+    } else {
+      target[k] = v;
+    }
+  }
+}
 
 type FolderViews = Record<string, string>;
 
@@ -262,7 +280,9 @@ async function browserFallback(
 
     case "open_daily_note": {
       const date = args?.date as string;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(date).getTime())) {
+      // Round-trip check: `new Date("2026-02-30")` rolls over to a
+      // valid Mar 2, so a NaN check never fires — ISO round-trip does.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(date).toISOString().slice(0, 10) !== date) {
         throw new Error("invalid date, expected YYYY-MM-DD");
       }
       // Browser fallback: default daily folder, no file template access.
@@ -528,11 +548,8 @@ async function browserFallback(
       return n;
     }
 
-    case "graph_data":
-      return { nodes: [], edges: [] };
-
-    case "get_config":
-      return {
+    case "get_config": {
+      const config: Record<string, unknown> = {
         schema_version: 3,
         general: { trash_retention_days: 30 },
         capture: { double_tap_threshold_ms: 350, overlay_max_height: 400 },
@@ -545,7 +562,15 @@ async function browserFallback(
         brain: { enabled: true, socket: "", space: "personal" },
         index: { watcher_debounce_ms: 300 },
       };
-
+      // Dev/E2E override (e.g. { daily: { enabled: false } }) — browser
+      // mode has no oximemo.toml, so gating needs a seeded surface.
+      try {
+        deepMergeConfig(config, JSON.parse(localStorage.getItem(CONFIG_KEY) ?? "null"));
+      } catch {
+        /* malformed override JSON is ignored */
+      }
+      return config;
+    }
     case "set_brain_config":
     case "set_general_config":
     case "set_capture_config":
