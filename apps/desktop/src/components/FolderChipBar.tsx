@@ -31,9 +31,9 @@ export interface FolderChipBarProps {
 
 export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder, onMoveNote }: FolderChipBarProps) {
   const { t } = useI18n();
-  // Empty state hides the bar entirely — no orphan "＋ 새 폴더" chip alone
-  // because creating a folder with no siblings is already covered by the
-  // sidebar/tree UX; surfacing it everywhere would clutter root browse.
+  // Empty state hides the bar entirely — no orphan "＋ 새 폴더" chip
+  // alone; the header FolderPlus button is the always-visible create
+  // affordance, so the chip only needs to exist where sibling chips do.
   if (cards.length === 0) return null;
   return (
     <div role="list" className="mb-3 flex flex-wrap gap-1.5">

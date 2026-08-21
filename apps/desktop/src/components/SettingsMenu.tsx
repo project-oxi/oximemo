@@ -8,7 +8,6 @@
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  type KeyboardEvent,
   type ReactNode,
   useEffect,
   useRef,
@@ -26,7 +25,6 @@ import {
   Palette,
   Pin,
   PinOff,
-  Plus,
   RefreshCw,
   Settings,
   ShieldCheck,
@@ -428,8 +426,6 @@ function FoldersSection() {
   // and can neither be deleted nor filtered meaningfully.
   const list = (foldersQ.data ?? []).filter((f) => f.path !== "");
 
-  const [newPath, setNewPath] = useState("");
-  const newInputRef = useRef<HTMLInputElement>(null);
   const [armedPath, setArmedPath] = useState<string | null>(null);
   const armTimer = useRef<number | null>(null);
 
@@ -441,18 +437,6 @@ function FoldersSection() {
     qc.invalidateQueries({ queryKey: ["memos"] });
   };
 
-  const onAdd = async () => {
-    const path = newPath.trim();
-    if (!path) return;
-    try {
-      await createFolder(path);
-      setNewPath("");
-      newInputRef.current?.focus();
-      invalidateAll();
-    } catch (e) {
-      setError(String(e).split("\n")[0]);
-    }
-  };
 
   const disarm = () => {
     setArmedPath(null);
@@ -569,30 +553,6 @@ function FoldersSection() {
           </div>
         );
       })}
-      <div className="flex items-center gap-2 rounded-lg border border-dashed border-line px-2.5 py-1.5">
-        <input
-          ref={newInputRef}
-          value={newPath}
-          onChange={(e) => setNewPath(e.target.value)}
-          onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void onAdd();
-            } else if (e.key === "Escape") setNewPath("");
-          }}
-          placeholder="new/folder/path"
-          className="min-w-0 flex-1 rounded-md bg-transparent px-1 py-1 text-xs text-text outline-none placeholder:text-text-subtle"
-        />
-        <button
-          type="button"
-          onClick={() => void onAdd()}
-          disabled={newPath.trim().length === 0}
-          className="flex items-center gap-1 rounded-md bg-interactive-primary px-2 py-1 text-[11px] font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Plus size={12} />
-          Add
-        </button>
-      </div>
     </div>
   );
 }

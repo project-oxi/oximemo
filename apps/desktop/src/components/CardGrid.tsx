@@ -863,6 +863,22 @@ export function CardGrid() {
               className="w-full rounded-[var(--input-radius)] bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-text-subtle shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
             />
           </div>
+          {/* Finder-style toolbar affordance (browser feedback): the only
+              always-visible folder-create entry in browse mode — the
+              context menu stays as the secondary path. Hidden in query
+              mode (same rule as the empty-area menu) so "new folder"
+              never lands in an ambiguous location. */}
+          {folderFilter !== null && (
+            <button
+              type="button"
+              onClick={startFolderCreate}
+              aria-label={t.folder_new}
+              title={t.folder_new}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--button-radius)] text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text"
+            >
+              <FolderPlus size={15} strokeWidth={2} />
+            </button>
+          )}
           <div className="flex shrink-0 items-center">
             <button
               type="button"
