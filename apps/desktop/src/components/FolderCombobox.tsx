@@ -76,8 +76,12 @@ export const FolderCombobox = forwardRef<
         }
       />
       <Popover.Portal>
-        <Popover.Positioner sideOffset={4}>
-          <Popover.Popup className="z-50 w-72 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg">
+        {/* Opens upward (the trigger lives in the note dialog's bottom
+         *  toolbar) and layers above the dialog surface: z-index must sit
+         *  on the POSITIONER — a z on the Popup loses paint order against
+         *  the dialog's own z-50 surface and backdrop blur. */}
+        <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[60]">
+          <Popover.Popup className="w-72 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
             <input
               autoFocus
               value={query}

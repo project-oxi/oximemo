@@ -140,8 +140,8 @@ export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
           }
         />
         <Popover.Portal>
-          <Popover.Positioner side="top" align="start" sideOffset={4}>
-            <Popover.Popup className="z-50 max-w-[calc(100vw-32px)] animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
+          <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[60]">
+            <Popover.Popup className="max-w-[calc(100vw-32px)] animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
               <LinksCard
                 backlinks={backlinks.data ?? []}
                 isLoading={backlinks.isLoading}
@@ -174,8 +174,8 @@ export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
             }
           />
           <Popover.Portal>
-            <Popover.Positioner side="top" align="start" sideOffset={4}>
-              <Popover.Popup className="z-50 max-w-[calc(100vw-32px)] animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
+            <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[60]">
+              <Popover.Popup className="max-w-[calc(100vw-32px)] animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
                 <BrainCard
                   status={status.data}
                   layers={layers}
