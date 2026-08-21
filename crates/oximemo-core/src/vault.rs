@@ -1761,21 +1761,7 @@ fn collect_folder_dirs(
 /// `write_note` derives the canonical filename (spec §2). Templates
 /// whose H1 is something else (`# 일지`) keep their body underneath.
 fn normalize_daily_h1(fmt: crate::memo::NoteFormat, body: &str, date: &str) -> String {
-    // Keep template body when its H1 already starts with the date
-    // (e.g. "# {{date}} {{weekday}}"). Otherwise the slug would include
-    // trailing tokens (e.g. "2026-08-21-금"). When H1 is unrelated, force
-    // "# {date}" so the slug is deterministic.
-    let starts_with_date = match fmt {
-        crate::memo::NoteFormat::Markdown => body
-            .lines()
-            .next()
-            .is_some_and(|l| l.trim_start().starts_with(&format!("# {date}"))),
-        crate::memo::NoteFormat::Html => body
-            .lines()
-            .next()
-            .is_some_and(|l| l.trim_start().starts_with(&format!("<h1>{date}"))),
-    };
-    if crate::memo::note_title(fmt, body).as_deref() == Some(date) || starts_with_date {
+    if crate::memo::note_title(fmt, body).as_deref() == Some(date) {
         return body.to_string();
     }
     match fmt {
@@ -2893,7 +2879,6 @@ watcher_retry_interval_ms = 200
             "frontmatter comment must not count as a backlink"
         );
     }
-
     #[test]
     fn note_dto_derives_placement() {
         let (_t, v) = tmp_vault();
@@ -2949,7 +2934,12 @@ watcher_retry_interval_ms = 200
         )
         .unwrap();
         let m = v.open_daily("2026-08-21").unwrap();
-        assert_eq!(m.body.lines().next(), Some("# 2026-08-21 금"));
+        // The normalized H1 is the date so the filename is canonical;
+        // the template body (weekday line, "- " prompt) is preserved below.
+        assert_eq!(m.body.lines().next(), Some("# 2026-08-21"));
+        assert!(m.body.contains("# 2026-08-21 금"));
+        let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
+        assert_eq!(rec.path, "daily/2026-08-21.md");
     }
 
     #[test]
