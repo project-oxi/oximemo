@@ -5,14 +5,16 @@
  * browser — browsing and folder management happen in the main area.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpDown, Folder, Images, Layers, MoreHorizontal, Star } from "lucide-react";
+import { ArrowUpDown, CalendarDays, Folder, Images, Layers, MoreHorizontal, Star } from "lucide-react";
 import { useState } from "react";
 
-import { listFacets, memoStats, listMemos, getConfig, setFolderPinned } from "../lib/api";
+import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote } from "../lib/api";
 import { colorForFolder } from "../lib/color";
+import { todayLocalISO } from "../lib/dates";
 import { useFolderDrop } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
+import { Calendar } from "./Calendar";
 import { useUI, type TagState } from "../stores/ui";
 import type { FolderDef } from "../lib/types";
 
@@ -30,7 +32,7 @@ export function Sidebar({
   /** Move a dragged folder subtree into a pinned/seeded row's folder. */
   onMoveFolderTree?: (path: string, dest: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const facets = useQuery({ queryKey: ["facets"], queryFn: listFacets });
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
   const configQ = useQuery({ queryKey: ["config"], queryFn: getConfig });
@@ -64,6 +66,34 @@ export function Sidebar({
   // Favorites: explicit pins only — the sidebar is curation (Finder
   // model), never a folder browser. Pin from a folder's context menu.
   const pins = folders.filter((f) => f.pinned);
+
+  // Daily notes: opt-out via config (absent = enabled). Config drives
+  // folder + flag; the calendar query refreshes the dot set as memos
+  // change (T5 added the openDailyNote + listMemos(folder) wiring and
+  // the memos:changed listener invalidates ["memos"] prefix).
+  const dailyCfg = configQ.data?.daily;
+  const dailyEnabled = dailyCfg?.enabled !== false;
+  const dailyFolder = dailyCfg?.folder || "daily";
+  const dailyQ = useQuery({
+    queryKey: ["memos", "daily", dailyFolder],
+    queryFn: () => listMemos(null, 500, { folder: dailyFolder }),
+    enabled: dailyEnabled,
+  });
+  const dailyDates = new Set(
+    (dailyQ.data?.items ?? [])
+      .filter((n) => n.path.startsWith(`${dailyFolder}/`))
+      .map((n) => n.path.match(/(\d{4}-\d{2}-\d{2})\.(md|html)$/)?.[1])
+      .filter((d): d is string => Boolean(d)),
+  );
+
+  const openDaily = (date: string) => {
+    openDailyNote(date)
+      .then((n) => {
+        setView("memos");
+        select(n.id);
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
 
   const openFolder = (path: string) => {
     setView("memos");
@@ -124,6 +154,15 @@ export function Sidebar({
       >
         <Images size={14} /> {t.gallery}
       </button>
+      {dailyEnabled && (
+        <button
+          type="button"
+          onClick={() => openDaily(todayLocalISO())}
+          className="mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-text-muted hover:bg-surface-muted"
+        >
+          <CalendarDays size={14} /> {t.today_note}
+        </button>
+      )}
       {pins.map((f) => (
         <SidebarFolderRow
           key={f.path}
@@ -136,6 +175,21 @@ export function Sidebar({
           onMoveFolderTree={onMoveFolderTree}
         />
       ))}
+
+      {/* DAILY — mini calendar with dots on existing notes; click a
+          day to open or create today's note. */}
+      {dailyEnabled && (
+        <>
+          <div className="mt-3 flex items-center px-3">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+              {t.daily_section}
+            </span>
+          </div>
+          <div className="px-2 pt-1">
+            <Calendar dates={dailyDates} today={todayLocalISO()} locale={locale} onSelect={openDaily} />
+          </div>
+        </>
+      )}
 
       {/* RECENTS — recently updated notes, one click to open. */}
       {recents.length > 0 && (

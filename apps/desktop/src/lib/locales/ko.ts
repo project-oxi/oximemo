@@ -91,6 +91,8 @@ export const dict = {
   clear_filters: "필터 모두 지우기",
   empty_folder_browse: "이 폴더가 비어 있어요",
   favorites_section: "즐겨찾기",
+  today_note: "오늘의 노트",
+  daily_section: "데일리",
   recents_section: "최근 항목",
   inbox_immutable: "Inbox는 변경할 수 없어요",
   focus_mode: "몰입 모드",

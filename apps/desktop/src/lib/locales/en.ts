@@ -92,6 +92,8 @@ export const dict: Record<keyof typeof ko, string> = {
   clear_filters: "Clear all filters",
   empty_folder_browse: "This folder is empty",
   favorites_section: "Favorites",
+  today_note: "Today's Note",
+  daily_section: "Daily",
   recents_section: "Recents",
   inbox_immutable: "Inbox is immutable",
   focus_mode: "Focus mode",
