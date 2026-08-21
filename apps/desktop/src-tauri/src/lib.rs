@@ -205,6 +205,7 @@ pub fn run() {
             commands::list_memos,
             commands::get_memo,
             commands::create_memo,
+            commands::open_daily_note,
             commands::update_memo,
             commands::delete_memo,
             commands::reset_vault,
@@ -576,6 +577,17 @@ mod commands {
                 .create_note_auto(folder.as_deref().unwrap_or(""), body)
                 .map_err(|e| e.to_string())?
         };
+        let _ = app.emit("memos:changed", ());
+        Ok(state.vault.note_dto(&memo))
+    }
+
+    #[tauri::command]
+    pub fn open_daily_note(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        date: String,
+    ) -> Result<oximemo_core::memo::NoteDto, String> {
+        let memo = state.vault.open_daily(&date).map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(state.vault.note_dto(&memo))
     }
