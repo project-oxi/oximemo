@@ -962,23 +962,53 @@ export function CardGrid() {
               </div>
             ) : (noteView === "grid" || noteView === "list" ? cells.length : items.length) === 0 ? (
               <div className="mt-24 flex flex-col items-center gap-4 text-center">
-                <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
-                {hasMemos ? (
-                  <button
-                    type="button"
-                    onClick={clearAllFilters}
-                    className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-                  >
-                    {t.clear_filters}
-                  </button>
+                {folderFilter !== null && debounced.length === 0 ? (
+                  // Browse-mode empty (no search active): the location
+                  // itself is empty — a Finder folder with no items, not
+                  // a filter that matched nothing. The "no match / clear
+                  // filters" treatment is for query mode only.
+                  <>
+                    <p className="text-sm text-text-subtle">
+                      {hasMemos ? t.empty_folder_browse : t.empty_hint}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onNewNote()}
+                        className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+                      >
+                        <Plus size={15} strokeWidth={2.5} /> {t.new_note_md}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={startFolderCreate}
+                        className="inline-flex items-center gap-2 rounded-[var(--button-radius)] border border-line bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted shadow-sm transition-colors duration-150 hover:border-line-strong hover:text-text"
+                      >
+                        {t.folder_new}
+                      </button>
+                    </div>
+                  </>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => onNewNote()}
-                    className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-                  >
-                    <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
-                  </button>
+                  <>
+                    <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
+                    {hasMemos ? (
+                      <button
+                        type="button"
+                        onClick={clearAllFilters}
+                        className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+                      >
+                        {t.clear_filters}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onNewNote()}
+                        className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+                      >
+                        <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             ) : noteView === "grid" ? (

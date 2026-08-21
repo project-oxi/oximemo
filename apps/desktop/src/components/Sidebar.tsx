@@ -1,21 +1,20 @@
 /**
- * Collapsible left sidebar (§7): curation-only surface. Smart collections
- * (모든 노트 / 즐겨찾기 / 갤러리) sit at the top, TAGS in the middle, and a
- * flat FOLDERS list at the bottom. The FOLDERS list mirrors the user's
- * explicit pins from config; before any pin exists we fall back to the
- * top-level folders so the sidebar is never empty on first run.
+ * Collapsible left sidebar — Finder-model curation surface: FAVORITES
+ * (smart collections 모든 노트/즐겨찾기/갤러리 + explicitly pinned folder
+ * locations), RECENTS (recently updated notes), and TAGS. Never a folder
+ * browser — browsing and folder management happen in the main area.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpDown, Folder, Images, Layers, MoreHorizontal, Star } from "lucide-react";
 import { useState } from "react";
 
-import { listFacets, memoStats, listFolders, getConfig, setFolderPinned } from "../lib/api";
+import { listFacets, memoStats, listMemos, getConfig, setFolderPinned } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { useFolderDrop } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
 import { useUI, type TagState } from "../stores/ui";
-import type { FolderEntry, FolderDef } from "../lib/types";
+import type { FolderDef } from "../lib/types";
 
 const STATE_CLASS: Record<TagState, string> = {
   off: "bg-surface-muted text-text-muted hover:bg-surface-muted/80",
@@ -34,8 +33,13 @@ export function Sidebar({
   const { t } = useI18n();
   const facets = useQuery({ queryKey: ["facets"], queryFn: listFacets });
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
-  const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
   const configQ = useQuery({ queryKey: ["config"], queryFn: getConfig });
+  // ["memos", …] prefix: the memos:changed listener in CardGrid
+  // invalidates ["memos"], so recents refresh with everything else.
+  const recentsQ = useQuery({
+    queryKey: ["memos", "recents"],
+    queryFn: () => listMemos(null, 7),
+  });
   const tagFilter = useUI((s) => s.tagFilter);
   const cycleTag = useUI((s) => s.cycleTag);
   const clearTagFilter = useUI((s) => s.clearTagFilter);
@@ -47,6 +51,7 @@ export function Sidebar({
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const view = useUI((s) => s.view);
   const setView = useUI((s) => s.setView);
+  const select = useUI((s) => s.select);
   const setError = useUI((s) => s.setError);
   const qc = useQueryClient();
 
@@ -54,18 +59,11 @@ export function Sidebar({
   const folders: FolderDef[] = configQ.data?.folders ?? [];
   const total = stats.data?.memos ?? 0;
   const favoritesCount = stats.data?.favorites ?? 0;
+  const recents = recentsQ.data?.items ?? [];
 
-  // FOLDERS section: explicit pinned rows when the user has set any pin;
-  // otherwise show top-level folder entries so the sidebar is never empty
-  // on first run. Nested folders stay out — browse is what reveals them.
+  // Favorites: explicit pins only — the sidebar is curation (Finder
+  // model), never a folder browser. Pin from a folder's context menu.
   const pins = folders.filter((f) => f.pinned);
-  const explicit = pins.length > 0;
-  const seed: FolderEntry[] = explicit
-    ? []
-    : (foldersQ.data ?? []).filter((f) => f.path !== "" && !f.path.includes("/"));
-  const shownPaths: string[] = explicit
-    ? pins.map((f) => f.path)
-    : seed.map((f) => f.path);
 
   const openFolder = (path: string) => {
     setView("memos");
@@ -84,6 +82,13 @@ export function Sidebar({
     <aside className="flex w-56 shrink-0 flex-col border-r border-line bg-surface-sunken/60">
       <div data-tauri-drag-region className="h-12 shrink-0" />
 
+      {/* FAVORITES — Finder model: smart collections + explicitly pinned
+          folder locations live together; browse happens in the main area. */}
+      <div className="flex items-center px-3">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+          {t.favorites_section}
+        </span>
+      </div>
       <button
         type="button"
         onClick={() => { setView("memos"); setFavoritesOnly(false); setFolderFilter(null); }}
@@ -119,7 +124,48 @@ export function Sidebar({
       >
         <Images size={14} /> {t.gallery}
       </button>
+      {pins.map((f) => (
+        <SidebarFolderRow
+          key={f.path}
+          path={f.path}
+          folders={folders}
+          selected={folderFilter === f.path}
+          onOpen={openFolder}
+          onUnpin={unpin}
+          onMoveNote={onMoveNote}
+          onMoveFolderTree={onMoveFolderTree}
+        />
+      ))}
 
+      {/* RECENTS — recently updated notes, one click to open. */}
+      {recents.length > 0 && (
+        <>
+          <div className="mt-3 flex items-center px-3">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+              {t.recents_section}
+            </span>
+          </div>
+          <div className="flex flex-col px-2 pt-1">
+            {recents.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => { setView("memos"); select(n.id); }}
+                className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-text-muted hover:bg-surface-muted hover:text-text"
+              >
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-[2px]"
+                  style={{ backgroundColor: colorForFolder(n.folder, folders) }}
+                />
+                <span className="truncate">{n.title ?? t.empty_memo}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* TAGS */}
       <div className="mt-3 flex items-center justify-between px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">{t.tags_section}</span>
         <button
@@ -160,43 +206,16 @@ export function Sidebar({
           );
         })}
       </div>
-
-      {shownPaths.length > 0 && (
-        <>
-          <div className="mt-3 flex items-center px-3">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-              {t.folders_pinned_section}
-            </span>
-          </div>
-          <div className="flex flex-col px-2 pt-1">
-            {shownPaths.map((path) => (
-              <SidebarFolderRow
-                key={path}
-                path={path}
-                folders={folders}
-                selected={folderFilter === path}
-                explicit={explicit}
-                onOpen={openFolder}
-                onUnpin={unpin}
-                onMoveNote={onMoveNote}
-                onMoveFolderTree={onMoveFolderTree}
-              />
-            ))}
-          </div>
-        </>
-      )}
     </aside>
   );
 }
-
-/** One pinned/seeded FOLDERS row: a drop target (T14) with its own
- *  hover/focus state (the ⋯ unpin button reveal). Extracted so
- *  useFolderDrop runs at a stable hook index inside the paths map. */
+/** One pinned FOLDERS row: a drop target (T14) with its own hover/focus
+ *  state (the ⋯ unpin button reveal). Extracted so useFolderDrop runs at
+ *  a stable hook index inside the pins map. */
 function SidebarFolderRow({
   path,
   folders,
   selected,
-  explicit,
   onOpen,
   onUnpin,
   onMoveNote,
@@ -205,7 +224,6 @@ function SidebarFolderRow({
   path: string;
   folders: FolderDef[];
   selected: boolean;
-  explicit: boolean;
   onOpen: (path: string) => void;
   onUnpin: (path: string) => void;
   onMoveNote: (id: string, folder: string) => void;
@@ -218,7 +236,7 @@ function SidebarFolderRow({
   // since opacity-0 hides the focus ring too).
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const showMore = explicit && (hovered || focused);
+  const showMore = hovered || focused;
   // M16: the row is inert while the dragged note already lives here.
   // Folder drags land here too (cycles/parent no-ops suppressed in the
   // hook) — dropping a folder on a pin moves it there.
@@ -250,43 +268,41 @@ function SidebarFolderRow({
         />
         <span className="truncate">{path}</span>
       </button>
-      {explicit && (
-        <CtxRoot>
-          <CtxTrigger
-            render={
-              <button
-                type="button"
-                aria-label={t.folder_unpin}
-                title={t.folder_unpin}
-                // Base UI's ContextMenu.Trigger only opens on
-                // right-click/long-press — left-click / Enter on
-                // the rendered button does nothing on its own.
-                // We want one-click unpin (the row's primary
-                // affordance) and keep the menu for the secondary
-                // "open" path, so we wire onClick=unpin too.
-                onClick={() => onUnpin(path)}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
-                className={`grid size-5 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text ${
-                  showMore ? "opacity-100" : "opacity-0"
-                }`}
-              />
-            }
-          >
-            <MoreHorizontal size={12} />
-          </CtxTrigger>
-          <CtxMenu>
-            <CtxItem
-              label={t.folder_open}
-              onClick={() => onOpen(path)}
-            />
-            <CtxItem
-              label={t.folder_unpin}
+      <CtxRoot>
+        <CtxTrigger
+          render={
+            <button
+              type="button"
+              aria-label={t.folder_unpin}
+              title={t.folder_unpin}
+              // Base UI's ContextMenu.Trigger only opens on
+              // right-click/long-press — left-click / Enter on
+              // the rendered button does nothing on its own.
+              // We want one-click unpin (the row's primary
+              // affordance) and keep the menu for the secondary
+              // "open" path, so we wire onClick=unpin too.
               onClick={() => onUnpin(path)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              className={`grid size-5 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text ${
+                showMore ? "opacity-100" : "opacity-0"
+              }`}
             />
-          </CtxMenu>
-        </CtxRoot>
-      )}
+          }
+        >
+          <MoreHorizontal size={12} />
+        </CtxTrigger>
+        <CtxMenu>
+          <CtxItem
+            label={t.folder_open}
+            onClick={() => onOpen(path)}
+          />
+          <CtxItem
+            label={t.folder_unpin}
+            onClick={() => onUnpin(path)}
+          />
+        </CtxMenu>
+      </CtxRoot>
     </div>
   );
 }
