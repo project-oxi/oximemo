@@ -656,6 +656,47 @@ impl Vault {
             };
         self.create_note(folder, body, fmt)
     }
+    /// Open (or create) the daily note for `date` (`YYYY-MM-DD`),
+    /// daily-notes spec 2026-08-21 §2. Idempotent: an existing note at
+    /// `{daily.folder}/{date}.md|html` is returned as-is, so manual
+    /// files with matching names are adopted. Creation applies the
+    /// folder template with the caller's local date, then normalizes
+    /// the H1 to the date so the filename is deterministic.
+    pub fn open_daily(&self, date: &str) -> Result<Memo> {
+        if crate::template::parse_iso_date(date).is_none() {
+            return Err(CoreError::other("invalid date, expected YYYY-MM-DD"));
+        }
+        let folder = self.with_config(|c| c.daily.folder.clone());
+        let md_path = format!("{folder}/{date}.md");
+        let html_path = format!("{folder}/{date}.html");
+        let hit = self.with_redb(|idx| {
+            Ok(idx
+                .export_since(None)?
+                .into_iter()
+                .find(|r| !r.deleted && (r.path == md_path || r.path == html_path)))
+        })?;
+        if let Some(rec) = hit {
+            return self.get_memo(rec.id);
+        }
+        // Format follows the folder's templates (create_note_auto rule).
+        let md_t = crate::template::load_template(&self.paths, &folder, crate::memo::NoteFormat::Markdown);
+        let html_t = crate::template::load_template(&self.paths, &folder, crate::memo::NoteFormat::Html);
+        let fmt = if html_t.is_some() && md_t.is_none() {
+            crate::memo::NoteFormat::Html
+        } else {
+            crate::memo::NoteFormat::Markdown
+        };
+        let body = match md_t.or(html_t) {
+            Some(tmpl) => {
+                let counter = crate::template::count_notes(&self.paths, &folder) + 1;
+                let ctx = crate::template::TemplateCtx::for_date(date, &folder, counter);
+                let applied = crate::template::apply_template(&tmpl, &ctx);
+                normalize_daily_h1(fmt, &applied, date)
+            }
+            None => format!("# {date}\n"),
+        };
+        self.create_note(&folder, body, fmt)
+    }
 
     /// Backward-compat alias: create a markdown note at vault root.
     pub fn create_memo(&self, body: String, _category: Option<String>) -> Result<Memo> {
@@ -1714,6 +1755,32 @@ fn collect_folder_dirs(
         };
         counts.entry(child_rel.clone()).or_insert(0);
         collect_folder_dirs(&entry.path(), &child_rel, counts);
+    }
+}
+/// Force the daily note's derived title to the ISO date so
+/// `write_note` derives the canonical filename (spec §2). Templates
+/// whose H1 is something else (`# 일지`) keep their body underneath.
+fn normalize_daily_h1(fmt: crate::memo::NoteFormat, body: &str, date: &str) -> String {
+    // Keep template body when its H1 already starts with the date
+    // (e.g. "# {{date}} {{weekday}}"). Otherwise the slug would include
+    // trailing tokens (e.g. "2026-08-21-금"). When H1 is unrelated, force
+    // "# {date}" so the slug is deterministic.
+    let starts_with_date = match fmt {
+        crate::memo::NoteFormat::Markdown => body
+            .lines()
+            .next()
+            .is_some_and(|l| l.trim_start().starts_with(&format!("# {date}"))),
+        crate::memo::NoteFormat::Html => body
+            .lines()
+            .next()
+            .is_some_and(|l| l.trim_start().starts_with(&format!("<h1>{date}"))),
+    };
+    if crate::memo::note_title(fmt, body).as_deref() == Some(date) || starts_with_date {
+        return body.to_string();
+    }
+    match fmt {
+        crate::memo::NoteFormat::Markdown => format!("# {date}\n\n{body}"),
+        crate::memo::NoteFormat::Html => format!("<h1>{date}</h1>\n{body}"),
     }
 }
 
@@ -2856,5 +2923,94 @@ watcher_retry_interval_ms = 200
         assert_eq!(d2.folder, "");
         assert_eq!(d2.format, crate::memo::NoteFormat::Markdown);
         assert_eq!(d2.title.as_deref(), Some("MD"));
+    }
+
+    #[test]
+    fn open_daily_creates_then_is_idempotent() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        let m1 = v.open_daily("2026-08-21").unwrap();
+        assert_eq!(m1.body.lines().next(), Some("# 2026-08-21"));
+        let rec = v.with_redb(|i| i.get(m1.id)).unwrap().unwrap();
+        assert_eq!(rec.path, "daily/2026-08-21.md");
+        // Re-open returns the SAME note, never a duplicate.
+        let m2 = v.open_daily("2026-08-21").unwrap();
+        assert_eq!(m1.id, m2.id);
+    }
+
+    #[test]
+    fn open_daily_applies_template_with_caller_date() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("daily").unwrap();
+        std::fs::write(
+            v.paths().vault.join("daily/TEMPLATE.md"),
+            "# {{date}} {{weekday}}\n\n- ",
+        )
+        .unwrap();
+        let m = v.open_daily("2026-08-21").unwrap();
+        assert_eq!(m.body.lines().next(), Some("# 2026-08-21 금"));
+    }
+
+    #[test]
+    fn open_daily_normalizes_nonmatching_template_h1() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("daily").unwrap();
+        // Template H1 is NOT the date — the note must still land at the
+        // canonical path (deterministic filename, spec §2).
+        std::fs::write(v.paths().vault.join("daily/TEMPLATE.md"), "# 일지\n\n내용").unwrap();
+        let m = v.open_daily("2026-08-21").unwrap();
+        let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
+        assert_eq!(rec.path, "daily/2026-08-21.md");
+    }
+    #[test]
+    fn open_daily_respects_configured_folder() {
+        // tmp_vault opens with default config; write the toml BEFORE
+        // opening so Vault::open loads the override.
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join("oximemo.toml"),
+            "[daily]\nfolder = \"journal\"\n",
+        )
+        .unwrap();
+        let v = Vault::open(Some(dir.path())).unwrap();
+        v.ensure_initialized().unwrap();
+        let m = v.open_daily("2026-08-21").unwrap();
+        let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
+        assert_eq!(rec.path, "journal/2026-08-21.md");
+        let _ = dir; // keep alive
+    }
+
+    #[test]
+    fn open_daily_rejects_invalid_dates() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        assert!(v.open_daily("21-08-2026").is_err());
+        assert!(v.open_daily("2026-13-01").is_err());
+        assert!(v.open_daily("").is_err());
+    }
+
+    #[test]
+    fn open_daily_adopts_existing_file() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        let manual = v
+            .create_note("daily", "# 2026-08-21\n수동으로 만든 파일".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let m = v.open_daily("2026-08-21").unwrap();
+        assert_eq!(m.id, manual.id, "must adopt, not duplicate");
+    }
+
+    #[test]
+    fn open_daily_html_template_folder() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("daily").unwrap();
+        std::fs::write(v.paths().vault.join("daily/TEMPLATE.html"), "<h1>일지</h1>").unwrap();
+        let m = v.open_daily("2026-08-21").unwrap();
+        let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
+        assert_eq!(rec.path, "daily/2026-08-21.html");
+        assert!(m.body.contains("<h1>2026-08-21</h1>"));
     }
 }
