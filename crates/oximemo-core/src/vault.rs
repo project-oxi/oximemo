@@ -662,7 +662,12 @@ impl Vault {
     /// files with matching names are adopted. Creation applies the
     /// folder template with the caller's local date, then normalizes
     /// the H1 to the date so the filename is deterministic.
-    pub fn open_daily(&self, date: &str) -> Result<Memo> {
+    ///
+    /// Returns the note plus `created: true` only when a NEW note was
+    /// minted by this call. Adopted/index hits report `false` so callers
+    /// can discard untouched fresh notes without ever deleting a file
+    /// the user made themselves.
+    pub fn open_daily(&self, date: &str) -> Result<(Memo, bool)> {
         if crate::template::parse_iso_date(date).is_none() {
             return Err(CoreError::other("invalid date, expected YYYY-MM-DD"));
         }
@@ -680,7 +685,7 @@ impl Vault {
                 .find(|r| !r.deleted && (r.path == md_path || r.path == html_path)))
         })?;
         if let Some(rec) = hit {
-            return self.get_memo(rec.id);
+            return Ok((self.get_memo(rec.id)?, false));
         }
         // Index miss does not mean the file is absent: the watcher may not
         // have ingested it yet (debounce / startup lag). Adopt a canonical
@@ -727,7 +732,7 @@ impl Vault {
                 idx.upsert(&record_of(&note, rel))?;
                 search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
             })?;
-            return Ok(note);
+            return Ok((note, false));
         }
         // Format follows the folder's templates (create_note_auto rule).
         let md_t =
@@ -749,6 +754,7 @@ impl Vault {
             None => format!("# {date}\n"),
         };
         self.create_note(&folder, body, fmt)
+            .map(|memo| (memo, true))
     }
 
     /// Backward-compat alias: create a markdown note at vault root.
@@ -2967,13 +2973,16 @@ watcher_retry_interval_ms = 200
     fn open_daily_creates_then_is_idempotent() {
         let (_t, v) = tmp_vault();
         v.ensure_initialized().unwrap();
-        let m1 = v.open_daily("2026-08-21").unwrap();
+        let (m1, created) = v.open_daily("2026-08-21").unwrap();
+        assert!(created, "first open mints the note");
         assert_eq!(m1.body.lines().next(), Some("# 2026-08-21"));
         let rec = v.with_redb(|i| i.get(m1.id)).unwrap().unwrap();
         assert_eq!(rec.path, "daily/2026-08-21.md");
-        // Re-open returns the SAME note, never a duplicate.
-        let m2 = v.open_daily("2026-08-21").unwrap();
+        // Re-open returns the SAME note, never a duplicate — and reports
+        // created=false so an untouched close never discards it.
+        let (m2, created2) = v.open_daily("2026-08-21").unwrap();
         assert_eq!(m1.id, m2.id);
+        assert!(!created2);
     }
 
     #[test]
@@ -2986,7 +2995,7 @@ watcher_retry_interval_ms = 200
             "# {{date}} {{weekday}}\n\n- ",
         )
         .unwrap();
-        let m = v.open_daily("2026-08-21").unwrap();
+        let (m, _) = v.open_daily("2026-08-21").unwrap();
         // The normalized H1 is the date so the filename is canonical;
         // the template body (weekday line, "- " prompt) is preserved below.
         assert_eq!(m.body.lines().next(), Some("# 2026-08-21"));
@@ -3003,7 +3012,7 @@ watcher_retry_interval_ms = 200
         // Template H1 is NOT the date — the note must still land at the
         // canonical path (deterministic filename, spec §2).
         std::fs::write(v.paths().vault.join("daily/TEMPLATE.md"), "# 일지\n\n내용").unwrap();
-        let m = v.open_daily("2026-08-21").unwrap();
+        let (m, _) = v.open_daily("2026-08-21").unwrap();
         let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
         assert_eq!(rec.path, "daily/2026-08-21.md");
     }
@@ -3019,7 +3028,7 @@ watcher_retry_interval_ms = 200
         .unwrap();
         let v = Vault::open(Some(dir.path())).unwrap();
         v.ensure_initialized().unwrap();
-        let m = v.open_daily("2026-08-21").unwrap();
+        let (m, _) = v.open_daily("2026-08-21").unwrap();
         let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
         assert_eq!(rec.path, "journal/2026-08-21.md");
         let _ = dir; // keep alive
@@ -3045,8 +3054,9 @@ watcher_retry_interval_ms = 200
                 crate::memo::NoteFormat::Markdown,
             )
             .unwrap();
-        let m = v.open_daily("2026-08-21").unwrap();
+        let (m, created) = v.open_daily("2026-08-21").unwrap();
         assert_eq!(m.id, manual.id, "must adopt, not duplicate");
+        assert!(!created, "adoption must not mark the note discardable");
     }
 
     #[test]
@@ -3062,7 +3072,7 @@ watcher_retry_interval_ms = 200
             "# 2026-08-21\n직접 쓴 파일\n",
         )
         .unwrap();
-        let m = v.open_daily("2026-08-21").unwrap();
+        let (m, _) = v.open_daily("2026-08-21").unwrap();
         assert_eq!(m.body, "# 2026-08-21\n직접 쓴 파일\n");
         let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
         assert_eq!(rec.path, "daily/2026-08-21.md");
@@ -3071,7 +3081,7 @@ watcher_retry_interval_ms = 200
             "no suffixed sibling"
         );
         // Adoption is now indexed: re-open returns the same note.
-        let m2 = v.open_daily("2026-08-21").unwrap();
+        let (m2, _) = v.open_daily("2026-08-21").unwrap();
         assert_eq!(m.id, m2.id);
     }
 
@@ -3087,7 +3097,7 @@ watcher_retry_interval_ms = 200
             "+++\nid = \"017f22e2-79b6-749e-8c01-0f99a2217673\"\nhash = \"b3:0\"\ncreated_at = \"2026-08-20T00:00:00Z\"\nupdated_at = \"2026-08-20T00:00:00Z\"\n\n+++\n\n# 2026-08-21\n동기화된 파일\n",
         )
         .unwrap();
-        let m = v.open_daily("2026-08-21").unwrap();
+        let (m, _) = v.open_daily("2026-08-21").unwrap();
         assert_eq!(m.id.to_string(), "017f22e2-79b6-749e-8c01-0f99a2217673");
         assert!(m.body.contains("동기화된 파일"));
         let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
@@ -3106,7 +3116,7 @@ watcher_retry_interval_ms = 200
         .unwrap();
         let v = Vault::open(Some(dir.path())).unwrap();
         v.ensure_initialized().unwrap();
-        let m = v.open_daily("2026-08-21").unwrap();
+        let (m, _) = v.open_daily("2026-08-21").unwrap();
         let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
         assert_eq!(rec.path, "daily/2026-08-21.md");
 
@@ -3126,7 +3136,7 @@ watcher_retry_interval_ms = 200
         v.ensure_initialized().unwrap();
         v.create_folder("daily").unwrap();
         std::fs::write(v.paths().vault.join("daily/TEMPLATE.html"), "<h1>일지</h1>").unwrap();
-        let m = v.open_daily("2026-08-21").unwrap();
+        let (m, _) = v.open_daily("2026-08-21").unwrap();
         let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
         assert_eq!(rec.path, "daily/2026-08-21.html");
         assert!(m.body.contains("<h1>2026-08-21</h1>"));

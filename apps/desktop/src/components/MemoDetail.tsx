@@ -25,6 +25,7 @@ export function MemoDetail() {
   const select = useUI((s) => s.select);
   const setError = useUI((s) => s.setError);
   const draftId = useUI((s) => s.draftId);
+  const draftPristine = useUI((s) => s.draftPristine);
   const setDraftId = useUI((s) => s.setDraftId);
   const open = selectedId !== null;
   const qc = useQueryClient();
@@ -76,9 +77,15 @@ export function MemoDetail() {
   }, [dirty, body, favorite, selectedId, qc]);
 
   const close = () => {
-    if (selectedId && selectedId === draftId && !body.trim()) {
+    // Discard a session-minted draft (new memo, fresh daily note) closed
+    // while still pristine: blank, or exactly the body it was born with
+    // (a daily note's template — the user typed nothing).
+    if (selectedId && selectedId === draftId && (!body.trim() || body === (draftPristine ?? ""))) {
       void deleteMemo(selectedId)
-        .then(() => qc.invalidateQueries({ queryKey: ["memos"] }))
+        .then(() => {
+          qc.invalidateQueries({ queryKey: ["memos"] });
+          qc.invalidateQueries({ queryKey: ["folderChildren"] });
+        })
         .catch((e) => setError(String(e).split("\n")[0]));
       setDraftId(null);
       select(null);

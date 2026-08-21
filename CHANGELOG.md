@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Discard untouched daily notes** — closing a daily note that this
+  session just created (template body intact, nothing typed) now removes
+  it instead of leaving an empty stub. Revisited/adopted daily notes are
+  never discarded. `open_daily_note` now returns `{memo, created}` so the
+  frontend only marks fresh notes as discardable drafts.
+
 ### Added
 
 - **Daily notes** — sidebar DAILY section: mini month calendar (dots on

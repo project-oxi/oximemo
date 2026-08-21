@@ -23,6 +23,14 @@ export interface Memo {
   deleted_at: string | null;
 }
 
+/** `open_daily_note` payload: the note plus whether this call minted it.
+ *  A freshly created daily note is discardable on close-untouched;
+ *  adopted/visited ones never are. */
+export interface DailyOpen {
+  memo: Memo;
+  created: boolean;
+}
+
 export interface BrainStatus {
   online: boolean;
   disabled?: boolean;

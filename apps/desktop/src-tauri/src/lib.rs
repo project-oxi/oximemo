@@ -581,15 +581,27 @@ mod commands {
         Ok(state.vault.note_dto(&memo))
     }
 
+    /// Payload of `open_daily_note`: the note plus whether THIS call
+    /// minted it. The frontend discards a freshly created daily note on
+    /// close-untouched; adopted/visited notes must never be.
+    #[derive(serde::Serialize)]
+    pub struct DailyOpenDto {
+        pub memo: oximemo_core::memo::NoteDto,
+        pub created: bool,
+    }
+
     #[tauri::command]
     pub fn open_daily_note(
         state: State<'_, AppState>,
         app: AppHandle,
         date: String,
-    ) -> Result<oximemo_core::memo::NoteDto, String> {
-        let memo = state.vault.open_daily(&date).map_err(|e| e.to_string())?;
+    ) -> Result<DailyOpenDto, String> {
+        let (memo, created) = state.vault.open_daily(&date).map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
-        Ok(state.vault.note_dto(&memo))
+        Ok(DailyOpenDto {
+            memo: state.vault.note_dto(&memo),
+            created,
+        })
     }
 
     #[tauri::command]

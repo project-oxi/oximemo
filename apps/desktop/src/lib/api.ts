@@ -10,6 +10,7 @@ import type {
   BrainLayer,
   BrainStatus,
   Config,
+  DailyOpen,
   FolderCard,
   FolderDef,
   FolderEntry,
@@ -65,9 +66,10 @@ export async function createMemo(
   return invoke<Memo>("create_memo", { body, folder, format: format ?? null });
 }
 
-/** Open (create if missing) the daily note for an ISO date (YYYY-MM-DD). */
+/** Open (create if missing) the daily note for an ISO date (YYYY-MM-DD).
+ *  `created` is true only when this call minted the note. */
 export async function openDailyNote(date: string) {
-  return invoke<Memo>("open_daily_note", { date });
+  return invoke<DailyOpen>("open_daily_note", { date });
 }
 
 export async function updateMemo(

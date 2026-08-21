@@ -56,10 +56,15 @@ interface UIState {
    * longer so it is actually clickable. */
   toast: { msg: string; action?: ToastAction } | null;
   setToast: (msg: string | null, action?: ToastAction) => void;
-  /** Id of a note minted by "new memo" this session; discarded on close
-   * while still empty so no orphan notes accumulate. */
+  /** Id of a note minted this session ("new memo", fresh daily note);
+   * discarded on close while still pristine so no orphan notes
+   * accumulate. */
   draftId: string | null;
-  setDraftId: (id: string | null) => void;
+  /** Body the draft was born with (empty for "new memo", template for a
+   * fresh daily note). Close discards the draft when the body still
+   * equals this (or is blank). `null` pairs with a stale draftId. */
+  draftPristine: string | null;
+  setDraftId: (id: string | null, pristine?: string) => void;
   /** Note currently being HTML5-dragged (T14). Set by the drag source's
    * dragstart, cleared on dragend; drop targets read it for M16
    * own-folder suppression and the grid's edge auto-scroll gates on it. */
@@ -155,7 +160,9 @@ export const useUI = create<UIState>((set) => ({
   toast: null,
   setToast: (msg, action) => set({ toast: msg === null ? null : { msg, action } }),
   draftId: null,
-  setDraftId: (id) => set({ draftId: id }),
+  draftPristine: null,
+  setDraftId: (id, pristine) =>
+    set({ draftId: id, draftPristine: id === null ? null : pristine ?? "" }),
   draggingNote: null,
   setDraggingNote: (m) => set({ draggingNote: m }),
   draggingFolder: null,

@@ -55,6 +55,7 @@ export function Sidebar({
   const setView = useUI((s) => s.setView);
   const select = useUI((s) => s.select);
   const setError = useUI((s) => s.setError);
+  const setDraftId = useUI((s) => s.setDraftId);
   const qc = useQueryClient();
 
   const tags = facets.data?.tags ?? [];
@@ -88,9 +89,12 @@ export function Sidebar({
 
   const openDaily = (date: string) => {
     openDailyNote(date)
-      .then((n) => {
+      .then(({ memo, created }) => {
         setView("memos");
-        select(n.id);
+        select(memo.id);
+        // Fresh daily note: closing it untouched (template body intact)
+        // discards it. Adopted/visited notes are never discardable.
+        if (created) setDraftId(memo.id, memo.body);
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   };

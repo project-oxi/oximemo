@@ -293,7 +293,7 @@ async function browserFallback(
           !n.deleted_at &&
           (n.path === `${folder}/${date}.md` || n.path === `${folder}/${date}.html`),
       );
-      if (hit) return hit;
+      if (hit) return { memo: hit, created: false };
       const now = new Date().toISOString();
       const memo: Memo = {
         id: crypto.randomUUID(),
@@ -312,7 +312,7 @@ async function browserFallback(
       store[memo.id] = memo;
       saveStore(store);
       emitBrowser("memos:changed");
-      return memo;
+      return { memo, created: true };
     }
 
     case "update_memo": {
