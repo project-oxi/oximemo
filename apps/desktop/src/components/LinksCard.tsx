@@ -4,6 +4,7 @@
  * Renders inside a Popover.Popup, sized per the spec: 320px wide, 360px max height.
  */
 import { useI18n } from "../lib/i18n";
+import { previewText } from "../lib/markdownPreview";
 import type { BacklinkInfo } from "../lib/types";
 
 export interface LinksCardProps {
@@ -32,11 +33,11 @@ export function LinksCard({ backlinks, isLoading, onNavigate }: LinksCardProps) 
                 <button
                   type="button"
                   onClick={() => onNavigate(bl.id)}
-                  className="block w-full truncate rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-muted"
+                  className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-muted"
                 >
-                  <span className="font-medium text-text">{bl.title}</span>
-                  <span className="mt-0.5 block truncate text-text-subtle">
-                    {bl.preview}
+                  <span className="block truncate font-medium text-text">{bl.title}</span>
+                  <span className="mt-0.5 line-clamp-2 whitespace-pre-line text-text-subtle">
+                    {previewText(bl.preview) || ""}
                   </span>
                 </button>
               </li>

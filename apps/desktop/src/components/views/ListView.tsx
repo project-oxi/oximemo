@@ -18,6 +18,7 @@ import { useI18n } from "../../lib/i18n";
 import { useFolderDrop } from "../../lib/dropTarget";
 import { relativeTime } from "../../lib/time";
 import { useUI } from "../../stores/ui";
+import { previewText } from "../../lib/markdownPreview";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
 import { CtxRoot, CtxTrigger } from "../ContextMenu";
@@ -130,7 +131,9 @@ export function ListView({
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 line-clamp-1 text-xs text-text-subtle">{n.preview || ""}</div>
+                <div className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs text-text-subtle">
+                  {previewText(n.preview) || ""}
+                </div>
               </div>
               <div className="flex shrink-0 items-baseline gap-2 text-[11px] text-text-subtle">
                 {n.tags.slice(0, 3).map((tag) => (

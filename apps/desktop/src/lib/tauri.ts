@@ -117,7 +117,7 @@ function saveFolders(paths: string[]): void {
   localStorage.setItem(FOLDERS_KEY, JSON.stringify(paths));
 }
 
-const PREVIEW_MAX = 160;
+const PREVIEW_MAX = 280;
 
 function loadStore(): Record<string, Memo> {
   try {
@@ -131,14 +131,14 @@ function saveStore(memos: Record<string, Memo>): void {
   localStorage.setItem(STORE_KEY, JSON.stringify(memos));
 }
 
-/** Match core's `make_preview`: non-empty trimmed lines joined by one space,
- *  truncated on a char boundary with an ellipsis. */
+/** Match core's `make_preview`: non-empty trimmed lines joined by newlines
+ *  (so previews keep the user's line breaks), truncated on a char boundary. */
 function makePreview(body: string): string {
   const joined = body
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.length > 0)
-    .join(" ");
+    .join("\n");
   const chars = [...joined];
   if (chars.length <= PREVIEW_MAX) return joined;
   return chars.slice(0, PREVIEW_MAX - 1).join("") + "\u2026";

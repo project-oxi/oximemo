@@ -21,6 +21,7 @@ import { NoteCtxMenu } from "../NoteCtxMenu";
 import { colorForFolder } from "../../lib/color";
 import { relativeTime } from "../../lib/time";
 import { useI18n } from "../../lib/i18n";
+import { previewText } from "../../lib/markdownPreview";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
 interface Props {
@@ -121,7 +122,9 @@ export function TimelineView({
                         {relativeTime(n.updated_at, locale)}
                       </span>
                     </div>
-                    <div className="mt-1 line-clamp-2 text-xs text-text-subtle">{n.preview || ""}</div>
+                    <div className="mt-1 line-clamp-2 whitespace-pre-line text-xs text-text-subtle">
+                      {previewText(n.preview) || ""}
+                    </div>
                     {n.tags.length > 0 && (
                       <div className="mt-1.5 flex gap-1">
                         {n.tags.slice(0, 4).map((tag) => (
