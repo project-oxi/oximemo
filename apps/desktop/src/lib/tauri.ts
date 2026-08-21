@@ -447,56 +447,24 @@ async function browserFallback(
       return restored;
     }
     case "rename_folder": {
-      const from = args?.from as string;
-      const to = args?.to as string;
-      if (!from || !to || from === to) throw new Error("invalid rename");
-      // Target-exists guard: backend `rename_folder` (vault.rs) errors
-      // with "folder '<to>' already exists" when `to_dir.exists()`. The
-      // browser-mode fallback must mirror that or the optimistic
-      // rename would silently overwrite. Include memo paths: a memo
-      // file at the destination is effectively a folder there.
-      {
-        const paths = loadFolders();
-        if (paths.includes(to)) {
-          throw new Error(`folder '${to}' already exists`);
-        }
-        const store0 = loadStore();
-        const memoClash = Object.values(store0).some(
-          (n) =>
-            (n.folder ?? "") === to ||
-            (n.folder ?? "").startsWith(`${to}/`) ||
-            n.path === `${to}.md` ||
-            n.path === `${to}.html` ||
-            n.path.startsWith(`${to}/`),
-        );
-        if (memoClash) {
-          throw new Error(`folder '${to}' already exists`);
-        }
+      renameFolderFallback(args?.from as string, args?.to as string);
+      return null;
+    }
+    case "move_folder": {
+      // Finder-semantics mirror of vault.rs move_folder: keep the
+      // basename, guard cycles and parent no-ops client-side, then
+      // delegate to the rename machinery for store/folder/view/pin
+      // re-pathing (which carries the target-exists guard).
+      const path = args?.path as string;
+      const dest = ((args?.dest as string | undefined) ?? "").trim();
+      if (!path) throw new Error("cannot move the vault root");
+      if (dest === path || dest.startsWith(`${path}/`)) {
+        throw new Error(`cannot move '${path}' into itself`);
       }
-      const store = loadStore();
-      for (const n of Object.values(store)) {
-        if (n.folder === from) n.folder = to;
-        else if (n.folder.startsWith(`${from}/`)) n.folder = `${to}/${n.folder.slice(from.length + 1)}`;
-        if (n.folder === to && !n.path.startsWith(`${to}/`)) {
-          n.path = `${to}/${n.path.split("/").pop()}`;
-        } else if (n.path.startsWith(`${from}/`)) {
-          n.path = `${to}/${n.path.slice(from.length + 1)}`;
-        }
-      }
-      saveStore(store);
-      saveFolders(
-        loadFolders().map((p) =>
-          p === from ? to : p.startsWith(`${from}/`) ? `${to}/${p.slice(from.length + 1)}` : p,
-        ),
-      );
-      const views = loadViews();
-      if (Object.hasOwn(views, from)) {
-        views[to] = views[from];
-        delete views[from];
-      }
-      localStorage.setItem(VIEW_KEY, JSON.stringify(views));
-      savePins(loadPins().map((p) => (p === from ? to : p)));
-      emitBrowser("memos:changed");
+      const base = path.split("/").at(-1) ?? path;
+      const to = dest ? `${dest}/${base}` : base;
+      if (to === path) return null; // already lives at the destination
+      renameFolderFallback(path, to);
       return null;
     }
 
@@ -591,4 +559,54 @@ async function browserFallback(
     default:
       return null;
   }
+}
+
+/** Browser-fallback rename/move core: re-path memo store rows, the
+ * folder registry, per-folder views, and pins. Throws on invalid input
+ * or when the target folder/memo path already exists (backend parity —
+ * vault.rs rename_folder's to_dir.exists() guard). */
+function renameFolderFallback(from: string, to: string) {
+  if (!from || !to || from === to) throw new Error("invalid rename");
+  {
+    const paths = loadFolders();
+    if (paths.includes(to)) {
+      throw new Error(`folder '${to}' already exists`);
+    }
+    const store0 = loadStore();
+    const memoClash = Object.values(store0).some(
+      (n) =>
+        (n.folder ?? "") === to ||
+        (n.folder ?? "").startsWith(`${to}/`) ||
+        n.path === `${to}.md` ||
+        n.path === `${to}.html` ||
+        n.path.startsWith(`${to}/`),
+    );
+    if (memoClash) {
+      throw new Error(`folder '${to}' already exists`);
+    }
+  }
+  const store = loadStore();
+  for (const n of Object.values(store)) {
+    if (n.folder === from) n.folder = to;
+    else if (n.folder.startsWith(`${from}/`)) n.folder = `${to}/${n.folder.slice(from.length + 1)}`;
+    if (n.folder === to && !n.path.startsWith(`${to}/`)) {
+      n.path = `${to}/${n.path.split("/").pop()}`;
+    } else if (n.path.startsWith(`${from}/`)) {
+      n.path = `${to}/${n.path.slice(from.length + 1)}`;
+    }
+  }
+  saveStore(store);
+  saveFolders(
+    loadFolders().map((p) =>
+      p === from ? to : p.startsWith(`${from}/`) ? `${to}/${p.slice(from.length + 1)}` : p,
+    ),
+  );
+  const views = loadViews();
+  if (Object.hasOwn(views, from)) {
+    views[to] = views[from];
+    delete views[from];
+  }
+  localStorage.setItem(VIEW_KEY, JSON.stringify(views));
+  savePins(loadPins().map((p) => (p === from ? to : p)));
+  emitBrowser("memos:changed");
 }

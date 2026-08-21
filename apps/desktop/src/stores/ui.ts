@@ -65,6 +65,11 @@ interface UIState {
    * own-folder suppression and the grid's edge auto-scroll gates on it. */
   draggingNote: MemoSummary | null;
   setDraggingNote: (m: MemoSummary | null) => void;
+  /** Folder path currently being HTML5-dragged (folder moves). Set by
+   * the drag source's dragstart, cleared on dragend; drop targets read
+   * it for cycle/parent no-op suppression — see useFolderDrop. */
+  draggingFolder: string | null;
+  setDraggingFolder: (p: string | null) => void;
   /** Available update version surfaced on the settings gear, or null. */
   updateAvailable: string | null;
   setUpdateAvailable: (v: string | null) => void;
@@ -153,6 +158,8 @@ export const useUI = create<UIState>((set) => ({
   setDraftId: (id) => set({ draftId: id }),
   draggingNote: null,
   setDraggingNote: (m) => set({ draggingNote: m }),
+  draggingFolder: null,
+  setDraggingFolder: (p) => set({ draggingFolder: p }),
   updateAvailable: null,
   setUpdateAvailable: (v) => set({ updateAvailable: v }),
 }));

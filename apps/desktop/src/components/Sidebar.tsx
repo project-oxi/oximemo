@@ -23,7 +23,14 @@ const STATE_CLASS: Record<TagState, string> = {
   out: "border border-hue-amber text-hue-amber line-through",
 };
 
-export function Sidebar({ onMoveNote }: { onMoveNote: (id: string, folder: string) => void }) {
+export function Sidebar({
+  onMoveNote,
+  onMoveFolderTree,
+}: {
+  onMoveNote: (id: string, folder: string) => void;
+  /** Move a dragged folder subtree into a pinned/seeded row's folder. */
+  onMoveFolderTree?: (path: string, dest: string) => void;
+}) {
   const { t } = useI18n();
   const facets = useQuery({ queryKey: ["facets"], queryFn: listFacets });
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
@@ -172,6 +179,7 @@ export function Sidebar({ onMoveNote }: { onMoveNote: (id: string, folder: strin
                 onOpen={openFolder}
                 onUnpin={unpin}
                 onMoveNote={onMoveNote}
+                onMoveFolderTree={onMoveFolderTree}
               />
             ))}
           </div>
@@ -192,6 +200,7 @@ function SidebarFolderRow({
   onOpen,
   onUnpin,
   onMoveNote,
+  onMoveFolderTree,
 }: {
   path: string;
   folders: FolderDef[];
@@ -200,6 +209,8 @@ function SidebarFolderRow({
   onOpen: (path: string) => void;
   onUnpin: (path: string) => void;
   onMoveNote: (id: string, folder: string) => void;
+  /** Move a dragged folder subtree into this row's folder (drop target). */
+  onMoveFolderTree?: (path: string, dest: string) => void;
 }) {
   const { t } = useI18n();
   // Reveal the ⋯ button on hover OR keyboard focus (so keyboard users can
@@ -209,8 +220,12 @@ function SidebarFolderRow({
   const [focused, setFocused] = useState(false);
   const showMore = explicit && (hovered || focused);
   // M16: the row is inert while the dragged note already lives here.
-  const { dropCls, ...dropProps } = useFolderDrop(path, (id) =>
-    onMoveNote(id, path),
+  // Folder drags land here too (cycles/parent no-ops suppressed in the
+  // hook) — dropping a folder on a pin moves it there.
+  const { dropCls, ...dropProps } = useFolderDrop(
+    path,
+    (id) => onMoveNote(id, path),
+    onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
   );
   return (
     <div

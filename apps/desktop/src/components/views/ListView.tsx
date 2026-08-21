@@ -33,6 +33,7 @@ interface Props {
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string, favorite: boolean) => void;
   onMoveFolder: (id: string, folder: string) => void;
+  onMoveFolderTree?: (path: string, dest: string) => void;
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
   onNewNote?: () => void;
@@ -52,6 +53,7 @@ export function ListView({
   onSelect,
   onToggleFavorite,
   onMoveFolder,
+  onMoveFolderTree,
   onCopyBody,
   onDelete,
   onRenameFolder,
@@ -75,6 +77,7 @@ export function ListView({
           onToggleFolderPin={onToggleFolderPin}
           onDeleteFolder={onDeleteFolder}
           onMoveFolder={onMoveFolder}
+          onMoveFolderTree={onMoveFolderTree}
           onNameCommit={onNameCommit}
         />
       ))}
@@ -167,6 +170,7 @@ function FolderRow({
   onToggleFolderPin,
   onDeleteFolder,
   onMoveFolder,
+  onMoveFolderTree,
   onNameCommit,
 }: {
   f: FolderCard;
@@ -177,12 +181,17 @@ function FolderRow({
   onToggleFolderPin: (path: string, pinned: boolean) => void;
   onDeleteFolder: (path: string, deep: number, confirmed?: boolean) => void;
   onMoveFolder: (id: string, folder: string) => void;
+  onMoveFolderTree?: (path: string, dest: string) => void;
   onNameCommit: (value: string | null) => void;
 }) {
   const { t } = useI18n();
+  const setDraggingFolder = useUI((s) => s.setDraggingFolder);
   // M16: the row is inert while the dragged note already lives here.
-  const { dropCls, ...dropProps } = useFolderDrop(f.path, (id) =>
-    onMoveFolder(id, f.path),
+  // Folder drags land here too (cycles/parent no-ops suppressed in the hook).
+  const { dropCls, ...dropProps } = useFolderDrop(
+    f.path,
+    (id) => onMoveFolder(id, f.path),
+    onMoveFolderTree ? (p) => onMoveFolderTree(p, f.path) : undefined,
   );
   return (
     <li data-folder-row={f.path} {...dropProps} className={dropCls}>
@@ -196,6 +205,13 @@ function FolderRow({
         onDelete={onDeleteFolder}
         render={
           <div
+            draggable={!naming}
+            onDragStart={(e) => {
+              setDraggingFolder(f.path);
+              e.dataTransfer.setData("application/x-oximemo-folder", f.path);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragEnd={() => setDraggingFolder(null)}
             onClick={() => {
               if (!naming) onOpenFolder(f.path);
             }}

@@ -10,7 +10,7 @@
  * (sections E and F, .chip / .bar classes).
  */
 import { Folder, Plus } from "lucide-react";
-
+import { useUI } from "../stores/ui";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useFolderDrop } from "../lib/dropTarget";
@@ -27,9 +27,11 @@ export interface FolderChipBarProps {
   onNewFolder: () => void;
   /** Move a dragged note into the chip's folder (T14 drop target). */
   onMoveNote: (id: string, folder: string) => void;
+  /** Move a dragged folder subtree into the chip's folder (drop target). */
+  onMoveFolderTree?: (path: string, dest: string) => void;
 }
 
-export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder, onMoveNote }: FolderChipBarProps) {
+export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder, onMoveNote, onMoveFolderTree }: FolderChipBarProps) {
   const { t } = useI18n();
   // Empty state hides the bar entirely — no orphan "＋ 새 폴더" chip
   // alone; the header FolderPlus button is the always-visible create
@@ -44,6 +46,7 @@ export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder, onMoveNo
           folderDefs={folderDefs ?? []}
           onOpen={onOpen}
           onMoveNote={onMoveNote}
+          onMoveFolderTree={onMoveFolderTree}
         />
       ))}
       <button
@@ -65,22 +68,35 @@ function FolderChip({
   folderDefs,
   onOpen,
   onMoveNote,
+  onMoveFolderTree,
 }: {
   card: FolderCard;
   folderDefs: FolderDef[];
   onOpen: (path: string) => void;
   onMoveNote: (id: string, folder: string) => void;
+  onMoveFolderTree?: (path: string, dest: string) => void;
 }) {
   const color = colorForFolder(card.path, folderDefs);
   const name = card.path.split("/").at(-1) ?? card.path;
+  const setDraggingFolder = useUI((s) => s.setDraggingFolder);
   // M16: the chip is inert while the dragged note already lives here.
-  const { dropCls, ...dropProps } = useFolderDrop(card.path, (id) =>
-    onMoveNote(id, card.path),
+  // Folder drags land here too (cycles/parent no-ops suppressed in the hook).
+  const { dropCls, ...dropProps } = useFolderDrop(
+    card.path,
+    (id) => onMoveNote(id, card.path),
+    onMoveFolderTree ? (p) => onMoveFolderTree(p, card.path) : undefined,
   );
   return (
     <button
       type="button"
       role="listitem"
+      draggable
+      onDragStart={(e) => {
+        setDraggingFolder(card.path);
+        e.dataTransfer.setData("application/x-oximemo-folder", card.path);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      onDragEnd={() => setDraggingFolder(null)}
       data-chip-folder={card.path}
       onClick={() => onOpen(card.path)}
       {...dropProps}

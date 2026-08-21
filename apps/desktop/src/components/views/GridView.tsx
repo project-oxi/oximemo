@@ -30,6 +30,7 @@ interface Props {
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string, favorite: boolean) => void;
   onMoveFolder: (id: string, folder: string) => void;
+  onMoveFolderTree?: (path: string, dest: string) => void;
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
   onNewNoteIn: (folder: string) => void;
@@ -60,6 +61,7 @@ export function GridView({
   onSelect,
   onToggleFavorite,
   onMoveFolder,
+  onMoveFolderTree,
   onCopyBody,
   onDelete,
   onNewNoteIn,
@@ -109,8 +111,9 @@ export function GridView({
                     onNewNote={onNewNoteIn}
                     onRename={onRenameFolder}
                     onTogglePin={onToggleFolderPin}
-                    onDelete={onDeleteFolder}
                     onMoveFolder={onMoveFolder}
+                    onMoveFolderTree={onMoveFolderTree}
+                    onDelete={onDeleteFolder}
                     namingPath={namingPath}
                     onNameCommit={onNameCommit}
                   />

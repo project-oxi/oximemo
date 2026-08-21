@@ -41,6 +41,9 @@ export interface BreadcrumbBarProps {
   folderDefs?: FolderDef[];
   /** Move a dragged note into a segment's folder (T14 drop target). */
   onMoveNote: (id: string, folder: string) => void;
+  /** Move a dragged folder subtree into a segment's folder (drop target;
+   *  the root segment is how a folder returns to the vault top level). */
+  onMoveFolderTree?: (path: string, dest: string) => void;
 }
 
 /** Direct children of `path` ("" = root level). */
@@ -86,7 +89,7 @@ function dropdownFor(
   return out;
 }
 
-export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote }: BreadcrumbBarProps) {
+export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFolderTree }: BreadcrumbBarProps) {
   const { t } = useI18n();
   const folderFilter = useUI((s) => s.folderFilter);
   const setFolderFilter = useUI((s) => s.setFolderFilter);
@@ -240,6 +243,7 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote }: Breadcru
         last={segs.length === 0}
         onClick={() => setFolderFilter("")}
         onMoveNote={onMoveNote}
+        onMoveFolderTree={onMoveFolderTree}
       />
       {collapsed > 0 && (
         <button
@@ -264,8 +268,9 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote }: Breadcru
             folders={folders}
             folderDefs={folderDefs}
             last={last}
-            onClick={() => setFolderFilter(path)}
             onMoveNote={onMoveNote}
+            onMoveFolderTree={onMoveFolderTree}
+            onClick={() => setFolderFilter(path)}
           />
         );
       })}
@@ -283,6 +288,8 @@ interface SegmentButtonProps {
   onClick: () => void;
   /** Move a dragged note into this segment's folder (T14 drop target). */
   onMoveNote: (id: string, folder: string) => void;
+  /** Move a dragged folder subtree into this segment's folder. */
+  onMoveFolderTree?: (path: string, dest: string) => void;
 }
 
 function SegmentButton({
@@ -294,6 +301,7 @@ function SegmentButton({
   last,
   onClick,
   onMoveNote,
+  onMoveFolderTree,
 }: SegmentButtonProps) {
   const { t } = useI18n();
   // Every segment carries a ▾ dropdown. For non-last: siblings + own
@@ -304,9 +312,12 @@ function SegmentButton({
   const isEmpty = items.length === 0;
   // M16: the segment is inert while the dragged note already lives here.
   // The root segment (path "") is a valid target — dropping on the vault
-  // icon moves the note to the vault root.
-  const { dropCls, ...dropProps } = useFolderDrop(path, (id) =>
-    onMoveNote(id, path),
+  // icon moves the note to the vault root. Folder drags too (cycles
+  // suppressed in the hook); the root is how a folder goes back to top.
+  const { dropCls, ...dropProps } = useFolderDrop(
+    path,
+    (id) => onMoveNote(id, path),
+    onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
   );
 
   return (

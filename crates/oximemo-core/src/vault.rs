@@ -267,6 +267,34 @@ impl Vault {
         Ok(())
     }
 
+    /// Move a folder (with its whole subtree) into `dest` ("" = vault
+    /// top level). Finder-semantics wrapper over `rename_folder`: the
+    /// folder keeps its basename at the new location. Guards: moving
+    /// into itself or a descendant is a cycle; moving to the current
+    /// parent is a silent no-op.
+    pub fn move_folder(&self, path: &str, dest: &str) -> Result<()> {
+        if path.is_empty() {
+            return Err(CoreError::other("cannot move the vault root"));
+        }
+        if dest == path || dest.starts_with(&format!("{path}/")) {
+            return Err(CoreError::other(format!(
+                "cannot move '{path}' into itself"
+            )));
+        }
+        let base = path.rsplit('/').next().unwrap_or(path);
+        let to = if dest.is_empty() {
+            base.to_string()
+        } else {
+            format!("{dest}/{base}")
+        };
+        if to == path {
+            // Already lives at the destination (drop onto current
+            // parent) — no-op, not an error.
+            return Ok(());
+        }
+        self.rename_folder(path, &to)
+    }
+
     /// List the folder tree as a flat list of `(path, note_count)`.
     ///
     /// Includes physical directories with zero notes (they exist on disk but
@@ -2412,6 +2440,48 @@ watcher_retry_interval_ms = 200
         // Target must not already exist.
         v.create_folder("other").unwrap();
         assert!(v.rename_folder("book", "other").is_err());
+    }
+
+    #[test]
+    fn move_folder_moves_subtree_and_rejects_cycles() {
+        let (_t, v) = tmp_vault();
+        v.create_folder("work/client").unwrap();
+        v.create_note(
+            "work/report",
+            "# Report\n\nbody".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+        v.create_folder("archive").unwrap();
+        v.set_folder_pinned("work/client", true).unwrap();
+
+        // Move work → archive/work: subtree and notes follow, pins
+        // re-path (rename core).
+        v.move_folder("work", "archive").unwrap();
+        assert!(v.paths().vault.join("archive/work/client").is_dir());
+        assert!(v.paths().vault.join("archive/work/report").is_dir());
+        assert!(!v.paths().vault.join("work").exists());
+        assert!(v.with_config(|c| {
+            c.folders
+                .items
+                .iter()
+                .any(|f| f.path == "archive/work/client" && f.pinned == Some(true))
+        }));
+
+        // Cycle: move a folder into itself or a descendant.
+        assert!(v.move_folder("archive", "archive/work").is_err());
+        assert!(v.move_folder("archive", "archive").is_err());
+
+        // No-op: drop onto the current parent.
+        v.move_folder("archive/work", "archive").unwrap();
+        assert!(v.paths().vault.join("archive/work/client").is_dir());
+
+        // Collision: destination already has that basename.
+        v.create_folder("work").unwrap();
+        assert!(v.move_folder("archive/work", "").is_err());
+
+        // Root is not movable.
+        assert!(v.move_folder("", "archive").is_err());
     }
 
     #[test]

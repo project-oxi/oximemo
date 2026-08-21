@@ -208,6 +208,12 @@ export async function renameFolder(from: string, to: string): Promise<void> {
   await invoke<void>("rename_folder", { from, to });
 }
 
+/** Move a folder subtree into `dest` ("" = vault top level), keeping its
+ * basename. Backend guards cycles/parent no-ops; see vault.rs move_folder. */
+export async function moveFolder(path: string, dest: string): Promise<void> {
+  await invoke<void>("move_folder", { path, dest });
+}
+
 export async function moveNote(id: string, folder: string): Promise<void> {
   await invoke<void>("move_note", { id, folder });
 }

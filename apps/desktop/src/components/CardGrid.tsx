@@ -38,6 +38,7 @@ import {
   listMemos,
   memoStats,
   moveNote,
+  moveFolder,
   renameFolder,
   searchMemos,
   setFolderPinned,
@@ -523,6 +524,29 @@ export function CardGrid() {
     [qc, setError],
   );
 
+  // Move a folder subtree into `dest` ("" = vault top level) — Finder
+  // drag-and-drop. Backend move_folder keeps the basename and re-checks
+  // cycles/parent no-ops authoritatively; errors surface via the toast.
+  const moveFolderTree = useCallback(
+    (path: string, dest: string) => {
+      void moveFolder(path, dest)
+        .then(() => {
+          qc.invalidateQueries({ queryKey: ["folderChildren"] });
+          qc.invalidateQueries({ queryKey: ["folders"] });
+          qc.invalidateQueries({ queryKey: ["config"] });
+          qc.invalidateQueries({ queryKey: ["memos"] });
+          // Follow the folder if the user moved the one they're browsing.
+          const cur = useUI.getState().folderFilter;
+          if (cur !== null && (cur === path || cur.startsWith(`${path}/`))) {
+            const base = path.split("/").at(-1) ?? path;
+            useUI.getState().setFolderFilter(dest ? `${dest}/${base}` : base);
+          }
+        })
+        .catch((e) => setError(String(e).split("\n")[0]));
+    },
+    [qc, setError],
+  );
+
   // Folder delete with trash + undo (Task 11). Every live note under the
   // folder is trashed structure-preserving by the backend; the returned
   // ids power the 실행 취소 action on the toast. The tile/row context
@@ -788,9 +812,12 @@ export function CardGrid() {
   );
 
   if (view === "gallery") {
+    // h-dvh: see the memos return below — the height chain anchors here too.
     return (
-      <div className="flex h-full">
-        {!sidebarCollapsed && <Sidebar onMoveNote={onMoveFolder} />}
+      <div className="flex h-dvh">
+        {!sidebarCollapsed && (
+          <Sidebar onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />
+        )}
         <div className="flex min-w-0 flex-1 flex-col">
           <header
             data-tauri-drag-region="deep"
@@ -818,6 +845,7 @@ export function CardGrid() {
     onSelect: select,
     onToggleFavorite: onToggleFavorite,
     onMoveFolder,
+    onMoveFolderTree: moveFolderTree,
     onCopyBody,
     onDelete,
     onNewNote,
@@ -829,16 +857,21 @@ export function CardGrid() {
     onNameCommit: commitFolderName,
   };
 
+  // h-dvh: the html/body/#root chain carries no height, so h-full
+  // collapses to content height — the sidebar border stopped partway
+  // down the window. Anchored to the viewport directly.
   return (
-    <div className="flex h-full">
-      {!sidebarCollapsed && <Sidebar onMoveNote={onMoveFolder} />}
+    <div className="flex h-dvh">
+      {!sidebarCollapsed && (
+        <Sidebar onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />
+      )}
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           data-tauri-drag-region="deep"
           className="flex h-12 items-center gap-3 border-b border-line pr-4"
         >
           {sidebarToggle}
-          <BreadcrumbBar folders={folderEntries} folderDefs={folders} onMoveNote={onMoveFolder} />
+          <BreadcrumbBar folders={folderEntries} folderDefs={folders} onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />
           {viewSwitcher}
           {folderFilter !== null && debounced.length > 0 && (
             <button
@@ -960,6 +993,7 @@ export function CardGrid() {
                 onSelect={select}
                 onToggleFavorite={onToggleFavorite}
                 onMoveFolder={onMoveFolder}
+                onMoveFolderTree={moveFolderTree}
                 onCopyBody={onCopyBody}
                 onDelete={onDelete}
                 onNewNoteIn={onNewNoteIn}
@@ -982,6 +1016,7 @@ export function CardGrid() {
                 onOpenFolder={setFolderFilter}
                 onNewFolder={startFolderCreate}
                 onMoveNote={onMoveFolder}
+                onMoveFolderTree={moveFolderTree}
               />
             )}
               <CtxMenu>

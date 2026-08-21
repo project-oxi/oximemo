@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { colorForFolder } from "../lib/color";
 import { useFolderDrop } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
+import { useUI } from "../stores/ui";
 import { relativeTime } from "../lib/time";
 
 import type { FolderCard, FolderDef } from "../lib/types";
@@ -135,6 +136,8 @@ interface Props {
   onDelete: (path: string, deep: number, confirmed: boolean) => void;
   /** Move a dragged note into this tile's folder (T14 drop target). */
   onMoveFolder: (id: string, folder: string) => void;
+  /** Move a dragged folder subtree into this tile's folder (drop target). */
+  onMoveFolderTree?: (path: string, dest: string) => void;
   /** Naming session of the folder being edited (inline rename/create). */
   namingPath: NamingSession | null;
   /** null = cancelled (Esc) → caller handles teardown; string = confirm (rename if changed). */
@@ -150,8 +153,9 @@ export function FolderTile({
   onNewNote,
   onRename,
   onTogglePin,
-  onDelete,
   onMoveFolder,
+  onMoveFolderTree,
+  onDelete,
   namingPath,
   onNameCommit,
 }: Props) {
@@ -159,9 +163,14 @@ export function FolderTile({
   const color = colorForFolder(card.path, folders);
   const naming = namingPath?.path === card.path;
   // M16: the tile is inert while the dragged note already lives here.
-  const { dropCls, ...dropProps } = useFolderDrop(card.path, (id) =>
-    onMoveFolder(id, card.path),
+  // Folder drags: also a target — cycles/parent no-ops suppressed in the
+  // hook; the handler moves the dragged folder INTO this tile's folder.
+  const { dropCls, ...dropProps } = useFolderDrop(
+    card.path,
+    (id) => onMoveFolder(id, card.path),
+    onMoveFolderTree ? (p) => onMoveFolderTree(p, card.path) : undefined,
   );
+  const setDraggingFolder = useUI((s) => s.setDraggingFolder);
   return (
     <FolderMenu
       path={card.path}
@@ -174,6 +183,13 @@ export function FolderTile({
       render={
         <article
           data-folder-tile={card.path}
+          draggable={!naming}
+          onDragStart={(e) => {
+            setDraggingFolder(card.path);
+            e.dataTransfer.setData("application/x-oximemo-folder", card.path);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragEnd={() => setDraggingFolder(null)}
           {...dropProps}
           role="button"
           aria-label={`${card.path} · ${card.note_count_deep}`}
