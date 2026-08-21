@@ -20,6 +20,24 @@ pub struct TemplateCtx {
     pub folder: String,
 }
 
+/// Parse a strict `YYYY-MM-DD` string into a calendar date. Returns
+/// `None` for wrong shapes or impossible dates (2026-13-01, 2026-02-30).
+pub fn parse_iso_date(s: &str) -> Option<time::Date> {
+    let b = s.as_bytes();
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+        return None;
+    }
+    for (i, c) in b.iter().enumerate() {
+        if i != 4 && i != 7 && !c.is_ascii_digit() {
+            return None;
+        }
+    }
+    let year: i32 = s.get(0..4)?.parse().ok()?;
+    let month: u8 = s.get(5..7)?.parse().ok()?;
+    let day: u8 = s.get(8..10)?.parse().ok()?;
+    time::Date::from_calendar_date(year, time::Month::try_from(month).ok()?, day).ok()
+}
+
 impl TemplateCtx {
     /// Build a context from the current time and folder info.
     pub fn now(folder: &str, counter: u32) -> Self {
@@ -39,6 +57,26 @@ impl TemplateCtx {
             year: now.year().to_string(),
             month: format!("{:02}", now.month() as u8),
             day: format!("{:02}", now.day()),
+            counter,
+            folder: folder.to_string(),
+        }
+    }
+
+    /// Build a context for an explicit ISO date (daily notes spec §2).
+    /// The caller supplies the *local* date — `now()` uses UTC, which
+    /// is off by one day for KST evenings — and the weekday is derived
+    /// from the date itself.
+    pub fn for_date(date: &str, folder: &str, counter: u32) -> Self {
+        let d = parse_iso_date(date).unwrap_or_else(|| time::Date::MIN);
+        let weekdays = ["월", "화", "수", "목", "금", "토", "일"];
+        let weekday = weekdays[(d.weekday().number_from_monday() - 1) as usize].to_string();
+        Self {
+            date: date.to_string(),
+            weekday,
+            time: String::new(),
+            year: d.year().to_string(),
+            month: format!("{:02}", d.month() as u8),
+            day: format!("{:02}", d.day()),
             counter,
             folder: folder.to_string(),
         }
@@ -183,5 +221,31 @@ mod tests {
     fn no_frontmatter_preserved() {
         let plain = "# {{date}} {{weekday}}";
         assert_eq!(strip_frontmatter(plain), "# {{date}} {{weekday}}");
+    }
+
+    #[test]
+    fn parse_iso_date_strict() {
+        assert!(parse_iso_date("2026-08-21").is_some());
+        assert!(parse_iso_date("2026-13-01").is_none()); // month
+        assert!(parse_iso_date("2026-00-10").is_none());
+        assert!(parse_iso_date("2026-02-30").is_none()); // day
+        assert!(parse_iso_date("21-08-2026").is_none());
+        assert!(parse_iso_date("2026-8-21").is_none()); // zero-padded only
+        assert!(parse_iso_date("").is_none());
+    }
+
+    #[test]
+    fn for_date_uses_caller_date_and_derives_weekday() {
+        // 2026-08-21 is a Friday.
+        let ctx = TemplateCtx::for_date("2026-08-21", "daily", 3);
+        assert_eq!(ctx.date, "2026-08-21");
+        assert_eq!(ctx.weekday, "금");
+        assert_eq!(ctx.year, "2026");
+        assert_eq!(ctx.month, "08");
+        assert_eq!(ctx.day, "21");
+        assert_eq!(ctx.counter, 3);
+        assert_eq!(ctx.folder, "daily");
+        // Weekday rotation: 2026-08-23 is a Sunday.
+        assert_eq!(TemplateCtx::for_date("2026-08-23", "", 1).weekday, "일");
     }
 }
