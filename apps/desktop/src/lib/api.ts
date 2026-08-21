@@ -65,6 +65,11 @@ export async function createMemo(
   return invoke<Memo>("create_memo", { body, folder, format: format ?? null });
 }
 
+/** Open (create if missing) the daily note for an ISO date (YYYY-MM-DD). */
+export async function openDailyNote(date: string) {
+  return invoke<Memo>("open_daily_note", { date });
+}
+
 export async function updateMemo(
   id: string,
   body: string | null,

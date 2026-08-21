@@ -260,6 +260,41 @@ async function browserFallback(
       return memo;
     }
 
+    case "open_daily_note": {
+      const date = args?.date as string;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(date).getTime())) {
+        throw new Error("invalid date, expected YYYY-MM-DD");
+      }
+      // Browser fallback: default daily folder, no file template access.
+      const folder = "daily";
+      const store = loadStore();
+      const hit = Object.values(store).find(
+        (n) =>
+          !n.deleted_at &&
+          (n.path === `${folder}/${date}.md` || n.path === `${folder}/${date}.html`),
+      );
+      if (hit) return hit;
+      const now = new Date().toISOString();
+      const memo: Memo = {
+        id: crypto.randomUUID(),
+        created_at: now,
+        updated_at: now,
+        hash: fakeHash(),
+        favorite: false,
+        folder,
+        path: `${folder}/${date}.md`,
+        format: "markdown",
+        title: date,
+        tags: [],
+        body: `# ${date}\n`,
+        deleted_at: null,
+      };
+      store[memo.id] = memo;
+      saveStore(store);
+      emitBrowser("memos:changed");
+      return memo;
+    }
+
     case "update_memo": {
       const id = args?.id as string;
       const store = loadStore();
