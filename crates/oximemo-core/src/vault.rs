@@ -43,7 +43,7 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 /// Indexed preview format version. Bump when `make_preview`'s output changes;
 /// [`Vault::migrate`] reindexes once per bump so cached card previews are
 /// regenerated. Stored in `<index_dir>/index-fmt`.
-const INDEX_FORMAT_VERSION: u32 = 3;
+const INDEX_FORMAT_VERSION: u32 = 4;
 
 /// Lifecycle status of an opened vault.
 ///
@@ -288,13 +288,13 @@ impl Vault {
             match self.files.read_memo(&to_dir.join(stripped)) {
                 Ok(Some(note)) => {
                     let fmt = crate::memo::NoteFormat::from_rel(&new_rel);
-                    let (sbody, stitle) = search_fields(fmt, &note);
+                    let (sbody, stitle, saliases) = search_fields(fmt, &note);
                     let mut rec2 = r.clone();
                     rec2.path = new_rel;
                     if self
                         .with_redb_and_search(|idx, search| {
                             idx.upsert(&rec2)?;
-                            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
                         })
                         .is_err()
                     {
@@ -707,10 +707,10 @@ impl Vault {
             .read_memo(&path)?
             .ok_or_else(|| CoreError::other("write_document produced an unreadable file"))?;
         let rel = self.paths.relative_path(&path).unwrap_or_default();
-        let (sbody, stitle) = search_fields(fmt, &note);
+        let (sbody, stitle, saliases) = search_fields(fmt, &note);
         self.with_redb_and_search(|idx, search| {
             idx.upsert(&record_of(&note, &rel))?;
-            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
         })?;
         Ok(note)
     }
@@ -793,9 +793,10 @@ impl Vault {
                         id: MemoId::now(),
                         created_at: now,
                         updated_at: now,
-                        hash: hash::hash_memo(body.as_bytes(), false),
+                        hash: hash::hash_memo(body.as_bytes(), false, &Default::default()),
                         favorite: false,
                         tags: tags_of(fmt, &body),
+                        props: Default::default(),
                         body,
                         deleted_at: None,
                     };
@@ -818,10 +819,10 @@ impl Vault {
                         .ok_or_else(|| CoreError::other("[daily] adoption re-read failed"))?
                 }
             };
-            let (sbody, stitle) = search_fields(fmt, &note);
+            let (sbody, stitle, saliases) = search_fields(fmt, &note);
             self.with_redb_and_search(|idx, search| {
                 idx.upsert(&record_of(&note, rel))?;
-                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
             })?;
             return Ok((note, false));
         }
@@ -932,7 +933,7 @@ impl Vault {
         validate_note_input(&note.body, &note.tags)?;
         let original_updated = note.updated_at;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite);
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.props);
 
         let old_path = self.paths.vault.join(&old_rel);
 
@@ -965,6 +966,7 @@ impl Vault {
                 Mutation {
                     favorite,
                     deleted: None,
+                    set_props: Default::default(),
                 },
                 Synthesize::No,
                 now,
@@ -980,10 +982,10 @@ impl Vault {
                 std::fs::remove_file(&old_path)?;
             }
             let new_rel = self.paths.relative_path(&new_path).unwrap_or_default();
-            let (sbody, stitle) = search_fields(fmt, &note);
+            let (sbody, stitle, saliases) = search_fields(fmt, &note);
             self.with_redb_and_search(|idx, search| {
                 idx.upsert(&record_of(&note, &new_rel))?;
-                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
             })?;
         } else {
             // Write in place at the existing path.
@@ -1022,6 +1024,7 @@ impl Vault {
                             Mutation {
                                 favorite,
                                 deleted: None,
+                                set_props: Default::default(),
                             },
                             Synthesize::No,
                             now,
@@ -1036,6 +1039,7 @@ impl Vault {
                         Mutation {
                             favorite,
                             deleted: None,
+                            set_props: Default::default(),
                         },
                         Synthesize::Yes,
                         now,
@@ -1047,10 +1051,10 @@ impl Vault {
                 }
                 // Index the (re)located note under the new live path.
                 let rel = self.paths.relative_path(&p).unwrap_or_default();
-                let (sbody, stitle) = search_fields(fmt, &note);
+                let (sbody, stitle, saliases) = search_fields(fmt, &note);
                 self.with_redb_and_search(|idx, search| {
                     idx.upsert(&record_of(&note, &rel))?;
-                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
                 })?;
             } else {
                 // In-place rewrite: the existing file carries the
@@ -1065,16 +1069,17 @@ impl Vault {
                     Mutation {
                         favorite,
                         deleted: None,
+                        set_props: Default::default(),
                     },
                     Synthesize::No,
                     now,
                 )
                 .map_err(crate::store::files::frontmatter_error_to_core)?;
                 if !matches!(outcome, WriteOutcome::NoOp) {
-                    let (sbody, stitle) = search_fields(fmt, &note);
+                    let (sbody, stitle, saliases) = search_fields(fmt, &note);
                     self.with_redb_and_search(|idx, search| {
                         idx.upsert(&record_of(&note, &old_rel))?;
-                        search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                        search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
                     })?;
                 } else {
                     note.updated_at = original_updated;
@@ -1104,7 +1109,7 @@ impl Vault {
                     updated.body = rewritten;
                     updated.tags = tags_of(src_fmt, &updated.body);
                     updated.updated_at = OffsetDateTime::now_utc();
-                    updated.hash = hash::hash_memo(updated.body.as_bytes(), updated.favorite);
+                    updated.hash = hash::hash_memo(updated.body.as_bytes(), updated.favorite, &updated.props);
                     // Link propagation: same body length might
                     // change (link target rewritten), so this is a
                     // semantic write — write_document's NoOp check
@@ -1128,9 +1133,9 @@ impl Vault {
                 self.with_redb_and_search(|idx, search| {
                     for (n, p) in &updates {
                         idx.upsert(&record_of(n, p))?;
-                        let (sbody, stitle) =
+                        let (sbody, stitle, saliases) =
                             search_fields(crate::memo::NoteFormat::from_rel(p), n);
-                        search.upsert(n.id, &sbody, stitle.as_deref(), &n.tags)?;
+                        search.upsert(n.id, &sbody, stitle.as_deref(), &n.tags, &saliases)?;
                     }
                     Ok(())
                 })?;
@@ -1159,7 +1164,7 @@ impl Vault {
         let now = OffsetDateTime::now_utc();
         note.deleted_at = Some(now);
         note.updated_at = now;
-        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite);
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.props);
         // Move file to trash (preserving structure), then write the
         // tombstone version into trash via write_document so the
         // `deleted` key is canonical and unknown keys survive.
@@ -1176,6 +1181,7 @@ impl Vault {
                 Mutation {
                     favorite: Some(note.favorite),
                     deleted: Some(Some(now)),
+                    set_props: Default::default(),
                 },
                 Synthesize::No,
                 now,
@@ -1196,7 +1202,7 @@ impl Vault {
         let fmt = crate::memo::NoteFormat::from_rel(&rel);
         note.deleted_at = None;
         note.updated_at = OffsetDateTime::now_utc();
-        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite);
+        note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.props);
         if !rel.is_empty() {
             self.files.restore_from_trash(&rel)?;
             let abs = self.paths.vault.join(&rel);
@@ -1210,16 +1216,17 @@ impl Vault {
                 Mutation {
                     favorite: Some(note.favorite),
                     deleted: Some(None),
+                    set_props: Default::default(),
                 },
                 Synthesize::No,
                 OffsetDateTime::now_utc(),
             )
             .map_err(crate::store::files::frontmatter_error_to_core)?;
         }
-        let (sbody, stitle) = search_fields(fmt, &note);
+        let (sbody, stitle, saliases) = search_fields(fmt, &note);
         self.with_redb_and_search(|idx, search| {
             idx.upsert(&record_of(&note, &rel))?;
-            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
         })?;
         Ok(note)
     }
@@ -1631,10 +1638,10 @@ impl Vault {
         }
 
         let new_rel = self.paths.relative_path(&new_path).unwrap_or_default();
-        let (sbody, stitle) = search_fields(fmt, &note);
+        let (sbody, stitle, saliases) = search_fields(fmt, &note);
         self.with_redb_and_search(|idx, search| {
             idx.upsert(&record_of(&note, &new_rel))?;
-            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
         })?;
         Ok(note)
     }
@@ -1752,19 +1759,19 @@ impl Vault {
         self.ensure_initialized()?;
         self.with_redb_and_search(|idx, search| {
             let mut stats = IndexStats::default();
-            let mut search_owned: Vec<(MemoId, String, Option<String>, Vec<String>)> = Vec::new();
+            let mut search_owned: Vec<(MemoId, String, Option<String>, Vec<String>, String)> = Vec::new();
             for path in self.files.scan() {
                 match self.files.read_memo(&path) {
                     Ok(Some(note)) => {
                         let rel = self.paths.relative_path(&path).unwrap_or_default();
                         let fmt = crate::memo::NoteFormat::from_rel(&rel);
-                        let (sbody, stitle) = search_fields(fmt, &note);
+                        let (sbody, stitle, saliases) = search_fields(fmt, &note);
                         let title = stitle;
                         let rec = record_of(&note, &rel);
                         match idx.get(note.id)? {
                             None => {
                                 idx.upsert(&rec)?;
-                                search_owned.push((note.id, sbody, title, note.tags));
+                                search_owned.push((note.id, sbody, title, note.tags, saliases));
                                 stats.added += 1;
                             }
                             Some(prev) if prev.hash == rec.hash && prev.preview == rec.preview => {
@@ -1772,7 +1779,7 @@ impl Vault {
                             }
                             Some(_) => {
                                 idx.upsert(&rec)?;
-                                search_owned.push((note.id, sbody, title, note.tags));
+                                search_owned.push((note.id, sbody, title, note.tags, saliases));
                                 stats.updated += 1;
                             }
                         }
@@ -1792,21 +1799,22 @@ impl Vault {
                         .relative_path(&path)
                         .and_then(|r| r.strip_prefix(".trash/").map(|s| s.to_string()))
                         .unwrap_or_default();
-                    let (sbody, stitle) =
+                    let (sbody, stitle, saliases) =
                         search_fields(crate::memo::NoteFormat::from_rel(&rel), &note);
                     let rec = record_of(&note, &rel);
                     idx.upsert(&rec)?;
-                    search_owned.push((note.id, sbody, stitle, note.tags));
+                    search_owned.push((note.id, sbody, stitle, note.tags, saliases));
                     stats.trashed_memos += 1;
                 }
             }
             let batch: Vec<crate::store::search::Upsert<'_>> = search_owned
                 .iter()
-                .map(|(id, body, title, tags)| crate::store::search::Upsert {
+                .map(|(id, body, title, tags, aliases)| crate::store::search::Upsert {
                     id: *id,
                     body,
                     title: title.as_deref(),
                     tags,
+                    aliases,
                 })
                 .collect();
             search.upsert_batch(&batch)?;
@@ -1857,10 +1865,10 @@ impl Vault {
             Some(note) => {
                 let rel = self.paths.relative_path(path).unwrap_or_default();
                 let fmt = crate::memo::NoteFormat::from_rel(&rel);
-                let (sbody, stitle) = search_fields(fmt, &note);
+                let (sbody, stitle, saliases) = search_fields(fmt, &note);
                 self.with_redb_and_search(|idx, search| {
                     idx.upsert(&record_of(&note, &rel))?;
-                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
                 })
             }
             None => Ok(()),
@@ -2003,15 +2011,17 @@ fn record_of(n: &Memo, path: &str) -> IndexRecord {
         deleted: n.deleted_at.is_some(),
         deleted_at: n.deleted_at,
         preview: preview_of(fmt, &n.body),
+        props: n.props.clone(),
     }
 }
 
 /// Derived search-index fields for a note: the searchable body text and the
 /// title, both format-aware.
-fn search_fields(fmt: crate::memo::NoteFormat, note: &Memo) -> (String, Option<String>) {
+fn search_fields(fmt: crate::memo::NoteFormat, note: &Memo) -> (String, Option<String>, String) {
     (
         searchable_body(fmt, &note.body).into_owned(),
         note_title(fmt, &note.body),
+        crate::props::aliases_of(&note.props).join(" "),
     )
 }
 /// True iff `path` is a directory containing at least one entry. Used by
@@ -2500,6 +2510,55 @@ mod tests {
                 panic!("relocated note must have frontmatter")
             }
         }
+    }
+
+    /// Knowledge-system design §5.1: frontmatter properties flow from the
+    /// file into the Memo, the index record, and listing summaries — and a
+    /// property-only edit changes the sync digest.
+    #[test]
+    fn props_flow_file_to_index_to_summary_and_hash() {
+        let (_t, v) = tmp_vault();
+        let note = v.create_note_auto("", "# 오류역전파".into()).unwrap();
+        let rel = v
+            .with_redb(|idx| Ok(idx.get(note.id).unwrap().unwrap().path))
+            .unwrap();
+        let abs = v.paths().vault.join(&rel);
+
+        // External edit: add knowledge properties to the frontmatter.
+        let raw = std::fs::read_to_string(&abs).unwrap();
+        let with_props = raw.replace(
+            "---\n",
+            "---\nstatus: stub\ndomain: TECH\nsubdomain: [AI]\naliases: [BP, 역전파]\nrelated: [\"[[딥러닝]]\"]\n",
+        );
+        std::fs::write(&abs, with_props).unwrap();
+        v.reindex().unwrap();
+
+        // Memo read-back carries props.
+        let memo = v.get_memo(note.id).unwrap();
+        assert_eq!(
+            memo.props.get("status"),
+            Some(&crate::props::PropValue::Str("stub".into()))
+        );
+        assert_eq!(
+            memo.props.get("subdomain"),
+            Some(&crate::props::PropValue::List(vec!["AI".into()]))
+        );
+        // Property-only edit changed the digest (hash covers props).
+        assert_ne!(memo.hash, note.hash);
+        // Listing summary exposes props without a file read.
+        let summaries = v.list_memos(None, 10, Default::default()).unwrap();
+        let s = summaries
+            .items
+            .iter()
+            .find(|s| s.id == note.id)
+            .expect("note in listing");
+        assert_eq!(
+            s.props.get("aliases"),
+            Some(&crate::props::PropValue::List(vec![
+                "BP".into(),
+                "역전파".into()
+            ]))
+        );
     }
 
     /// Round-1 review finding 4: an update that changes nothing

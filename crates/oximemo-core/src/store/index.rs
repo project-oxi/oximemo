@@ -40,6 +40,10 @@ pub struct IndexRecord {
     pub title: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Frontmatter properties (non-core keys) — the indexed snapshot so
+    /// property queries never read files (design 2026-08-23 §5.1).
+    #[serde(default)]
+    pub props: crate::props::Props,
     pub deleted: bool,
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub deleted_at: Option<OffsetDateTime>,
@@ -58,6 +62,7 @@ impl IndexRecord {
             title: self.title.clone(),
             path: self.path.clone(),
             tags: self.tags.clone(),
+            props: self.props.clone(),
             preview: self.preview.clone(),
             deleted: self.deleted,
         }
@@ -273,6 +278,7 @@ mod tests {
             path: "test.md".to_string(),
             title: None,
             tags: vec![],
+            props: Default::default(),
             deleted: false,
             deleted_at: None,
             preview: String::new(),

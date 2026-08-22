@@ -21,16 +21,26 @@ pub struct Upsert<'a> {
     pub body: &'a str,
     pub title: Option<&'a str>,
     pub tags: &'a [String],
+    /// Alias values (Obsidian-convention `aliases` property) — indexed so
+    /// searching a synonym finds the note (design 2026-08-23 §5.2).
+    pub aliases: &'a str,
 }
 
 /// Swappable search boundary (§5.1).
 pub trait SearchIndex: Send + Sync {
-    fn upsert(&self, id: MemoId, body: &str, title: Option<&str>, tags: &[String]) -> Result<()>;
+    fn upsert(
+        &self,
+        id: MemoId,
+        body: &str,
+        title: Option<&str>,
+        tags: &[String],
+        aliases: &str,
+    ) -> Result<()>;
     /// Upsert many notes in one transaction. The default loops [`Self::upsert`];
     /// `TantivySearch` overrides it to commit once for fast bulk reindex.
     fn upsert_batch(&self, notes: &[Upsert<'_>]) -> Result<()> {
         for n in notes {
-            self.upsert(n.id, n.body, n.title, n.tags)?;
+            self.upsert(n.id, n.body, n.title, n.tags, n.aliases)?;
         }
         Ok(())
     }
@@ -47,17 +57,30 @@ pub struct TantivySearch {
     title_field: Field,
     body_field: Field,
     tags_field: Field,
+    aliases_field: Field,
 }
 
 impl TantivySearch {
     /// Open the index, creating if absent. The writer is created on first
     /// mutating call, so a process that only searches pays nothing for it.
+    ///
+    /// Schema evolution: if an on-disk index was built with an older
+    /// schema (no `aliases` field), the directory is wiped and rebuilt —
+    /// tantivy cannot open an index under a different schema. The next
+    /// `reindex` repopulates it (design 2026-08-23 §5.2/§9).
     pub fn open(dir: &std::path::Path) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let schema = build_schema();
-        let (id_field, title_field, body_field, tags_field) = fields(&schema);
+        let (id_field, title_field, body_field, tags_field, aliases_field) = fields(&schema);
         let index = if dir.join("meta.json").exists() {
-            Index::open_in_dir(dir)?
+            let existing = Index::open_in_dir(dir)?;
+            if existing.schema() != schema {
+                tracing::info!("search index schema changed; wiping for rebuild");
+                clear_dir(dir)?;
+                Index::create_in_dir(dir, schema.clone())?
+            } else {
+                existing
+            }
         } else {
             Index::create_in_dir(dir, schema)?
         };
@@ -73,6 +96,7 @@ impl TantivySearch {
             title_field,
             body_field,
             tags_field,
+            aliases_field,
         })
     }
 
@@ -94,7 +118,14 @@ impl TantivySearch {
 }
 
 impl SearchIndex for TantivySearch {
-    fn upsert(&self, id: MemoId, body: &str, title: Option<&str>, tags: &[String]) -> Result<()> {
+    fn upsert(
+        &self,
+        id: MemoId,
+        body: &str,
+        title: Option<&str>,
+        tags: &[String],
+        aliases: &str,
+    ) -> Result<()> {
         let mut guard = self.ensure_writer()?;
         let writer = guard.as_mut().expect("writer initialized");
         writer.delete_term(self.id_term(id));
@@ -102,6 +133,7 @@ impl SearchIndex for TantivySearch {
             self.id_field => id.to_string(),
             self.body_field => body,
             self.tags_field => tags.join(" "),
+            self.aliases_field => aliases,
         );
         if let Some(t) = title {
             doc.add_text(self.title_field, t);
@@ -123,6 +155,7 @@ impl SearchIndex for TantivySearch {
                 self.id_field => n.id.to_string(),
                 self.body_field => n.body,
                 self.tags_field => n.tags.join(" "),
+                self.aliases_field => n.aliases,
             );
             if let Some(t) = n.title {
                 doc.add_text(self.title_field, t);
@@ -142,12 +175,16 @@ impl SearchIndex for TantivySearch {
         self.reader.reload()?;
         Ok(())
     }
-
     fn search(&self, query: &str, limit: u32) -> Result<Vec<MemoId>> {
         let searcher = self.reader.searcher();
         let parser = QueryParser::for_index(
             &self.index,
-            vec![self.title_field, self.body_field, self.tags_field],
+            vec![
+                self.title_field,
+                self.body_field,
+                self.tags_field,
+                self.aliases_field,
+            ],
         );
         let q = parser.parse_query(query)?;
         let hits: Vec<(tantivy::Score, tantivy::DocAddress)> =
@@ -181,15 +218,33 @@ fn build_schema() -> Schema {
     b.add_text_field("title", TEXT);
     b.add_text_field("body", TEXT);
     b.add_text_field("tags", TEXT);
+    b.add_text_field("aliases", TEXT);
     b.build()
 }
 
-fn fields(schema: &Schema) -> (Field, Field, Field, Field) {
+fn fields(schema: &Schema) -> (Field, Field, Field, Field, Field) {
     let id = schema.get_field("id").expect("id field");
     let title = schema.get_field("title").expect("title field");
     let body = schema.get_field("body").expect("body field");
     let tags = schema.get_field("tags").expect("tags field");
-    (id, title, body, tags)
+    let aliases = schema.get_field("aliases").expect("aliases field");
+    (id, title, body, tags, aliases)
+}
+
+/// Remove every file inside `dir` (the index rebuild path). Tantivy owns
+/// several files (meta.json, segments, locks); a plain recursive removal
+/// is the documented way to discard an index directory.
+fn clear_dir(dir: &std::path::Path) -> Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)?;
+        } else {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -207,6 +262,7 @@ mod tests {
             "the quick brown fox",
             Some("Fox Story"),
             &["animal".into()],
+            "",
         )
         .unwrap();
         let hits = s.search("quick", 10).unwrap();
@@ -221,7 +277,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let s = TantivySearch::open(dir.path()).unwrap();
         let id = MemoId::now();
-        s.upsert(id, "sphinx of black quartz", None, &[]).unwrap();
+        s.upsert(id, "sphinx of black quartz", None, &[], "").unwrap();
         s.remove(id).unwrap();
         assert!(s.search("quartz", 10).unwrap().is_empty());
     }

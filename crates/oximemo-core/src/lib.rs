@@ -19,6 +19,7 @@ pub mod html;
 pub mod memo;
 pub mod migrate;
 pub mod migrate_vault;
+pub mod props;
 pub mod paths;
 pub mod tags;
 pub mod template;
@@ -33,10 +34,9 @@ pub mod watcher;
 pub use assets::{AssetInfo, AssetRef};
 pub use config::{FolderDef, Theme, VaultConfig, ViewMode};
 pub use error::{CoreError, Result};
-pub use memo::{
-    Cursor, Facets, IndexStats, Memo, MemoFilter, MemoHash, MemoId, MemoStats, MemoSummary,
-    NoteFormat, Page, derive_title, note_title, preview_of, searchable_body, slugify, tags_of,
-    timestamp_filename,
+pub use props::{
+    NoteQuery, PropMutation, PropOp, PropPredicate, PropValue, QueryPage, SortSpec, aliases_of,
+    parse_sort, parse_where, props_from_table, props_link_text,
 };
 pub use migrate_vault::MigrationStatus;
 pub use paths::Paths;

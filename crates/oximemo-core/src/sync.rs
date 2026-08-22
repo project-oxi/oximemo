@@ -118,6 +118,7 @@ mod tests {
             hash: MemoHash::from_stored(hash),
             favorite: false,
             tags: vec![],
+            props: Default::default(),
             body: body.into(),
             deleted_at: None,
         }

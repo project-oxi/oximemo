@@ -121,6 +121,9 @@ pub struct Memo {
     pub favorite: bool,
     pub tags: Vec<String>,
     pub body: String,
+    /// Frontmatter properties beyond the core five keys (design 2026-08-23 §5.1).
+    #[serde(default)]
+    pub props: crate::props::Props,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -146,6 +149,9 @@ pub struct MemoSummary {
     #[serde(default)]
     pub path: String,
     pub tags: Vec<String>,
+    /// Frontmatter properties beyond the core five keys (design 2026-08-23 §5.1).
+    #[serde(default)]
+    pub props: crate::props::Props,
     pub preview: String,
     pub deleted: bool,
 }
@@ -176,6 +182,9 @@ pub struct NoteDto {
         with = "time::serde::rfc3339::option"
     )]
     pub deleted_at: Option<OffsetDateTime>,
+    /// Frontmatter properties beyond the core five keys.
+    #[serde(default)]
+    pub props: crate::props::Props,
     /// Display title (derived, format-aware). `None` for untitled notes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -201,6 +210,7 @@ impl NoteDto {
             favorite: memo.favorite,
             tags: memo.tags.clone(),
             body: memo.body.clone(),
+            props: memo.props.clone(),
             deleted_at: memo.deleted_at,
             title: note_title(NoteFormat::from_rel(path), &memo.body),
             path: path.to_string(),
@@ -226,6 +236,7 @@ impl From<Memo> for MemoSummary {
             title: derive_title(&n.body),
             path: String::new(),
             tags: n.tags,
+            props: n.props,
             preview: make_preview(&n.body),
             deleted,
         }
@@ -636,6 +647,7 @@ mod filter_tests {
             title: None,
             path: path.to_string(),
             tags: tags.iter().map(|t| t.to_string()).collect(),
+            props: Default::default(),
             preview: String::new(),
             deleted: false,
         }

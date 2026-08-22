@@ -263,15 +263,17 @@ impl FileStore {
         let content = std::fs::read_to_string(path)?;
         match Self::parse_as(&content, fmt)? {
             ParsedFile::BodyOnly { .. } => Ok(None),
-            ParsedFile::Memo { fm, body, .. } => {
+            ParsedFile::Memo { fm, body, table } => {
                 let tags = crate::memo::tags_of(fmt, &body);
+                let props = crate::props::props_from_table(&table);
                 let memo = Memo {
                     id: fm.id,
                     created_at: fm.created_at,
                     updated_at: fm.updated_at,
-                    hash: hash::hash_memo(body.as_bytes(), fm.favorite),
+                    hash: hash::hash_memo(body.as_bytes(), fm.favorite, &props),
                     favorite: fm.favorite,
                     tags,
+                    props,
                     body,
                     deleted_at: fm.deleted_at,
                 };
@@ -673,6 +675,6 @@ mod tests {
         )
         .unwrap();
         let read = store.read_memo(&path).unwrap().unwrap();
-        assert_eq!(read.hash, hash::hash_memo(b"body bytes for hash", true));
+        assert_eq!(read.hash, hash::hash_memo(b"body bytes for hash", true, &Default::default()));
     }
 }

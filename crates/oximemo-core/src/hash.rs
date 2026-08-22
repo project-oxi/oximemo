@@ -67,7 +67,8 @@ pub fn hash_normalized(normalized: &str) -> MemoHash {
     MemoHash::new(hasher.finalize().to_hex().to_string())
 }
 
-/// Hash a memo's full meaningful state: body + favorite flag (§5.3).
+/// Hash a memo's full meaningful state: body + favorite flag + properties
+/// (design 2026-08-23 §5.1).
 ///
 /// Deliberately excluded from the input:
 /// - `hash` (avoids a self-referential cycle),
@@ -76,15 +77,24 @@ pub fn hash_normalized(normalized: &str) -> MemoHash {
 /// - `deleted_at` (tombstones travel via the manifest's `deleted` flag).
 /// - `path` / `title` (derived from location + body, not intrinsic state).
 ///
-/// Because the favorite flag is part of the digest, toggling it changes the
-/// hash and is correctly surfaced by the sync diff. Tags live in the body, so
-/// a tag change IS a body change.
-pub fn hash_memo(body: &[u8], favorite: bool) -> MemoHash {
+/// Because the favorite flag and every property are part of the digest,
+/// toggling favorite or changing `status` changes the hash and is correctly
+/// surfaced by the sync diff. Tags live in the body, so a tag change IS a
+/// body change. Properties hash through their canonical `as_hash_str`
+/// rendering over a BTreeMap, so key order can never desynchronize two
+/// semantically equal property sets.
+pub fn hash_memo(body: &[u8], favorite: bool, props: &crate::props::Props) -> MemoHash {
     let normalized_body = normalize(body);
     let mut hasher = Hasher::new();
     hasher.update(normalized_body.as_bytes());
     hasher.update(b"\x1f"); // unit separator between fields
     hasher.update(if favorite { b"1" } else { b"0" });
+    for (key, value) in props {
+        hasher.update(b"\x1f");
+        hasher.update(key.as_bytes());
+        hasher.update(b"=");
+        hasher.update(value.as_hash_str().as_bytes());
+    }
     MemoHash::new(hasher.finalize().to_hex().to_string())
 }
 
@@ -131,22 +141,31 @@ mod tests {
     fn metadata_only_edit_changes_hash() {
         // Favorite flag still changes the hash (§9.2). Tags are derived from the
         // body now, so a tag change IS a body change — covered below.
-        let base = hash_memo(b"body", false);
-        let favorite = hash_memo(b"body", true);
+        let base = hash_memo(b"body", false, &Default::default());
+        let favorite = hash_memo(b"body", true, &Default::default());
         assert_ne!(base, favorite);
     }
     #[test]
     fn tag_in_body_changes_hash() {
         // Adding `#x` to the body changes the digest (tags live in the body).
-        let a = hash_memo(b"note", false);
-        let b = hash_memo(b"note #x", false);
+        let a = hash_memo(b"note", false, &Default::default());
+        let b = hash_memo(b"note #x", false, &Default::default());
         assert_ne!(a, b);
     }
 
     #[test]
+    fn property_change_changes_digest() {
+        let mut props = crate::props::Props::new();
+        let a = hash_memo(b"body", false, &props);
+        props.insert("status".into(), crate::props::PropValue::Str("stub".into()));
+        let b = hash_memo(b"body", false, &props);
+        assert_ne!(a, b, "a property-only edit must surface in the sync diff");
+    }
+
+#[test]
     fn identical_state_hashes_equal() {
-        let a = hash_memo(b"body", true);
-        let b = hash_memo(b"body", true);
+        let a = hash_memo(b"body", true, &Default::default());
+        let b = hash_memo(b"body", true, &Default::default());
         assert_eq!(a, b);
     }
 }
