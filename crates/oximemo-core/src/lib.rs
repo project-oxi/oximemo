@@ -11,12 +11,14 @@
 #![allow(clippy::result_large_err)]
 
 pub mod assets;
+pub mod brain;
 pub mod config;
 pub mod error;
 pub mod hash;
 pub mod html;
 pub mod memo;
 pub mod migrate;
+pub mod migrate_vault;
 pub mod paths;
 pub mod tags;
 pub mod template;
@@ -36,7 +38,9 @@ pub use memo::{
     NoteFormat, Page, derive_title, note_title, preview_of, searchable_body, slugify, tags_of,
     timestamp_filename,
 };
+pub use migrate_vault::MigrationStatus;
 pub use paths::Paths;
 pub use vault::{
     BacklinkInfo, DoctorReport, FolderCard, FolderRecent, GraphData, GraphEdge, GraphNode, Vault,
+    VaultStatus,
 };

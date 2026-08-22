@@ -2,7 +2,7 @@
 //!
 //! Layout:
 //! ```text
-//! <vault>/
+//! <vault>/                          # default: ~/.oxi/vault
 //! ├── <folder>/<title-slug>.md     # notes in physical folders
 //! ├── _assets/<blake3hex>.<ext>     # images referenced as oximg://<name>
 //! ├── .trash/<original-path>        # deleted files (path preserved)
@@ -13,6 +13,10 @@
 //!     ├── search/
 //!     └── by-vault/<hash>/   # only for custom `--vault` paths
 //! ```
+//!
+//! The default vault moved to `~/.oxi/vault` (shared ecosystem location);
+//! [`crate::migrate_vault`] performs the one-time move from the
+//! pre-unification application-support path.
 
 use std::path::{Path, PathBuf};
 
@@ -54,7 +58,7 @@ impl Paths {
         let support = app_support_dir();
         match vault {
             None => {
-                let vault = support.join(VAULT_DEFAULT_SUBDIR);
+                let vault = default_vault_dir();
                 let index_dir = support.join(INDEX_SUBDIR);
                 Self { vault, index_dir }
             }
@@ -174,10 +178,20 @@ fn vault_namespace(vault: &Path) -> String {
     } else {
         std::env::current_dir().unwrap_or_default().join(vault)
     };
+
     let mut hasher = blake3::Hasher::new();
     hasher.update(abs.to_string_lossy().as_bytes());
     let hex = hasher.finalize().to_hex();
     hex.as_str()[..16].to_string()
+}
+
+/// `~/.oxi/vault` — the shared ecosystem default vault (design
+/// 2026-08-20 §5.1). The derived index still lives under application
+/// support (see [`Paths::resolve`]) so a vault synced through a cloud
+/// folder never ships its binary indexes.
+pub fn default_vault_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    PathBuf::from(home).join(".oxi").join(VAULT_DEFAULT_SUBDIR)
 }
 
 #[cfg(test)]
@@ -194,10 +208,20 @@ mod tests {
         assert!(p.index_dir.starts_with(app_support_dir()));
     }
 
+    /// The default vault lives at `~/.oxi/vault` (shared ecosystem
+    /// location, design 2026-08-20 §5.1) while its derived index stays
+    /// under application support.
     #[test]
-    fn default_vault_uses_documented_index_layout() {
-        let p = Paths::resolve(None);
-        assert_eq!(p.index_dir, app_support_dir().join(INDEX_SUBDIR));
+    fn default_vault_lives_under_dot_oxi() {
+        // Leaked home (see `migrate_vault::with_home`): concurrent tests
+        // resolve their index through env HOME, so the swap target must
+        // outlive them.
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            let p = Paths::resolve(None);
+            assert_eq!(p.vault, home.join(".oxi").join(VAULT_DEFAULT_SUBDIR));
+            assert_eq!(p.index_dir, app_support_dir().join(INDEX_SUBDIR));
+        });
     }
 
     #[test]

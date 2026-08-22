@@ -4,7 +4,6 @@ All notable changes to oximemo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
 
 ### Changed
@@ -24,7 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never discarded. `open_daily_note` now returns `{memo, created}` so the
   frontend only marks fresh notes as discardable drafts.
 
+## [0.9.3] — 2026-08-21
+
 ### Added
+- **`oxi-frontmatter` 0.1.0 (new crate, ready to publish)** — the oxi ecosystem
+  frontmatter contract crate. Owns the canonical YAML-subset grammar
+  (grammar v2, SPEC.md), the `parse` / `emit` / `atomic_write` API, and the
+  `Mutation` / `Synthesize` / `WriteOutcome` writer side. `oximemo-core`,
+  `oxibrain`, and `oxios` now share one parser and one emitter through
+  this crate; the inline duplicate parsers in oximemo-core / oxibrain are
+  deleted. `oxi-frontmatter = "0.1"` is the public interface for downstream
+  ecosystem crates.
+
 
 - **Daily notes** — sidebar DAILY section: mini month calendar (dots on
   days with notes, click = open-or-create, past/future backfill) plus a
@@ -55,6 +65,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BrainRecall` envelope (runtime shape defense unchanged).
 
 ### Changed
+- **Default vault moved to `~/.oxi/vault`** — the shared ecosystem
+  location. On first open the pre-unification default vault
+  (`~/Library/Application Support/com.oximemo.app/vault`) is moved
+  there once and its v3 notes are auto-converted to the v4 layout in
+  the same pass. The derived index stays under application support
+  so a cloud-synced vault never ships its binary indexes.
+- **`MergeRequired` when both vaults exist** — if both the old and
+  the new default vault are populated, neither tree is touched:
+  `Vault::status()` surfaces `MergeRequired`, `oximemo doctor`
+  reports `merge_required`, and a startup warning names both paths
+  for a manual merge. No silent overwrite, no silent skip.
+- **Brain registration on open** — with `[brain]` enabled, opening
+  the vault registers it with the brain daemon fire-and-forget (a
+  missing daemon never blocks open); the ecosystem `[vault].space`
+  wins over the vault-local `brain.space`.
 - **Memo → Notebook transformation** — oximemo is no longer a flat
   category-based memo app. It is now a physical-folder markdown notebook
   where each note is a real file at `<vault>/<folder>/<title>.md` (or a
@@ -116,7 +141,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `space` defaults to `"personal"` to match the daemon MCP default (the daemon
   treats an empty space as the empty space, so the default is non-empty).
 - **oxibrain integration panel** — the desktop app links the
-  `oxibrain-client` git tag `v0.3.0` (src-tauri only). `MemoDetail` renders a
+  `oxibrain-client` git tag `v0.6.0` (src-tauri only). `MemoDetail` renders a
   `BrainPanel` with status dot (`brain_status` — `online`, server version,
   episodes/entities/statements/contradictions; a stopped daemon is a normal
   `online: false` state, not an error), a "Gather context" button that calls
@@ -403,8 +428,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.4.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.9.2...HEAD
+[0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.3
 [0.9.2]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.2
 [0.9.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.1
-[0.8.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.8.1
 [0.9.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.0
+[0.8.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.8.1

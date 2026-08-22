@@ -78,6 +78,8 @@ export interface IndexStats {
 
 export interface DoctorReport {
   corrupt_frontmatter: [string, string][];
+  /** Both the old and the new default vault exist; a manual merge is pending. */
+  merge_required: boolean;
   orphan_index_records: string[];
   orphan_files: string[];
   hash_mismatches: string[];

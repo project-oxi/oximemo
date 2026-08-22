@@ -1,40 +1,56 @@
-//! Source-of-truth file store: TOML frontmatter `.md` files (§5.2).
+//! Source-of-truth file store: vault notes with frontmatter (`---` YAML for
+//! markdown, `<!--`/`-->`-wrapped `---\n…\n---` for HTML) per the
+//! `oxi-frontmatter` grammar v2 (§5.2 of the design, canonical grammar in
+//! `crates/oxi-frontmatter/SPEC.md`).
 //!
-//! Parsing follows the strict rules in §5.2:
-//! 1. The first line must be exactly `+++` for frontmatter to exist.
-//! 2. Frontmatter runs up to the *second* `+++` line.
-//! 3. Everything after the second `+++` is the body.
-//! 4. A file whose first line is not `+++` is treated as body-only.
-//! 5. A TOML parse failure is a recoverable [`CoreError::Frontmatter`].
+//! Parsing delegates to [`oxi_frontmatter::parse`]; the typed frontmatter
+//! extraction lives in [`Frontmatter::from_table`]. The [`ParsedFile`]
+//! shape (`Memo { fm, body, table }` / `BodyOnly { body }`) is preserved
+//! so existing callers (vault, migrate, doctest) keep compiling, with the
+//! addition of the parsed [`Table`] on the `Memo` arm so the write path
+//! (Task 4) can re-emit unknown keys.
 //!
-//! Writes are atomic: payload goes to `<path>.tmp` and is renamed into place.
+//! A malformed frontmatter block is a hard [`CoreError::Frontmatter`].
+//!
+//! **Writes** go through [`oxi_frontmatter::write_document`] (or
+//! [`oxi_frontmatter::atomic_write`] for raw byte writes). The old
+//! `serialize_as` / `translate_legacy_fences` bridge was removed in
+//! Task 4 — every write site in the vault layer now threads through the
+//! crate's merge-write API so unknown keys, app tables, and foreign
+//! formatting survive a round-trip.
 
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+
+use oxi_frontmatter::{NoteFormat as CrateNoteFormat, Parsed, Table, Value};
 
 use crate::error::{CoreError, Result};
 use crate::hash;
 use crate::memo::{Memo, MemoId};
 use crate::paths::Paths;
 
-/// TOML frontmatter payload. Simplified schema (v3): no `category` (folder
-/// location replaces it), `deleted_at` only written when the note is trashed.
-/// Old files with `category` / `deleted_at` parse fine — serde ignores
-/// unknown fields by default (no `deny_unknown_fields`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Vault-note metadata as the in-memory model sees it on the read side.
+/// `hash` is intentionally absent — it is derived from `body` + `favorite`
+/// inside [`crate::hash::hash_memo`] and recomputed on every read so the
+/// digest cannot lag behind a partial write. `tags` are likewise derived
+/// from the body via [`crate::memo::tags_of`]. Future schema versions
+/// will drop `category`; we keep that off the struct entirely.
+///
+/// The original parsed [`Table`] is carried alongside [`ParsedFile`],
+/// not here, so a re-emit (Task 4) can carry unknown keys forward
+/// without round-tripping through this typed view.
+#[derive(Debug, Clone, Serialize)]
 pub struct Frontmatter {
     pub id: MemoId,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
-    pub hash: crate::memo::MemoHash,
     #[serde(default)]
     pub favorite: bool,
-    #[serde(default)]
-    pub tags: Vec<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -44,25 +60,132 @@ pub struct Frontmatter {
 }
 
 impl Frontmatter {
-    pub fn from_memo(n: &Memo) -> Self {
-        Self {
-            id: n.id,
-            created_at: n.created_at,
-            updated_at: n.updated_at,
-            hash: n.hash.clone(),
-            favorite: n.favorite,
-            tags: n.tags.clone(),
-            deleted_at: n.deleted_at,
-        }
+    /// Build a [`Frontmatter`] from the [`oxi-frontmatter`] parsed table.
+    ///
+    /// v4 on-disk keys are `id, created, updated, favorite, deleted`
+    /// (see `oxi-frontmatter` canonical emission); this reader maps
+    /// them into the typed `created_at` / `updated_at` / `deleted_at`
+    /// fields. `hash` and `tags` are intentionally absent: they are
+    /// derived from the body (`hash::hash_memo` / `memo::tags_of`) and
+    /// the v4 file format never carries them. The full table is still
+    /// available on [`ParsedFile::Memo`] for the write path so foreign
+    /// keys (including foreign `hash` / `tags` rows in pre-v3 imports)
+    /// survive a round-trip.
+    pub fn from_table(table: &Table) -> std::result::Result<Self, String> {
+        let id = require_str(table, "id")?;
+        let created_at = require_str(table, v4_key("created_at"))?;
+        let updated_at = require_str(table, v4_key("updated_at"))?;
+        let favorite = match table.get("favorite") {
+            Some(Value::Bool(b)) => *b,
+            Some(Value::Str(s)) => match s.as_str() {
+                "true" => true,
+                "false" => false,
+                other => {
+                    return Err(format!(
+                        "frontmatter field `favorite` must be a boolean, got {other:?}"
+                    ));
+                }
+            },
+            Some(_) => return Err("frontmatter field `favorite` must be a boolean".to_string()),
+            None => false,
+        };
+        let deleted_at = match table.get(v4_key("deleted_at")) {
+            Some(Value::Str(s)) => Some(parse_rfc3339(s)?),
+            Some(_) => {
+                return Err(
+                    "frontmatter field `deleted` (v4 canonical) must be an RFC3339 timestamp string"
+                        .to_string(),
+                );
+            }
+            None => None,
+        };
+        Ok(Self {
+            id: MemoId::parse(&id).map_err(|e| e.to_string())?,
+            created_at: parse_rfc3339(&created_at)?,
+            updated_at: parse_rfc3339(&updated_at)?,
+            favorite,
+            deleted_at,
+        })
+    }
+}
+
+/// Extract a [`Value::Str`] for `key` from `table`. Returns a precise error
+/// naming the missing/wrong-typed field so a `Corrupt frontmatter` line
+/// points at the offender.
+fn require_str(table: &Table, key: &str) -> std::result::Result<String, String> {
+    match table.get(key) {
+        Some(Value::Str(s)) => Ok(s.clone()),
+        Some(_) => Err(format!("frontmatter field `{key}` must be a string")),
+        None => Err(format!("frontmatter is missing required field `{key}`")),
+    }
+}
+fn parse_rfc3339(s: &str) -> std::result::Result<OffsetDateTime, String> {
+    OffsetDateTime::parse(s, &Rfc3339)
+        .map_err(|e| format!("frontmatter timestamp {s:?} is not RFC3339: {e}"))
+}
+
+/// Map a typed [`Frontmatter`] field name to its v4 canonical on-disk
+fn v4_key(typed: &str) -> &str {
+    match typed {
+        "created_at" => "created",
+        "updated_at" => "updated",
+        "deleted_at" => "deleted",
+        other => other,
+    }
+}
+
+/// Convert the crate's `NoteFormat` into our internal `NoteFormat`.
+pub fn to_crate_fmt(fmt: crate::memo::NoteFormat) -> CrateNoteFormat {
+    match fmt {
+        crate::memo::NoteFormat::Markdown => CrateNoteFormat::Markdown,
+        crate::memo::NoteFormat::Html => CrateNoteFormat::Html,
+    }
+}
+
+/// Translate a [`oxi_frontmatter::FrontmatterError`] into the
+/// matching [`CoreError`] variant so the vault-layer call sites stay
+/// in the [`crate::Result`] flow. I/O failures map to
+/// [`CoreError::Io`] — a watcher must not mistake an `EIO`/permission
+/// failure for corrupt frontmatter (the defer-retry signal).
+pub fn frontmatter_error_to_core(e: oxi_frontmatter::FrontmatterError) -> CoreError {
+    use oxi_frontmatter::FrontmatterError as FE;
+    match e {
+        FE::Parse(p) => CoreError::Frontmatter {
+            path: PathBuf::new(),
+            reason: p.to_string(),
+        },
+        FE::Io(io) => CoreError::Io(io),
+        FE::UnexpectedBodyOnly { path } => CoreError::Frontmatter {
+            path: path.clone(),
+            reason: format!(
+                "body-only note at {} rejected without Synthesize::Yes",
+                path.display()
+            ),
+        },
+        FE::Unemittable { reason } => CoreError::Frontmatter {
+            path: PathBuf::new(),
+            reason,
+        },
     }
 }
 
 /// Result of parsing a single file.
+///
+/// The `Memo` arm carries the full parsed [`Table`] alongside the typed
+/// [`Frontmatter`] so the write path (Task 4) can re-emit unknown keys
+/// without losing them. Existing callers that only care about `fm`/`body`
+/// keep working unchanged.
 #[derive(Debug)]
 pub enum ParsedFile {
     /// A well-formed memo: valid frontmatter + body.
-    Memo { fm: Frontmatter, body: String },
-    /// A file with no frontmatter (first line was not `+++`). External/legacy.
+    Memo {
+        fm: Frontmatter,
+        /// Original parsed [`Table`] (insertion-ordered, intact). Carries
+        /// unknown keys for the write path.
+        table: Table,
+        body: String,
+    },
+    /// A file with no frontmatter (no opening fence). External/legacy.
     BodyOnly { body: String },
 }
 
@@ -89,70 +212,34 @@ impl FileStore {
         &self.paths
     }
 
-    /// Serialize a memo to its on-disk markdown representation.
-    pub fn serialize(memo: &Memo) -> Result<String> {
-        Self::serialize_as(memo, crate::memo::NoteFormat::Markdown)
-    }
-
-    /// Serialize a memo in the given format. HTML wraps the same TOML
-    /// frontmatter in a leading comment so the file stays valid HTML.
-    pub fn serialize_as(memo: &Memo, fmt: crate::memo::NoteFormat) -> Result<String> {
-        let fm = Frontmatter::from_memo(memo);
-        let toml = toml::to_string(&fm)?;
-        match fmt {
-            crate::memo::NoteFormat::Markdown => {
-                let mut out = String::with_capacity(toml.len() + memo.body.len() + 16);
-                out.push_str("+++\n");
-                out.push_str(&toml);
-                out.push_str("+++\n\n");
-                out.push_str(&memo.body);
-                Ok(out)
-            }
-            crate::memo::NoteFormat::Html => {
-                Ok(crate::html::serialize_frontmatter(&toml, &memo.body))
-            }
-        }
-    }
-
     /// Parse raw markdown file text. Never panics on malformed input.
     pub fn parse(content: &str) -> Result<ParsedFile> {
         Self::parse_as(content, crate::memo::NoteFormat::Markdown)
     }
 
-    /// Parse raw file text in the given format.
+    /// Parse raw file text in the given format. The full parsed
+    /// [`Table`] is returned alongside the typed [`Frontmatter`] so
+    /// the write path can re-emit unknown keys. Malformed frontmatter
+    /// is a hard error (corrupt files must not silently drop their
+    /// metadata).
     pub fn parse_as(content: &str, fmt: crate::memo::NoteFormat) -> Result<ParsedFile> {
-        let (toml_text, body): (&str, &str) = match fmt {
-            crate::memo::NoteFormat::Markdown => match split_frontmatter(content) {
-                FrontmatterSplit::None { body } => {
-                    return Ok(ParsedFile::BodyOnly {
-                        body: body.to_string(),
-                    });
-                }
-                FrontmatterSplit::Unclosed => {
-                    return Err(CoreError::Frontmatter {
-                        path: PathBuf::new(),
-                        reason: "missing closing `+++` delimiter".into(),
-                    });
-                }
-                FrontmatterSplit::Some { toml_text, body } => (toml_text, body),
-            },
-            crate::memo::NoteFormat::Html => match crate::html::split_frontmatter(content) {
-                crate::html::HtmlFrontmatterSplit::Some { toml_text, body } => (toml_text, body),
-                crate::html::HtmlFrontmatterSplit::None { body } => {
-                    return Ok(ParsedFile::BodyOnly {
-                        body: body.to_string(),
-                    });
-                }
-            },
-        };
-        let fm: Frontmatter = toml::from_str(toml_text).map_err(|e| CoreError::Frontmatter {
-            path: PathBuf::new(),
-            reason: e.to_string(),
+        let parsed = oxi_frontmatter::parse(content, to_crate_fmt(fmt)).map_err(|e| {
+            CoreError::Frontmatter {
+                path: PathBuf::new(),
+                reason: e.to_string(),
+            }
         })?;
-        Ok(ParsedFile::Memo {
-            fm,
-            body: body.to_string(),
-        })
+        match parsed {
+            Parsed::BodyOnly { body } => Ok(ParsedFile::BodyOnly { body }),
+            Parsed::Memo { table, body } => {
+                let fm =
+                    Frontmatter::from_table(&table).map_err(|reason| CoreError::Frontmatter {
+                        path: PathBuf::new(),
+                        reason,
+                    })?;
+                Ok(ParsedFile::Memo { fm, table, body })
+            }
+        }
     }
 
     /// Read and parse a file at an explicit path (format from the extension),
@@ -167,15 +254,16 @@ impl FileStore {
             other => other,
         })
     }
-
-    /// Parse into a complete [`Memo`], recomputing the content hash from the
-    /// body. Returns `None` for body-only files (no identity to attach).
+    /// Read a memo file at `path`, map the parsed frontmatter into the
+    /// typed [`Memo`] view, and recompute the body+`favorite` hash via
+    /// [`crate::hash::hash_memo`]. Returns `Ok(None)` for body-only
+    /// files (no identity to attach).
     pub fn read_memo(&self, path: &Path) -> Result<Option<Memo>> {
         let fmt = crate::memo::NoteFormat::from_path(path);
         let content = std::fs::read_to_string(path)?;
         match Self::parse_as(&content, fmt)? {
             ParsedFile::BodyOnly { .. } => Ok(None),
-            ParsedFile::Memo { fm, body } => {
+            ParsedFile::Memo { fm, body, .. } => {
                 let tags = crate::memo::tags_of(fmt, &body);
                 let memo = Memo {
                     id: fm.id,
@@ -202,41 +290,27 @@ impl FileStore {
         }
     }
 
-    /// Atomically write a note to `<folder>/<filename><ext>`, handling
-    /// filename collisions by appending `-2`, `-3`, etc. Returns the
-    /// absolute path written.
-    pub fn write_note(
-        &self,
-        folder: &str,
-        memo: &Memo,
+    /// Derive a filename (without extension) from a raw body string.
+    /// Used by the vault-layer create path where we want the path
+    /// *before* the synthesized id/created are known.
+    pub fn derive_filename_from_body(
+        body: &str,
         fmt: crate::memo::NoteFormat,
-    ) -> Result<PathBuf> {
-        let base = Self::derive_filename(memo, fmt);
-        let path = self.unique_note_path(folder, &base, fmt);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+        fallback_ts: OffsetDateTime,
+    ) -> String {
+        match crate::memo::note_title(fmt, body) {
+            Some(title) => crate::memo::slugify(&title),
+            None => crate::memo::timestamp_filename(fallback_ts),
         }
-        let text = Self::serialize_as(memo, fmt)?;
-        atomic_write(&path, text.as_bytes())?;
-        Ok(path)
-    }
-
-    /// Write a note to an explicit relative path (used by migration and
-    /// restore). Creates parent dirs. Does NOT handle collisions. The format
-    /// (and thus the serialization shape) comes from the path's extension.
-    pub fn write_note_at(&self, rel_path: &str, memo: &Memo) -> Result<PathBuf> {
-        let path = self.paths.vault.join(rel_path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let fmt = crate::memo::NoteFormat::from_path(&path);
-        let text = Self::serialize_as(memo, fmt)?;
-        atomic_write(&path, text.as_bytes())?;
-        Ok(path)
     }
 
     /// Find a non-colliding path for `folder/base<ext>`, appending `-N`.
-    fn unique_note_path(&self, folder: &str, base: &str, fmt: crate::memo::NoteFormat) -> PathBuf {
+    pub fn unique_note_path(
+        &self,
+        folder: &str,
+        base: &str,
+        fmt: crate::memo::NoteFormat,
+    ) -> PathBuf {
         let candidate = self.paths.note_path(folder, base, fmt);
         if !candidate.exists() {
             return candidate;
@@ -331,94 +405,8 @@ impl FileStore {
     }
 }
 
-/// Delimiter-aware split of file content into frontmatter + body.
-enum FrontmatterSplit<'a> {
-    /// First line was not `+++`: the whole content is body.
-    None { body: &'a str },
-    /// First line was `+++` but no second `+++` line exists.
-    Unclosed,
-    /// Both delimiters found.
-    Some { toml_text: &'a str, body: &'a str },
-}
-
-fn split_frontmatter(content: &str) -> FrontmatterSplit<'_> {
-    let first_nl = content.find('\n');
-    let first_line_end = first_nl.unwrap_or(content.len());
-    let first_line = content[..first_line_end].trim_end_matches('\r');
-    if first_line != "+++" {
-        return FrontmatterSplit::None { body: content };
-    }
-    let after_first = first_nl.map(|i| i + 1).unwrap_or(content.len());
-
-    let mut pos = after_first;
-    while pos < content.len() {
-        let rel = content[pos..].find('\n');
-        let line_end = rel.map(|r| pos + r).unwrap_or(content.len());
-        let line = content[pos..line_end].trim_end_matches('\r');
-        if line == "+++" {
-            let toml_text = &content[after_first..pos];
-            // Body begins after this line's newline; drop exactly one leading
-            // newline (the conventional blank separator) for a canonical body.
-            let body_start = if rel.is_some() {
-                line_end + 1
-            } else {
-                content.len()
-            };
-            let mut body = &content[body_start..];
-            if body.starts_with('\n') {
-                body = &body[1..];
-            }
-            return FrontmatterSplit::Some { toml_text, body };
-        }
-        pos = if rel.is_some() {
-            line_end + 1
-        } else {
-            content.len()
-        };
-    }
-    FrontmatterSplit::Unclosed
-}
-
-/// Atomic write: temp file in the same directory, fsync, rename over target.
-///
-/// Durability (C2): the file is fsync'd, then the parent *directory* is
-/// fsync'd so the rename survives power loss — otherwise a crash can leave the
-/// new content written but the directory entry pointing at the old (or no)
-/// name. Collision safety (C3): the temp name embeds pid + a per-process
-/// counter so two processes writing the same memo concurrently cannot stomp
-/// each other's temp file.
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    std::fs::create_dir_all(parent)?;
-    let tmp = unique_temp(path);
-    {
-        let mut file = std::fs::File::create(&tmp)?;
-        use std::io::Write;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-    }
-    std::fs::rename(&tmp, path)?;
-    fsync_dir(parent)?;
-    Ok(())
-}
-/// Build a unique sibling temp path for `target`: `<target>.tmp.<pid>.<n>`.
-/// The extension is not `md`/`html`, so a stale temp file is never picked
-/// up by the note walker.
-fn unique_temp(target: &Path) -> PathBuf {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let suffix = format!("tmp.{}.{}", std::process::id(), n);
-    let mut name = target
-        .file_name()
-        .map(|s| s.to_os_string())
-        .unwrap_or_default();
-    name.push(".");
-    name.push(suffix);
-    target.with_file_name(name)
-}
-
 /// fsync a directory so a recent rename/create is durable across power loss.
-fn fsync_dir(dir: &Path) -> Result<()> {
+pub(crate) fn fsync_dir(dir: &Path) -> Result<()> {
     let f = std::fs::File::open(dir)?;
     f.sync_all()?;
     Ok(())
@@ -494,37 +482,6 @@ fn scan_md_into(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
 mod tests {
     use super::*;
     use crate::hash;
-    use crate::memo::MemoId;
-
-    fn sample_memo(body: &str) -> Memo {
-        let id = MemoId::now();
-        let now = OffsetDateTime::now_utc();
-        Memo {
-            id,
-            created_at: now,
-            updated_at: now,
-            hash: hash::hash_memo(body.as_bytes(), false),
-            favorite: false,
-            tags: vec!["idea".into()],
-            body: body.into(),
-            deleted_at: None,
-        }
-    }
-
-    #[test]
-    fn roundtrip_memo() {
-        let memo = sample_memo("hello world\nsecond line");
-        let text = FileStore::serialize(&memo).unwrap();
-        assert!(text.starts_with("+++\n"));
-        let parsed = FileStore::parse(&text).unwrap();
-        match parsed {
-            ParsedFile::Memo { fm, body } => {
-                assert_eq!(fm.id, memo.id);
-                assert_eq!(body, memo.body);
-            }
-            _ => panic!("expected memo"),
-        }
-    }
 
     #[test]
     fn body_only_file() {
@@ -533,40 +490,71 @@ mod tests {
         assert!(matches!(parsed, ParsedFile::BodyOnly { .. }));
     }
 
+    /// v4 on-disk fixture uses `created`/`updated`/`deleted` keys
+    /// (no `_at` suffix). The typed extraction must recover them.
     #[test]
-    fn unclosed_frontmatter_is_error() {
-        let text = "+++\nid = \"x\"\nbody without closer";
-        let err = FileStore::parse(text).unwrap_err();
-        assert!(matches!(err, CoreError::Frontmatter { .. }));
+    fn from_table_reads_v4_canonical_keys() {
+        let id_str = "0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee";
+        let memo_text = format!(
+            "---\n\
+             id: {id_str}\n\
+             created: 2025-01-02T03:04:05Z\n\
+             updated: 2025-01-02T03:04:06Z\n\
+             favorite: true\n\
+             ---\n\
+             hello world\n\
+             second line\n",
+        );
+        let parsed = FileStore::parse(&memo_text).unwrap();
+        let (fm, body) = match parsed {
+            ParsedFile::Memo { fm, body, .. } => (fm, body),
+            ParsedFile::BodyOnly { .. } => panic!("parse should return Memo for formatted input"),
+        };
+        assert_eq!(fm.id, MemoId::parse(id_str).unwrap());
+        assert_eq!(
+            fm.created_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+            "2025-01-02T03:04:05Z",
+        );
+        assert_eq!(
+            fm.updated_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+            "2025-01-02T03:04:06Z",
+        );
+        assert!(fm.favorite);
+        assert_eq!(fm.deleted_at, None);
+        assert_eq!(body, "hello world\nsecond line\n");
     }
 
+    /// `deleted` (v4 canonical) maps into the typed `deleted_at` field.
     #[test]
-    fn body_with_plus_plus_plus_line() {
-        let memo = sample_memo("text\n+++\nmore text");
-        let text = FileStore::serialize(&memo).unwrap();
-        let parsed = FileStore::parse(&text).unwrap();
-        match parsed {
-            ParsedFile::Memo { body, .. } => assert_eq!(body, memo.body),
-            _ => panic!("expected memo"),
-        }
+    fn from_table_reads_v4_deleted_key() {
+        let id_str = "0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee";
+        let memo_text = format!(
+            "---\n\
+             id: {id_str}\n\
+             created: 2025-01-02T03:04:05Z\n\
+             updated: 2025-01-02T03:04:06Z\n\
+             favorite: false\n\
+             deleted: 2025-01-02T03:04:07Z\n\
+             ---\n\
+             body\n",
+        );
+        let parsed = FileStore::parse(&memo_text).unwrap();
+        let fm = match parsed {
+            ParsedFile::Memo { fm, .. } => fm,
+            ParsedFile::BodyOnly { .. } => panic!("expected memo"),
+        };
+        assert!(
+            fm.deleted_at.is_some(),
+            "v4 `deleted` must map into typed `deleted_at`"
+        );
     }
 
-    #[test]
-    fn html_roundtrip_serialize_parse() {
-        let memo = sample_memo("<h1>제목</h1>\n<p>본문 #태그</p>");
-        let text = FileStore::serialize_as(&memo, crate::memo::NoteFormat::Html).unwrap();
-        assert!(text.starts_with("<!--\n+++\n"));
-        let parsed = FileStore::parse_as(&text, crate::memo::NoteFormat::Html).unwrap();
-        match parsed {
-            ParsedFile::Memo { fm, body } => {
-                assert_eq!(fm.id, memo.id);
-                assert_eq!(fm.tags, memo.tags);
-                assert_eq!(body, memo.body);
-            }
-            _ => panic!("expected memo"),
-        }
-    }
-
+    /// Body-only HTML is treated as BodyOnly (the crate's HTML grammar
+    /// requires a `<!--\n---` opener; nothing else qualifies).
     #[test]
     fn html_plain_file_is_body_only() {
         let text = "<!DOCTYPE html>\n<html><body><p>외부 문서</p></body></html>";
@@ -574,21 +562,15 @@ mod tests {
         assert!(matches!(parsed, ParsedFile::BodyOnly { .. }));
     }
 
+    /// BodyOnly ⇒ Ok(None) — the visibility boundary.
     #[test]
-    fn html_write_and_read_memo_roundtrip() {
+    fn body_only_via_read_memo_returns_none() {
         let dir = tempfile::tempdir().unwrap();
         let store = FileStore::new(crate::paths::Paths::resolve(Some(dir.path())));
-        let memo = sample_memo("<h1>첫 노트</h1>\n<p>내용 #실제 <a href=\"#sec\">링크</a></p>");
-        let path = store
-            .write_note("wiki", &memo, crate::memo::NoteFormat::Html)
-            .unwrap();
-        assert_eq!(path.extension().unwrap(), "html");
-        assert!(path.to_string_lossy().contains("wiki/첫-노트.html"));
-        let back = store.read_memo(&path).unwrap().unwrap();
-        assert_eq!(back.id, memo.id);
-        assert_eq!(back.body, memo.body);
-        // Tags come from the html *text*, so the `#sec` fragment is not one.
-        assert_eq!(back.tags, vec!["실제"]);
+        let path = dir.path().join("plain.md");
+        std::fs::write(&path, "no frontmatter here\n").unwrap();
+        let read = store.read_memo(&path).unwrap();
+        assert!(read.is_none());
     }
 
     #[test]
@@ -609,5 +591,88 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, vec!["note.md", "page.html"]);
+    }
+
+    /// parse_as preserves unknown keys on the parsed file so the write
+    /// path can re-emit them. The typed view drops them, but the
+    /// original Table is intact.
+    #[test]
+    fn parse_as_preserves_unknown_keys_in_table() {
+        let text = "---\n\
+                    id: 0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee\n\
+                    created: 2025-01-02T03:04:05Z\n\
+                    updated: 2025-01-02T03:04:06Z\n\
+                    favorite: false\n\
+                    color: 5\n\
+                    ---\n\
+                    body\n";
+        let parsed = FileStore::parse(text).unwrap();
+        match parsed {
+            ParsedFile::Memo { table, .. } => {
+                assert!(table.contains_key("color"));
+                assert!(table.contains_key("id"));
+            }
+            ParsedFile::BodyOnly { .. } => panic!("expected memo"),
+        }
+    }
+
+    /// The on-disk `oxios:` sub-table (an app extension) survives a
+    /// parse → emit → parse round-trip unchanged. Unknown nested maps
+    /// are sorted alphabetically by the emitter (stable canonical
+    /// ordering) but the *content* survives.
+    #[test]
+    fn oxios_subtable_survives_roundtrip() {
+        let text = "---\n\
+                    id: 0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee\n\
+                    created: 2025-01-02T03:04:05Z\n\
+                    updated: 2025-01-02T03:04:06Z\n\
+                    favorite: false\n\
+                    oxios:\n  \
+                      author: agent\n  \
+                      needs_review: true\n\
+                    ---\n\
+                    body\n";
+        let parsed = FileStore::parse(text).unwrap();
+        let table = match parsed {
+            ParsedFile::Memo { table, .. } => table,
+            ParsedFile::BodyOnly { .. } => panic!("expected memo"),
+        };
+        assert!(table.contains_key("oxios"));
+        match table.get("oxios").unwrap() {
+            Value::Map(m) => {
+                assert_eq!(m.get("author"), Some(&Value::Str("agent".into())));
+                assert_eq!(m.get("needs_review"), Some(&Value::Bool(true)));
+            }
+            other => panic!("oxios must be a map, got {other:?}"),
+        }
+    }
+
+    /// read_memo is the only consumer of the on-disk hash; it must
+    /// always recompute from body+favorite, so a stale or synthesized
+    /// hash in `fm` is irrelevant to the in-memory Memo.
+    #[test]
+    fn read_memo_hash_is_recomputed_from_body_and_favorite() {
+        // Hand-stage a v4 file at a known path; the store's read_memo
+        // recomputes the hash independently of what's on disk.
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::new(crate::paths::Paths::resolve(Some(dir.path())));
+        let path = dir.path().join("manual.md");
+        let id_str = "0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee";
+        std::fs::write(
+            &path,
+            format!(
+                "---\n\
+                 id: {id_str}\n\
+                 created: 2025-01-02T03:04:05Z\n\
+                 updated: 2025-01-02T03:04:06Z\n\
+                 favorite: {fav}\n\
+                 ---\n\
+                 body bytes for hash\n",
+                fav = true,
+            ),
+        )
+        .unwrap();
+        let read = store.read_memo(&path).unwrap().unwrap();
+        assert_eq!(read.hash, hash::hash_memo(b"body bytes for hash", true));
     }
 }

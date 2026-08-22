@@ -21,16 +21,18 @@ use time::OffsetDateTime;
 
 use parking_lot::RwLock;
 
+use oxi_frontmatter::{Mutation, Synthesize, WriteOutcome, write_document};
+
 use crate::config::VaultConfig;
 use crate::error::{CoreError, Result};
 use crate::hash;
 use crate::lock::{FileLock, LockKind, acquire};
 use crate::memo::{
-    Cursor, Facets, IndexStats, Memo, MemoFilter, MemoId, MemoSummary, Page, note_title,
+    Cursor, Facets, IndexStats, Memo, MemoFilter, MemoHash, MemoId, MemoSummary, Page, note_title,
     preview_of, searchable_body, tags_of,
 };
 use crate::paths::Paths;
-use crate::store::files::{FileStore, ParsedFile};
+use crate::store::files::{FileStore, ParsedFile, to_crate_fmt};
 use crate::store::index::{IndexRecord, MemoIndex, RedbIndex};
 use crate::store::search::{SearchIndex, TantivySearch};
 use crate::sync::{FullRecord, ManifestRecord};
@@ -43,8 +45,32 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 /// regenerated. Stored in `<index_dir>/index-fmt`.
 const INDEX_FORMAT_VERSION: u32 = 3;
 
+/// Lifecycle status of an opened vault.
+///
+/// [`Vault::open`] runs the one-time default-vault migration
+/// (see [`crate::migrate_vault`]) before resolving paths; when both the
+/// pre-unification default vault and the new `~/.oxi/vault` exist, the
+/// vault still opens (pointing at the new location) but carries this
+/// status so GUI/CLI can demand a manual merge instead of silently
+/// dropping either side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VaultStatus {
+    /// Vault opened normally.
+    Ok,
+    /// Both the old and the new default vault exist; their contents
+    /// must be merged by hand. Surfaced through [`Vault::status`],
+    /// `doctor` (`merge_required`), and a startup warning log.
+    MergeRequired {
+        /// Pre-unification default vault (source).
+        old: PathBuf,
+        /// Shared ecosystem vault (target).
+        new: PathBuf,
+    },
+}
+
 pub struct Vault {
     paths: Paths,
+    status: VaultStatus,
     config: RwLock<VaultConfig>,
     files: FileStore,
 }
@@ -52,16 +78,54 @@ pub struct Vault {
 impl Vault {
     /// Resolve a vault (default location when `vault` is `None`) and load its
     /// config. Does not create directories — call [`Self::ensure_initialized`]
-    /// for that.
+    /// for that. For the default vault this first runs the one-time
+    /// migration to `~/.oxi/vault` (see [`crate::migrate_vault`]).
     pub fn open(vault: Option<&Path>) -> Result<Self> {
+        let mut status = VaultStatus::Ok;
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        if vault.is_none() {
+            match crate::migrate_vault::maybe_migrate(home.as_ref())? {
+                crate::migrate_vault::MigrationStatus::MergeRequired { old, new } => {
+                    tracing::warn!(
+                        old = %old.display(),
+                        new = %new.display(),
+                        "both the pre-unification default vault and ~/.oxi/vault exist; \
+                         merge them by hand (see `oximemo doctor`)"
+                    );
+                    status = VaultStatus::MergeRequired { old, new };
+                }
+                crate::migrate_vault::MigrationStatus::Migrated { converted } => {
+                    tracing::info!(
+                        converted,
+                        "migrated default vault to ~/.oxi/vault (v3 notes converted to v4)"
+                    );
+                }
+                _ => {}
+            }
+        }
         let paths = Paths::resolve(vault);
         let config = VaultConfig::load(&paths);
+        // Detached brain registration: ecosystem `[vault].space` wins over
+        // the vault-local `brain.space`; the daemon call (sync_run) is
+        // fire-and-forget so open never blocks on a missing daemon.
+        if config.brain.enabled {
+            let space =
+                crate::brain::resolve_space(std::path::Path::new(&home), &config.brain.space);
+            crate::brain::register_vault(&paths.vault, &space, &config.brain.socket);
+        }
         let files = FileStore::new(paths.clone());
         Ok(Self {
             paths,
+            status,
             config: RwLock::new(config),
             files,
         })
+    }
+
+    /// Lifecycle status of the opened vault (e.g. a pending
+    /// both-exists merge from the default-vault migration).
+    pub fn status(&self) -> &VaultStatus {
+        &self.status
     }
 
     /// Read config under a read guard.
@@ -615,18 +679,33 @@ impl Vault {
         let tags = tags_of(fmt, &body);
         validate_note_input(&body, &tags)?;
         let now = OffsetDateTime::now_utc();
-        let id = MemoId::now();
-        let note = Memo {
-            id,
-            created_at: now,
-            updated_at: now,
-            hash: hash::hash_memo(body.as_bytes(), false),
-            favorite: false,
-            tags,
-            body,
-            deleted_at: None,
-        };
-        let path = self.files.write_note(folder, &note, fmt)?;
+        // The on-disk id/created are synthesized by write_document
+        // (Synthesize::Yes on a missing file). We derive the filename
+        // from the body so the path is stable before the file exists,
+        // then let write_document produce the canonical block, then
+        // read the typed Memo back so the in-memory model and the
+        // file agree.
+        let base = FileStore::derive_filename_from_body(&body, fmt, now);
+        let path = self.files.unique_note_path(folder, &base, fmt);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let crate_fmt = to_crate_fmt(fmt);
+        write_document(
+            &path,
+            &body,
+            crate_fmt,
+            Mutation::default(),
+            Synthesize::Yes,
+            now,
+        )
+        .map_err(crate::store::files::frontmatter_error_to_core)?;
+        // Read back: write_document just synthesized id/created/updated
+        // (the typed values are only known after the disk write).
+        let note = self
+            .files
+            .read_memo(&path)?
+            .ok_or_else(|| CoreError::other("write_document produced an unreadable file"))?;
         let rel = self.paths.relative_path(&path).unwrap_or_default();
         let (sbody, stitle) = search_fields(fmt, &note);
         self.with_redb_and_search(|idx, search| {
@@ -720,11 +799,23 @@ impl Vault {
                         body,
                         deleted_at: None,
                     };
-                    // Rewrite in place (same canonical path, no `-2`
-                    // sibling) so the identity sticks for later reads.
-                    let text = FileStore::serialize_as(&note, fmt)?;
-                    std::fs::write(&abs, text)?;
-                    note
+                    // Adopt in place (same canonical path, no `-2`
+                    // sibling): merge-write with synthesis so the
+                    // identity sticks on disk, then read the typed Memo
+                    // back so the in-memory model and the file agree
+                    // (mirrors the create path).
+                    write_document(
+                        &abs,
+                        &note.body,
+                        to_crate_fmt(fmt),
+                        Mutation::default(),
+                        Synthesize::Yes,
+                        now,
+                    )
+                    .map_err(crate::store::files::frontmatter_error_to_core)?;
+                    self.files
+                        .read_memo(&abs)?
+                        .ok_or_else(|| CoreError::other("[daily] adoption re-read failed"))?
                 }
             };
             let (sbody, stitle) = search_fields(fmt, &note);
@@ -798,6 +889,24 @@ impl Vault {
         }
         Err(CoreError::NotFound(id.to_string()))
     }
+    /// Resolve the note's on-disk file: the indexed live path when it
+    /// exists, the trash path otherwise (mirrors [`Vault::get_memo`]'s
+    /// live→trash fallback). Returns `None` when neither exists.
+    pub fn note_file_path(&self, memo: &Memo) -> Option<PathBuf> {
+        let rel = self
+            .with_redb(|idx| idx.get(memo.id))
+            .ok()
+            .flatten()
+            .map(|r| r.path)
+            .unwrap_or_default();
+        let live = self.paths.vault.join(&rel);
+        if live.exists() {
+            return Some(live);
+        }
+        let trash = self.paths.trash_path(&rel);
+        trash.exists().then_some(trash)
+    }
+
     /// Update a note's body and/or favorite flag. If the note's title changes,
     /// the file is renamed to match the new title (format preserved).
     pub fn update_note(
@@ -822,6 +931,7 @@ impl Vault {
             note.favorite = p;
         }
         validate_note_input(&note.body, &note.tags)?;
+        let original_updated = note.updated_at;
         note.updated_at = OffsetDateTime::now_utc();
         note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite);
 
@@ -830,11 +940,42 @@ impl Vault {
         // If the title changed (or old path doesn't exist), compute new path.
         let new_title = note_title(fmt, &note.body);
         let needs_rename = old_title != new_title && old_path.exists();
-
+        let now = OffsetDateTime::now_utc();
+        let crate_fmt = to_crate_fmt(fmt);
         if needs_rename {
-            // Derive new filename and folder from old path.
+            // Derive new filename and folder from old path. Stage the
+            // old bytes at the new path first so write_document's
+            // `existing` table (parsed at write time) carries the
+            // original id/created forward — a brand-new file would
+            // get a fresh synthesized id and orphan the existing
+            // note identity.
             let folder = old_rel.rfind('/').map(|i| &old_rel[..i]).unwrap_or("");
-            let new_path = self.files.write_note(folder, &note, fmt)?;
+            let base = FileStore::derive_filename(&note, fmt);
+            let new_path = self.files.unique_note_path(folder, &base, fmt);
+            if let Some(parent) = new_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            // Pre-stage the existing file so write_document's
+            // parse-merge sees the original id/created.
+            let old_bytes = std::fs::read(&old_path)?;
+            oxi_frontmatter::atomic_write(&new_path, &old_bytes)?;
+            let outcome = write_document(
+                &new_path,
+                &note.body,
+                crate_fmt,
+                Mutation {
+                    favorite,
+                    deleted: None,
+                },
+                Synthesize::No,
+                now,
+            )
+            .map_err(crate::store::files::frontmatter_error_to_core)?;
+            if matches!(outcome, WriteOutcome::NoOp) {
+                // The pre-staged bytes already matched; the file's
+                // `updated` was not bumped, so neither is the memo's.
+                note.updated_at = original_updated;
+            }
             // Remove the old file if it differs.
             if new_path != old_path && old_path.exists() {
                 std::fs::remove_file(&old_path)?;
@@ -848,8 +989,64 @@ impl Vault {
         } else {
             // Write in place at the existing path.
             if !old_path.exists() {
-                // No known path — write to root.
-                let p = self.files.write_note("", &note, fmt)?;
+                // The note lives somewhere else (trashed, or moved by
+                // an external tool): `get_memo` above read it from the
+                // trash path or a scan hit. Locate that file and
+                // pre-stage its bytes verbatim at the new live path —
+                // the same identity trick as the rename branch — so
+                // write_document carries the original id/created
+                // forward instead of minting a fresh identity.
+                let trash = self.paths.trash_path(&old_rel);
+                let src = if trash.exists() {
+                    Some(trash)
+                } else {
+                    self.files
+                        .scan()
+                        .iter()
+                        .chain(self.files.scan_trash().iter())
+                        .find(|p| id_from_path(p) == Some(id))
+                        .cloned()
+                };
+                let base = FileStore::derive_filename(&note, fmt);
+                let p = self.files.unique_note_path("", &base, fmt);
+                if let Some(parent) = p.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                let outcome = match src {
+                    Some(src) => {
+                        let bytes = std::fs::read(&src)?;
+                        oxi_frontmatter::atomic_write(&p, &bytes)?;
+                        write_document(
+                            &p,
+                            &note.body,
+                            crate_fmt,
+                            Mutation {
+                                favorite,
+                                deleted: None,
+                            },
+                            Synthesize::No,
+                            now,
+                        )
+                        .map_err(crate::store::files::frontmatter_error_to_core)?
+                    }
+                    // Truly no file anywhere: synthesize from scratch.
+                    None => write_document(
+                        &p,
+                        &note.body,
+                        crate_fmt,
+                        Mutation {
+                            favorite,
+                            deleted: None,
+                        },
+                        Synthesize::Yes,
+                        now,
+                    )
+                    .map_err(crate::store::files::frontmatter_error_to_core)?,
+                };
+                if matches!(outcome, WriteOutcome::NoOp) {
+                    note.updated_at = original_updated;
+                }
+                // Index the (re)located note under the new live path.
                 let rel = self.paths.relative_path(&p).unwrap_or_default();
                 let (sbody, stitle) = search_fields(fmt, &note);
                 self.with_redb_and_search(|idx, search| {
@@ -857,13 +1054,32 @@ impl Vault {
                     search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
                 })?;
             } else {
-                let text = FileStore::serialize_as(&note, fmt)?;
-                std::fs::write(&old_path, text.as_bytes())?;
-                let (sbody, stitle) = search_fields(fmt, &note);
-                self.with_redb_and_search(|idx, search| {
-                    idx.upsert(&record_of(&note, &old_rel))?;
-                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
-                })?;
+                // In-place rewrite: the existing file carries the
+                // id/created forward through write_document. A NoOp
+                // (identical body + favorite) leaves the file's
+                // `updated` untouched, so neither the memo nor the
+                // index is bumped — disk and index stay in lockstep.
+                let outcome = write_document(
+                    &old_path,
+                    &note.body,
+                    crate_fmt,
+                    Mutation {
+                        favorite,
+                        deleted: None,
+                    },
+                    Synthesize::No,
+                    now,
+                )
+                .map_err(crate::store::files::frontmatter_error_to_core)?;
+                if !matches!(outcome, WriteOutcome::NoOp) {
+                    let (sbody, stitle) = search_fields(fmt, &note);
+                    self.with_redb_and_search(|idx, search| {
+                        idx.upsert(&record_of(&note, &old_rel))?;
+                        search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags)
+                    })?;
+                } else {
+                    note.updated_at = original_updated;
+                }
             }
         }
 
@@ -890,8 +1106,22 @@ impl Vault {
                     updated.tags = tags_of(src_fmt, &updated.body);
                     updated.updated_at = OffsetDateTime::now_utc();
                     updated.hash = hash::hash_memo(updated.body.as_bytes(), updated.favorite);
-                    let text = FileStore::serialize_as(&updated, src_fmt)?;
-                    std::fs::write(&abs, text.as_bytes())?;
+                    // Link propagation: same body length might
+                    // change (link target rewritten), so this is a
+                    // semantic write — write_document's NoOp check
+                    // compares parsed form vs body, so a rewrite with
+                    // an unchanged body returns NoOp and leaves the
+                    // file alone (the search index still needs to be
+                    // updated, which we do below).
+                    write_document(
+                        &abs,
+                        &updated.body,
+                        to_crate_fmt(src_fmt),
+                        Mutation::default(),
+                        Synthesize::No,
+                        OffsetDateTime::now_utc(),
+                    )
+                    .map_err(crate::store::files::frontmatter_error_to_core)?;
                     updates.push((updated, r.path.clone()));
                 }
             }
@@ -931,16 +1161,27 @@ impl Vault {
         note.deleted_at = Some(now);
         note.updated_at = now;
         note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite);
-        // Move file to trash (preserving structure).
+        // Move file to trash (preserving structure), then write the
+        // tombstone version into trash via write_document so the
+        // `deleted` key is canonical and unknown keys survive.
         if !rel.is_empty() {
             self.files.move_to_trash(&rel)?;
-            // Write the tombstone version into trash.
             let trash_abs = self.paths.trash_path(&rel);
             if let Some(parent) = trash_abs.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let text = FileStore::serialize_as(&note, fmt)?;
-            std::fs::write(&trash_abs, text.as_bytes())?;
+            write_document(
+                &trash_abs,
+                &note.body,
+                to_crate_fmt(fmt),
+                Mutation {
+                    favorite: Some(note.favorite),
+                    deleted: Some(Some(now)),
+                },
+                Synthesize::No,
+                now,
+            )
+            .map_err(crate::store::files::frontmatter_error_to_core)?;
         }
         self.with_redb_and_search(|idx, search| {
             idx.upsert(&record_of(&note, &rel))?;
@@ -959,13 +1200,22 @@ impl Vault {
         note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite);
         if !rel.is_empty() {
             self.files.restore_from_trash(&rel)?;
-            // Write the restored note with deleted_at cleared.
             let abs = self.paths.vault.join(&rel);
             if let Some(parent) = abs.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let text = FileStore::serialize_as(&note, fmt)?;
-            std::fs::write(&abs, text.as_bytes())?;
+            write_document(
+                &abs,
+                &note.body,
+                to_crate_fmt(fmt),
+                Mutation {
+                    favorite: Some(note.favorite),
+                    deleted: Some(None),
+                },
+                Synthesize::No,
+                OffsetDateTime::now_utc(),
+            )
+            .map_err(crate::store::files::frontmatter_error_to_core)?;
         }
         let (sbody, stitle) = search_fields(fmt, &note);
         self.with_redb_and_search(|idx, search| {
@@ -1272,7 +1522,9 @@ impl Vault {
 
     /// Move a note to a different folder. Renames the file to
     /// `<new_folder>/<title-slug><ext>` (format preserved) and updates the
-    /// index path.
+    /// index path. No content rewrite — the on-disk file's body,
+    /// frontmatter, and id are preserved verbatim; only the path
+    /// changes.
     pub fn move_note(&self, id: MemoId, new_folder: &str) -> Result<Memo> {
         let note = self.get_memo(id)?;
         let rec = self.with_redb(|idx| idx.get(id))?;
@@ -1284,12 +1536,24 @@ impl Vault {
             return Err(CoreError::other("note file not found; cannot move"));
         }
 
-        // Write to the new folder (derives filename from title).
-        let new_path = self.files.write_note(new_folder, &note, fmt)?;
+        // Compute the new path from the (unchanged) title; no
+        // write_document call — the on-disk content is already
+        // correct, we only re-locate the file.
+        let base = FileStore::derive_filename(&note, fmt);
+        let new_path = self.files.unique_note_path(new_folder, &base, fmt);
 
-        // Remove old file if the path changed.
-        if new_path != old_path && old_path.exists() {
-            std::fs::remove_file(&old_path)?;
+        if new_path == old_path {
+            // No-op move (target already at the requested location).
+            return Ok(note);
+        }
+        if let Some(parent) = new_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::rename(&old_path, &new_path)?;
+        if let Some(d) = new_path.parent() {
+            // fsync the parent dir so the rename survives power loss.
+            // Failures here are non-fatal (best-effort durability).
+            let _ = crate::store::files::fsync_dir(d);
         }
 
         let new_rel = self.paths.relative_path(&new_path).unwrap_or_default();
@@ -1338,18 +1602,61 @@ impl Vault {
     // -- sync / export (§9.2) --------------------------------------------
 
     pub fn export_manifest(&self, since: Option<OffsetDateTime>) -> Result<Vec<ManifestRecord>> {
-        self.with_redb(|idx| {
-            let recs = idx.export_since(since)?;
-            Ok(recs
-                .iter()
-                .map(|r| ManifestRecord {
-                    id: r.id,
-                    hash: r.hash.clone(),
-                    updated_at: r.updated_at,
-                    deleted: r.deleted,
-                })
-                .collect())
-        })
+        let recs = self.with_redb(|idx| idx.export_since(since))?;
+        Ok(recs
+            .iter()
+            .map(|r| ManifestRecord {
+                id: r.id,
+                // The file is the source of truth: the indexed digest
+                // goes stale the moment a note is edited outside the
+                // app, so recompute hash_memo(body, favorite) during
+                // the walk (v4 files carry no `hash` key).
+                hash: self.manifest_hash(r).unwrap_or_else(|| r.hash.clone()),
+                updated_at: r.updated_at,
+                deleted: r.deleted,
+            })
+            .collect())
+    }
+
+    /// Recompute a record's digest from its current on-disk body via
+    /// [`crate::hash::hash_memo`] (applied by [`FileStore::read_memo`]
+    /// when it builds the memo). Deleted notes keep their
+    /// vault-relative path in the index while the file lives in
+    /// `.trash/`, so resolve live→trash the same way [`Vault::get_memo`]
+    /// does. Returns `None` when the file is missing or unreadable —
+    /// the caller then keeps the indexed digest rather than dropping
+    /// the record (a missing manifest entry reads as a deletion
+    /// downstream).
+    fn manifest_hash(&self, rec: &IndexRecord) -> Option<MemoHash> {
+        let live = self.paths.vault.join(&rec.path);
+        let path = if live.exists() {
+            live
+        } else {
+            let trash = self.paths.trash_path(&rec.path);
+            if !trash.exists() {
+                tracing::warn!(id = %rec.id, "export_manifest: file missing; keeping indexed hash");
+                return None;
+            }
+            trash
+        };
+        match self.files.read_memo(&path) {
+            Ok(Some(note)) => Some(note.hash),
+            Ok(None) => {
+                tracing::warn!(
+                    id = %rec.id,
+                    "export_manifest: body-only file; keeping indexed hash"
+                );
+                None
+            }
+            Err(e) => {
+                tracing::warn!(
+                    id = %rec.id,
+                    error = %e,
+                    "export_manifest: unreadable file; keeping indexed hash"
+                );
+                None
+            }
+        }
     }
 
     pub fn export_full(&self, ids: &[MemoId]) -> Result<Vec<FullRecord>> {
@@ -1505,14 +1812,16 @@ impl Vault {
     }
 
     /// Consistency check (§9.3). When `fix` is true, safe repairs are applied
-    /// (hash recompute + rewrite; orphan index cleanup). Files are never deleted.
+    /// (orphan index cleanup). Files are never deleted and never rewritten:
+    /// v4 hashes are derived from body+favorite and recomputed on read, so
+    /// there is no stored digest to compare against or repair.
     pub fn doctor(&self, fix: bool) -> Result<DoctorReport> {
         self.ensure_initialized()?;
         let mut report = DoctorReport {
+            merge_required: matches!(self.status, VaultStatus::MergeRequired { .. }),
             index_locked: crate::lock::is_locked(&self.paths.meta_lock_path()),
             ..DoctorReport::default()
         };
-
         // Gather indexed ids for orphan detection.
         let all_recs = self.with_redb(|idx| idx.export_since(None))?;
         let indexed: std::collections::HashMap<MemoId, IndexRecord> =
@@ -1526,37 +1835,14 @@ impl Vault {
             .chain(self.files.list_trash_files().iter())
         {
             match self.files.read_memo(path) {
-                Ok(Some(mut note)) => {
+                Ok(Some(note)) => {
                     seen.insert(note.id);
-                    // Categories have no format validity — only orphan/index
-                    // consistency is checked here.
-                    let recomputed = hash::hash_memo(note.body.as_bytes(), note.favorite);
-                    if recomputed != note.hash {
-                        // Report only *unresolved* mismatches. When --fix
-                        // rewrites successfully the memo is no longer a
-                        // mismatch; a failed rewrite is counted separately.
-                        let repaired = if fix {
-                            note.hash = recomputed;
-                            let rel = self.paths.relative_path(path).unwrap_or_default();
-                            match self.files.write_note_at(&rel, &note) {
-                                Ok(_) => true,
-                                Err(e) => {
-                                    report.hash_repair_failed += 1;
-                                    tracing::warn!(
-                                        id = %note.id,
-                                        error = %e,
-                                        "doctor: failed to rewrite hash"
-                                    );
-                                    false
-                                }
-                            }
-                        } else {
-                            false
-                        };
-                        if !repaired {
-                            report.hash_mismatches.push(note.id);
-                        }
-                    }
+                    // Categories have no format validity — only
+                    // orphan/index consistency is checked here. The
+                    // hash is derived (read_memo recomputes it from
+                    // the current body), so a stored-vs-recomputed
+                    // mismatch cannot exist and no rewrite is ever
+                    // warranted.
                 }
                 Ok(None) => report.orphan_files.push(path.clone()),
                 Err(CoreError::Frontmatter { reason, .. }) => {
@@ -1717,10 +2003,19 @@ fn validate_note_input(body: &str, tags: &[String]) -> Result<()> {
 #[derive(Debug, Default, serde::Serialize)]
 pub struct DoctorReport {
     pub corrupt_frontmatter: Vec<(PathBuf, String)>,
+    /// True when both the pre-unification default vault and the new
+    /// `~/.oxi/vault` exist and must be merged by hand
+    /// ([`VaultStatus::MergeRequired`]).
+    pub merge_required: bool,
     pub orphan_index_records: Vec<MemoId>,
     pub orphan_files: Vec<PathBuf>,
+    /// Always empty since v4: hashes are derived from body+favorite and
+    /// recomputed on read, so a stored-vs-recomputed mismatch cannot
+    /// exist. Retained for the serialized report API (the frontend
+    /// still sums it).
     pub hash_mismatches: Vec<MemoId>,
-    /// Notes whose hash was rewritten by `doctor --fix` but the write failed.
+    /// Always 0 since v4 (see [`Self::hash_mismatches`]); `doctor`
+    /// never rewrites files. Retained for the serialized report API.
     pub hash_repair_failed: u64,
     pub index_locked: bool,
     pub trash_expiring: u64,
@@ -1838,6 +2133,338 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let v = Vault::open(Some(dir.path())).unwrap();
         (dir, v)
+    }
+
+    // -- default-vault migration (task: ~/.oxi/vault) ----------------------
+
+    const V3_ID: &str = "0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee";
+    fn v3_md(extra: &str) -> String {
+        format!(
+            "+++\n\
+             id = \"{V3_ID}\"\n\
+             created_at = 2025-01-02T03:04:05Z\n\
+             updated_at = 2025-01-02T03:04:06Z\n\
+             hash = \"cafe1234cafe1234\"\n\
+             favorite = true\n\
+             tags = [\"idea\"]\n\
+             {extra}\
+             +++\n\
+             \n\
+             # Title\n\
+             \n\
+             body text\n"
+        )
+    }
+
+    /// Seed a populated pre-unification default vault under `home`.
+    fn seed_old_default(home: &Path) -> PathBuf {
+        let old = home
+            .join("Library")
+            .join("Application Support")
+            .join("com.oximemo.app")
+            .join("vault");
+        std::fs::create_dir_all(old.join(".trash/novel")).unwrap();
+        std::fs::create_dir_all(old.join("novel")).unwrap();
+        std::fs::create_dir_all(old.join("_assets")).unwrap();
+        std::fs::create_dir_all(old.join("habits")).unwrap();
+        std::fs::write(old.join("oximemo.toml"), "[general]\n").unwrap();
+        std::fs::write(old.join("_assets/img.png"), b"\x89PNG-not-really").unwrap();
+        std::fs::write(old.join("novel/first.md"), v3_md("")).unwrap();
+        // Trashed v3 note carrying a tombstone.
+        std::fs::write(
+            old.join(".trash/novel/old.md"),
+            v3_md("deleted_at = 2025-01-02T03:04:07Z\n"),
+        )
+        .unwrap();
+        // System file: frontmatter-less, must move verbatim.
+        std::fs::write(old.join("habits/emoji.md"), "\u{1f4da}\n").unwrap();
+        old
+    }
+
+    #[test]
+    fn open_migrates_default_vault_and_reindex_sees_the_memo() {
+        // Leaked home (see `with_home`): concurrent tests resolve their
+        // index through env HOME, so the swap target must outlive them.
+        let home = TempDir::new().unwrap().keep();
+        let old = seed_old_default(&home);
+        let new = home.join(".oxi").join("vault");
+
+        let (vault_path, status) = crate::migrate_vault::with_home(&home, || {
+            let v = Vault::open(None).unwrap();
+            (v.paths().vault.clone(), v.status().clone())
+        });
+
+        assert_eq!(vault_path, new, "open(None) resolves the new default");
+        assert_eq!(status, VaultStatus::Ok);
+        assert!(!old.exists(), "entire tree moved away");
+        assert!(new.join("oximemo.toml").is_file());
+        assert_eq!(
+            std::fs::read(new.join("_assets/img.png")).unwrap(),
+            b"\x89PNG-not-really"
+        );
+        let converted = std::fs::read_to_string(new.join("novel/first.md")).unwrap();
+        assert!(
+            converted.starts_with("---\n"),
+            "converted to v4: {converted}"
+        );
+        assert!(!converted.contains("hash"), "stored hash dropped");
+        let trashed = std::fs::read_to_string(new.join(".trash/novel/old.md")).unwrap();
+        assert!(trashed.starts_with("---\n"), "trashed note converted");
+        assert!(trashed.contains("deleted: 2025-01-02T03:04:07Z"));
+        // System file moves verbatim, staying frontmatter-less.
+        assert_eq!(
+            std::fs::read_to_string(new.join("habits/emoji.md")).unwrap(),
+            "\u{1f4da}\n"
+        );
+
+        // Reindex on the migrated vault sees the memo (typed read of the
+        // converted file succeeds) and the trashed tombstone.
+        crate::migrate_vault::with_home(&home, || {
+            let v = Vault::open(None).unwrap();
+            let stats = v.reindex().unwrap();
+            assert_eq!(stats.memos, 1, "live memo indexed");
+            assert_eq!(stats.trashed_memos, 1, "trashed memo indexed");
+            assert_eq!(stats.failed, 0);
+        });
+    }
+
+    #[test]
+    fn open_surfaces_merge_required_and_doctor_reports_it() {
+        let home = TempDir::new().unwrap().keep();
+        let old = seed_old_default(&home);
+        let new = home.join(".oxi").join("vault");
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(new.join("other.md"), "---\nid: other\n---\nnew side\n").unwrap();
+        let old_bytes = std::fs::read_to_string(old.join("novel/first.md")).unwrap();
+
+        crate::migrate_vault::with_home(&home, || {
+            let v = Vault::open(None).unwrap();
+            assert_eq!(
+                v.status(),
+                &VaultStatus::MergeRequired {
+                    old: old.clone(),
+                    new: new.clone()
+                }
+            );
+            // The vault still opens at the new path and doctor surfaces
+            // the pending merge instead of failing silently.
+            assert_eq!(v.paths().vault, new);
+            let report = v.doctor(false).unwrap();
+            assert!(report.merge_required);
+        });
+
+        // Nothing was overwritten on either side.
+        assert_eq!(
+            std::fs::read_to_string(old.join("novel/first.md")).unwrap(),
+            old_bytes
+        );
+        assert_eq!(
+            std::fs::read_to_string(new.join("other.md")).unwrap(),
+            "---\nid: other\n---\nnew side\n"
+        );
+    }
+
+    /// Seed a target note via the raw on-disk format: an `oxios:` table
+    /// (an app-extension sub-map) plus an unknown scalar must survive
+    /// every public rewrite path unchanged. This is the regression
+    /// target for the "typed serialization drops unknown keys" finding
+    /// that motivated routing every rewrite through
+    /// `oxi-frontmatter::write_document`.
+    #[test]
+    fn oxios_table_survives_every_rewrite_path() {
+        use oxi_frontmatter::{
+            NoteFormat as FrontmatterFormat, Table, Value, atomic_write, emit, parse,
+        };
+        let (_t, v) = tmp_vault();
+        let source = v.create_note_auto("", "See [[Target]].".into()).unwrap();
+        let target = v.create_note_auto("", "# Target".into()).unwrap();
+        let target_path = v
+            .with_redb(|idx| Ok(idx.get(target.id).unwrap().expect("target indexed").path))
+            .unwrap();
+        let target_path = v.paths.vault.join(target_path);
+        // Build the hand-crafted v4 document. Two fields under `oxios:`
+        // (an app extension) plus an unknown scalar `source` must all
+        // round-trip through every rewrite path.
+        let mut oxios = Table::new();
+        oxios.insert("author".into(), Value::Str("agent".into()));
+        oxios.insert("needs_review".into(), Value::Bool(true));
+        let mut table = Table::new();
+        // Format the typed timestamps as RFC3339 (the v4 grammar's
+        // timestamp shape). `OffsetDateTime::to_string()` is a
+        // debug-style format the parser would reject.
+        let rfc = time::format_description::well_known::Rfc3339;
+        table.insert("id".into(), Value::Str(target.id.to_string()));
+        table.insert(
+            "created".into(),
+            Value::Str(target.created_at.format(&rfc).unwrap()),
+        );
+        table.insert(
+            "updated".into(),
+            Value::Str(target.updated_at.format(&rfc).unwrap()),
+        );
+        table.insert("favorite".into(), Value::Bool(false));
+        table.insert(
+            "aliases".into(),
+            Value::Array(vec!["goal".into(), "anchor".into()]),
+        );
+        table.insert("source".into(), Value::Str("migration".into()));
+        table.insert("oxios".into(), Value::Map(oxios.clone()));
+        atomic_write(
+            &target_path,
+            emit(&table, "# Target\n\nbody", FrontmatterFormat::Markdown).as_bytes(),
+        )
+        .unwrap();
+
+        let assert_preserved = |path: &std::path::Path| {
+            let content = std::fs::read_to_string(path).unwrap();
+            let oxi_frontmatter::Parsed::Memo { table, .. } =
+                parse(&content, FrontmatterFormat::Markdown).unwrap()
+            else {
+                panic!("target must retain frontmatter after rewrite")
+            };
+            assert_eq!(table.get("id"), Some(&Value::Str(target.id.to_string())));
+            assert_eq!(
+                table.get("aliases"),
+                Some(&Value::Array(vec!["goal".into(), "anchor".into()]))
+            );
+            assert_eq!(table.get("source"), Some(&Value::Str("migration".into())));
+            assert_eq!(table.get("oxios"), Some(&Value::Map(oxios.clone())));
+            // Derived-only fields must NOT appear on disk — they are
+            // recomputed by read_memo on every read.
+            assert!(!table.contains_key("hash"));
+            assert!(!table.contains_key("tags"));
+        };
+
+        // Initial path (pre-rewrite): the body was "# Target" →
+        // "Target.md" at the vault root. We seeded the same path
+        // with the hand-crafted v4 file above, so the pre-rename
+        // assertion checks that file.
+        v.update_note(target.id, Some("# Renamed".into()), None)
+            .unwrap();
+        // After rename the file lives at Renamed.md.
+        let renamed_path = v.paths.vault.join("Renamed.md");
+        assert_preserved(&renamed_path);
+        // Link propagation must have rewritten [[Target]] → [[Renamed]]
+        // in the source note's body during the same update_note call.
+        let source_path = v
+            .with_redb(|idx| Ok(idx.get(source.id).unwrap().unwrap().path))
+            .unwrap();
+        let source_content = std::fs::read_to_string(v.paths.vault.join(&source_path)).unwrap();
+        assert!(
+            source_content.contains("[[Renamed]]"),
+            "link propagation must rewrite [[Target]] → [[Renamed]]: {source_content}"
+        );
+        assert!(
+            !source_content.contains("[[Target]]"),
+            "old link must be gone: {source_content}"
+        );
+
+        v.delete_memo(target.id).unwrap();
+        assert_preserved(&v.paths.trash_path("Renamed.md"));
+
+        v.restore_memo(target.id).unwrap();
+        assert_preserved(&renamed_path);
+
+        v.move_note(target.id, "folder2").unwrap();
+        assert_preserved(&v.paths.vault.join("folder2/Renamed.md"));
+    }
+
+    /// `create_note_auto` synthesizes id/created/updated on the file
+    /// but must NOT parse the body for frontmatter — the body is taken
+    /// verbatim, so a body containing `---` blocks (e.g. literal
+    /// markdown separators the user wrote) survives byte-identical.
+    #[test]
+    fn create_note_auto_keeps_embedded_body() {
+        let (_t, v) = tmp_vault();
+        let body = "before\n---\nid: embedded\n---\nafter\n";
+        let note = v.create_note_auto("", body.into()).unwrap();
+        let rel = v
+            .with_redb(|idx| Ok(idx.get(note.id).unwrap().unwrap().path))
+            .unwrap();
+        let content = std::fs::read_to_string(v.paths.vault.join(&rel)).unwrap();
+        // Synthesized canonical keys must be present in the file.
+        assert!(content.contains("created:"), "missing created: {content}");
+        assert!(content.contains("updated:"), "missing updated: {content}");
+        // The body (including its embedded `---` markers) must survive
+        // verbatim — create never parses user bodies for frontmatter.
+        let body_start = content.find("\n---\n").unwrap() + "\n---\n".len();
+        let on_disk_body = &content[body_start..];
+        assert_eq!(on_disk_body, body, "body must be byte-identical");
+    }
+
+    /// Round-1 review finding 1: updating a note whose indexed live
+    /// path is gone (trashed) must relocate the file to a live path
+    /// carrying the ORIGINAL id + created — never a freshly
+    /// synthesized identity.
+    #[test]
+    fn update_of_trashed_note_preserves_identity() {
+        let (_t, v) = tmp_vault();
+        let note = v.create_note_auto("", "# Gone\n\nbody".into()).unwrap();
+        v.delete_memo(note.id).unwrap();
+
+        let updated = v
+            .update_note(note.id, Some("# Back\n\nnew body".into()), None)
+            .unwrap();
+        // Identity: the id is the caller's handle, unchanged.
+        assert_eq!(updated.id, note.id);
+        assert_eq!(updated.created_at, note.created_at);
+
+        // On-disk proof: parse the relocated live file and compare
+        // id + created against the original memo.
+        let path = v.note_file_path(&updated).expect("relocated live file");
+        let parsed =
+            crate::store::files::FileStore::parse(&std::fs::read_to_string(&path).unwrap())
+                .unwrap();
+        match parsed {
+            crate::store::files::ParsedFile::Memo { fm, .. } => {
+                assert_eq!(fm.id, note.id, "file id must be the original");
+                assert_eq!(
+                    fm.created_at, note.created_at,
+                    "file created must be the original"
+                );
+            }
+            crate::store::files::ParsedFile::BodyOnly { .. } => {
+                panic!("relocated note must have frontmatter")
+            }
+        }
+    }
+
+    /// Round-1 review finding 4: an update that changes nothing
+    /// (identical body + favorite) is a semantic NoOp — the file's
+    /// `updated` stays at its old value AND the index record is not
+    /// bumped ahead of disk.
+    #[test]
+    fn update_noop_keeps_file_and_index_updated() {
+        let (_t, v) = tmp_vault();
+        let note = v.create_note_auto("", "# Stable\n\nbody".into()).unwrap();
+
+        // Snapshot disk + index before the NoOp update.
+        let rel = v
+            .with_redb(|idx| Ok(idx.get(note.id).unwrap().unwrap().path))
+            .unwrap();
+        let file_before = std::fs::read_to_string(v.paths.vault.join(&rel)).unwrap();
+        let idx_updated_before = v
+            .with_redb(|idx| Ok(idx.get(note.id).unwrap().unwrap().updated_at))
+            .unwrap();
+
+        let updated = v
+            .update_note(note.id, Some("# Stable\n\nbody".into()), None)
+            .unwrap();
+        // The returned memo reports the file's truth, not a phantom bump.
+        assert_eq!(updated.updated_at, note.updated_at);
+
+        // Disk: byte-identical file (NoOp never rewrote it).
+        let file_after = std::fs::read_to_string(v.paths.vault.join(&rel)).unwrap();
+        assert_eq!(file_before, file_after, "NoOp must not rewrite the file");
+
+        // Index: record's updated_at unchanged.
+        let idx_updated_after = v
+            .with_redb(|idx| Ok(idx.get(note.id).unwrap().unwrap().updated_at))
+            .unwrap();
+        assert_eq!(
+            idx_updated_before, idx_updated_after,
+            "NoOp must not bump the index ahead of disk"
+        );
     }
 
     #[test]
@@ -2032,6 +2659,69 @@ watcher_retry_interval_ms = 200
         assert_eq!(manifest.len(), 1);
         let full = v.export_full(&[n.id]).unwrap();
         assert_eq!(full[0].body, "body text");
+    }
+
+    #[test]
+    fn manifest_recomputes_hash_at_walk() {
+        let (_t, v) = tmp_vault();
+        let n = v
+            .create_memo("# Title\n\noriginal body".into(), None)
+            .unwrap();
+        // Hand-edit the body externally: the index still holds the
+        // pre-edit digest, so the manifest must recompute from the file.
+        let rel = v
+            .with_redb(|idx| Ok(idx.get(n.id).unwrap().expect("indexed").path))
+            .unwrap();
+        let abs = v.paths.vault.join(&rel);
+        let edited = std::fs::read_to_string(&abs)
+            .unwrap()
+            .replace("original body", "hand-edited body");
+        std::fs::write(&abs, &edited).unwrap();
+
+        let manifest = v.export_manifest(None).unwrap();
+        let rec = manifest.iter().find(|m| m.id == n.id).expect("in manifest");
+        let on_disk = v.files.read_memo(&abs).unwrap().expect("parses");
+        assert_eq!(
+            rec.hash, on_disk.hash,
+            "manifest hash must reflect the current body"
+        );
+        let indexed = v
+            .with_redb(|idx| Ok(idx.get(n.id).unwrap().expect("indexed").hash))
+            .unwrap();
+        assert_ne!(
+            rec.hash, indexed,
+            "manifest must not serve the stale index digest"
+        );
+    }
+
+    #[test]
+    fn doctor_never_rewrites_on_hash_mismatch() {
+        let (_t, v) = tmp_vault();
+        let n = v
+            .create_memo("# Doctor\n\nstable body".into(), None)
+            .unwrap();
+        let rel = v
+            .with_redb(|idx| Ok(idx.get(n.id).unwrap().expect("indexed").path))
+            .unwrap();
+        let abs = v.paths.vault.join(&rel);
+        // Drift the file from the index by editing the body externally —
+        // the classic "stored hash mismatch" scenario.
+        let edited = std::fs::read_to_string(&abs)
+            .unwrap()
+            .replace("stable body", "externally edited");
+        std::fs::write(&abs, &edited).unwrap();
+
+        let report = v.doctor(true).unwrap();
+        // Hashes are derived from body+favorite and recomputed on read;
+        // there is no stored digest to mismatch against.
+        assert!(report.hash_mismatches.is_empty());
+        assert_eq!(report.hash_repair_failed, 0);
+        assert!(report.orphan_files.is_empty());
+        assert!(report.orphan_index_records.is_empty());
+        assert!(report.corrupt_frontmatter.is_empty());
+        // Structure-only report: `doctor --fix` leaves the externally
+        // edited file byte-identical (no rewrite).
+        assert_eq!(std::fs::read_to_string(&abs).unwrap(), edited);
     }
 
     #[test]
@@ -3094,7 +3784,7 @@ watcher_retry_interval_ms = 200
         v.create_folder("daily").unwrap();
         std::fs::write(
             v.paths().vault.join("daily/2026-08-21.md"),
-            "+++\nid = \"017f22e2-79b6-749e-8c01-0f99a2217673\"\nhash = \"b3:0\"\ncreated_at = \"2026-08-20T00:00:00Z\"\nupdated_at = \"2026-08-20T00:00:00Z\"\n\n+++\n\n# 2026-08-21\n동기화된 파일\n",
+            "---\nid: 017f22e2-79b6-749e-8c01-0f99a2217673\ncreated: 2026-08-20T00:00:00Z\nupdated: 2026-08-20T00:00:00Z\n---\n\n# 2026-08-21\n동기화된 파일\n",
         )
         .unwrap();
         let (m, _) = v.open_daily("2026-08-21").unwrap();
@@ -3140,5 +3830,174 @@ watcher_retry_interval_ms = 200
         let rec = v.with_redb(|i| i.get(m.id)).unwrap().unwrap();
         assert_eq!(rec.path, "daily/2026-08-21.html");
         assert!(m.body.contains("<h1>2026-08-21</h1>"));
+    }
+
+    // -- brain registration on open (task 7) --------------------------
+
+    fn fresh_recorder() -> (
+        std::sync::Arc<crate::brain::RecordingBrainRegistrar>,
+        tempfile::TempDir,
+    ) {
+        // No global reset: each test uses a unique tempdir, so its
+        // `(vault, space, socket)` tuple never collides with another
+        // test's memo entry. The per-tuple `reset_registration_memo_for_test`
+        // is used only by tests that intentionally re-open the same
+        // vault across two scopes (see `open_without_recorder_under_cfg_test_is_a_noop`).
+        (
+            crate::brain::RecordingBrainRegistrar::new(),
+            tempfile::tempdir().unwrap(),
+        )
+    }
+    #[test]
+    fn registers_vault_when_brain_enabled() {
+        let (recorder, dir) = fresh_recorder();
+        let home = dir.path().to_path_buf();
+        let expected_vault = dir.path().join("vault");
+        std::fs::create_dir_all(&expected_vault).unwrap();
+        std::fs::write(
+            expected_vault.join("oximemo.toml"),
+            "[brain]\nenabled = true\nspace = \"personal\"\nsocket = \"\"\n",
+        )
+        .unwrap();
+        crate::brain::with_test_recorder(recorder.clone(), || {
+            crate::migrate_vault::with_home(&home, || {
+                let _v = Vault::open(Some(&expected_vault)).unwrap();
+            });
+        });
+        let calls = recorder.calls.lock();
+        assert_eq!(calls.len(), 1, "exactly one registration");
+        assert_eq!(calls[0].vault, expected_vault);
+        assert_eq!(calls[0].space, "personal");
+        assert_eq!(calls[0].socket, "");
+    }
+
+    #[test]
+    fn brain_disabled_means_no_registration() {
+        let (recorder, dir) = fresh_recorder();
+        let home = dir.path().to_path_buf();
+        let expected_vault = dir.path().join("vault");
+        std::fs::create_dir_all(&expected_vault).unwrap();
+        std::fs::write(
+            expected_vault.join("oximemo.toml"),
+            "[brain]\nenabled = false\n",
+        )
+        .unwrap();
+        crate::brain::with_test_recorder(recorder.clone(), || {
+            crate::migrate_vault::with_home(&home, || {
+                let _v = Vault::open(Some(&expected_vault)).unwrap();
+            });
+        });
+        assert_eq!(recorder.calls.lock().len(), 0);
+    }
+
+    #[test]
+    fn ecosystem_space_overrides_vault_local_space() {
+        let (recorder, dir) = fresh_recorder();
+        let home = dir.path().to_path_buf();
+        let expected_vault = dir.path().join("vault");
+        std::fs::create_dir_all(&expected_vault).unwrap();
+        std::fs::create_dir_all(home.join(".oxi")).unwrap();
+        std::fs::write(home.join(".oxi/config.toml"), "[vault]\nspace = \"work\"\n").unwrap();
+        std::fs::write(
+            expected_vault.join("oximemo.toml"),
+            "[brain]\nenabled = true\nspace = \"personal\"\n",
+        )
+        .unwrap();
+        crate::brain::with_test_recorder(recorder.clone(), || {
+            crate::migrate_vault::with_home(&home, || {
+                let _v = Vault::open(Some(&expected_vault)).unwrap();
+            });
+        });
+        let calls = recorder.calls.lock();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].space, "work", "ecosystem wins over vault-local");
+    }
+
+    #[test]
+    fn unreachable_socket_does_not_block_open() {
+        let (_recorder, dir) = fresh_recorder();
+        let home = dir.path().to_path_buf();
+        let expected_vault = dir.path().join("vault");
+        std::fs::create_dir_all(&expected_vault).unwrap();
+        std::fs::write(
+            expected_vault.join("oximemo.toml"),
+            "[brain]\nenabled = true\nsocket = \"/tmp/oximemo-test-nonexistent-socket.sock\"\n",
+        )
+        .unwrap();
+        crate::migrate_vault::with_home(&home, || {
+            let v = Vault::open(Some(&expected_vault));
+            assert!(v.is_ok(), "open must succeed despite unreachable daemon");
+        });
+    }
+
+    #[test]
+    fn repeated_open_same_tuple_registers_only_once() {
+        // Important #1: the memo in `register_vault` collapses identical
+        // (vault, space, socket) tuples so the daemon isn't spammed by
+        // reopens (e.g. the watcher's per-debounced reopen path).
+        let (recorder, dir) = fresh_recorder();
+        let home = dir.path().to_path_buf();
+        let expected_vault = dir.path().join("vault");
+        std::fs::create_dir_all(&expected_vault).unwrap();
+        std::fs::write(
+            expected_vault.join("oximemo.toml"),
+            "[brain]\nenabled = true\nspace = \"personal\"\nsocket = \"\"\n",
+        )
+        .unwrap();
+        crate::brain::with_test_recorder(recorder.clone(), || {
+            crate::migrate_vault::with_home(&home, || {
+                let _ = Vault::open(Some(&expected_vault)).unwrap();
+                let _ = Vault::open(Some(&expected_vault)).unwrap();
+                let _ = Vault::open(Some(&expected_vault)).unwrap();
+            });
+        });
+        let calls = recorder.calls.lock();
+        assert_eq!(calls.len(), 1, "memo: identical tuple → one call");
+    }
+
+    #[test]
+    fn open_without_recorder_under_cfg_test_is_a_noop() {
+        // Important #2: under cfg(test), `current_registrar()` returns
+        // `NoopBrainRegistrar` unless a recorder is installed. This
+        // stands between unrelated tests and the developer's live
+        // daemon. The test exercises an existing-style `Vault::open`
+        // path (no recorder) and asserts the open itself succeeds; the
+        // follow-up reinstalls a recorder and confirms a fresh open
+        // does get through (i.e. the memo didn't bake in a stale
+        // no-op decision).
+        let (_recorder, dir) = fresh_recorder();
+        let home = dir.path().to_path_buf();
+        let expected_vault = dir.path().join("vault");
+        std::fs::create_dir_all(&expected_vault).unwrap();
+        std::fs::write(
+            expected_vault.join("oximemo.toml"),
+            "[brain]\nenabled = true\nspace = \"personal\"\n",
+        )
+        .unwrap();
+        // First: no recorder installed — the cfg(test) default is the
+        // no-op, and the memo caches the registration so it can't fire
+        // again even if a recorder is later installed.
+        crate::migrate_vault::with_home(&home, || {
+            let v = Vault::open(Some(&expected_vault)).unwrap();
+            assert!(v.paths().vault.ends_with("vault"));
+        });
+        // Reset the memo (only if it matches this test's tuple — see
+        // round-2 #2) and reinstall a recorder: a fresh open MUST
+        // reach the recorder. If `current_registrar()` were still
+        // returning `RealBrainRegistrar` under cfg(test), the call to
+        // `connect_default` here would hit the developer's live daemon
+        // — this assertion proves the no-op gate is in place.
+        let rec = crate::brain::RecordingBrainRegistrar::new();
+        crate::brain::reset_registration_memo_for_test(&crate::brain::Registration {
+            vault: expected_vault.clone(),
+            space: "personal".into(),
+            socket: String::new(),
+        });
+        crate::brain::with_test_recorder(rec.clone(), || {
+            crate::migrate_vault::with_home(&home, || {
+                let _ = Vault::open(Some(&expected_vault)).unwrap();
+            });
+        });
+        assert_eq!(rec.calls.lock().len(), 1);
     }
 }

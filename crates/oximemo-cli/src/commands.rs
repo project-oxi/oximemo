@@ -6,7 +6,6 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow};
 use oximemo_core::Vault;
 use oximemo_core::memo::{MemoFilter, MemoId};
-use oximemo_core::store::files::FileStore;
 
 use crate::format::{self, Format};
 
@@ -90,13 +89,27 @@ pub fn cmd_list(
 pub fn cmd_get(vault: &Vault, id: MemoId, md: bool) -> Result<()> {
     let note = vault.get_memo(id)?;
     if md {
-        // Emit the exact on-disk representation (frontmatter + body).
-        println!("{}", FileStore::serialize(&note)?);
+        println!("{}", markdown_of(vault, id)?);
     } else {
         let summary: oximemo_core::memo::MemoSummary = oximemo_core::memo::MemoSummary::from(note);
         println!("{}", serde_json::to_string_pretty(&summary)?);
     }
     Ok(())
+}
+
+/// The exact on-disk representation (frontmatter + body) for `--md`,
+/// read verbatim from the note's file. Uses [`Vault::note_file_path`]'s
+/// live→trash fallback so a trashed note still prints instead of
+/// erroring with a raw IO message.
+fn markdown_of(vault: &Vault, id: MemoId) -> Result<String> {
+    let note = vault.get_memo(id)?;
+    let path = vault.note_file_path(&note).ok_or_else(|| {
+        anyhow!(
+            "note {} has no file on disk (neither live nor trash); it may have been purged",
+            note.id
+        )
+    })?;
+    Ok(std::fs::read_to_string(&path)?)
 }
 
 /// `oximemo search`.
@@ -385,5 +398,22 @@ mod tests {
         let s = t.v().memo_stats().unwrap();
         assert_eq!(s.memos, 3);
         assert_eq!(s.favorites, 1);
+    }
+
+    /// Round-1 review finding 2: `get --md` must print a trashed
+    /// note's on-disk representation (from the trash path) instead of
+    /// failing with a raw IO error on the missing live path.
+    #[test]
+    fn markdown_of_trashed_note_reads_trash_file() {
+        let t = TmpVault::new();
+        let id = make_memo(t.v(), "trash me");
+        t.v().delete_memo(id).unwrap();
+        let md = markdown_of(t.v(), id).unwrap();
+        assert!(md.starts_with("---\n"), "must be the file verbatim: {md}");
+        assert!(md.contains("trash me"), "body must be present: {md}");
+        assert!(
+            md.contains("deleted:"),
+            "trashed file carries its tombstone: {md}"
+        );
     }
 }

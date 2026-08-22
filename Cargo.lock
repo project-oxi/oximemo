@@ -2759,6 +2759,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxi-frontmatter"
+version = "0.1.0"
+dependencies = [
+ "indexmap 2.14.0",
+ "thiserror 2.0.19",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "oxibrain-client"
 version = "0.6.0"
 source = "git+https://github.com/a7garden/oxibrain?tag=v0.6.0#18950374e2195c54e9e382e15fd451b86c69cc6e"
@@ -2772,7 +2782,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-capture"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "block2",
  "objc2 0.5.2",
@@ -2783,7 +2793,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-cli"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2802,11 +2812,13 @@ dependencies = [
 
 [[package]]
 name = "oximemo-core"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "blake3",
  "fs2",
  "notify",
+ "oxi-frontmatter",
+ "oxibrain-client",
  "parking_lot",
  "redb",
  "regex",
@@ -2816,6 +2828,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.19",
  "time",
+ "tokio",
  "toml 0.8.2",
  "tracing",
  "unicode-normalization",
@@ -2824,7 +2837,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-desktop"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

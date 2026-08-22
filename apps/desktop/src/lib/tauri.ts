@@ -372,6 +372,7 @@ async function browserFallback(
     case "doctor":
       return {
         corrupt_frontmatter: [],
+        merge_required: false,
         orphan_index_records: [],
         orphan_files: [],
         hash_mismatches: [],

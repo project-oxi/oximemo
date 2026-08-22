@@ -1,0 +1,23 @@
+[package]
+name = "oxi-frontmatter"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+authors = ["oximemo"]
+license = "MIT"
+description = "Oxi ecosystem frontmatter contract crate: constrained YAML subset (grammar v2) shared across oximemo, oxibrain, and oxios"
+repository = "https://github.com/project-oxi/oximemo"
+homepage = "https://github.com/project-oxi/oximemo"
+categories = ["parser-implementations", "data-structures"]
+keywords = ["frontmatter", "yaml", "obsidian", "oxi", "vault"]
+publish = true
+
+[lib]
+name = "oxi_frontmatter"
+path = "src/lib.rs"
+
+[dependencies]
+uuid = { version = "1", features = ["v7"] }
+time = { version = "0.3", features = ["formatting", "parsing"] }
+indexmap = "2"
+thiserror = "2"

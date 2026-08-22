@@ -837,7 +837,8 @@ export function SettingsMenu() {
           r.orphan_index_records.length +
           r.orphan_files.length +
           r.hash_mismatches.length +
-          r.hash_repair_failed;
+          r.hash_repair_failed +
+          (r.merge_required ? 1 : 0);
         setIssues(n);
         setToast(n === 0 ? t.vault_ok : `${t.vault_issues}: ${n}`);
       })
