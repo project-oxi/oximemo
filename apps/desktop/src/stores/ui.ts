@@ -198,4 +198,11 @@ export const useUI = create<UIState>((set) => ({
   setDraggingFolder: (p) => set({ draggingFolder: p }),
   updateAvailable: null,
   setUpdateAvailable: (v) => set({ updateAvailable: v }),
+  cmdPaletteOpen: false,
+  setCmdPaletteOpen: (b) => set({ cmdPaletteOpen: b }),
+  settingsOpen: false,
+  setSettingsOpen: (b) => set({ settingsOpen: b }),
+  requestNewFolder: false,
+  requestFolderCreate: () => set({ requestNewFolder: true }),
+  consumeFolderCreate: () => set({ requestNewFolder: false }),
 }));
