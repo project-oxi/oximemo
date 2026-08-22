@@ -227,6 +227,8 @@ pub fn run() {
             commands::get_config,
             commands::set_folder_view,
             commands::set_folder_pinned,
+            commands::set_pin_order,
+            commands::rename_tag,
             commands::move_note,
             commands::brain_status,
             commands::brain_gather,
@@ -835,6 +837,35 @@ mod commands {
             .vault
             .set_folder_pinned(&path, pinned)
             .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn set_pin_order(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        order: Vec<String>,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_pin_order(&order)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("config:changed", ());
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub fn rename_tag(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        old: String,
+        new: String,
+    ) -> Result<u64, String> {
+        let n = state
+            .vault
+            .rename_tag(&old, &new)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(n)
     }
 
     #[tauri::command]

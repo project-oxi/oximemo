@@ -603,6 +603,59 @@ async function browserFallback(
       return null;
     }
 
+    case "set_pin_order": {
+      const order = (args?.order ?? []) as string[];
+      // Keep any pins missing from `order` at the end (defensive; the
+      // UI sends full permutations).
+      const known = loadPins();
+      savePins([...order.filter((p) => known.includes(p)), ...known.filter((p) => !order.includes(p))]);
+      emitBrowser("config:changed");
+      return null;
+    }
+
+    case "rename_tag": {
+      const oldTag = String(args?.old ?? "").normalize("NFC").toLowerCase();
+      const newTag = String(args?.new ?? "").trim();
+      if (!newTag) throw new Error("new tag must not be empty");
+      if (oldTag === newTag.normalize("NFC").toLowerCase()) return 0;
+      const WORD = /[\p{L}\p{N}_]/u;
+      const store = loadStore();
+      let changed = 0;
+      for (const n of Object.values(store)) {
+        if (n.deleted_at) continue;
+        const chars = [...n.body];
+        let out = "";
+        let i = 0;
+        let touched = false;
+        while (i < chars.length) {
+          if (chars[i] === "#" && (i === 0 || !WORD.test(chars[i - 1]))) {
+            let j = i + 1;
+            while (j < chars.length && WORD.test(chars[j])) j += 1;
+            if (j > i + 1) {
+              const norm = chars.slice(i + 1, j).join("").normalize("NFC").toLowerCase();
+              if (norm === oldTag) {
+                out += "#" + newTag;
+                touched = true;
+                i = j;
+                continue;
+              }
+            }
+          }
+          out += chars[i];
+          i += 1;
+        }
+        if (touched) {
+          n.body = out;
+          n.tags = extractTags(out);
+          n.updated_at = new Date().toISOString();
+          changed += 1;
+        }
+      }
+      if (changed > 0) saveStore(store);
+      emitBrowser("memos:changed");
+      return changed;
+    }
+
 
     case "brain_status":
       // Browser preview has no daemon: offline is a normal state.

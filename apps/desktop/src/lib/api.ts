@@ -215,6 +215,16 @@ export async function renameFolder(from: string, to: string): Promise<void> {
   await invoke<void>("rename_folder", { from, to });
 }
 
+/** Reorder sidebar pins (vault-wide, persists to oximemo.toml). */
+export async function setPinOrder(order: string[]): Promise<void> {
+  return invoke("set_pin_order", { order });
+}
+
+/** Vault-wide `#old` → `#new` body rewrite. Returns changed-note count. */
+export async function renameTag(old: string, to: string): Promise<number> {
+  return invoke<number>("rename_tag", { old, new: to });
+}
+
 /** Move a folder subtree into `dest` ("" = vault top level), keeping its
  * basename. Backend guards cycles/parent no-ops; see vault.rs move_folder. */
 export async function moveFolder(path: string, dest: string): Promise<void> {
