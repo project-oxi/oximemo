@@ -123,6 +123,11 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [sel, setSel] = useState(0);
+  // Flips once the persisted recency log is restored below — the ref
+  // mutation itself is invisible to the rows/matched memos, so without
+  // this flag a remount would rank against an empty log until an
+  // unrelated refetch re-ran them.
+  const [recencyLoaded, setRecencyLoaded] = useState(false);
   const listRef = useRef<HTMLUListElement | null>(null);
   const recencyRef = useRef(new RecencyLog());
 
@@ -134,6 +139,7 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
     } catch {
       recencyRef.current.load([]);
     }
+    setRecencyLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -168,7 +174,7 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
   const q = query.trim();
   const matched = useMemo(
     () => rankCommands(commands, q, recencyRef.current),
-    [commands, q],
+    [commands, q, recencyLoaded],
   );
   // Keyed separately from CardGrid's infinite ["search", q] cache — the
   // shapes differ and must never collide.
@@ -181,13 +187,16 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
 
   const rows = useMemo<Row[]>(() => {
     if (!q) {
-      const out: Row[] = [{ kind: "header", label: t.palette_section_suggestions }];
-      for (const c of buildSuggestions(commands, recencyRef.current, SUGGESTION_LIMIT)) {
-        out.push({ kind: "command", cmd: c });
-      }
+      // Spec's killer path — "⌘K → ⏎ opens the most recent note" —
+      // needs recents as the FIRST section; suggestions follow.
+      const out: Row[] = [];
       if (recentNotes.length > 0) {
         out.push({ kind: "header", label: t.palette_section_recent_notes });
         for (const n of recentNotes.slice(0, RECENT_NOTES_SHOWN)) out.push({ kind: "note", note: n });
+      }
+      out.push({ kind: "header", label: t.palette_section_suggestions });
+      for (const c of buildSuggestions(commands, recencyRef.current, SUGGESTION_LIMIT)) {
+        out.push({ kind: "command", cmd: c });
       }
       if (out.length === 1) out.push({ kind: "empty", label: t.palette_no_results });
       return out;
@@ -212,9 +221,13 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
     out.push({ kind: "bridge" });
     if (out.length === 1) out.unshift({ kind: "empty", label: t.palette_no_results });
     return out;
-  }, [q, matched, searchQ.data, searchQ.isError, searchQ.error, recentNotes, commands, t]);
+  }, [q, matched, searchQ.data, searchQ.isError, searchQ.error, recentNotes, commands, t, recencyLoaded]);
 
-  const selectable = rows.filter((r) => r.kind !== "header" && r.kind !== "empty");
+  // Explicit kind allowlist — an `error` row renders role=presentation
+  // with no data-sel/click, so letting it into `selectable` would
+  // show no highlight at its index and swallow Enter (activate() is a
+  // no-op for it).
+  const selectable = rows.filter((r) => r.kind === "command" || r.kind === "note" || r.kind === "bridge");
   // Clamp so Enter can never fire a stale index after the filter narrows.
   const selIdx = Math.min(sel, Math.max(0, selectable.length - 1));
 

@@ -806,7 +806,12 @@ export function CardGrid() {
       quickCapture: () => {
         void showCaptureWindow().catch((e) => setError(String(e).split("\n")[0]));
       },
-      openSettings: () => useUI.getState().setSettingsOpen(true),
+      // SettingsMenu mounts only in the memos header — from gallery the
+      // drawer would ghost-open with nothing consuming settingsOpen.
+      openSettings: () => {
+        useUI.getState().setView("memos");
+        useUI.getState().setSettingsOpen(true);
+      },
       // SettingsMenu's onTheme flow, verbatim: instant apply + TOML parity.
       setTheme: (v: Theme) => {
         useUI.getState().setTheme(v);
@@ -828,13 +833,19 @@ export function CardGrid() {
 
   // The palette's "새 폴더" lands in the main area (never in the
   // palette): consume the one-shot flag and start the inline naming
-  // flow. Query mode has no definite location, so fall back to the
-  // vault root first — the flag stays set and this effect re-runs once
-  // folderFilter commits.
+  // flow. The naming input only mounts in the memos view (folder
+  // tiles / list rows), so leave gallery first — otherwise the folder
+  // is created on disk while its naming session (and cancel path)
+  // never mounts. Query mode has no definite location, so fall back
+  // to the vault root first — the flag stays set and this effect
+  // re-runs once folderFilter commits.
   useEffect(() => {
     if (!requestNewFolder) return;
+    // Unconditional: from gallery with a folderFilter set, the branch
+    // below would otherwise consume the flag and create the folder
+    // while the naming input has nowhere to mount.
+    setView("memos");
     if (folderFilter === null) {
-      setView("memos");
       setFavoritesOnly(false);
       setFolderFilter("");
       return;

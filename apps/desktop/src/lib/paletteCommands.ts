@@ -260,7 +260,8 @@ export function rankCommands(
   return scored.map(({ c }) => c);
 }
 
-/** Home state: recency order first, curated fill, deduped, capped. */
+/** Home state: recency order first (at most 5 entries — spec), curated
+ * fill to `limit`, deduped, capped. */
 export function buildSuggestions(
   commands: PaletteCommand[],
   recency: RecencyLog,
@@ -268,8 +269,11 @@ export function buildSuggestions(
 ): PaletteCommand[] {
   const byId = new Map(commands.map((c) => [c.id, c]));
   const out: PaletteCommand[] = [];
+  // Spec: recency contributes at most 5 entries so curated always
+  // gets at least one slot (with the default limit of 6).
+  const recencyMax = Math.min(limit, 5);
   for (const id of recency.snapshot()) {
-    if (out.length >= limit) break;
+    if (out.length >= recencyMax) break;
     const c = byId.get(id);
     if (c) out.push(c);
   }

@@ -182,4 +182,27 @@ describe("buildSuggestions", () => {
     expect(s.every((c) => c.id !== "folder:gone")).toBe(true);
     expect(s).toHaveLength(6);
   });
+
+  test("recency contributes at most 5 entries — curated still gets a slot", () => {
+    const cmds = buildCommands(deps());
+    const rec = new RecencyLog();
+    const ids = [
+      "folder:work",
+      "folder:work/2026",
+      "view.sidebar",
+      "action.new_html",
+      "action.new_folder",
+      "tag:dev",
+      "tag:rust",
+    ];
+    rec.load(ids);
+    const s = buildSuggestions(cmds, rec);
+    expect(s).toHaveLength(6);
+    const recencyIds = new Set(ids);
+    expect(s.filter((c) => recencyIds.has(c.id))).toHaveLength(5);
+    // Recency order preserved for the admitted entries…
+    expect(s.slice(0, 5).map((c) => c.id)).toEqual(ids.slice(0, 5));
+    // …and the 6th slot is curated (first curated id not already used).
+    expect(s[5].id).toBe("nav.today");
+  });
 });
