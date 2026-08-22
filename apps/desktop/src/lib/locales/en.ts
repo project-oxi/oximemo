@@ -10,6 +10,7 @@ export const dict: Record<keyof typeof ko, string> = {
   capture_placeholder: "Jot down a thought…",
   capture_save: "Save",
   capture_cancel: "Cancel",
+  favorites_empty: "No favorites yet — tap a note's star to collect it here.",
   favorite: "Favorites",
   color: "Color",
   language: "Language",

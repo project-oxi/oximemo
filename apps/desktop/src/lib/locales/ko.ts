@@ -10,6 +10,7 @@ export const dict = {
   capture_save: "저장",
   capture_cancel: "취소",
   favorite: "즐겨찾기",
+  favorites_empty: "즐겨찾기한 노트가 없어요. 노트의 별을 눌러 모아보세요.",
   color: "색상",
   language: "언어",
   theme_system: "시스템",

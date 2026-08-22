@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Folder, Star } from "lucide-react";
 
-import { deleteMemo, getMemo, updateMemo, listFolders } from "../lib/api";
+import { deleteMemo, getMemo, moveNote, updateMemo, listFolders } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { ContextDock } from "./ContextDock";
@@ -17,7 +17,7 @@ import { TagChipRow } from "./TagChipRow";
 import { HtmlNoteEditor } from "./HtmlNoteEditor";
 import { MemoEditorForm } from "./MemoEditorForm";
 import type { FolderComboboxHandle } from "./FolderCombobox";
-import type { FolderEntry } from "../lib/types";
+import type { FolderEntry, Memo } from "../lib/types";
 
 export function MemoDetail() {
   const { t } = useI18n();
@@ -122,6 +122,26 @@ export function MemoDetail() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  /** Folder changes apply immediately (move_note) — the picker is the
+   *  note's real location, not a pending edit. Optimistic; rolls back on
+   *  failure. Body/favorite keeps its debounced-save flow. */
+  const applyFolder = (f: string) => {
+    const prev = folder;
+    setFolder(f);
+    const id = memo.data?.id;
+    if (!id || f === memo.data?.folder) return;
+    void moveNote(id, f)
+      .then(() => {
+        qc.setQueryData<Memo | undefined>(["memo", id], (m) => (m ? { ...m, folder: f } : m));
+        qc.invalidateQueries({ queryKey: ["memos"] });
+        qc.invalidateQueries({ queryKey: ["folderChildren"] });
+      })
+      .catch((e) => {
+        setFolder(prev);
+        setError(String(e).split("\n")[0]);
+      });
+  };
+
   const edit = <T,>(setter: (v: T) => void) => (v: T) => {
     setter(v);
     setDirty(true);
@@ -180,7 +200,7 @@ export function MemoDetail() {
               <MemoEditorForm
                 documentId={memo.data.id}
                 folder={folder}
-                onFolderChange={edit(setFolder)}
+                onFolderChange={applyFolder}
                 folders={folders}
                 body={body}
                 onBodyChange={edit(setBody)}

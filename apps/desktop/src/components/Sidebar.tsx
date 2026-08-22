@@ -138,7 +138,7 @@ export function Sidebar({
       </button>
       <button
         type="button"
-        onClick={() => { setView("memos"); setFavoritesOnly(true); }}
+        onClick={() => { setView("memos"); setFolderFilter(null); setFavoritesOnly(true); }}
         className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
           view === "memos" && favoritesOnly
             ? "bg-surface-muted font-semibold text-text"
@@ -160,8 +160,9 @@ export function Sidebar({
         <Images size={14} /> {t.gallery}
       </button>
       {/* LOCATIONS — the vault root browse entry (folder tiles live in the
-          main area; this is how you get back to top-level browsing) plus
-          explicitly pinned folders. */}
+          main area; this is how you get back to top-level browsing), the
+          daily folder (a real path — the calendar block below navigates
+          notes, this browses the folder), and pinned folders. */}
       <div className="mt-3 flex items-center px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
           {t.locations_section}
@@ -178,6 +179,19 @@ export function Sidebar({
       >
         <Archive size={14} /> {t.vault_root}
       </button>
+      {dailyEnabled && dailyFolder && (
+        <button
+          type="button"
+          onClick={() => openFolder(dailyFolder)}
+          className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
+            view === "memos" && !favoritesOnly && folderFilter === dailyFolder
+              ? "bg-surface-muted font-semibold text-text"
+              : "text-text-muted hover:bg-surface-muted"
+          }`}
+        >
+          <CalendarDays size={14} /> {dailyFolder}
+        </button>
+      )}
       {pins.map((f) => (
         <SidebarFolderRow
           key={f.path}

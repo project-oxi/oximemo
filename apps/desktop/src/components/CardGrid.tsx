@@ -988,6 +988,11 @@ export function CardGrid() {
                       </button>
                     </div>
                   </>
+                ) : favoritesOnly && !inSearch && includeTags.length === 0 && excludeTags.length === 0 ? (
+                  // Favorites is a collection, not a filter — no tag/search
+                  // narrowing is active, so this is simply an empty
+                  // collection. "Clear filters" language would be wrong.
+                  <p className="text-sm text-text-subtle">{t.favorites_empty}</p>
                 ) : (
                   <>
                     <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
