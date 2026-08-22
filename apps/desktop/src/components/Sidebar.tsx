@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowUpDown, CalendarDays, Folder, GripVertical, Images, Layers, MoreHorizontal, PenLine, Star, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren } from "../lib/api";
+import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { dayLabel, todayLocalISO } from "../lib/dates";
 import { useFolderDrop, parentOf } from "../lib/dropTarget";
@@ -102,6 +102,24 @@ export function Sidebar({
     deleteFolder(path).then(invalidateFolderData).catch((e) => {
       setError(String(e).split("\n")[0]);
     });
+  };
+  /** Tag being renamed; the chip swaps to an inline input. */
+  const [tagNaming, setTagNaming] = useState<string | null>(null);
+  const setToast = useUI((s) => s.setToast);
+
+  /** Vault-wide tag rename: rewrite bodies via core, refresh, toast. */
+  const commitTagRename = (old: string, value: string | null) => {
+    setTagNaming(null);
+    const next = (value ?? "").trim().replace(/^#/, "");
+    if (!next || next === old) return; // cancel
+    clearTagFilter();
+    renameTag(old, next)
+      .then((n) => {
+        void qc.invalidateQueries({ queryKey: ["memos"] });
+        void qc.invalidateQueries({ queryKey: ["facets"] });
+        setToast(t.tag_renamed_toast.replace("{n}", String(n)));
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
   };
 
   /** Reorder pins after a ⠿ drop: `dragged` moves before/after `target`. */
@@ -329,6 +347,29 @@ export function Sidebar({
         </button>
         {tags.map(([tag, count]) => {
           const st: TagState = tagFilter[tag] ?? "off";
+          const renaming = tagNaming === tag;
+          if (renaming) {
+            return (
+              <TextCtxMenu
+                key={tag}
+                render={
+                  <input
+                    autoFocus
+                    defaultValue={tag}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onBlur={(e) => commitTagRename(tag, e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter") commitTagRename(tag, e.currentTarget.value);
+                      else if (e.key === "Escape") commitTagRename(tag, null);
+                    }}
+                    style={{ boxShadow: "none" }}
+                    className="w-24 rounded-md bg-surface-muted px-1.5 py-0.5 text-[11px] text-text outline-none"
+                  />
+                }
+              />
+            );
+          }
           return (
             <CtxRoot key={tag}>
               <CtxTrigger
@@ -371,6 +412,11 @@ export function Sidebar({
                     onClick={() => setTagState(tag, "off")}
                   />
                   <CtxSeparator />
+                  <CtxItem
+                    icon={PenLine}
+                    label={t.tag_rename}
+                    onClick={() => setTagNaming(tag)}
+                  />
                   <CtxItem label={t.clear_filters} onClick={() => clearTagFilter()} />
                 </CtxMenu>
               </CtxTrigger>
