@@ -588,6 +588,8 @@ function SidebarFolderRow({
             label={t.rename_folder}
             onClick={() => onRename(path)}
           />
+          <CtxItem label={t.folder_unpin} onClick={() => onUnpin(path)} />
+          <CtxSeparator />
           {armed ? (
             <CtxItem
               icon={Trash2}
