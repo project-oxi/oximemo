@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Custom context menus everywhere + DnD completion** — the native
+  webview right-click menu is blocked app-wide (dev: Alt+right-click
+  keeps it); every editable surface (CM6 markdown/html editors, search,
+  capture, folder filter, rename inputs) gets a cut/copy/paste/select-all
+  menu backed by the new clipboard-manager plugin (paste reuses the
+  editor's own paste pipeline); gallery thumbnails, sidebar tag chips,
+  and backlink entries get dedicated menus; timeline rows became drag
+  sources and the Locations 볼트/daily rows became drop targets.
 - **Favorites is a collection, not a filter** — clicking 즐겨찾기 now
   enters the exclusive smart collection (breadcrumb label, never a
   browse path mixed in), and its empty state drops the "clear filters"

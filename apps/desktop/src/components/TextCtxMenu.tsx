@@ -89,12 +89,11 @@ export function TextCtxMenu({
             onPointerDown={(e) => {
               if (e.button === 2) hostRef.current = e.currentTarget;
             }}
-          >
-            {render}
-            {children}
-          </span>
+          />
         }
       >
+        {render}
+        {children}
         <CtxMenu>
           <CtxItem
             icon={Scissors}
