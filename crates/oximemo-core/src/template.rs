@@ -67,7 +67,7 @@ impl TemplateCtx {
     /// is off by one day for KST evenings — and the weekday is derived
     /// from the date itself.
     pub fn for_date(date: &str, folder: &str, counter: u32) -> Self {
-        let d = parse_iso_date(date).unwrap_or_else(|| time::Date::MIN);
+        let d = parse_iso_date(date).unwrap_or(time::Date::MIN);
         let weekdays = ["월", "화", "수", "목", "금", "토", "일"];
         let weekday = weekdays[(d.weekday().number_from_monday() - 1) as usize].to_string();
         Self {

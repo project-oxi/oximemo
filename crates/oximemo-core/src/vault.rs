@@ -827,9 +827,9 @@ impl Vault {
         }
         // Format follows the folder's templates (create_note_auto rule).
         let md_t =
-            crate::template::load_template(&self.paths, &folder, crate::memo::NoteFormat::Markdown);
+            crate::template::load_template(&self.paths, folder, crate::memo::NoteFormat::Markdown);
         let html_t =
-            crate::template::load_template(&self.paths, &folder, crate::memo::NoteFormat::Html);
+            crate::template::load_template(&self.paths, folder, crate::memo::NoteFormat::Html);
         let fmt = if html_t.is_some() && md_t.is_none() {
             crate::memo::NoteFormat::Html
         } else {
@@ -837,15 +837,14 @@ impl Vault {
         };
         let body = match md_t.or(html_t) {
             Some(tmpl) => {
-                let counter = crate::template::count_notes(&self.paths, &folder) + 1;
-                let ctx = crate::template::TemplateCtx::for_date(date, &folder, counter);
+                let counter = crate::template::count_notes(&self.paths, folder) + 1;
+                let ctx = crate::template::TemplateCtx::for_date(date, folder, counter);
                 let applied = crate::template::apply_template(&tmpl, &ctx);
                 normalize_daily_h1(fmt, &applied, date)
             }
             None => format!("# {date}\n"),
         };
-        self.create_note(&folder, body, fmt)
-            .map(|memo| (memo, true))
+        self.create_note(folder, body, fmt).map(|memo| (memo, true))
     }
 
     /// Backward-compat alias: create a markdown note at vault root.
@@ -2057,8 +2056,6 @@ pub struct BacklinkInfo {
     pub preview: String,
 }
 
-/// Recursively register physical directories (even note-less ones) as folder
-
 /// A single recent note attributed to a folder card (newest-first sample).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FolderRecent {
@@ -2084,6 +2081,7 @@ pub struct FolderCard {
     pub recent: Vec<FolderRecent>,
 }
 
+/// Recursively register physical directories (even note-less ones) as folder
 /// entries with count 0. Mirrors `scan_md_into`'s skip rules: hidden dirs
 /// (`.trash`, …) and `_assets/` are not folders.
 fn collect_folder_dirs(
@@ -2845,15 +2843,15 @@ watcher_retry_interval_ms = 200
         let cfg = v.folders();
         let paths: Vec<&str> = cfg.iter().map(|f| f.path.as_str()).collect();
         assert!(
-            !paths.iter().any(|p| *p == "parent"),
+            !paths.contains(&"parent"),
             "exact entry for deleted folder must be pruned: {paths:?}"
         );
         assert!(
-            !paths.iter().any(|p| *p == "parent/child"),
+            !paths.contains(&"parent/child"),
             "descendant entries under deleted folder must be pruned: {paths:?}"
         );
         assert!(
-            paths.iter().any(|p| *p == "sibling"),
+            paths.contains(&"sibling"),
             "unrelated sibling pin must survive: {paths:?}"
         );
     }
