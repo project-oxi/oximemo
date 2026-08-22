@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Favorites is a collection, not a filter** — clicking 즐겨찾기 now
+  enters the exclusive smart collection (breadcrumb label, never a
+  browse path mixed in), and its empty state drops the "clear filters"
+  treatment for dedicated copy. The note dialog's folder picker applies
+  immediately via move_note (previously the selection was silently
+  dropped on save); the daily folder — a real path — now appears in
+  Locations under 볼트.
 - **Sidebar redesign — Finder completion (A안)** — new **Locations**
   section holds the **볼트** root-browse entry (root browsing was
   unreachable once you entered the flat collection) plus pinned folders;
