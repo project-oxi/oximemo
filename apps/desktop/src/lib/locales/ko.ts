@@ -20,6 +20,8 @@ export const dict = {
   tag_menu_include: "이 태그만",
   tag_menu_exclude: "이 태그 제외",
   tag_menu_off: "필터 끄기",
+  link_open_note: "노트 열기",
+  link_copy_wikilink: "위키링크 복사",
   color: "색상",
   language: "언어",
   theme_system: "시스템",

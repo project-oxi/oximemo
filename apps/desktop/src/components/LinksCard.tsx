@@ -3,9 +3,13 @@
  * Presentational only — data fetching and open/close state live in ContextDock.
  * Renders inside a Popover.Popup, sized per the spec: 320px wide, 360px max height.
  */
+import { FileText, Link2 } from "lucide-react";
+
 import { useI18n } from "../lib/i18n";
 import { previewText } from "../lib/markdownPreview";
 import type { BacklinkInfo } from "../lib/types";
+
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
 
 export interface LinksCardProps {
   backlinks: BacklinkInfo[];
@@ -30,16 +34,36 @@ export function LinksCard({ backlinks, isLoading, onNavigate }: LinksCardProps) 
           <ul className="space-y-0.5">
             {backlinks.map((bl) => (
               <li key={bl.id}>
-                <button
-                  type="button"
-                  onClick={() => onNavigate(bl.id)}
-                  className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-muted"
-                >
-                  <span className="block truncate font-medium text-text">{bl.title}</span>
-                  <span className="mt-0.5 line-clamp-2 whitespace-pre-line text-text-subtle">
-                    {previewText(bl.preview) || ""}
-                  </span>
-                </button>
+                <CtxRoot>
+                  <CtxTrigger
+                    render={
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(bl.id)}
+                        className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-muted"
+                      />
+                    }
+                  >
+                    <span className="block truncate font-medium text-text">{bl.title}</span>
+                    <span className="mt-0.5 line-clamp-2 whitespace-pre-line text-text-subtle">
+                      {previewText(bl.preview) || ""}
+                    </span>
+                    <CtxMenu>
+                      <CtxItem
+                        icon={FileText}
+                        label={t.link_open_note}
+                        onClick={() => onNavigate(bl.id)}
+                      />
+                      <CtxItem
+                        icon={Link2}
+                        label={t.link_copy_wikilink}
+                        onClick={() => {
+                          void navigator.clipboard.writeText(`[[${bl.title}]]`);
+                        }}
+                      />
+                    </CtxMenu>
+                  </CtxTrigger>
+                </CtxRoot>
               </li>
             ))}
           </ul>

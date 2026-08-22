@@ -20,6 +20,8 @@ export const dict: Record<keyof typeof ko, string> = {
   tag_menu_include: "Only This Tag",
   tag_menu_exclude: "Exclude This Tag",
   tag_menu_off: "Turn Off Filter",
+  link_open_note: "Open Note",
+  link_copy_wikilink: "Copy Wiki Link",
   favorite: "Favorites",
   color: "Color",
   language: "Language",
