@@ -915,6 +915,29 @@ impl Vault {
         body: Option<String>,
         favorite: Option<bool>,
     ) -> Result<Memo> {
+        self.update_note_with(id, body, favorite, None)
+    }
+
+    /// [`update_note`] plus property changes (design 2026-08-23 §5.1).
+    /// `props` is a minimal set/remove diff; a same-value re-set is a
+    /// semantic NoOp and never touches the file.
+    pub fn update_note_with(
+        &self,
+        id: MemoId,
+        body: Option<String>,
+        favorite: Option<bool>,
+        props: Option<crate::props::PropMutation>,
+    ) -> Result<Memo> {
+        let mut mutation = Mutation {
+            favorite,
+            deleted: None,
+            ..Default::default()
+        };
+        if let Some(pm) = &props {
+            for (k, v) in pm.to_set_props() {
+                mutation.set_props.insert(k, v);
+            }
+        }
         let mut note = self.get_memo(id)?;
         // Determine the note's format from its indexed path (empty fallback
         // = markdown, matching NoteFormat::from_rel).
@@ -929,6 +952,14 @@ impl Vault {
         }
         if let Some(p) = favorite {
             note.favorite = p;
+        }
+        if let Some(pm) = &props {
+            for k in &pm.removes {
+                note.props.remove(k);
+            }
+            for (k, v) in &pm.sets {
+                note.props.insert(k.clone(), v.clone());
+            }
         }
         validate_note_input(&note.body, &note.tags)?;
         let original_updated = note.updated_at;
@@ -963,11 +994,7 @@ impl Vault {
                 &new_path,
                 &note.body,
                 crate_fmt,
-                Mutation {
-                    favorite,
-                    deleted: None,
-                    set_props: Default::default(),
-                },
+                mutation.clone(),
                 Synthesize::No,
                 now,
             )
@@ -1021,11 +1048,7 @@ impl Vault {
                             &p,
                             &note.body,
                             crate_fmt,
-                            Mutation {
-                                favorite,
-                                deleted: None,
-                                set_props: Default::default(),
-                            },
+                            mutation.clone(),
                             Synthesize::No,
                             now,
                         )
@@ -1036,11 +1059,7 @@ impl Vault {
                         &p,
                         &note.body,
                         crate_fmt,
-                        Mutation {
-                            favorite,
-                            deleted: None,
-                            set_props: Default::default(),
-                        },
+                        mutation.clone(),
                         Synthesize::Yes,
                         now,
                     )
@@ -1066,11 +1085,7 @@ impl Vault {
                     &old_path,
                     &note.body,
                     crate_fmt,
-                    Mutation {
-                        favorite,
-                        deleted: None,
-                        set_props: Default::default(),
-                    },
+                    mutation.clone(),
                     Synthesize::No,
                     now,
                 )
@@ -1103,25 +1118,46 @@ impl Vault {
                 let Ok(Some(src)) = self.files.read_memo(&abs) else {
                     continue;
                 };
-                if crate::wiki::links_to(link_scan_body(src_fmt, &src.body).as_ref(), old) {
+                if crate::wiki::links_to(&link_scan_text(src_fmt, &src.body, &src.props), old) {
                     let rewritten = crate::wiki::replace_link_target(&src.body, old, new);
                     let mut updated = src.clone();
                     updated.body = rewritten;
                     updated.tags = tags_of(src_fmt, &updated.body);
+                    // Props rewrite (design §5.3): `[[old]]` inside
+                    // property values (e.g. `related`) must follow the
+                    // rename or stub links silently rot.
+                    let mut prop_mutation = Mutation::default();
+                    for (k, v) in &src.props {
+                        let rv = match v {
+                            crate::props::PropValue::Str(s) => {
+                                crate::props::PropValue::Str(crate::wiki::replace_link_target(s, old, new))
+                            }
+                            crate::props::PropValue::List(items) => {
+                                crate::props::PropValue::List(
+                                    items
+                                        .iter()
+                                        .map(|i| crate::wiki::replace_link_target(i, old, new))
+                                        .collect(),
+                                )
+                            }
+                            b @ crate::props::PropValue::Bool(_) => b.clone(),
+                        };
+                        if &rv != v {
+                            prop_mutation.set_props.insert(k.clone(), Some(rv.to_frontmatter()));
+                            updated.props.insert(k.clone(), rv);
+                        }
+                    }
                     updated.updated_at = OffsetDateTime::now_utc();
-                    updated.hash = hash::hash_memo(updated.body.as_bytes(), updated.favorite, &updated.props);
-                    // Link propagation: same body length might
-                    // change (link target rewritten), so this is a
-                    // semantic write — write_document's NoOp check
-                    // compares parsed form vs body, so a rewrite with
-                    // an unchanged body returns NoOp and leaves the
-                    // file alone (the search index still needs to be
-                    // updated, which we do below).
+                    updated.hash =
+                        hash::hash_memo(updated.body.as_bytes(), updated.favorite, &updated.props);
+                    // Link propagation: a rewrite that lands on identical
+                    // content returns NoOp and leaves the file alone (the
+                    // index is still refreshed below).
                     write_document(
                         &abs,
                         &updated.body,
                         to_crate_fmt(src_fmt),
-                        Mutation::default(),
+                        prop_mutation,
                         Synthesize::No,
                         OffsetDateTime::now_utc(),
                     )
@@ -1290,6 +1326,19 @@ impl Vault {
         })
     }
 
+    /// Offset-paginated property query (design 2026-08-23 §5.2). Filters
+    /// and sorts over the in-memory index snapshot — never reads note
+    /// files — so it composes with property sorts that the cursor path
+    /// (`by_sort` encodes only `updated_at/id`) cannot express. Use the
+    /// cursor path for default newest-first browsing; use this whenever a
+    /// property predicate or sort is present.
+    pub fn query_notes(&self, query: &crate::props::NoteQuery) -> Result<crate::props::QueryPage> {
+        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let summaries: Vec<MemoSummary> = recs.iter().map(|r| r.to_summary()).collect();
+        let (items, total) = query.apply(summaries);
+        Ok(crate::props::QueryPage { items, total })
+    }
+
     pub fn search_memos(&self, query: &str, limit: u32) -> Result<Vec<MemoSummary>> {
         let _g = self.lock(LockKind::Shared)?;
         let search = TantivySearch::open(&self.paths.search_dir())?;
@@ -1376,11 +1425,23 @@ impl Vault {
         let recs = self.with_redb(|idx| idx.export_since(None))?;
         let live: Vec<&IndexRecord> = recs.iter().filter(|r| !r.deleted).collect();
 
-        // Title → id map (case-insensitive, first wins).
+        // Title & alias → id map (case-insensitive). Resolution order
+        // (design §5.3): H1 titles beat aliases; within either kind the
+        // OLDEST note (`created_at`) wins, so the map is deterministic
+        // regardless of iteration order.
+        let mut by_created: Vec<&IndexRecord> = live.iter().copied().collect();
+        by_created.sort_by_key(|r| r.created_at);
         let mut title_map: std::collections::HashMap<String, MemoId> = Default::default();
-        for r in &live {
-            if let Some(ref t) = r.title {
+        for r in &by_created {
+            if let Some(t) = &r.title {
                 title_map.entry(t.trim().to_lowercase()).or_insert(r.id);
+            }
+        }
+        for r in &by_created {
+            for a in crate::props::aliases_of(&r.props) {
+                title_map
+                    .entry(a.trim().to_lowercase())
+                    .or_insert(r.id);
             }
         }
 
@@ -1400,7 +1461,7 @@ impl Vault {
                 crate::config::resolve_folder_color(folder, &config_items).unwrap_or_default();
 
             let fmt = crate::memo::NoteFormat::from_rel(&r.path);
-            for link in crate::wiki::extract_links(link_scan_body(fmt, &body).as_ref()) {
+            for link in crate::wiki::extract_links(&link_scan_text(fmt, &body, &r.props)) {
                 let key = link.target.trim().to_lowercase();
                 if let Some(&tgt) = title_map.get(&key)
                     && tgt != r.id
@@ -1650,13 +1711,17 @@ impl Vault {
     /// Returns source note id, title, and preview for each backlink.
     pub fn get_backlinks(&self, id: MemoId) -> Result<Vec<BacklinkInfo>> {
         let recs = self.with_redb(|idx| idx.export_since(None))?;
-        // Get the target note's title.
-        let target_title = recs
+        // Target: title + aliases (design §5.3 — `[[ML]]` resolves to the
+        // note whose alias list contains ML).
+        let target = recs
             .iter()
             .find(|r| r.id == id && !r.deleted)
-            .and_then(|r| r.title.as_deref())
-            .ok_or_else(|| CoreError::NotFound(id.to_string()))?
-            .to_string();
+            .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+        let mut targets: Vec<String> = Vec::new();
+        if let Some(t) = &target.title {
+            targets.push(t.clone());
+        }
+        targets.extend(crate::props::aliases_of(&target.props));
 
         let mut out = Vec::new();
         for r in &recs {
@@ -1669,7 +1734,14 @@ impl Vault {
                 _ => continue,
             };
             let src_fmt = crate::memo::NoteFormat::from_rel(&r.path);
-            if crate::wiki::links_to(link_scan_body(src_fmt, &body).as_ref(), &target_title) {
+            let links =
+                crate::wiki::extract_links(&link_scan_text(src_fmt, &body, &r.props));
+            let hit = links.iter().any(|l| {
+                targets
+                    .iter()
+                    .any(|t| l.target.trim().eq_ignore_ascii_case(t.trim()))
+            });
+            if hit {
                 out.push(BacklinkInfo {
                     id: r.id.to_string(),
                     title: r.title.clone().unwrap_or_else(|| "Untitled".to_string()),
@@ -2041,6 +2113,23 @@ fn link_scan_body<'a>(fmt: crate::memo::NoteFormat, body: &'a str) -> std::borro
     match fmt {
         crate::memo::NoteFormat::Markdown => std::borrow::Cow::Borrowed(body),
         crate::memo::NoteFormat::Html => std::borrow::Cow::Owned(crate::html::strip_comments(body)),
+    }
+}
+
+/// Link-scan text covering the body AND all 1-dimensional property values
+/// (design 2026-08-23 §5.3): `[[..]]` inside e.g. `related` counts as a
+/// link for graph edges, backlinks, and rename propagation.
+fn link_scan_text(
+    fmt: crate::memo::NoteFormat,
+    body: &str,
+    props: &crate::props::Props,
+) -> String {
+    let body_part = link_scan_body(fmt, body);
+    let props_part = crate::props::props_link_text(props);
+    if props_part.is_empty() {
+        body_part.into_owned()
+    } else {
+        format!("{body_part}\n{props_part}")
     }
 }
 
@@ -3675,6 +3764,237 @@ watcher_retry_interval_ms = 200
         let titles: Vec<&str> = backlinks.iter().map(|b| b.title.as_str()).collect();
         assert!(titles.contains(&"Source A"));
         assert!(titles.contains(&"Source B"));
+    }
+
+    #[test]
+    fn update_note_with_sets_and_removes_props() {
+        let (_t, v) = tmp_vault();
+        let note = v
+            .create_note("", "# Props\n\nbody".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+
+        let updated = v
+            .update_note_with(
+                note.id,
+                None,
+                None,
+                Some(crate::props::PropMutation {
+                    sets: vec![
+                        ("status".into(), crate::props::PropValue::Str("stub".into())),
+                        (
+                            "related".into(),
+                            crate::props::PropValue::List(vec!["[[딥러닝]]".into()]),
+                        ),
+                    ],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+        assert_eq!(
+            updated.props.get("status"),
+            Some(&crate::props::PropValue::Str("stub".into()))
+        );
+        // On-disk file carries the props.
+        let reread = v.get_memo(note.id).unwrap();
+        assert_eq!(reread.props.get("status"), updated.props.get("status"));
+
+        // Remove key.
+        let updated = v
+            .update_note_with(
+                note.id,
+                None,
+                None,
+                Some(crate::props::PropMutation {
+                    sets: vec![],
+                    removes: vec!["status".into()],
+                }),
+            )
+            .unwrap();
+        assert!(updated.props.get("status").is_none());
+        assert!(v.get_memo(note.id).unwrap().props.get("status").is_none());
+
+        // Same-value re-set must not bump `updated`.
+        let before = updated.updated_at;
+        let again = v
+            .update_note_with(
+                note.id,
+                None,
+                None,
+                Some(crate::props::PropMutation {
+                    sets: vec![("status".into(), crate::props::PropValue::Str("stub".into()))],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+        // `again` re-set status after the remove — a real change. Re-set
+        // the SAME value once more: a semantic NoOp that must leave
+        // `updated_at` and the digest untouched.
+        assert_ne!(again.updated_at, before, "sanity: the re-set was a change");
+        let prev = v.get_memo(note.id).unwrap();
+        let noop = v
+            .update_note_with(
+                note.id,
+                None,
+                None,
+                Some(crate::props::PropMutation {
+                    sets: vec![("status".into(), crate::props::PropValue::Str("stub".into()))],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+        assert_eq!(noop.updated_at, prev.updated_at, "no-op re-set must not bump updated");
+        assert_eq!(noop.hash, prev.hash, "no-op re-set must not change the digest");
+    }
+
+    #[test]
+    fn query_notes_filters_sorts_and_paginates() {
+        let (_t, v) = tmp_vault();
+        let seed = |title: &str, status: &str, changed: &str| {
+            let n = v
+                .create_note("", format!("# {title}"), crate::memo::NoteFormat::Markdown)
+                .unwrap();
+            v.update_note_with(
+                n.id,
+                None,
+                None,
+                Some(crate::props::PropMutation {
+                    sets: vec![
+                        ("status".into(), crate::props::PropValue::Str(status.into())),
+                        (
+                            "status_changed".into(),
+                            crate::props::PropValue::Str(changed.into()),
+                        ),
+                    ],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+            n
+        };
+        let a = seed("Alpha", "understood", "2026-01-01");
+        seed("Beta", "stub", "2026-02-01");
+        seed("Gamma", "understood", "2026-03-01");
+
+        // Filter: status = understood, sort by status_changed asc.
+        let q = crate::props::NoteQuery {
+            props: vec![crate::props::parse_where("status=understood").unwrap()],
+            sort: crate::props::SortSpec::PropAsc("status_changed".into()),
+            offset: 0,
+            limit: 10,
+            ..Default::default()
+        };
+        let page = v.query_notes(&q).unwrap();
+        assert_eq!(page.total, 2);
+        let titles: Vec<Option<&str>> = page.items.iter().map(|s| s.title.as_deref()).collect();
+        assert_eq!(titles, vec![Some("Alpha"), Some("Gamma")]);
+
+        // Offset pagination.
+        let q2 = crate::props::NoteQuery {
+            props: vec![crate::props::parse_where("status=understood").unwrap()],
+            sort: crate::props::SortSpec::PropAsc("status_changed".into()),
+            offset: 1,
+            limit: 10,
+            ..Default::default()
+        };
+        let page2 = v.query_notes(&q2).unwrap();
+        assert_eq!(page2.items.len(), 1);
+        assert_eq!(page2.items[0].title.as_deref(), Some("Gamma"));
+        // `a` is still the first item — stub filtered out.
+        assert_eq!(page.items[0].id, a.id);
+    }
+
+    #[test]
+    fn aliases_and_prop_links_resolve_in_graph_and_backlinks() {
+        let (_t, v) = tmp_vault();
+        // Target known by alias "ML".
+        let target = v
+            .create_note("", "# 머신러닝\n\n본문".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        v.update_note_with(
+            target.id,
+            None,
+            None,
+            Some(crate::props::PropMutation {
+                sets: vec![(
+                    "aliases".into(),
+                    crate::props::PropValue::List(vec!["ML".into(), "기계학습".into()]),
+                )],
+                removes: vec![],
+            }),
+        )
+        .unwrap();
+        // Stub: no body links, only a frontmatter `related` prop.
+        let stub = v
+            .create_note("", "# 오류역전파".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        v.update_note_with(
+            stub.id,
+            None,
+            None,
+            Some(crate::props::PropMutation {
+                sets: vec![
+                    ("status".into(), crate::props::PropValue::Str("stub".into())),
+                    (
+                        "related".into(),
+                        crate::props::PropValue::List(vec!["[[ML]]".into()]),
+                    ),
+                ],
+                removes: vec![],
+            }),
+        )
+        .unwrap();
+
+        // Backlinks on the target: the stub's `related: [[ML]]` counts.
+        let backlinks = v.get_backlinks(target.id).unwrap();
+        assert_eq!(backlinks.len(), 1, "prop link via alias must be a backlink");
+        assert_eq!(backlinks[0].title, "오류역전파");
+
+        // Graph: edge stub → target resolved through the alias.
+        let g = v.graph_data().unwrap();
+        let edge = g
+            .edges
+            .iter()
+            .find(|e| e.source == stub.id.to_string() && e.target == target.id.to_string());
+        assert!(edge.is_some(), "related-prop link must create a graph edge");
+    }
+
+    #[test]
+    fn rename_propagation_rewrites_prop_links() {
+        let (_t, v) = tmp_vault();
+        let target = v
+            .create_note("", "# 딥러닝\n\nb".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let stub = v
+            .create_note("", "# 오류역전파".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        v.update_note_with(
+            stub.id,
+            None,
+            None,
+            Some(crate::props::PropMutation {
+                sets: vec![(
+                    "related".into(),
+                    crate::props::PropValue::List(vec!["[[딥러닝]]".into()]),
+                )],
+                removes: vec![],
+            }),
+        )
+        .unwrap();
+
+        // Rename the target note.
+        v.update_note(
+            target.id,
+            Some("# 심층학습\n\nb".into()),
+            None,
+        )
+        .unwrap();
+
+        let reread = v.get_memo(stub.id).unwrap();
+        assert_eq!(
+            reread.props.get("related"),
+            Some(&crate::props::PropValue::List(vec!["[[심층학습]]".into()])),
+            "rename must rewrite [[..]] inside property values"
+        );
     }
 
     #[test]
