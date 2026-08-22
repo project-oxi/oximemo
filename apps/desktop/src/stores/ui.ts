@@ -77,6 +77,9 @@ interface UIState {
    * it for cycle/parent no-op suppression — see useFolderDrop. */
   draggingFolder: string | null;
   setDraggingFolder: (p: string | null) => void;
+  /** Pin-reorder drag (⠿ handle): the dragged pin's path. */
+  draggingPin: string | null;
+  setDraggingPin: (p: string | null) => void;
   /** Available update version surfaced on the settings gear, or null. */
   updateAvailable: string | null;
   setUpdateAvailable: (v: string | null) => void;
@@ -196,6 +199,8 @@ export const useUI = create<UIState>((set) => ({
   setDraggingNote: (m) => set({ draggingNote: m }),
   draggingFolder: null,
   setDraggingFolder: (p) => set({ draggingFolder: p }),
+  setDraggingPin: (p) => set({ draggingPin: p }),
+  draggingPin: null,
   updateAvailable: null,
   setUpdateAvailable: (v) => set({ updateAvailable: v }),
   cmdPaletteOpen: false,

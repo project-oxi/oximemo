@@ -6,16 +6,17 @@
  * the main area; the 볼트 row enters it at the root.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowUpDown, CalendarDays, Folder, Images, Layers, MoreHorizontal, Star } from "lucide-react";
-import { useState } from "react";
+import { Archive, ArrowUpDown, CalendarDays, Folder, GripVertical, Images, Layers, MoreHorizontal, PenLine, Star, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
-import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote } from "../lib/api";
+import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { dayLabel, todayLocalISO } from "../lib/dates";
-import { useFolderDrop } from "../lib/dropTarget";
+import { useFolderDrop, parentOf } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import { Calendar } from "./Calendar";
+import { TextCtxMenu } from "./TextCtxMenu";
 import { useUI, type TagState } from "../stores/ui";
 import type { FolderDef } from "../lib/types";
 
@@ -75,7 +76,42 @@ export function Sidebar({
 
   // Favorites: explicit pins only — the sidebar is curation (Finder
   // model), never a folder browser. Pin from a folder's context menu.
+  /** Pin being renamed (path); the row swaps to an inline input. */
+  const [pinNaming, setPinNaming] = useState<string | null>(null);
+
+  const invalidateFolderData = () => {
+    void qc.invalidateQueries({ queryKey: ["memos"] });
+    void qc.invalidateQueries({ queryKey: ["config"] });
+    void qc.invalidateQueries({ queryKey: ["folderChildren"] });
+  };
+
+  const commitPinRename = (path: string, name: string | null) => {
+    setPinNaming(null);
+    const clean = (name ?? "").trim();
+    if (!clean) return; // cancel
+    const base = path.split("/").at(-1) ?? path;
+    if (clean === base) return;
+    const parent = parentOf(path);
+    const to = parent ? `${parent}/${clean}` : clean;
+    renameFolder(path, to).then(invalidateFolderData).catch((e) => {
+      setError(String(e).split("\n")[0]);
+    });
+  };
+
+  const deletePinFolder = (path: string) => {
+    deleteFolder(path).then(invalidateFolderData).catch((e) => {
+      setError(String(e).split("\n")[0]);
+    });
+  };
+
+  /** Reorder pins after a ⠿ drop: `dragged` moves before/after `target`. */
+  const reorderPins = (order: string[]) => {
+    setPinOrder(order)
+      .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
   const pins = folders.filter((f) => f.pinned);
+  const pinPaths = pins.map((f) => f.path);
 
   // Daily notes: opt-out via config (absent = enabled). Config drives
   // folder + flag; the calendar query refreshes the dot set as memos
@@ -206,8 +242,14 @@ export function Sidebar({
           path={f.path}
           folders={folders}
           selected={folderFilter === f.path}
+          naming={pinNaming === f.path}
+          pinPaths={pinPaths}
           onOpen={openFolder}
           onUnpin={unpin}
+          onRename={setPinNaming}
+          onNameCommit={commitPinRename}
+          onDelete={deletePinFolder}
+          onReorder={reorderPins}
           onMoveNote={onMoveNote}
           onMoveFolderTree={onMoveFolderTree}
         />
@@ -339,23 +381,38 @@ export function Sidebar({
     </aside>
   );
 }
-/** One pinned FOLDERS row: a drop target (T14) with its own hover/focus
- *  state (the ⋯ unpin button reveal). Extracted so useFolderDrop runs at
- *  a stable hook index inside the pins map. */
+/** One pinned FOLDERS row: navigation + full management (inline rename,
+ *  armed delete) + a drop target for note/folder drops (T14) AND pin
+ *  reordering (⠿ handle, top/bottom-half = before/after). Extracted so
+ *  the hooks run at a stable index inside the pins map. */
 function SidebarFolderRow({
   path,
   folders,
   selected,
+  naming,
+  pinPaths,
   onOpen,
   onUnpin,
+  onRename,
+  onNameCommit,
+  onDelete,
+  onReorder,
   onMoveNote,
   onMoveFolderTree,
 }: {
   path: string;
   folders: FolderDef[];
   selected: boolean;
+  /** Inline rename session active for this row. */
+  naming: boolean;
+  /** Current pin order (for reorder computation). */
+  pinPaths: string[];
   onOpen: (path: string) => void;
   onUnpin: (path: string) => void;
+  onRename: (path: string) => void;
+  onNameCommit: (path: string, name: string | null) => void;
+  onDelete: (path: string) => void;
+  onReorder: (order: string[]) => void;
   onMoveNote: (id: string, folder: string) => void;
   /** Move a dragged folder subtree into this row's folder (drop target). */
   onMoveFolderTree?: (path: string, dest: string) => void;
@@ -366,7 +423,36 @@ function SidebarFolderRow({
   // since opacity-0 hides the focus ring too).
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const showMore = hovered || focused;
+  const showMore = hovered || focused && !naming;
+  // Two-click armed delete (FolderMenu rules): arm resets when the menu
+  // closes and auto-expires after 4s.
+  const [armed, setArmed] = useState(false);
+  const armTimer = useRef<number | null>(null);
+  const disarm = () => {
+    setArmed(false);
+    if (armTimer.current) {
+      window.clearTimeout(armTimer.current);
+      armTimer.current = null;
+    }
+  };
+  useEffect(() => () => disarm(), []);
+  // Recursive note count for the delete confirm wording. The card for
+  // `path` itself lives in the PARENT's children list.
+  const parent = parentOf(path);
+  const siblingsQ = useQuery({
+    queryKey: ["folderChildren", parent],
+    queryFn: () => folderChildren(parent),
+    staleTime: Infinity,
+  });
+  const deep =
+    siblingsQ.data?.find((c) => c.path === path)?.note_count_deep ?? 0;
+
+  // Pin-reorder drop state: which half of the row the ⠿ hovers.
+  const draggingPin = useUI((s) => s.draggingPin);
+  const setDraggingPin = useUI((s) => s.setDraggingPin);
+  const [pinHalf, setPinHalf] = useState<"before" | "after" | null>(null);
+  const pinSource = draggingPin && draggingPin !== path ? draggingPin : null;
+
   // M16: the row is inert while the dragged note already lives here.
   // Folder drags land here too (cycles/parent no-ops suppressed in the
   // hook) — dropping a folder on a pin moves it there.
@@ -375,65 +461,162 @@ function SidebarFolderRow({
     (id) => onMoveNote(id, path),
     onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
   );
+  const base = path.split("/").at(-1) ?? path;
   return (
-    <div
-      data-sidebar-folder={path}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      {...dropProps}
-      className={`group flex items-center gap-1 rounded-md py-0.5 pr-1 text-[13px] ${
-        selected
-          ? "bg-surface-muted font-semibold text-text"
-          : "hover:bg-surface-muted text-text-muted"
-      } ${dropCls ?? ""}`}
-    >
-      <button
-        type="button"
-        onClick={() => onOpen(path)}
-        className="flex flex-1 items-center gap-2 truncate px-2 py-0.5 text-left"
+    <CtxRoot onOpenChange={(open) => !open && disarm()}>
+      <CtxTrigger
+        render={
+          <div
+            data-sidebar-folder={path}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            onDragOver={(e: React.DragEvent) => {
+              if (pinSource) {
+                e.preventDefault();
+                const r = e.currentTarget.getBoundingClientRect();
+                setPinHalf(e.clientY < r.top + r.height / 2 ? "before" : "after");
+                return;
+              }
+              dropProps.onDragOver(e);
+            }}
+            onDragLeave={() => {
+              setPinHalf(null);
+              dropProps.onDragLeave();
+            }}
+            onDrop={(e: React.DragEvent) => {
+              if (pinSource) {
+                e.preventDefault();
+                const half = pinHalf ?? "after";
+                setPinHalf(null);
+                const rest = pinPaths.filter((p) => p !== pinSource);
+                const at = rest.indexOf(path);
+                const insertAt = half === "before" ? at : at + 1;
+                rest.splice(insertAt, 0, pinSource);
+                onReorder(rest);
+                return;
+              }
+              dropProps.onDrop(e);
+            }}
+            className={`group flex items-center gap-1 rounded-md py-0.5 pr-1 text-[13px] ${
+              selected
+                ? "bg-surface-muted font-semibold text-text"
+                : "hover:bg-surface-muted text-text-muted"
+            } ${dropCls ?? ""} ${
+              pinSource && pinHalf === "before"
+                ? "shadow-[inset_0_2px_0_0_var(--color-focus-ring)]"
+                : pinSource && pinHalf === "after"
+                  ? "shadow-[inset_0_-2px_0_0_var(--color-focus-ring)]"
+                  : ""
+            }`}
+          />
+        }
       >
-        <Folder
-          size={12}
-          style={{ color: colorForFolder(path, folders) }}
-        />
-        <span className="truncate">{path}</span>
-      </button>
-      <CtxRoot>
-        <CtxTrigger
-          render={
-            <button
-              type="button"
-              aria-label={t.folder_unpin}
-              title={t.folder_unpin}
-              // Base UI's ContextMenu.Trigger only opens on
-              // right-click/long-press — left-click / Enter on
-              // the rendered button does nothing on its own.
-              // We want one-click unpin (the row's primary
-              // affordance) and keep the menu for the secondary
-              // "open" path, so we wire onClick=unpin too.
-              onClick={() => onUnpin(path)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              className={`grid size-5 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text ${
-                showMore ? "opacity-100" : "opacity-0"
-              }`}
+        {!naming && (
+          <button
+            type="button"
+            onClick={() => onOpen(path)}
+            className="flex flex-1 items-center gap-2 truncate px-2 py-0.5 text-left"
+          >
+            <Folder
+              size={12}
+              style={{ color: colorForFolder(path, folders) }}
             />
-          }
+            <span className="truncate">{path}</span>
+          </button>
+        )}
+        {naming && (
+          <TextCtxMenu
+            render={
+              <input
+                autoFocus
+                defaultValue={base}
+                onFocus={(e) => e.currentTarget.select()}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={(e) => onNameCommit(path, e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") onNameCommit(path, e.currentTarget.value);
+                  else if (e.key === "Escape") onNameCommit(path, null);
+                }}
+                style={{ boxShadow: "none" }}
+                className="flex-1 min-w-0 rounded-md bg-transparent px-1 py-0 text-[13px] font-semibold text-text outline-none"
+              />
+            }
+          />
+        )}
+        {!naming && (
+          <span
+            aria-hidden
+            title={t.pin_reorder_hint ?? "Reorder"}
+            draggable
+            onDragStart={(e) => {
+              setDraggingPin(path);
+              e.dataTransfer.setData("application/x-oximemo-pin", path);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragEnd={() => {
+              setDraggingPin(null);
+              setPinHalf(null);
+            }}
+            className={`grid size-4 cursor-grab place-items-center rounded-sm text-text-subtle hover:text-text ${
+              showMore ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <GripVertical size={11} />
+          </span>
+        )}
+        <button
+          type="button"
+          aria-label={t.folder_unpin}
+          title={t.folder_unpin}
+          // Base UI's ContextMenu.Trigger only opens on right-click/
+          // long-press — we want one-click unpin as the primary
+          // affordance, so onClick is wired directly.
+          onClick={() => onUnpin(path)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          className={`grid size-5 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text ${
+            showMore ? "opacity-100" : "opacity-0"
+          }`}
         >
           <MoreHorizontal size={12} />
-        </CtxTrigger>
+        </button>
         <CtxMenu>
+          <CtxItem label={t.folder_open} onClick={() => onOpen(path)} />
           <CtxItem
-            label={t.folder_open}
-            onClick={() => onOpen(path)}
+            icon={PenLine}
+            label={t.rename_folder}
+            onClick={() => onRename(path)}
           />
-          <CtxItem
-            label={t.folder_unpin}
-            onClick={() => onUnpin(path)}
-          />
+          {armed ? (
+            <CtxItem
+              icon={Trash2}
+              label={t.delete_confirm_arm}
+              danger
+              title={t.delete_folder_confirm
+                .replace("{folder}", base)
+                .replace("{n}", String(deep))}
+              onClick={() => {
+                disarm();
+                onDelete(path);
+              }}
+            />
+          ) : (
+            <CtxItem
+              icon={Trash2}
+              label={t.delete_folder_action}
+              danger
+              keepOpen
+              onClick={() => {
+                setArmed(true);
+                if (armTimer.current) window.clearTimeout(armTimer.current);
+                armTimer.current = window.setTimeout(disarm, 4000);
+              }}
+            />
+          )}
         </CtxMenu>
-      </CtxRoot>
-    </div>
+      </CtxTrigger>
+    </CtxRoot>
   );
 }
 

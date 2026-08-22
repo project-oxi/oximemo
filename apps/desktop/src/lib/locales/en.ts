@@ -42,6 +42,7 @@ export const dict: Record<keyof typeof ko, string> = {
   img_delete: "Delete Image",
   img_reset_width: "Reset Width",
   img_copy_url: "Copy URL",
+  pin_reorder_hint: "Reorder",
   reindex: "Rebuild index",
   reindexing: "Rebuilding…",
   reindex_done: "Index rebuilt",

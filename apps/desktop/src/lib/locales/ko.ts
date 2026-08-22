@@ -41,6 +41,7 @@ export const dict = {
   img_delete: "이미지 삭제",
   img_reset_width: "너비 초기화",
   img_copy_url: "URL 복사",
+  pin_reorder_hint: "순서 변경",
   reindex: "인덱스 재구성",
   reindexing: "재구성 중…",
   reindex_done: "인덱스 재구성 완료",
