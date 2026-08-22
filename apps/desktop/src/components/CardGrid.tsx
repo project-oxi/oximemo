@@ -388,6 +388,52 @@ export function CardGrid() {
     stopDragScroll();
   }, [stopDragScroll]);
 
+  // External file import (spec 2026-08-22 D4): drop .md/.markdown/.txt
+  // files anywhere on the note area to create notes in the current
+  // browse folder (query mode → vault root). Copy semantics — the
+  // source files are never touched. Note/folder payload drags keep
+  // their own targets (payload types differ, no interference).
+  const [fileOver, setFileOver] = useState(false);
+  const onScrollerFileDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    setFileOver(true);
+  }, []);
+  const onScrollerFileDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setFileOver(false);
+  }, []);
+  const onScrollerFileDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!e.dataTransfer.types.includes("Files")) return;
+      e.preventDefault();
+      setFileOver(false);
+      const files = [...e.dataTransfer.files].filter((f) =>
+        /\.(md|markdown|txt)$/i.test(f.name),
+      );
+      if (files.length === 0) return;
+      const folder = folderFilter !== null && !favoritesOnly ? folderFilter : "";
+      void (async () => {
+        let n = 0;
+        for (const f of files) {
+          try {
+            await createMemo(await f.text(), folder);
+            n += 1;
+          } catch {
+            /* unreadable file: skip, import the rest */
+          }
+        }
+        if (n > 0) {
+          void qc.invalidateQueries({ queryKey: ["memos"] });
+          void qc.invalidateQueries({ queryKey: ["facets"] });
+          void qc.invalidateQueries({ queryKey: ["folders"] });
+          setToast(t.import_toast.replace("{n}", String(n)));
+        }
+      })();
+    },
+    [folderFilter, favoritesOnly, qc, setToast, t],
+  );
+
   const onDelete = (id: string) => {
     void deleteMemo(id)
       .then(() => {
@@ -1071,11 +1117,22 @@ export function CardGrid() {
         </header>
         <div
           ref={scrollerCallbackRef}
-          onDragOver={onScrollerDragOver}
-          onDragLeave={onScrollerDragLeave}
-          onDrop={stopDragScroll}
+          onDragOver={(e) => {
+            onScrollerFileDragOver(e);
+            onScrollerDragOver(e);
+          }}
+          onDragLeave={(e) => {
+            onScrollerFileDragLeave(e);
+            onScrollerDragLeave(e);
+          }}
+          onDrop={(e) => {
+            onScrollerFileDrop(e);
+            stopDragScroll();
+          }}
           onDragEnd={stopDragScroll}
-          className="flex-1 overflow-y-auto p-2"
+          className={`flex-1 overflow-y-auto p-2 ${
+            fileOver ? "ring-2 ring-focus-ring ring-inset" : ""
+          }`}
         >
           {/* Empty-area context menu (M20/B3): new notes anywhere; 새 폴더
               only while BROWSING a folder — query mode hides it so "new
