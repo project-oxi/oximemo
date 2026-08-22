@@ -118,10 +118,10 @@ oximemo vault path
 
 oximemo new [TEXT] [--tag TAG]… [--category ID] [--html]   # --html creates a .html note (frontmatter in a leading HTML comment)
 oximemo list [--limit N] [--tag T] [--category ID] [--favorites] [--format table|json|ndjson]
+oximemo list --where status=stub --sort status_changed --offset 40   # property query (offset path)
+oximemo list --where domain=TECH,MATH --where subdomain~AI           # comma = any-of; ~ = list membership
+oximemo update <ID> --set status=understood --unset draft            # property set/remove
 oximemo get <ID> [--md]
-oximemo update <ID> [--body T | --body-stdin] [--favorite] [--unfavorite] [--category ID]
-oximemo search <QUERY> [--limit N] [--format json|ndjson]
-oximemo stats                                           # live memo counts (JSON)
 oximemo export [--since RFC3339] [--ids a,b,c | --ids-file PATH | --ids-stdin]
               [--full] [--format ndjson|json]
 oximemo delete <ID>                                     # soft-delete → .trash/
@@ -191,6 +191,29 @@ The `id` is a time-sortable **UUIDv7**; the `hash` is **`b3:` + BLAKE3** over th
 ### Daily notes
 
 A persistent sidebar calendar (DAILY section) opens — or creates — one note per day in the `[daily]` folder (`oximemo.toml`: `enabled`, `folder`, default `daily`). Notes are titled by ISO date (`2026-08-21.md`), so they are ordinary notes: searchable, taggable, movable. A `TEMPLATE.md` in the daily folder seeds new entries (`{{date}}`, `{{weekday}}`, … are filled with the *local* date); if the template's heading isn't the date, the date heading is prepended so filenames stay deterministic. Days with a note show a dot; past and future days can be created (backfilling and planning). Set `enabled = false` to hide the sidebar section and Today button.
+
+### Note properties & folder schemas
+
+Every frontmatter key beyond the core five (`id`, `created`, `updated`,
+`favorite`, `deleted`) is a **property** — indexed, searchable through
+aliases, covered by the sync digest, and editable in the app's property
+panel or over the CLI (`--set` / `--unset`). Files stay plain
+Obsidian-compatible markdown.
+
+A folder that carries a `SCHEMA.toml` declares its property system:
+types and allowed values, card badges with color tokens, state
+transitions (e.g. the knowledge preset's `peak_status` max-merge that
+preserves the all-time high through decay/re-learn cycles), and an
+optional `[review]` block that turns the folder's header into a review
+queue ("설명 가능함" reasserts, "막힘" decays). The ⌘K action **지식 관리
+폴더 만들기** installs the full knowledge-state preset (stub → vague →
+understood → mastered, decayed) as two editable files. TEMPLATE.md
+frontmatter seeds new notes' properties — a quick capture into a schema
+folder starts at `status: stub`.
+
+`[[wiki links]]` resolve through titles **and** `aliases`, and links
+inside property values (e.g. `related`) count for backlinks, the graph,
+and rename propagation — so an empty stub stays connected.
 
 ## Architecture
 

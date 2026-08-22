@@ -384,12 +384,12 @@ mod tests {
         let t = TmpVault::new();
         let id = make_memo(t.v(), "first body");
 
-        cmd_update(t.v(), id, None, false, Some(true)).unwrap();
+        cmd_update(t.v(), id, None, false, Some(true), None).unwrap();
         let after = t.v().get_memo(id).unwrap();
         assert!(after.favorite);
         assert_eq!(after.body, "first body");
 
-        cmd_update(t.v(), id, Some("new body #urgent".into()), false, None).unwrap();
+        cmd_update(t.v(), id, Some("new body #urgent".into()), false, None, None).unwrap();
         let after = t.v().get_memo(id).unwrap();
         assert_eq!(after.body, "new body #urgent");
         assert!(after.tags.iter().any(|x| x == "urgent"));
@@ -399,7 +399,7 @@ mod tests {
     fn update_without_changes_is_an_error() {
         let t = TmpVault::new();
         let id = make_memo(t.v(), "x");
-        assert!(cmd_update(t.v(), id, None, false, None).is_err());
+        assert!(cmd_update(t.v(), id, None, false, None, None).is_err());
     }
 
     #[test]
@@ -417,7 +417,7 @@ mod tests {
         let t = TmpVault::new();
         make_memo(t.v(), "a");
         make_memo(t.v(), "b");
-        cmd_update(t.v(), make_memo(t.v(), "fav"), None, false, Some(true)).unwrap();
+        cmd_update(t.v(), make_memo(t.v(), "fav"), None, false, Some(true), None).unwrap();
         cmd_stats(t.v()).unwrap();
         let s = t.v().memo_stats().unwrap();
         assert_eq!(s.memos, 3);

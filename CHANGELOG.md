@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+
+- **Note properties & folder schemas (knowledge management)** — every
+  frontmatter key beyond the core five is now a first-class *property*:
+  indexed (`IndexRecord.props`), carried on `Memo`/`MemoSummary`/`NoteDto`,
+  covered by the sync digest (`hash_memo` now hashes properties), and
+  queryable. New offset-paginated `NoteQuery` (`query_notes` IPC, CLI
+  `list --where KEY=VAL --sort KEY --offset N`, with `~` for list
+  membership and comma values for any-of) complements the cursor path.
+  Property edits land through `update_memo`'s new `props` diff (CLI
+  `update --set/--unset`) with the same semantic-NoOp contract — a
+  same-value re-set never touches the file. Folders can declare a
+  `SCHEMA.toml` (types, allowed values, badges, color tokens, state
+  transitions with `merge = "max"` peak preservation and `on = "write"`
+  reassert stamping, and an optional `[review]` queue). TEMPLATE.md
+  frontmatter now seeds new notes' properties — including captures with
+  non-blank bodies. The knowledge preset ("지식 관리 폴더" in ⌘K)
+  installs the whole status lifecycle (stub→vague→understood→mastered,
+  decayed with all-time-high peak). Wiki links now resolve through
+  `aliases` (H1 first, oldest note on conflict) and `[[..]]` inside
+  property values (e.g. `related`) count for backlinks, graph edges,
+  and rename propagation. The editor gains a typed property panel
+  (select/multiselect/date/text, warning-level violations), cards/list
+  rows/graph nodes gain schema badges, folders with schemas get
+  property filter chips + property sorts, and `[review]` folders get a
+  review queue (oldest-first, "설명 가능함"/"막힘" actions) plus a
+  state-driven ⌘K command. `doctor` reports `schema_violations`
+  (warning-level, never auto-fixed). Index format bumped to v4;
+  tantivy gains an `aliases` field and rebuilds on schema change.
+  Browser fallback exercises properties, queries, schemas, and the
+  review queue (transitions stay desktop-only, like backlinks).
 - **Command palette (⌘K)** — a global intent surface: navigation
   (전체 메모 · 즐겨찾기 · 갤러리 · 볼트 루트 · 오늘의 노트 · every folder ·
   #tags), view switches (grid/list/timeline/graph, sidebar), and actions
