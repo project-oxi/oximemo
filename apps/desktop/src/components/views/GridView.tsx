@@ -135,6 +135,7 @@ export function GridView({
                     memo={cell.note}
                     folders={folders}
                     folderEntries={folderEntries}
+                    onOpenFolder={onOpenFolder}
                     onSelect={onSelect}
                     onToggleFavorite={onToggleFavorite}
                     onMoveFolder={onMoveFolder}

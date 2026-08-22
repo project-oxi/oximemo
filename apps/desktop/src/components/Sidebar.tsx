@@ -1,16 +1,17 @@
 /**
  * Collapsible left sidebar — Finder-model curation surface: FAVORITES
- * (smart collections 모든 노트/즐겨찾기/갤러리 + explicitly pinned folder
- * locations), RECENTS (recently updated notes), and TAGS. Never a folder
- * browser — browsing and folder management happen in the main area.
+ * (smart collections 전체 메모/즐겨찾기/갤러리), LOCATIONS (볼트 root
+ * browse entry + explicitly pinned folders), DAILY (today row + mini
+ * calendar as one block), RECENTS, and TAGS. Folder browsing happens in
+ * the main area; the 볼트 row enters it at the root.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpDown, CalendarDays, Folder, Images, Layers, MoreHorizontal, Star } from "lucide-react";
+import { Archive, ArrowUpDown, CalendarDays, Folder, Images, Layers, MoreHorizontal, Star } from "lucide-react";
 import { useState } from "react";
 
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote } from "../lib/api";
 import { colorForFolder } from "../lib/color";
-import { todayLocalISO } from "../lib/dates";
+import { dayLabel, todayLocalISO } from "../lib/dates";
 import { useFolderDrop } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
@@ -116,8 +117,8 @@ export function Sidebar({
     <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface-sunken/60">
       <div data-tauri-drag-region className="h-12 shrink-0" />
 
-      {/* FAVORITES — Finder model: smart collections + explicitly pinned
-          folder locations live together; browse happens in the main area. */}
+      {/* FAVORITES — smart collections only. Folder locations (pinned or
+          the vault root) live in LOCATIONS below. */}
       <div className="flex items-center px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
           {t.favorites_section}
@@ -158,16 +159,25 @@ export function Sidebar({
       >
         <Images size={14} /> {t.gallery}
       </button>
-      {dailyEnabled && (
-        <button
-          data-daily-today
-          type="button"
-          onClick={() => openDaily(todayLocalISO())}
-          className="mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-text-muted hover:bg-surface-muted"
-        >
-          <CalendarDays size={14} /> {t.today_note}
-        </button>
-      )}
+      {/* LOCATIONS — the vault root browse entry (folder tiles live in the
+          main area; this is how you get back to top-level browsing) plus
+          explicitly pinned folders. */}
+      <div className="mt-3 flex items-center px-3">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+          {t.locations_section}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={() => { setView("memos"); setFavoritesOnly(false); setFolderFilter(""); }}
+        className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
+          view === "memos" && !favoritesOnly && folderFilter === ""
+            ? "bg-surface-muted font-semibold text-text"
+            : "text-text-muted hover:bg-surface-muted"
+        }`}
+      >
+        <Archive size={14} /> {t.vault_root}
+      </button>
       {pins.map((f) => (
         <SidebarFolderRow
           key={f.path}
@@ -181,8 +191,9 @@ export function Sidebar({
         />
       ))}
 
-      {/* DAILY — mini calendar with dots on existing notes; click a
-          day to open or create today's note. */}
+      {/* DAILY — one integrated block: the today row opens today's note,
+          the mini calendar below it dots days that have one; clicking a
+          day opens or creates it. */}
       {dailyEnabled && (
         <>
           <div className="mt-3 flex items-center px-3">
@@ -190,12 +201,21 @@ export function Sidebar({
               {t.daily_section}
             </span>
           </div>
+          <button
+            data-daily-today
+            type="button"
+            onClick={() => openDaily(todayLocalISO())}
+            className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-text-muted transition-colors hover:bg-surface-muted hover:text-text"
+          >
+            <CalendarDays size={14} className="text-hue-blue" />
+            <span className="font-medium">{t.today_note}</span>
+            <span className="ml-auto text-[10px] text-text-subtle">{dayLabel(todayLocalISO(), locale)}</span>
+          </button>
           <div className="px-2 pt-1">
             <Calendar dates={dailyDates} today={todayLocalISO()} locale={locale} onSelect={openDaily} />
           </div>
         </>
       )}
-
       {/* RECENTS — recently updated notes, one click to open. */}
       {recents.length > 0 && (
         <>

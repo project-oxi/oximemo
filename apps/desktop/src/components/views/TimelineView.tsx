@@ -138,16 +138,21 @@ export function TimelineView({
                       </div>
                     )}
                     {n.folder && (
-                      <span
+                      <button
+                        type="button"
                         data-note-folder={n.folder}
-                        className="mt-1.5 inline-flex items-center gap-1 font-mono text-[10px] text-text-subtle"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (n.folder) onOpenFolder(n.folder);
+                        }}
+                        className="mt-1.5 inline-flex items-center gap-1 font-mono text-[10px] text-text-subtle transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                       >
                         <i
                           className="size-1.5 rounded-[2px]"
                           style={{ backgroundColor: colorForFolder(n.folder, folders) }}
                         />
                         {n.folder}/
-                      </span>
+                      </button>
                     )}
                     <NoteCtxMenu
                       memo={n}

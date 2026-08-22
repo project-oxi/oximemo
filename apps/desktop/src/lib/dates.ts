@@ -52,3 +52,11 @@ export function monthTitle(y: number, m: number, locale: string): string {
   const fmt = new Intl.DateTimeFormat(locale, { year: "numeric", month: "long" });
   return fmt.format(new Date(y, m - 1, 1));
 }
+
+/** Local date subtitle like "8월 22일 (토)" (ko) / "Aug 22 (Fri)" (en). */
+export function dayLabel(iso: string, locale: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Intl.DateTimeFormat(locale, { month: "long", day: "numeric", weekday: "short" }).format(
+    new Date(y, m - 1, d),
+  );
+}

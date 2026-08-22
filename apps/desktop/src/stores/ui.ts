@@ -119,8 +119,15 @@ export const useUI = create<UIState>((set) => ({
   searchScope: "folder",
   setSearchScope: (s) => set({ searchScope: s }),
   navigateUp: () => {
-    const cur = useUI.getState().folderFilter;
-    if (cur === null || cur === "") return;
+    const { folderFilter: cur, favoritesOnly } = useUI.getState();
+    // Query mode (favorites/all-notes) steps INTO root browse so ⌘↑ is
+    // always an escape hatch to top-level browsing; at root it's a no-op.
+    if (cur === null) {
+      set({ favoritesOnly: false, folderFilter: "" });
+      return;
+    }
+    if (favoritesOnly) set({ favoritesOnly: false });
+    if (cur === "") return;
     const next = cur.includes("/") ? cur.slice(0, cur.lastIndexOf("/")) : "";
     set({ folderFilter: next });
   },

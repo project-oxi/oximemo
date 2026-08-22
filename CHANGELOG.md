@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sidebar redesign — Finder completion (A안)** — new **Locations**
+  section holds the **볼트** root-browse entry (root browsing was
+  unreachable once you entered the flat collection) plus pinned folders;
+  **데일리** merges the Today's Note row with the mini calendar into one
+  block; the flat smart collection is renamed **전체 메모** and root notes'
+  cards no longer mislabel it as their folder; folder chips on query-mode
+  cards/timeline rows are now clickable (enter that folder's browse);
+  ⌘↑ escapes query mode into root browse; "최상위" unifies to **볼트**.
+
 - **Discard untouched daily notes** — closing a daily note that this
   session just created (template body intact, nothing typed) now removes
   it instead of leaving an empty stub. Revisited/adopted daily notes are

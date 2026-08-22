@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ko" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>OxiMemo — 사이드바 리디자인 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@2/fonts/variable/woff2/SUIT-Variable.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/sun-typeface/SUITE@2/fonts/variable/woff2/SUITE-Variable.css" />
+<style>
+  :root {
+    --p-neutral-0: oklch(0.985 0 0);
+    --p-neutral-300: oklch(0.75 0 0);
+    --p-neutral-500: oklch(0.55 0 0);
+    --p-neutral-900: oklch(0.18 0 0);
+    --p-neutral-950: oklch(0.13 0 0);
+    --color-surface: var(--p-neutral-950);
+    --color-surface-raised: oklch(0.22 0 0);
+    --color-surface-sunken: oklch(0.11 0 0);
+    --color-surface-muted: oklch(0.20 0 0);
+    --color-text: var(--p-neutral-0);
+    --color-text-muted: var(--p-neutral-300);
+    --color-text-subtle: oklch(0.75 0 0);
+    --color-line: oklch(0.28 0 0);
+    --color-line-strong: oklch(0.40 0 0);
+    --color-focus-ring: oklch(0.65 0.05 265);
+    --color-hue-red: oklch(0.78 0.14 25);
+    --color-hue-amber: oklch(0.78 0.14 75);
+    --color-hue-green: oklch(0.78 0.12 145);
+    --color-hue-teal: oklch(0.78 0.11 195);
+    --color-hue-blue: oklch(0.74 0.13 250);
+    --color-hue-purple: oklch(0.76 0.14 310);
+    --color-interactive-primary: oklch(0.70 0.14 250);
+    --color-interactive-primary-foreground: oklch(0.15 0 0);
+    --shadow-sm: 0 1px 3px oklch(0 0 0 / 0.40), 0 1px 2px oklch(0 0 0 / 0.30);
+    --font-sans: "SUIT Variable", system-ui, sans-serif;
+    --font-display: "SUITE Variable", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    padding: 28px 36px 48px;
+  }
+  h1 { font-family: var(--font-display); font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .sub { color: var(--color-text-subtle); font-size: 12px; margin-top: 4px; }
+  .row { display: flex; gap: 36px; margin-top: 24px; align-items: flex-start; }
+  .concept { width: 700px; }
+  .concept h2 { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+  .concept .verdict { font-size: 11.5px; color: var(--color-text-subtle); line-height: 1.55; margin-bottom: 10px; }
+  .frame {
+    width: 700px; height: 740px; display: flex; border: 1px solid var(--color-line);
+    border-radius: 12px; overflow: hidden; background: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+  }
+  .side { width: 224px; flex: none; border-right: 1px solid var(--color-line); background: oklch(0.155 0 0); display: flex; flex-direction: column; overflow-y: auto; }
+  .side .drag { height: 36px; flex: none; }
+  .main { flex: 1; padding: 20px; position: relative; }
+  .main .what { font-size: 11px; color: var(--color-text-subtle); border: 1px dashed var(--color-line); border-radius: 8px; padding: 8px 12px; }
+  .sec { margin-top: 12px; }
+  .sec:first-of-type { margin-top: 0; }
+  .sechead { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: oklch(0.58 0 0); padding: 0 12px 4px; }
+  .item {
+    display: flex; align-items: center; gap: 8px; padding: 5.5px 10px; margin: 0 8px;
+    border-radius: 6px; font-size: 12.5px; color: var(--color-text-muted); cursor: default;
+  }
+  .item svg { width: 14px; height: 14px; flex: none; }
+  .item .cnt { margin-left: auto; font-size: 10.5px; color: oklch(0.58 0 0); font-variant-numeric: tabular-nums; }
+  .item.active { background: var(--color-surface-muted); color: var(--color-text); font-weight: 600; }
+  .item .dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .subitem { padding-left: 34px; font-size: 12px; }
+  .divider { height: 1px; background: var(--color-line); margin: 10px 12px; }
+  /* calendar */
+  .cal { padding: 0 10px 6px; }
+  .calhead { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 4px; }
+  .calhead .m { font-size: 11px; font-weight: 600; }
+  .calhead .nav { display: flex; gap: 2px; }
+  .calhead .nav span { width: 18px; height: 18px; display: grid; place-items: center; color: var(--color-text-subtle); border-radius: 4px; font-size: 11px; }
+  .wd { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 9px; color: oklch(0.55 0 0); text-align: center; margin-bottom: 2px; }
+  .days { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 1px; }
+  .d { position: relative; height: 20px; display: grid; place-items: center; font-size: 10.5px; color: var(--color-text-muted); border-radius: 5px; font-variant-numeric: tabular-nums; }
+  .d.dim { color: oklch(0.38 0 0); }
+  .d.has::after { content: ""; position: absolute; bottom: 1.5px; width: 3px; height: 3px; border-radius: 99px; background: var(--color-hue-blue); }
+  .d.today { background: var(--color-surface-muted); color: var(--color-text); font-weight: 700; box-shadow: inset 0 0 0 1px var(--color-line-strong); }
+  .d.today.has::after { background: var(--color-hue-blue); }
+  /* today hero row (variant B) */
+  .todayrow {
+    margin: 8px; padding: 9px 10px; border: 1px solid var(--color-line); border-radius: 8px;
+    background: var(--color-surface-raised); display: flex; align-items: center; gap: 8px;
+  }
+  .todayrow .t1 { font-size: 12.5px; font-weight: 700; }
+  .todayrow .t2 { font-size: 10.5px; color: var(--color-text-subtle); margin-top: 1px; }
+  .todayrow .go { margin-left: auto; font-size: 10.5px; color: var(--color-interactive-primary); font-weight: 600; }
+  .todayline {
+    display: flex; align-items: center; gap: 7px; margin: 4px 8px 6px; padding: 6px 10px;
+    border-radius: 6px; background: var(--color-surface-muted); font-size: 12px; font-weight: 600; color: var(--color-text);
+  }
+  .todayline svg { width: 13px; height: 13px; color: var(--color-hue-blue); }
+  .todayline .sub2 { margin-left: auto; font-size: 10px; color: var(--color-text-subtle); font-weight: 400; }
+  .recent { display: flex; align-items: center; gap: 8px; padding: 4.5px 10px; margin: 0 8px; font-size: 12px; color: var(--color-text-muted); border-radius: 6px; }
+  .recent .dot { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+  .recent span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 12px 0; }
+  .tag { font-size: 10.5px; padding: 2.5px 7px; border-radius: 99px; background: var(--color-surface-muted); color: var(--color-text-muted); }
+  .tag.on { background: oklch(0.20 0.03 70); color: var(--color-hue-amber); }
+  .pin { margin-left: auto; color: oklch(0.5 0 0); font-size: 9px; }
+  .chev { margin-left: auto; color: oklch(0.45 0 0); font-size: 9px; }
+</style>
+</head>
+<body>
+<h1>OxiMemo 사이드바 리디자인 — 3개 방향</h1>
+<div class="sub">공통 해결: ① Today·데일리 통합 ② 루트 브라우징 진입 “볼트” ③ “모든 노트”→“전체 메모”(스마트 컬렉션 명확화) ④ 최상위/볼트 명칭 통일</div>
+
+<div class="row">
+
+<!-- ═══════════════ A ═══════════════ -->
+<div class="concept">
+  <h2>A · 완성형 Finder — 섹션 블록 (추천)</h2>
+  <div class="verdict">즐겨찾기(스마트 컬렉션) / 위치(볼트·고정 폴더) / 데일리(오늘 행 + 달력 한 블록) / 최근 / 태그. 현 구조의 Finder 은유를 완성. 변경 폭 최소, 탐색 사각지대 제거.</div>
+  <div class="frame">
+    <div class="side">
+      <div class="drag"></div>
+      <div class="sec">
+        <div class="sechead">즐겨찾기</div>
+        <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>전체 메모<span class="cnt">142</span></div>
+        <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z"/></svg>즐겨찾기<span class="cnt">12</span></div>
+        <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>갤러리</div>
+      </div>
+      <div class="sec">
+        <div class="sechead">위치</div>
+        <div class="item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>볼트<span class="cnt">142</span></div>
+        <div class="item"><span class="dot" style="background:var(--color-hue-teal)"></span>작업<span class="pin">고정</span></div>
+        <div class="item"><span class="dot" style="background:var(--color-hue-purple)"></span>회고<span class="pin">고정</span></div>
+      </div>
+      <div class="divider"></div>
+      <div class="sec">
+        <div class="sechead">데일리</div>
+        <div class="todayline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v4M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/></svg>오늘의 노트<span class="sub2">8월 22일 토</span></div>
+        <div class="cal">
+          <div class="calhead"><span class="m">2026년 8월</span><span class="nav"><span>‹</span><span>›</span></span></div>
+          <div class="wd"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+          <div class="days">
+            <span class="d dim">26</span><span class="d dim">27</span><span class="d dim">28</span><span class="d dim">29</span><span class="d dim">30</span><span class="d dim">31</span><span class="d">1</span>
+            <span class="d">2</span><span class="d">3</span><span class="d">4</span><span class="d">5</span><span class="d">6</span><span class="d">7</span><span class="d">8</span>
+            <span class="d">9</span><span class="d">10</span><span class="d has">11</span><span class="d">12</span><span class="d has">13</span><span class="d">14</span><span class="d">15</span>
+            <span class="d">16</span><span class="d">17</span><span class="d">18</span><span class="d">19</span><span class="d">20</span><span class="d has">21</span><span class="d today">22</span>
+            <span class="d">23</span><span class="d">24</span><span class="d">25</span><span class="d">26</span><span class="d">27</span><span class="d">28</span><span class="d">29</span>
+            <span class="d">30</span><span class="d">31</span><span class="d dim">1</span><span class="d dim">2</span><span class="d dim">3</span><span class="d dim">4</span><span class="d dim">5</span>
+          </div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="sec">
+        <div class="sechead">최근 항목</div>
+        <div class="recent"><span class="dot" style="background:var(--color-hue-teal)"></span><span>스프린트 회고</span></div>
+        <div class="recent"><span class="dot" style="background:var(--color-hue-amber)"></span><span>장보기 목록</span></div>
+        <div class="recent"><span class="dot" style="background:var(--color-hue-purple)"></span><span>독서 — 오브젝트</span></div>
+      </div>
+      <div class="sec">
+        <div class="sechead" style="margin-top:10px">태그</div>
+        <div class="tags">
+          <span class="tag on">#테스트 3</span><span class="tag">#아이디어 18</span><span class="tag">#회고 7</span><span class="tag">#ux 5</span>
+        </div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="what">볼트(루트) 브라우징 — 폴더 타일 + 루트 노트 그리드. “전체 메모”는 평탄 스마트 컬렉션(칩으로 소속 표시).</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ B ═══════════════ -->
+<div class="concept">
+  <h2>B · 데일리 히어로 — 캡처 중심</h2>
+  <div class="verdict">사용 루프가 “매일 오늘 노트 → 필요시 탐색”이라는 전제. 오늘 카드가 최상단에서 하루를 열고, 컬렉션·위치는 그 아래. 회고/저널 앱 성격이 강할 때 유리.</div>
+  <div class="frame">
+    <div class="side">
+      <div class="drag"></div>
+      <div class="sec">
+        <div class="todayrow">
+          <div>
+            <div class="t1">오늘 · 8월 22일 토</div>
+            <div class="t2">데일리 노트 열기</div>
+          </div>
+          <div class="go">→</div>
+        </div>
+        <div class="cal">
+          <div class="calhead"><span class="m">2026년 8월</span><span class="nav"><span>‹</span><span>›</span></span></div>
+          <div class="wd"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+          <div class="days">
+            <span class="d dim">26</span><span class="d dim">27</span><span class="d dim">28</span><span class="d dim">29</span><span class="d dim">30</span><span class="d dim">31</span><span class="d">1</span>
+            <span class="d">2</span><span class="d">3</span><span class="d">4</span><span class="d">5</span><span class="d">6</span><span class="d">7</span><span class="d">8</span>
+            <span class="d">9</span><span class="d">10</span><span class="d has">11</span><span class="d">12</span><span class="d has">13</span><span class="d">14</span><span class="d">15</span>
+            <span class="d">16</span><span class="d">17</span><span class="d">18</span><span class="d">19</span><span class="d">20</span><span class="d has">21</span><span class="d today">22</span>
+            <span class="d">23</span><span class="d">24</span><span class="d">25</span><span class="d">26</span><span class="d">27</span><span class="d">28</span><span class="d">29</span>
+            <span class="d">30</span><span class="d">31</span><span class="d dim">1</span><span class="d dim">2</span><span class="d dim">3</span><span class="d dim">4</span><span class="d dim">5</span>
+          </div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="sec">
+        <div class="sechead">컬렉션</div>
+        <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>전체 메모<span class="cnt">142</span></div>
+        <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z"/></svg>즐겨찾기<span class="cnt">12</span></div>
+        <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>갤러리</div>
+      </div>
+      <div class="sec">
+        <div class="sechead">위치</div>
+        <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>볼트<span class="cnt">142</span></div>
+        <div class="item"><span class="dot" style="background:var(--color-hue-teal)"></span>작업</div>
+      </div>
+      <div class="divider"></div>
+      <div class="sec">
+        <div class="sechead">최근 항목</div>
+        <div class="recent"><span class="dot" style="background:var(--color-hue-teal)"></span><span>스프린트 회고</span></div>
+        <div class="recent"><span class="dot" style="background:var(--color-hue-amber)"></span><span>장보기 목록</span></div>
+      </div>
+      <div class="sec">
+        <div class="sechead" style="margin-top:10px">태그</div>
+        <div class="tags"><span class="tag">#아이디어 18</span><span class="tag">#회고 7</span><span class="tag">#ux 5</span></div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="what">오늘 카드 = 오늘의 노트 열기. 달력은 같은 블록 — Today 버튼과 달력이 한 덩어리.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ C ═══════════════ -->
+<div class="concept">
+  <h2>C · 볼트 트리 — Finder 원형</h2>
+  <div class="verdict">사이드바 자체가 폴더 트리(고정 + 폴더별 카운트). 메인 영역의 폴더 타일과 역할이 겹침 — 브라우징 주체를 어디에 둘지 결정 필요. 정보 밀도 최고, 폭도 넓어야 함(240px+).</div>
+  <div class="frame">
+    <div class="side">
+      <div class="drag"></div>
+      <div class="sec">
+        <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>전체 메모<span class="cnt">142</span></div>
+        <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z"/></svg>즐겨찾기<span class="cnt">12</span></div>
+      </div>
+      <div class="divider"></div>
+      <div class="sec">
+        <div class="sechead">볼트</div>
+        <div class="item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>볼트<span class="chev">▾</span></div>
+        <div class="item subitem"><span class="dot" style="background:var(--color-hue-teal)"></span>작업<span class="cnt">24</span></div>
+        <div class="item subitem" style="padding-left:46px">회고<span class="cnt">7</span></div>
+        <div class="item subitem"><span class="dot" style="background:var(--color-hue-amber)"></span>일상<span class="cnt">31</span></div>
+        <div class="item subitem"><span class="dot" style="background:var(--color-hue-purple)"></span>독서<span class="cnt">12</span></div>
+        <div class="item subitem"><span class="dot" style="background:var(--color-hue-blue)"></span>daily<span class="cnt">18</span></div>
+      </div>
+      <div class="divider"></div>
+      <div class="sec">
+        <div class="sechead">데일리 · 8월 22일</div>
+        <div class="cal" style="padding-top:2px">
+          <div class="wd"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+          <div class="days">
+            <span class="d dim">26</span><span class="d dim">27</span><span class="d dim">28</span><span class="d dim">29</span><span class="d dim">30</span><span class="d dim">31</span><span class="d">1</span>
+            <span class="d">2</span><span class="d">3</span><span class="d">4</span><span class="d">5</span><span class="d">6</span><span class="d">7</span><span class="d">8</span>
+            <span class="d">9</span><span class="d">10</span><span class="d has">11</span><span class="d">12</span><span class="d has">13</span><span class="d">14</span><span class="d">15</span>
+            <span class="d">16</span><span class="d">17</span><span class="d">18</span><span class="d">19</span><span class="d">20</span><span class="d has">21</span><span class="d today">22</span>
+            <span class="d">23</span><span class="d">24</span><span class="d">25</span><span class="d">26</span><span class="d">27</span><span class="d">28</span><span class="d">29</span>
+          </div>
+        </div>
+        <div class="item" style="font-size:11px;color:var(--color-hue-blue)">오늘의 노트 열기 →</div>
+      </div>
+      <div class="divider"></div>
+      <div class="sec">
+        <div class="sechead">태그</div>
+        <div class="tags"><span class="tag">#아이디어 18</span><span class="tag">#회고 7</span></div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="what">폴더 브라우징이 사이드바로 이동 — 메인 그리드의 폴더 타일은 노트 전용으로 단순해짐. 구조 변경 폭 최대.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

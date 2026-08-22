@@ -23,12 +23,14 @@ interface Props {
   onMoveFolder: (id: string, folder: string) => void;
   onCopyBody: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Enter the folder shown by the query-mode chip (browse that folder). */
+  onOpenFolder?: (folder: string) => void;
   /** Query-mode folder chip under the tags row (T13). */
   showFolderChip?: boolean;
 }
 
 
-export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, showFolderChip }: Props) {
+export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip }: Props) {
   const { t, locale } = useI18n();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const folderColor = colorForFolder(memo.folder, folders);
@@ -57,17 +59,21 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
         }
       >
       <div className="flex min-w-0 items-center gap-2 pr-8 text-text-subtle">
-        {folderColor && (
-          <span
-            aria-hidden
-            className="size-2 shrink-0 rounded-[2px]"
-            style={{ backgroundColor: folderColor }}
-          />
+        {memo.folder && (
+          <>
+            {folderColor && (
+              <span
+                aria-hidden
+                className="size-2 shrink-0 rounded-[2px]"
+                style={{ backgroundColor: folderColor }}
+              />
+            )}
+            <span className="truncate text-xs font-medium text-text-muted">
+              {memo.folder}
+            </span>
+            <span aria-hidden className="text-text-subtle">·</span>
+          </>
         )}
-        <span className="truncate text-xs font-medium text-text-muted">
-          {memo.folder || t.all_memos}
-        </span>
-        <span aria-hidden className="text-text-subtle">·</span>
         <time className="shrink-0 text-[11px]">{relativeTime(memo.updated_at, locale)}</time>
         {memo.path?.endsWith(".html") && (
           <span className="rounded-[var(--tag-radius)] bg-surface-muted px-1 py-px font-mono text-[9px] font-semibold tracking-wide text-text-subtle">
@@ -119,10 +125,17 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
             </div>
           )}
           {showFolderChip && memo.folder && (
-            <span className="mt-1 flex items-center gap-1 text-[10px] text-text-subtle">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenFolder?.(memo.folder);
+              }}
+              className="mt-1 flex items-center gap-1 text-[10px] text-text-subtle transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            >
               <i className="size-1.5 shrink-0 rounded-[2px]" style={{ backgroundColor: folderColor }} />
               <span className="truncate">{memo.folder}</span>
-            </span>
+            </button>
           )}
         </div>
       )}
