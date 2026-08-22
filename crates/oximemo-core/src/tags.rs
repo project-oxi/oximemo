@@ -46,6 +46,40 @@ pub fn extract_tags(body: &str) -> Vec<String> {
     out
 }
 
+/// Replace every `#token` whose normalized form equals `old_norm` with
+/// `new_id` (including its `#`). Same scanner/boundaries as
+/// `extract_tags` — display casing of the old token is irrelevant,
+/// the replacement is uniform.
+pub fn rewrite_tag(body: &str, old_norm: &str, new_id: &str) -> String {
+    let chars: Vec<char> = body.chars().collect();
+    let mut out = String::with_capacity(body.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '#' {
+            let prev_ok = i == 0 || !is_word(chars[i - 1]);
+            if prev_ok {
+                let start = i + 1;
+                let mut j = start;
+                while j < chars.len() && is_word(chars[j]) {
+                    j += 1;
+                }
+                if j > start {
+                    let token: String = chars[start..j].iter().collect();
+                    let norm: String = token.nfc().collect::<String>().to_lowercase();
+                    if norm == old_norm {
+                        out.push_str(new_id);
+                        i = j;
+                        continue;
+                    }
+                }
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +134,17 @@ mod tests {
     #[test]
     fn hash_at_line_start() {
         assert_eq!(extract_tags("line1\n#two"), vec!["two"]);
+    }
+
+    #[test]
+    fn rewrite_replaces_only_matching_tags() {
+        assert_eq!(
+            rewrite_tag("#악보 첫줄\nC#m7 무관\n#Tag 대소문자", "악보", "#보고"),
+            "#보고 첫줄\nC#m7 무관\n#Tag 대소문자"
+        );
+        // Boundary: #악보다 (longer token) must NOT match old=악보.
+        assert_eq!(rewrite_tag("#악보다", "악보", "#보고"), "#악보다");
+        // Case-insensitive match, uniform replacement.
+        assert_eq!(rewrite_tag("#IDEA #idea", "idea", "#생각"), "#생각 #생각");
     }
 }

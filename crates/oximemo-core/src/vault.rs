@@ -1484,6 +1484,81 @@ impl Vault {
         Ok(())
     }
 
+    /// Reorder pinned folder entries in `oximemo.toml`. `order` must be a
+    /// permutation of the currently pinned paths — anything else is an
+    /// error (the frontend only ever sends drag results). Unpinned
+    /// entries keep their relative order; pinned entries are appended in
+    /// `order` (items order is only consumed as pin order — listings sort
+    /// alphabetically).
+    pub fn set_pin_order(&self, order: &[String]) -> Result<()> {
+        let mut cfg = self.config.write();
+        let mut pinned: Vec<String> = cfg
+            .folders
+            .items
+            .iter()
+            .filter(|f| f.pinned == Some(true))
+            .map(|f| f.path.clone())
+            .collect();
+        pinned.sort();
+        let mut want = order.to_vec();
+        want.sort();
+        if pinned != want {
+            return Err(CoreError::other(
+                "pin order must be a permutation of the pinned folders",
+            ));
+        }
+        let by_path: std::collections::HashMap<String, crate::config::FolderDef> = cfg
+            .folders
+            .items
+            .iter()
+            .map(|f| (f.path.clone(), f.clone()))
+            .collect();
+        let mut items: Vec<crate::config::FolderDef> = cfg
+            .folders
+            .items
+            .iter()
+            .filter(|f| f.pinned != Some(true))
+            .cloned()
+            .collect();
+        for p in order {
+            if let Some(f) = by_path.get(p) {
+                items.push(f.clone());
+            }
+        }
+        cfg.folders.items = items;
+        cfg.save(&self.paths)?;
+        Ok(())
+    }
+
+    /// Vault-wide `#old` → `#new` rename across live note bodies. Token
+    /// boundaries follow `tags::extract_tags` (word-char runs, NFC+
+    /// casefold comparison). Renaming onto an existing tag merges them
+    /// (tags are body-derived, so a merge is just two bodies agreeing).
+    /// Returns the count of rewritten notes.
+    pub fn rename_tag(&self, old: &str, new: &str) -> Result<u64> {
+        use unicode_normalization::UnicodeNormalization;
+        let old_norm = old.nfc().collect::<String>().to_lowercase();
+        let new_norm = new.nfc().collect::<String>().to_lowercase();
+        if new_norm.is_empty() {
+            return Err(CoreError::other("new tag must not be empty"));
+        }
+        if old_norm == new_norm {
+            return Ok(0);
+        }
+        let new_id = format!("#{new_norm}");
+        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let mut changed: u64 = 0;
+        for r in recs.iter().filter(|r| !r.deleted) {
+            let memo = self.get_memo(r.id)?;
+            let rewritten = crate::tags::rewrite_tag(&memo.body, &old_norm, &new_id);
+            if rewritten != memo.body {
+                self.update_memo(r.id, Some(rewritten), None, None)?;
+                changed += 1;
+            }
+        }
+        Ok(changed)
+    }
+
     /// Replace an entire config section and persist to `oximemo.toml`.
     /// Section-granular (not per-field) on purpose: the TOML file is
     /// section-shaped and the settings UI edits whole sections.
@@ -3109,6 +3184,44 @@ watcher_retry_interval_ms = 200
                 .iter()
                 .any(|e| e.source == b.id.to_string() && e.target == a.id.to_string())
         );
+    }
+
+    #[test]
+    fn set_pin_order_roundtrip() {
+        let (_t, v) = tmp_vault();
+        v.set_folder_pinned("novel", true).unwrap();
+        v.set_folder_pinned("work", true).unwrap();
+        v.set_folder_pinned("daily", true).unwrap();
+        v.set_pin_order(&["daily".into(), "novel".into(), "work".into()])
+            .unwrap();
+        let pinned: Vec<String> = v
+            .with_config(|c| {
+                c.folders
+                    .items
+                    .iter()
+                    .filter(|f| f.pinned == Some(true))
+                    .map(|f| f.path.clone())
+                    .collect()
+            });
+        assert_eq!(pinned, vec!["daily", "novel", "work"]);
+        // Non-permutation (unknown path) errors.
+        assert!(v.set_pin_order(&["daily".into(), "ghost".into()]).is_err());
+    }
+
+    #[test]
+    fn rename_tag_rewrites_bodies() {
+        let (_t, v) = tmp_vault();
+        let a = v.create_memo("#악보 첫줄".into(), None).unwrap();
+        let b = v.create_memo("코드 C#m7 아님 #Tag".into(), None).unwrap();
+        let c = v.create_memo("무관".into(), None).unwrap();
+        let n = v.rename_tag("악보", "보고").unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(v.get_memo(a.id).unwrap().body, "#보고 첫줄");
+        assert_eq!(v.get_memo(b.id).unwrap().body, "코드 C#m7 아님 #Tag");
+        assert_eq!(v.get_memo(c.id).unwrap().body, "무관");
+        // Same-tag rename is a no-op; empty new tag errors.
+        assert_eq!(v.rename_tag("보고", "보고").unwrap(), 0);
+        assert!(v.rename_tag("보고", "").is_err());
     }
 
     #[test]
