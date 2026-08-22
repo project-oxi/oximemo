@@ -230,18 +230,24 @@ describe("rankCommands", () => {
     expect(rankCommands(cmds, "", new RecencyLog())).toEqual([]);
   });
 
-  test("recency boost lifts a substring match over a prefix match", () => {
+  test("recency boost lifts an equal-rung tie", () => {
+    // Both folder paths prefix-match "w" (500 each, curated order puts
+    // "work" first); the recorded one gets +25 and wins.
+    const plain = rankCommands(cmds, "w", new RecencyLog());
+    expect(plain[0].id).toBe("folder:work");
     const rec = new RecencyLog();
-    rec.record("folder:work/2026"); // substring-rank candidate
-    const ranked = rankCommands(cmds, "work", rec);
+    rec.record("folder:work/2026");
+    const ranked = rankCommands(cmds, "w", rec);
     expect(ranked[0].id).toBe("folder:work/2026");
   });
 
   test("ties keep curated order", () => {
-    // Both view commands contain "보기"; order follows build order.
+    // The remaining view commands all boundary-match "보기" (300 each);
+    // ties fall back to build order. ("사이드바 전환" has no "보기" and
+    // grid is excluded as the active mode.)
     const ranked = rankCommands(cmds, "보기", new RecencyLog());
     const ids = ranked.filter((c) => c.id.startsWith("view.")).map((c) => c.id);
-    expect(ids).toEqual(["view.list", "view.timeline", "view.graph", "view.sidebar"]);
+    expect(ids).toEqual(["view.list", "view.timeline", "view.graph"]);
   });
 });
 
