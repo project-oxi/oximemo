@@ -8,13 +8,14 @@ import { Folder, FolderPlus } from "lucide-react";
 
 import { useI18n } from "../lib/i18n";
 import type { FolderEntry } from "../lib/types";
-
+import { TextCtxMenu } from "./TextCtxMenu";
 export interface FolderComboboxHandle {
   open: () => void;
 }
 
 export interface FolderComboboxProps {
   value: string;
+
   onValueChange: (path: string) => void;
   folders: FolderEntry[];
   onCreate?: (path: string) => void;
@@ -82,12 +83,16 @@ export const FolderCombobox = forwardRef<
          *  the dialog's own z-50 surface and backdrop blur. */}
         <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[60]">
           <Popover.Popup className="w-72 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter or new path…"
-              className="mb-2 w-full rounded-[var(--input-radius)] bg-transparent px-2 py-1 text-xs shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
+            <TextCtxMenu
+              render={
+                <input
+                  autoFocus
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Filter or new path…"
+                  className="mb-2 w-full rounded-[var(--input-radius)] bg-transparent px-2 py-1 text-xs shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
+                />
+              }
             />
             <ul className="max-h-56 overflow-y-auto" role="listbox">
               <li>

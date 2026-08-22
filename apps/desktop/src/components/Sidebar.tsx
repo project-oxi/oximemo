@@ -14,7 +14,7 @@ import { colorForFolder } from "../lib/color";
 import { dayLabel, todayLocalISO } from "../lib/dates";
 import { useFolderDrop } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
-import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import { Calendar } from "./Calendar";
 import { useUI, type TagState } from "../stores/ui";
 import type { FolderDef } from "../lib/types";
@@ -45,6 +45,7 @@ export function Sidebar({
   });
   const tagFilter = useUI((s) => s.tagFilter);
   const cycleTag = useUI((s) => s.cycleTag);
+  const setTagState = useUI((s) => s.setTagState);
   const clearTagFilter = useUI((s) => s.clearTagFilter);
   const matchAll = useUI((s) => s.matchAll);
   const toggleMatchAll = useUI((s) => s.toggleMatchAll);
@@ -59,6 +60,13 @@ export function Sidebar({
   const setDraftId = useUI((s) => s.setDraftId);
   const qc = useQueryClient();
 
+  // Picking a tag is vault-wide intent — drop any folder/favorite scope
+  // so the "전체 메모" smart collection owns the view (Task 9).
+  const enterQueryMode = () => {
+    setView("memos");
+    setFavoritesOnly(false);
+    setFolderFilter(null);
+  };
   const tags = facets.data?.tags ?? [];
   const folders: FolderDef[] = configQ.data?.folders ?? [];
   const total = stats.data?.memos ?? 0;
@@ -168,29 +176,29 @@ export function Sidebar({
           {t.locations_section}
         </span>
       </div>
-      <button
-        type="button"
-        onClick={() => { setView("memos"); setFavoritesOnly(false); setFolderFilter(""); }}
-        className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
-          view === "memos" && !favoritesOnly && folderFilter === ""
-            ? "bg-surface-muted font-semibold text-text"
-            : "text-text-muted hover:bg-surface-muted"
-        }`}
-      >
-        <Archive size={14} /> {t.vault_root}
-      </button>
+      <LocationsRow
+        path=""
+        selected={view === "memos" && !favoritesOnly && folderFilter === ""}
+        onClick={() => {
+          setView("memos");
+          setFavoritesOnly(false);
+          setFolderFilter("");
+        }}
+        onMoveNote={onMoveNote}
+        onMoveFolderTree={onMoveFolderTree}
+        icon={<Archive size={14} />}
+        label={t.vault_root}
+      />
       {dailyEnabled && dailyFolder && (
-        <button
-          type="button"
+        <LocationsRow
+          path={dailyFolder}
+          selected={view === "memos" && !favoritesOnly && folderFilter === dailyFolder}
           onClick={() => openFolder(dailyFolder)}
-          className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
-            view === "memos" && !favoritesOnly && folderFilter === dailyFolder
-              ? "bg-surface-muted font-semibold text-text"
-              : "text-text-muted hover:bg-surface-muted"
-          }`}
-        >
-          <CalendarDays size={14} /> {dailyFolder}
-        </button>
+          onMoveNote={onMoveNote}
+          onMoveFolderTree={onMoveFolderTree}
+          icon={<CalendarDays size={14} />}
+          label={dailyFolder}
+        />
       )}
       {pins.map((f) => (
         <SidebarFolderRow
@@ -280,22 +288,51 @@ export function Sidebar({
         {tags.map(([tag, count]) => {
           const st: TagState = tagFilter[tag] ?? "off";
           return (
-            <button
-              key={tag}
-              type="button"
-              onClick={() => {
-                // Picking a tag from the curation sidebar is a vault-wide
-                // intent — drop any folder/favorite scope so the "모든 노트"
-                // smart collection owns the view (Task 9 acceptance).
-                setView("memos");
-                setFavoritesOnly(false);
-                setFolderFilter(null);
-                cycleTag(tag);
-              }}
-              className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${STATE_CLASS[st]}`}
-            >
-              #{tag} <span className="opacity-60">{count}</span>
-            </button>
+            <CtxRoot key={tag}>
+              <CtxTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={() => {
+                      enterQueryMode();
+                      cycleTag(tag);
+                    }}
+                    className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${STATE_CLASS[st]}`}
+                  />
+                }
+              >
+                #{tag} <span className="opacity-60">{count}</span>
+                {/* Tags are the app's ONE filter concept (favorites are a
+                    collection, folders are locations) — so the chip menu
+                    speaks filter, setting the state directly instead of
+                    cycling. */}
+                <CtxMenu>
+                  <CtxItem
+                    label={t.tag_menu_include}
+                    active={st === "in"}
+                    onClick={() => {
+                      enterQueryMode();
+                      setTagState(tag, "in");
+                    }}
+                  />
+                  <CtxItem
+                    label={t.tag_menu_exclude}
+                    active={st === "out"}
+                    onClick={() => {
+                      enterQueryMode();
+                      setTagState(tag, "out");
+                    }}
+                  />
+                  <CtxItem
+                    label={t.tag_menu_off}
+                    active={st === "off"}
+                    onClick={() => setTagState(tag, "off")}
+                  />
+                  <CtxSeparator />
+                  <CtxItem label={t.clear_filters} onClick={() => clearTagFilter()} />
+                </CtxMenu>
+              </CtxTrigger>
+            </CtxRoot>
           );
         })}
       </div>
@@ -396,6 +433,49 @@ function SidebarFolderRow({
           />
         </CtxMenu>
       </CtxRoot>
+    </div>
+  );
+}
+
+/** One LOCATIONS row (볼트 root / daily): navigation button that is
+ *  also a drop target — dropping a note moves it to this folder,
+ *  dropping a folder subtree reparents it here (T14 semantics).
+ *  Extracted so useFolderDrop runs at a stable hook index. */
+function LocationsRow({
+  path,
+  selected,
+  onClick,
+  onMoveNote,
+  onMoveFolderTree,
+  icon,
+  label,
+}: {
+  path: string;
+  selected: boolean;
+  onClick: () => void;
+  onMoveNote: (id: string, folder: string) => void;
+  onMoveFolderTree?: (p: string, dest: string) => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  const { dropCls, ...dropProps } = useFolderDrop(
+    path,
+    (id) => onMoveNote(id, path),
+    onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
+  );
+  return (
+    <div {...dropProps} className={`mx-2 rounded-md ${dropCls ?? ""}`}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] ${
+          selected
+            ? "bg-surface-muted font-semibold text-text"
+            : "text-text-muted hover:bg-surface-muted"
+        }`}
+      >
+        {icon} <span className="truncate">{label}</span>
+      </button>
     </div>
   );
 }

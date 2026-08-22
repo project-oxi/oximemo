@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { TextCtxMenu } from "./TextCtxMenu";
 
 import { useI18n } from "../lib/i18n";
 import { Folder, FolderPlus, X } from "lucide-react";
@@ -249,18 +250,22 @@ export function QuickCaptureForm({
               onCreate={handleSlashCreate}
             />
           )}
-          <textarea
-            ref={setRef}
-            onChange={(e) => handleChange(e.target.value)}
-            spellCheck={false}
-            rows={1}
-            {...bodyProps}
-            onKeyDown={handleKeyDown}
-            className={cx(
-              "block w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-relaxed text-text placeholder:text-text-subtle focus:outline-none",
-              "min-h-[1.5rem] max-h-[7.5rem] overflow-y-auto",
-              bodyClassName,
-            )}
+          <TextCtxMenu
+            render={
+              <textarea
+                ref={setRef}
+                onChange={(e) => handleChange(e.target.value)}
+                spellCheck={false}
+                rows={1}
+                {...bodyProps}
+                onKeyDown={handleKeyDown}
+                className={cx(
+                  "block w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-relaxed text-text placeholder:text-text-subtle focus:outline-none",
+                  "min-h-[1.5rem] max-h-[7.5rem] overflow-y-auto",
+                  bodyClassName,
+                )}
+              />
+            }
           />
         </div>
         <div className="mt-1 flex items-center justify-end">

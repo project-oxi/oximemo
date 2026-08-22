@@ -6,8 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+### Added
+
+- **Command palette (⌘K)** — a global intent surface: navigation
+  (전체 메모 · 즐겨찾기 · 갤러리 · 볼트 루트 · 오늘의 노트 · every folder ·
+  #tags), view switches (grid/list/timeline/graph, sidebar), and actions
+  (new MD/HTML note, new folder, quick capture, settings, theme) ranked
+  by a deterministic score ladder (exact > prefix > boundary >
+  substring > subsequence) plus a decaying selection-recency boost.
+  Bare text also BM25-searches notes (150 ms debounce) with a bridge row
+  that graduates the query into the persistent header search; the empty
+  query shows 최근 노트 first (⌘K → ⏎ opens the most recent note) then
+  curated suggestions. ⌘⇧O remains as an alias — the palette subsumed
+  the old FolderPalette. New `show_capture_window` IPC exposes the
+  capture toggle to the renderer; the settings drawer and
+  folder-creation requests are store-owned so the palette can drive
+  them. IME-safe (composition Enter never runs a command).
+
+
 ### Changed
 
+- **Custom context menus everywhere + DnD completion** — the native
+  webview right-click menu is blocked app-wide (dev: Alt+right-click
+  keeps it); every editable surface (CM6 markdown/html editors, search,
+  capture, folder filter, rename inputs) gets a cut/copy/paste/select-all
+  menu backed by the new clipboard-manager plugin (paste reuses the
+  editor's own paste pipeline); gallery thumbnails, sidebar tag chips,
+  and backlink entries get dedicated menus; timeline rows became drag
+  sources and the Locations 볼트/daily rows became drop targets.
+- **Favorites is a collection, not a filter** — clicking 즐겨찾기 now
+  enters the exclusive smart collection (breadcrumb label, never a
+  browse path mixed in), and its empty state drops the "clear filters"
+  treatment for dedicated copy. The note dialog's folder picker applies
+  immediately via move_note (previously the selection was silently
+  dropped on save); the daily folder — a real path — now appears in
+  Locations under 볼트.
 - **Sidebar redesign — Finder completion (A안)** — new **Locations**
   section holds the **볼트** root-browse entry (root browsing was
   unreachable once you entered the flat collection) plus pinned folders;

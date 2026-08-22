@@ -24,6 +24,7 @@ import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/
 import { CtxRoot, CtxTrigger } from "../ContextMenu";
 import { FolderMenu, type NamingSession } from "../FolderTile";
 import { NoteCtxMenu } from "../NoteCtxMenu";
+import { TextCtxMenu } from "../TextCtxMenu";
 
 interface Props {
   items: MemoSummary[];
@@ -224,20 +225,24 @@ function FolderRow({
       >
         <Folder size={13} style={{ color: colorForFolder(f.path, folders) }} />
         {naming ? (
-          <input
-            autoFocus
-            defaultValue={f.path.split("/").at(-1) ?? ""}
-            onFocus={(e) => e.currentTarget.select()}
-            ref={(el) => el?.select()}
-            onClick={(e) => e.stopPropagation()}
-            onBlur={(e) => onNameCommit(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Enter") onNameCommit(e.currentTarget.value);
-              else if (e.key === "Escape") onNameCommit(null);
-            }}
-            style={{ boxShadow: "none" }}
-            className="min-w-0 flex-1 rounded-md bg-transparent px-1 py-0 text-sm font-semibold text-text outline-none"
+          <TextCtxMenu
+            render={
+              <input
+                autoFocus
+                defaultValue={f.path.split("/").at(-1) ?? ""}
+                onFocus={(e) => e.currentTarget.select()}
+                ref={(el) => el?.select()}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={(e) => onNameCommit(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") onNameCommit(e.currentTarget.value);
+                  else if (e.key === "Escape") onNameCommit(null);
+                }}
+                style={{ boxShadow: "none" }}
+                className="min-w-0 flex-1 rounded-md bg-transparent px-1 py-0 text-sm font-semibold text-text outline-none"
+              />
+            }
           />
         ) : (
           <span className="text-sm font-semibold text-text">

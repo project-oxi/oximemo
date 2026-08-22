@@ -11,37 +11,59 @@
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Images, Trash2, X } from "lucide-react";
+import { FileText, Images, Maximize2, Trash2, X } from "lucide-react";
 
 import { gcAssets, listAssets, resolveImageUrl, type AssetInfo } from "../lib/assets";
 import { memoForAsset } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
 import { useUI } from "../stores/ui";
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
 
-/** One thumbnail; resolves its oximg URL to a loadable src on mount. */
-function Thumb({ asset, onOpen }: { asset: AssetInfo; onOpen: (a: AssetInfo) => void }) {
+/** One thumbnail; resolves its oximg URL to a loadable src on mount.
+ *  Left-click opens the referencing memo (orphan → lightbox fallback);
+ *  right-click offers both paths explicitly. */
+function Thumb({
+  asset,
+  onOpen,
+  onView,
+}: {
+  asset: AssetInfo;
+  onOpen: (a: AssetInfo) => void;
+  onView: (a: AssetInfo) => void;
+}) {
+  const { t } = useI18n();
   const [src, setSrc] = useState("");
   useEffect(() => {
     void resolveImageUrl(asset.url).then(setSrc);
   }, [asset.url]);
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(asset)}
-      className="group/img relative aspect-square w-full overflow-hidden rounded-lg border border-line bg-surface-muted"
-    >
-      {src ? (
-        <img
-          src={src}
-          alt={asset.name}
-          loading="lazy"
-          className="h-full w-full object-cover transition-transform group-hover/img:scale-[1.03]"
-        />
-      ) : (
-        <div className="h-full w-full animate-pulse bg-surface-muted" />
-      )}
-    </button>
+    <CtxRoot>
+      <CtxTrigger
+        render={
+          <button
+            type="button"
+            onClick={() => onOpen(asset)}
+            className="group/img relative aspect-square w-full overflow-hidden rounded-lg border border-line bg-surface-muted"
+          />
+        }
+      >
+        {src ? (
+          <img
+            src={src}
+            alt={asset.name}
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform group-hover/img:scale-[1.03]"
+          />
+        ) : (
+          <div className="h-full w-full animate-pulse bg-surface-muted" />
+        )}
+        <CtxMenu>
+          <CtxItem icon={FileText} label={t.gallery_open_note} onClick={() => onOpen(asset)} />
+          <CtxItem icon={Maximize2} label={t.gallery_view_large} onClick={() => onView(asset)} />
+        </CtxMenu>
+      </CtxTrigger>
+    </CtxRoot>
   );
 }
 
@@ -134,7 +156,7 @@ export function GalleryView() {
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
             {items.map((a) => (
-              <Thumb key={a.name} asset={a} onOpen={openAsset} />
+              <Thumb key={a.name} asset={a} onOpen={openAsset} onView={setLightbox} />
             ))}
           </div>
         )}

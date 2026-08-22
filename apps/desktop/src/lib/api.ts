@@ -277,3 +277,8 @@ export async function installCli(): Promise<void> {
 export async function uninstallCli(): Promise<void> {
   await invoke<null>("uninstall_cli");
 }
+
+/** Toggle the quick-capture overlay (same path as the ⌘⇧N shortcut). */
+export function showCaptureWindow(): Promise<void> {
+  return invoke<void>("show_capture_window");
+}
