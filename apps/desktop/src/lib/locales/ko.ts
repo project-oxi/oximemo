@@ -203,6 +203,21 @@ export const dict = {
   jump_to_folder: "폴더로 이동…",
   show_all_folders: "폴더 {n}개 모두 보기",
   global_badge_tooltip: "이 뷰는 볼트 전체를 보여줍니다",
+  command_palette_title: "명령 팔레트",
+  palette_placeholder: "명령이나 노트를 검색해 보세요…",
+  palette_section_suggestions: "제안",
+  palette_section_commands: "명령",
+  palette_section_notes: "노트",
+  palette_section_recent_notes: "최근 노트",
+  palette_search_all: "'{q}' 전체에서 검색",
+  palette_no_results: "일치하는 결과가 없어요",
+  palette_view_grid: "그리드 보기",
+  palette_view_list: "리스트 보기",
+  palette_view_timeline: "타임라인 보기",
+  palette_view_graph: "그래프 보기",
+  palette_sidebar_toggle: "사이드바 전환",
+  palette_quick_capture: "빠른 캡처",
+  palette_footer_hint: "↑↓ 선택 · ⏎ 실행 · esc 닫기",
 } as const satisfies Record<string, string>;
 
 export type DictKey = keyof typeof dict;
