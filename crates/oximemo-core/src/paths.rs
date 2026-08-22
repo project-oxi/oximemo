@@ -36,6 +36,10 @@ pub const LEGACY_CONFIG_NAME: &str = "config.toml";
 pub const TEMPLATE_NAME: &str = "TEMPLATE.md";
 /// Filename reserved for per-folder HTML templates; excluded from listings.
 pub const TEMPLATE_HTML_NAME: &str = "TEMPLATE.html";
+/// Filename reserved for per-folder property schemas; `.toml` is already
+/// outside the note extensions so no scan exclusion is needed (design
+/// 2026-08-23 §6.2).
+pub const SCHEMA_NAME: &str = "SCHEMA.toml";
 
 /// Resolved filesystem locations for one vault.
 #[derive(Debug, Clone)]

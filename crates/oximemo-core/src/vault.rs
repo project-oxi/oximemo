@@ -73,6 +73,10 @@ pub struct Vault {
     status: VaultStatus,
     config: RwLock<VaultConfig>,
     files: FileStore,
+    /// Folder-schema cache keyed by folder path: `(mtime, schema)`. The
+    /// SCHEMA.toml files are not watcher targets, so the mtime is checked
+    /// on every lookup (design 2026-08-23 §6.2).
+    schemas: RwLock<std::collections::HashMap<String, (std::time::SystemTime, Option<crate::schema::FolderSchema>)>>,
 }
 
 impl Vault {
@@ -119,6 +123,7 @@ impl Vault {
             status,
             config: RwLock::new(config),
             files,
+            schemas: RwLock::new(Default::default()),
         })
     }
 
@@ -154,6 +159,67 @@ impl Vault {
             return Err(CoreError::other(format!("folder '{path}' already exists")));
         }
         std::fs::create_dir_all(&dir)?;
+        Ok(())
+    }
+
+    /// The folder's property schema, mtime-cached (design §6.2). `None`
+    /// for schema-less folders (free-property mode). A SCHEMA.toml that
+    /// fails to parse is a hard error — a silently ignored schema would
+    /// corrupt transition bookkeeping.
+    pub fn folder_schema(&self, folder: &str) -> Result<Option<crate::schema::FolderSchema>> {
+        let folder_norm = folder.trim_end_matches('/').to_string();
+        let path = if folder_norm.is_empty() {
+            self.paths.vault.join(crate::paths::SCHEMA_NAME)
+        } else {
+            self.paths.vault.join(&folder_norm).join(crate::paths::SCHEMA_NAME)
+        };
+        let mtime = std::fs::metadata(&path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(std::time::UNIX_EPOCH - std::time::Duration::from_secs(1));
+        {
+            let cache = self.schemas.read();
+            if let Some((cached_mtime, cached)) = cache.get(&folder_norm)
+                && *cached_mtime == mtime
+            {
+                return Ok(cached.clone());
+            }
+        }
+        let schema = if mtime < std::time::UNIX_EPOCH {
+            None
+        } else {
+            crate::schema::read_schema(&self.paths.vault, &folder_norm)?
+        };
+        self.schemas
+            .write()
+            .insert(folder_norm, (mtime, schema.clone()));
+        Ok(schema)
+    }
+
+    /// Install the knowledge preset (design §6.3) into `folder`:
+    /// `TEMPLATE.md` (stub skeleton with initial properties) and
+    /// `SCHEMA.toml` (status lifecycle + review queue). Plain files —
+    /// the user may edit or delete them freely.
+    pub fn apply_knowledge_preset(&self, folder: &str) -> Result<()> {
+        let folder = folder.trim_end_matches('/');
+        let dir = if folder.is_empty() {
+            self.paths.vault.clone()
+        } else {
+            self.paths.vault.join(folder)
+        };
+        std::fs::create_dir_all(&dir)?;
+        let tmpl = dir.join(crate::paths::TEMPLATE_NAME);
+        if !tmpl.exists() {
+            oxi_frontmatter::atomic_write(&tmpl, crate::schema::KNOWLEDGE_TEMPLATE_MD.as_bytes())?;
+        }
+        let schema = dir.join(crate::paths::SCHEMA_NAME);
+        if !schema.exists() {
+            oxi_frontmatter::atomic_write(
+                &schema,
+                crate::schema::KNOWLEDGE_SCHEMA_TOML.as_bytes(),
+            )?;
+        }
+        self.schemas.write().clear();
         Ok(())
     }
 
@@ -664,18 +730,32 @@ impl Vault {
         fmt: crate::memo::NoteFormat,
     ) -> Result<Memo> {
         self.ensure_initialized()?;
-        // Apply template if body is blank and a matching TEMPLATE exists.
-        let body = if crate::template::is_blank_body(fmt, &body) {
-            if let Some(tmpl) = crate::template::load_template(&self.paths, folder, fmt) {
-                let counter = crate::template::count_notes(&self.paths, folder) + 1;
-                let ctx = crate::template::TemplateCtx::now(folder, counter);
-                crate::template::apply_template(&tmpl, &ctx)
-            } else {
-                body
+        // Template application (§6.1): a blank body takes the template's
+        // body; a non-blank body keeps the captured text but still
+        // inherits the template's frontmatter property defaults — the
+        // knowledge capture path (quick capture into a schema folder)
+        // depends on that stamp.
+        let counter = crate::template::count_notes(&self.paths, folder) + 1;
+        let ctx = crate::template::TemplateCtx::now(folder, counter);
+        let tmpl = crate::template::load_template(&self.paths, folder, fmt);
+        let blank = crate::template::is_blank_body(fmt, &body);
+        let (body, tmpl_props) = match &tmpl {
+            Some((table, t)) => {
+                let body = if blank {
+                    crate::template::apply_template(t, &ctx)
+                } else {
+                    body
+                };
+                let stamped = crate::template::apply_template_to_table(table, &ctx);
+                let props = crate::props::props_from_table(&stamped);
+                (body, props)
             }
-        } else {
-            body
+            None => (body, Default::default()),
         };
+        let mut mutation = Mutation::default();
+        for (k, v) in &tmpl_props {
+            mutation.set_props.insert(k.clone(), Some(v.to_frontmatter()));
+        }
         let tags = tags_of(fmt, &body);
         validate_note_input(&body, &tags)?;
         let now = OffsetDateTime::now_utc();
@@ -695,7 +775,7 @@ impl Vault {
             &path,
             &body,
             crate_fmt,
-            Mutation::default(),
+            mutation,
             Synthesize::Yes,
             now,
         )
@@ -837,7 +917,7 @@ impl Vault {
             crate::memo::NoteFormat::Markdown
         };
         let body = match md_t.or(html_t) {
-            Some(tmpl) => {
+            Some((_table, tmpl)) => {
                 let counter = crate::template::count_notes(&self.paths, folder) + 1;
                 let ctx = crate::template::TemplateCtx::for_date(date, folder, counter);
                 let applied = crate::template::apply_template(&tmpl, &ctx);
@@ -928,22 +1008,11 @@ impl Vault {
         favorite: Option<bool>,
         props: Option<crate::props::PropMutation>,
     ) -> Result<Memo> {
-        let mut mutation = Mutation {
-            favorite,
-            deleted: None,
-            ..Default::default()
-        };
-        if let Some(pm) = &props {
-            for (k, v) in pm.to_set_props() {
-                mutation.set_props.insert(k, v);
-            }
-        }
         let mut note = self.get_memo(id)?;
-        // Determine the note's format from its indexed path (empty fallback
-        // = markdown, matching NoteFormat::from_rel).
         let rec = self.with_redb(|idx| idx.get(id))?;
         let old_rel = rec.as_ref().map(|r| r.path.clone()).unwrap_or_default();
         let fmt = crate::memo::NoteFormat::from_rel(&old_rel);
+        let old_props = note.props.clone();
 
         let old_title = note_title(fmt, &note.body);
         if let Some(b) = body {
@@ -959,6 +1028,35 @@ impl Vault {
             }
             for (k, v) in &pm.sets {
                 note.props.insert(k.clone(), v.clone());
+            }
+        }
+        // Folder-schema transitions (§6.2): side effects like the
+        // `peak_status` max-merge and the `status_changed` stamp apply to
+        // app-initiated writes only — external edits stay untouched.
+        let folder = old_rel
+            .rfind('/')
+            .map(|i| &old_rel[..i])
+            .unwrap_or("")
+            .to_string();
+        if let Some(schema) = self.folder_schema(&folder)? {
+            let after_user = note.props.clone();
+            note.props = crate::schema::apply_transitions(&schema, &old_props, &after_user);
+        }
+        // The write diff is the FULL old→new property delta: the user's
+        // set/remove plus any transition effects, minimal by construction.
+        let mut mutation = Mutation {
+            favorite,
+            deleted: None,
+            ..Default::default()
+        };
+        for (k, v) in &note.props {
+            if old_props.get(k) != Some(v) {
+                mutation.set_props.insert(k.clone(), Some(v.to_frontmatter()));
+            }
+        }
+        for k in old_props.keys() {
+            if !note.props.contains_key(k) {
+                mutation.set_props.insert(k.clone(), None);
             }
         }
         validate_note_input(&note.body, &note.tags)?;
@@ -1991,12 +2089,20 @@ impl Vault {
             match self.files.read_memo(path) {
                 Ok(Some(note)) => {
                     seen.insert(note.id);
-                    // Categories have no format validity — only
-                    // orphan/index consistency is checked here. The
-                    // hash is derived (read_memo recomputes it from
-                    // the current body), so a stored-vs-recomputed
-                    // mismatch cannot exist and no rewrite is ever
-                    // warranted.
+                    // Schema validation (§6.2): warning-level, never a
+                    // `--fix` target — a violation may be the user's
+                    // deliberate state.
+                    if let Some(rel) = self.paths.relative_path(path) {
+                        let folder = rel.rfind('/').map(|i| &rel[..i]).unwrap_or("");
+                        if let Ok(Some(schema)) = self.folder_schema(folder) {
+                            for v in crate::schema::validate(&schema, &note.props) {
+                                report.schema_violations.push((
+                                    path.clone(),
+                                    format!("{}: {}", v.key, v.reason),
+                                ));
+                            }
+                        }
+                    }
                 }
                 Ok(None) => report.orphan_files.push(path.clone()),
                 Err(CoreError::Frontmatter { reason, .. }) => {
@@ -2187,6 +2293,9 @@ pub struct DoctorReport {
     /// exist. Retained for the serialized report API (the frontend
     /// still sums it).
     pub hash_mismatches: Vec<MemoId>,
+    /// Warning-level folder-schema violations (design 2026-08-23 §6.2).
+    /// Never a `--fix` target — a violation may be deliberate.
+    pub schema_violations: Vec<(PathBuf, String)>,
     /// Always 0 since v4 (see [`Self::hash_mismatches`]); `doctor`
     /// never rewrites files. Retained for the serialized report API.
     pub hash_repair_failed: u64,
@@ -3903,6 +4012,135 @@ watcher_retry_interval_ms = 200
         assert_eq!(page.items[0].id, a.id);
     }
 
+    /// Design §6.1/§6.3 end-to-end: the knowledge preset stamps
+    /// `status: stub` on captures (blank AND non-blank bodies), the
+    /// status lifecycle runs through real vault writes, and `doctor`
+    /// surfaces schema violations.
+    #[test]
+    fn knowledge_preset_end_to_end() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("knowledge").unwrap();
+        v.apply_knowledge_preset("knowledge").unwrap();
+
+        // Blank capture → template body (H1 placeholder) + stamped props.
+        let blank = v
+            .create_note_auto("knowledge", String::new())
+            .unwrap();
+        assert_eq!(
+            blank.props.get("status"),
+            Some(&crate::props::PropValue::Str("stub".into()))
+        );
+
+        // Non-blank capture (§6.1 extension): keeps the captured text,
+        // still inherits the template's property defaults.
+        let captured = v
+            .create_note_auto("knowledge", "# 어렴풋한 개념".into())
+            .unwrap();
+        assert_eq!(captured.body, "# 어렴풋한 개념");
+        assert_eq!(
+            captured.props.get("status"),
+            Some(&crate::props::PropValue::Str("stub".into()))
+        );
+
+        // Lifecycle through the vault: stub → understood records the
+        // peak + stamps status_changed (transitions on the app path).
+        let learned = v
+            .update_note_with(
+                captured.id,
+                None,
+                None,
+                Some(crate::props::PropMutation {
+                    sets: vec![(
+                        "status".into(),
+                        crate::props::PropValue::Str("understood".into()),
+                    )],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+        assert_eq!(
+            learned.props.get("peak_status"),
+            Some(&crate::props::PropValue::Str("understood".into()))
+        );
+        let today = time::OffsetDateTime::now_utc().date().to_string();
+        assert_eq!(
+            learned.props.get("status_changed"),
+            Some(&crate::props::PropValue::Str(today.into()))
+        );
+
+        // doctor: the blank note lacks `domain` (required) → violation.
+        let report = v.doctor(false).unwrap();
+        assert!(
+            report
+                .schema_violations
+                .iter()
+                .any(|(p, r)| p.to_string_lossy().contains("knowledge") && r.contains("domain")),
+            "doctor must surface the missing-domain violation"
+        );
+    }
+
+    /// The review queue's reassert action (§7.3): setting the SAME status
+    /// value still stamps `status_changed` (on="write") without touching
+    /// `peak_status`.
+    #[test]
+    fn review_reassert_rewrites_status_changed() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        v.create_folder("knowledge").unwrap();
+        v.apply_knowledge_preset("knowledge").unwrap();
+        let n = v
+            .create_note_auto("knowledge", "# 재확인".into())
+            .unwrap();
+        v.update_note_with(
+            n.id,
+            None,
+            None,
+            Some(crate::props::PropMutation {
+                sets: vec![(
+                    "status".into(),
+                    crate::props::PropValue::Str("understood".into()),
+ )],
+                removes: vec![],
+            }),
+        )
+        .unwrap();
+        // Backdate status_changed by writing the file directly.
+        let rel = v
+            .with_redb(|idx| Ok(idx.get(n.id).unwrap().unwrap().path))
+            .unwrap();
+        let abs = v.paths().vault.join(&rel);
+        let raw = std::fs::read_to_string(&abs).unwrap();
+        let today = time::OffsetDateTime::now_utc().date().to_string();
+        let backdated = raw.replace(&format!("status_changed: {today}"), "status_changed: 2026-01-01");
+        std::fs::write(&abs, backdated).unwrap();
+        v.reindex().unwrap();
+
+        // Reassert the same value — only status_changed moves.
+        let out = v
+            .update_note_with(
+                n.id,
+                None,
+                None,
+                Some(crate::props::PropMutation {
+                    sets: vec![(
+                        "status".into(),
+                        crate::props::PropValue::Str("understood".into()),
+                    )],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+        assert_eq!(
+            out.props.get("status_changed"),
+            Some(&crate::props::PropValue::Str(today.into())),
+            "on=write must stamp the review date on a reassert"
+        );
+        assert_eq!(
+            out.props.get("peak_status"),
+            Some(&crate::props::PropValue::Str("understood".into()))
+        );
+    }
     #[test]
     fn aliases_and_prop_links_resolve_in_graph_and_backlinks() {
         let (_t, v) = tmp_vault();

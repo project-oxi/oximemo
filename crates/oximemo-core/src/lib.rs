@@ -19,8 +19,9 @@ pub mod html;
 pub mod memo;
 pub mod migrate;
 pub mod migrate_vault;
-pub mod props;
 pub mod paths;
+pub mod props;
+pub mod schema;
 pub mod tags;
 pub mod template;
 pub mod wiki;
@@ -37,6 +38,11 @@ pub use error::{CoreError, Result};
 pub use props::{
     NoteQuery, PropMutation, PropOp, PropPredicate, PropValue, QueryPage, SortSpec, aliases_of,
     parse_sort, parse_where, props_from_table, props_link_text,
+};
+pub use schema::{
+    FolderSchema, KNOWLEDGE_SCHEMA_TOML, KNOWLEDGE_TEMPLATE_MD, MergeKind, OnKind, PropertyDef,
+    PropType, ReviewDef, TransitionRule, Violation, WorkspaceDef, apply_transitions, parse_schema,
+    read_schema, validate,
 };
 pub use migrate_vault::MigrationStatus;
 pub use paths::Paths;

@@ -84,10 +84,19 @@ impl TemplateCtx {
 }
 
 /// Read a folder's template for the given format (`TEMPLATE.md` or
-/// `TEMPLATE.html`; root template for `folder == ""`). Returns `None` if no
-/// template exists. Frontmatter blocks (plain or comment-wrapped) are
-/// stripped.
-pub fn load_template(paths: &Paths, folder: &str, fmt: crate::memo::NoteFormat) -> Option<String> {
+/// `TEMPLATE.html`; root template for `folder == ""`). Returns `None` if
+/// no template exists (or the body is blank).
+///
+/// **Design 2026-08-23 §6.1:** the template's frontmatter is no longer
+/// stripped and discarded — it comes back as a parsed [`Table`] so the
+/// caller can stamp the properties onto the new note. A template with a
+/// blank body but a frontmatter block still returns `Some` (property-only
+/// templates are valid).
+pub fn load_template(
+    paths: &Paths,
+    folder: &str,
+    fmt: crate::memo::NoteFormat,
+) -> Option<(oxi_frontmatter::Table, String)> {
     let name = match fmt {
         crate::memo::NoteFormat::Markdown => crate::paths::TEMPLATE_NAME,
         crate::memo::NoteFormat::Html => crate::paths::TEMPLATE_HTML_NAME,
@@ -97,24 +106,44 @@ pub fn load_template(paths: &Paths, folder: &str, fmt: crate::memo::NoteFormat) 
     } else {
         paths.vault.join(folder).join(name)
     };
-    match std::fs::read_to_string(&path) {
-        Ok(text) => {
-            // Strip frontmatter if present (templates may carry blocks).
-            let body = match fmt {
-                crate::memo::NoteFormat::Markdown => strip_frontmatter(&text),
-                crate::memo::NoteFormat::Html => match crate::html::split_frontmatter(&text) {
-                    crate::html::HtmlFrontmatterSplit::Some { body, .. } => body.to_string(),
-                    crate::html::HtmlFrontmatterSplit::None { body } => body.to_string(),
-                },
-            };
-            if body.trim().is_empty() {
-                None
-            } else {
-                Some(body)
-            }
-        }
-        Err(_) => None,
+    let text = std::fs::read_to_string(&path).ok()?;
+    let crate_fmt = match fmt {
+        crate::memo::NoteFormat::Markdown => oxi_frontmatter::NoteFormat::Markdown,
+        crate::memo::NoteFormat::Html => oxi_frontmatter::NoteFormat::Html,
+    };
+    // Parse errors in a template are treated as "no template" — a broken
+    // template must never break note creation. The table defaults to
+    // empty when the template carries no frontmatter.
+    let (table, body) = match oxi_frontmatter::parse(&text, crate_fmt) {
+        Ok(oxi_frontmatter::Parsed::Memo { table, body }) => (table, body),
+        _ => (oxi_frontmatter::Table::new(), text),
+    };
+    if body.trim().is_empty() && table.is_empty() {
+        return None;
     }
+    Some((table, body))
+}
+
+/// Substitute template variables into a frontmatter table's string and
+/// list values (§6.1 — `{{date}}` inside property defaults expands too).
+pub fn apply_template_to_table(
+    table: &oxi_frontmatter::Table,
+    ctx: &TemplateCtx,
+) -> oxi_frontmatter::Table {
+    let mut out = oxi_frontmatter::Table::new();
+    for (k, v) in table {
+        let v = match v {
+            oxi_frontmatter::Value::Str(s) => {
+                oxi_frontmatter::Value::Str(apply_template(s, ctx))
+            }
+            oxi_frontmatter::Value::Array(items) => oxi_frontmatter::Value::Array(
+                items.iter().map(|i| apply_template(i, ctx)).collect(),
+            ),
+            other => other.clone(),
+        };
+        out.insert(k.clone(), v);
+    }
+    out
 }
 
 /// Replace all `{{variable}}` tokens in the template with values from ctx.
