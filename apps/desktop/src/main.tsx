@@ -26,6 +26,21 @@ if (isRouteCapture()) {
   document.documentElement.style.background = "transparent";
   document.body.style.background = "transparent";
 }
+
+// Block the WKWebView's native context menu app-wide (main + capture
+// windows — both routes share this entry). Surfaces that need a
+// right-click affordance ship their own Base UI menu; everywhere else
+// right-click is intentionally a no-op. Capture phase so nothing can
+// stopPropagation past it. Dev escape hatch: Alt+right-click keeps the
+// native menu for WebKit debugging.
+window.addEventListener(
+  "contextmenu",
+  (e) => {
+    if (import.meta.env.DEV && e.altKey) return;
+    e.preventDefault();
+  },
+  { capture: true },
+);
 createRoot(root).render(
   <StrictMode>
     <ErrorBoundary>
