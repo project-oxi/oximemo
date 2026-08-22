@@ -80,6 +80,19 @@ interface UIState {
   /** Available update version surfaced on the settings gear, or null. */
   updateAvailable: string | null;
   setUpdateAvailable: (v: string | null) => void;
+  /** ⌘K command palette open? Transient overlay state. */
+  cmdPaletteOpen: boolean;
+  setCmdPaletteOpen: (b: boolean) => void;
+  /** Settings drawer open — store-owned so the palette (and the gear)
+   * share one source of truth. */
+  settingsOpen: boolean;
+  setSettingsOpen: (b: boolean) => void;
+  /** One-shot request from the palette: create a folder in the main
+   * area. CardGrid consumes it; query mode first falls back to the
+   * vault root (creation never lands in an ambiguous location). */
+  requestNewFolder: boolean;
+  requestFolderCreate: () => void;
+  consumeFolderCreate: () => void;
 }
 
 const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
@@ -185,4 +198,11 @@ export const useUI = create<UIState>((set) => ({
   setDraggingFolder: (p) => set({ draggingFolder: p }),
   updateAvailable: null,
   setUpdateAvailable: (v) => set({ updateAvailable: v }),
+  cmdPaletteOpen: false,
+  setCmdPaletteOpen: (b) => set({ cmdPaletteOpen: b }),
+  settingsOpen: false,
+  setSettingsOpen: (b) => set({ settingsOpen: b }),
+  requestNewFolder: false,
+  requestFolderCreate: () => set({ requestNewFolder: true }),
+  consumeFolderCreate: () => set({ requestNewFolder: false }),
 }));

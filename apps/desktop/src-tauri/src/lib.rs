@@ -246,6 +246,7 @@ pub fn run() {
             commands::cli_status,
             commands::install_cli,
             commands::uninstall_cli,
+            commands::show_capture_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building oximemo desktop app")
@@ -1151,6 +1152,14 @@ mod commands {
     #[tauri::command]
     pub fn uninstall_cli() -> Result<(), String> {
         run_admin("rm -f /usr/local/bin/oximemo")
+    }
+
+    /// Show (or dismiss, when already visible) the quick-capture overlay.
+    /// Same toggle path as the ⌘⇧N global shortcut and the tray item —
+    /// exposed as a command so the renderer's ⌘K palette can trigger it.
+    #[tauri::command]
+    pub fn show_capture_window(app: AppHandle) {
+        crate::show_capture(&app);
     }
 
     /// Run a shell snippet with administrator privileges via osascript. macOS
