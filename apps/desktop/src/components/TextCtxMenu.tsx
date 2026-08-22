@@ -3,12 +3,19 @@
  * every editable surface (spec 2026-08-22 D2). The native webview menu
  * is blocked globally (see main.tsx), so editables ship this instead.
  *
- * The trigger merges onto the editable's own element (no wrapper div).
- * Which editable was right-clicked is captured on pointerdown(button 2)
- * — right-click does not move focus, and the menu popup may, so the
- * target must be grabbed before the menu opens.
+ * ARCHITECTURE: Base UI's `Trigger render` injects the menu as CHILDREN
+ * of the render element — illegal on void elements (`<input>`). So the
+ * trigger is a `display: contents` span (invisible to layout) that
+ * wraps the editable; right-clicks anywhere on the editable open the
+ * menu. The editable is resolved from the wrapper at action time:
+ * `input`/`textarea` get setRangeText paste, CM6 `.cm-content` gets a
+ * synthetic ClipboardEvent (the editor's own paste pipeline, incl.
+ * cm6Images, does the insert).
+ *
+ * The right-clicked wrapper is captured on pointerdown(button 2) —
+ * right-click does not move focus, but the menu popup may.
  */
-import { cloneElement, useRef, type ReactElement, type ReactNode } from "react";
+import { useRef, type ReactElement, type ReactNode } from "react";
 import { Scissors, Copy, ClipboardPaste, TextSelect } from "lucide-react";
 
 import { useI18n } from "../lib/i18n";
@@ -16,38 +23,34 @@ import { clipboardReadText } from "../lib/clipboard";
 
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 
-type AnyEditable = HTMLInputElement | HTMLTextAreaElement | HTMLElement;
+type Editable = HTMLInputElement | HTMLTextAreaElement | HTMLElement;
+
+function findEditable(host: HTMLElement | null): Editable | null {
+  if (!host) return null;
+  if (host instanceof HTMLInputElement || host instanceof HTMLTextAreaElement) return host;
+  return host.querySelector<Editable>("input, textarea, .cm-content");
+}
 
 export function TextCtxMenu({
   render,
   children,
-  cm6 = false,
 }: {
-  /** The editable's own element (input/textarea/editor host div).
-   *  Props are cloned so our pointer capture composes with yours. */
-  render: ReactElement<
-    {
-      onPointerDown?: (e: React.PointerEvent) => void;
-      onContextMenu?: (e: React.MouseEvent) => void;
-    } & Record<string, unknown>
-  >;
+  /** The editable's own element (input/textarea/CM6 host div). */
+  render: ReactElement;
+  /** Extra content inside the wrapper (e.g. the CM6 sub-editor). */
   children?: ReactNode;
-  /** CM6 host: paste dispatches a synthetic ClipboardEvent on the
-   *  .cm-content so the editor's own paste pipeline inserts. */
-  cm6?: boolean;
 }) {
   const { t } = useI18n();
-  const targetRef = useRef<AnyEditable | null>(null);
+  const hostRef = useRef<HTMLElement | null>(null);
 
-  const focusTarget = () => {
-    const el = targetRef.current;
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.focus();
-    else el?.querySelector<HTMLElement>(".cm-content")?.focus();
-    return targetRef.current;
+  const focusEditable = () => {
+    const el = findEditable(hostRef.current);
+    el?.focus();
+    return el;
   };
 
   const paste = async () => {
-    const el = targetRef.current;
+    const el = findEditable(hostRef.current);
     if (!el) return;
     let text: string;
     try {
@@ -55,13 +58,12 @@ export function TextCtxMenu({
     } catch {
       return; // permission denied / empty — silent, ⌘V still works
     }
-    const cm = cm6 ? el.querySelector<HTMLElement>(".cm-content") : null;
-    if (cm) {
-      // Reuse the editor's own paste pipeline (incl. cm6Images): CM6
-      // reads clipboardData off the event, trusted or not.
+    if (el.classList.contains("cm-content")) {
+      // Reuse the editor's own paste pipeline: CM6 reads clipboardData
+      // off the event, trusted or not.
       const dt = new DataTransfer();
       dt.setData("text/plain", text);
-      cm.dispatchEvent(
+      el.dispatchEvent(
         new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }),
       );
       return;
@@ -78,33 +80,27 @@ export function TextCtxMenu({
     document.execCommand("insertText", false, text);
   };
 
-  const trigger = cloneElement(render, {
-    onPointerDown: (e: React.PointerEvent) => {
-      // The trigger element IS the editable — this is the component's
-      // contract — so narrow at runtime and remember it for the menu.
-      if (e.button === 2 && e.currentTarget instanceof HTMLElement) {
-        targetRef.current = e.currentTarget;
-      }
-      render.props.onPointerDown?.(e);
-    },
-    onContextMenu: (e: React.MouseEvent) => {
-      // Nested triggers (e.g. a rename input inside FolderMenu's
-      // trigger): stop the bubble so only this menu opens.
-      e.stopPropagation();
-      render.props.onContextMenu?.(e);
-    },
-  });
-
   return (
     <CtxRoot>
-      <CtxTrigger render={trigger}>
-        {children}
+      <CtxTrigger
+        render={
+          <span
+            className="contents"
+            onPointerDown={(e) => {
+              if (e.button === 2) hostRef.current = e.currentTarget;
+            }}
+          >
+            {render}
+            {children}
+          </span>
+        }
+      >
         <CtxMenu>
           <CtxItem
             icon={Scissors}
             label={t.text_cut}
             onClick={() => {
-              focusTarget();
+              focusEditable();
               document.execCommand("cut");
             }}
           />
@@ -112,7 +108,7 @@ export function TextCtxMenu({
             icon={Copy}
             label={t.text_copy}
             onClick={() => {
-              focusTarget();
+              focusEditable();
               document.execCommand("copy");
             }}
           />
@@ -122,7 +118,7 @@ export function TextCtxMenu({
             icon={TextSelect}
             label={t.text_select_all}
             onClick={() => {
-              focusTarget();
+              focusEditable();
               document.execCommand("selectAll");
             }}
           />

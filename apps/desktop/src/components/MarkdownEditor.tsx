@@ -136,10 +136,7 @@ export function MarkdownEditor({
   }, [documentId]);
 
   return (
-    <TextCtxMenu
-      cm6
-      render={<div className={className} ref={rootRef} />}
-    >
+    <TextCtxMenu render={<div className={className} ref={rootRef} />}>
       <AtomicCodeMirrorEditor
         documentId={documentId}
         markdownSource={body}

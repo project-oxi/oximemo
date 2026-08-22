@@ -71,10 +71,8 @@ export function HtmlEditor({ body, onChange, documentId, className, autoFocus = 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- body only seeds the doc; documentId drives remounts.
   }, [documentId]);
-
   return (
     <TextCtxMenu
-      cm6
       render={<div ref={hostRef} key={documentId} className={className} data-html-editor />}
     />
   );
