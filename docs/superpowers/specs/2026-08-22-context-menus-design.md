@@ -48,8 +48,8 @@ One menu for every editable surface: **잘라내기 / 복사 / 붙여넣기 /
 - **Cut / Copy / Select All** — `document.execCommand` against the
   focused editable (menu click is user activation; selection survives
   right-click in WKWebView).
-- **Paste** — reads the clipboard via the new `tauri-plugin-clipboard-manager`
-  (`readText`, and `readImage` → `File`), then inserts:
+- **Paste** — reads the clipboard text via the new
+  `tauri-plugin-clipboard-manager` (`readText`), then inserts:
   - CM6 editors: dispatch a synthetic `ClipboardEvent("paste")` with a
     `DataTransfer` on `view.contentDOM` — the EXISTING CM6/cmp paste
     handlers (including `cm6Images`) do the insert. No editor-internal
@@ -65,7 +65,7 @@ One menu for every editable surface: **잘라내기 / 복사 / 붙여넣기 /
 
 New dependency: `tauri-plugin-clipboard-manager` (Rust) +
 `@tauri-apps/plugin-clipboard-manager` (JS), capabilities
-`clipboard-manager:allow-read-text` + `allow-read-image`. macOS needs no
+`clipboard-manager:allow-read-text`. macOS needs no
 extra entitlement for pasteboard reads.
 
 ### D3 — New small menus
@@ -99,6 +99,10 @@ Existing flows stay as-is. Additions:
    (`useFolderDrop("")` → move note to root / move folder tree to root)
    and the daily row (move into the daily folder). Same visual language
    (`dropCls`) as pins.
+
+Paste is TEXT-only by design: native ⌘V already carries images through
+the trusted-event path (`cm6Images`); a menu-driven image paste would
+need plugin image decoding → `File` re-encoding for no new capability.
 
 ## Verification plan
 
