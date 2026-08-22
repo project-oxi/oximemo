@@ -65,13 +65,19 @@ pub fn cmd_new(
     Ok(())
 }
 
-/// `oximemo list`.
+/// `oximemo list`. Without `--where`/`--sort` this stays on the cursor
+/// path (newest-first); either flag switches to the offset query path so
+/// property sorts paginate correctly (design 2026-08-23 §5.2).
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_list(
     vault: &Vault,
     limit: u32,
     tag: Vec<String>,
     folder: Option<String>,
     favorites: bool,
+    predicates: Vec<oximemo_core::PropPredicate>,
+    sort: Option<oximemo_core::SortSpec>,
+    offset: u32,
     fmt: Format,
 ) -> Result<()> {
     let filter = MemoFilter {
@@ -81,7 +87,23 @@ pub fn cmd_list(
         favorites_only: favorites,
         ..Default::default()
     };
-    let page = vault.list_memos(None, limit, filter)?;
+    if predicates.is_empty() && sort.is_none() {
+        let page = vault.list_memos(None, limit, filter)?;
+        return format::print_summaries(&page.items, fmt);
+    }
+    let query = oximemo_core::NoteQuery {
+        filter,
+        props: predicates,
+        sort: sort.unwrap_or_default(),
+        offset: offset as usize,
+        limit,
+    };
+    let page = vault.query_notes(&query)?;
+    if matches!(fmt, Format::Table) {
+        // The table is a human summary; annotate the total so paged
+        // property queries are self-describing.
+        eprintln!("{} matches (offset {offset})", page.total);
+    }
     format::print_summaries(&page.items, fmt)
 }
 
@@ -188,25 +210,27 @@ pub fn cmd_doctor(vault: &Vault, fix: bool) -> Result<()> {
     Ok(())
 }
 
-/// `oximemo update` — edit an existing note's body or favorite flag.
+/// `oximemo update` — edit an existing note's body, favorite flag, or
+/// properties (`--set/--unset`).
 pub fn cmd_update(
     vault: &Vault,
     id: MemoId,
     body: Option<String>,
     body_stdin: bool,
     favorite: Option<bool>,
+    props: Option<oximemo_core::PropMutation>,
 ) -> Result<()> {
     let body = if body_stdin {
         Some(read_stdin()?)
     } else {
         body
     };
-    if body.is_none() && favorite.is_none() {
+    if body.is_none() && favorite.is_none() && props.as_ref().is_none_or(|p| p.is_empty()) {
         return Err(anyhow!(
-            "no changes specified; pass --body/--body-stdin or --favorite/--unfavorite"
+            "no changes specified; pass --body/--body-stdin, --favorite/--unfavorite, or --set/--unset"
         ));
     }
-    let note = vault.update_note(id, body, favorite)?;
+    let note = vault.update_note_with(id, body, favorite, props)?;
     let summary: oximemo_core::memo::MemoSummary = oximemo_core::memo::MemoSummary::from(note);
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())

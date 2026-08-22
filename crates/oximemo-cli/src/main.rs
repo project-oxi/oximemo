@@ -60,6 +60,16 @@ enum Cmd {
         folder: Option<String>,
         #[arg(long)]
         favorites: bool,
+        /// Property filter, `KEY=VAL` / `KEY~VAL` (repeatable; AND).
+        /// Comma values = any-of. `~` = list membership (or substring).
+        #[arg(long = "where", value_name = "EXPR")]
+        where_: Vec<String>,
+        /// Sort: `updated` (asc), `updated:desc`, or a property key (asc).
+        #[arg(long, value_name = "SPEC")]
+        sort: Option<String>,
+        /// Page offset (used with --sort for offset pagination).
+        #[arg(long, default_value_t = 0)]
+        offset: u32,
         /// table | json | ndjson
         #[arg(long, default_value = "table")]
         format: String,
@@ -121,8 +131,13 @@ enum Cmd {
         /// Remove favorite.
         #[arg(long)]
         unfavorite: bool,
+        /// Set a property `KEY=VAL` (repeatable). Comma values = list.
+        #[arg(long = "set", value_name = "KEY=VAL")]
+        set: Vec<String>,
+        /// Remove a property key (repeatable).
+        #[arg(long = "unset", value_name = "KEY")]
+        unset: Vec<String>,
     },
-    /// Restore a soft-deleted (trashed) memo.
     Restore { id: String },
     /// Live memo counts.
     Stats,
@@ -204,11 +219,24 @@ fn run() -> Result<()> {
             tag,
             folder,
             favorites,
+            where_,
+            sort,
+            offset,
             format,
         } => {
             let fmt = format::Format::from_arg(&format)
                 .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
-            commands::cmd_list(&vault, limit, tag, folder, favorites, fmt)
+            let predicates = where_
+                .iter()
+                .map(|w| oximemo_core::parse_where(w))
+                .map(|r| r.map_err(|e| anyhow::anyhow!(e))).collect::<Result<Vec<_>>>()?;
+            let sort_spec = match &sort {
+                Some(s) => Some(oximemo_core::parse_sort(s)?),
+                None => None,
+            };
+            commands::cmd_list(
+                &vault, limit, tag, folder, favorites, predicates, sort_spec, offset, fmt,
+            )
         }
         Cmd::Get { id, md } => commands::cmd_get(&vault, parse_id(&id)?, md),
         Cmd::Search {
@@ -239,6 +267,8 @@ fn run() -> Result<()> {
             body_stdin,
             favorite,
             unfavorite,
+            set,
+            unset,
         } => {
             let fav = if unfavorite {
                 Some(false)
@@ -247,7 +277,25 @@ fn run() -> Result<()> {
             } else {
                 None
             };
-            commands::cmd_update(&vault, parse_id(&id)?, body, body_stdin, fav)
+            let mut pm = oximemo_core::PropMutation::default();
+            for s in &set {
+                let (k, v) = s.split_once('=').ok_or_else(|| {
+                    anyhow!("invalid --set {s:?}: expected KEY=VAL")
+                })?;
+                let value = if v.contains(',') {
+                    oximemo_core::PropValue::List(
+                        v.split(',').map(|x| x.trim().to_string()).collect(),
+                    )
+                } else {
+                    oximemo_core::PropValue::Str(v.to_string())
+                };
+                pm.sets.push((k.trim().to_string(), value));
+            }
+            for k in &unset {
+                pm.removes.push(k.clone());
+            }
+            let props = if pm.is_empty() { None } else { Some(pm) };
+            commands::cmd_update(&vault, parse_id(&id)?, body, body_stdin, fav, props)
         }
         Cmd::Restore { id } => commands::cmd_restore(&vault, parse_id(&id)?),
         Cmd::Stats => commands::cmd_stats(&vault),
