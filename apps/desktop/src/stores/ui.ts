@@ -34,6 +34,8 @@ interface UIState {
   /** tag -> filter state (3-state cycle). Absent = "off". */
   tagFilter: Record<string, TagState>;
   cycleTag: (tag: string) => void;
+  /** Direct state set (chip context menu); "off" removes the entry. */
+  setTagState: (tag: string, state: TagState) => void;
   clearTagFilter: () => void;
   /** AND over the include set when true, OR when false. */
   matchAll: boolean;
@@ -143,6 +145,13 @@ export const useUI = create<UIState>((set) => ({
       const tf = { ...s.tagFilter };
       if (next === "off") delete tf[tag];
       else tf[tag] = next;
+      return { tagFilter: tf };
+    }),
+  setTagState: (tag, state) =>
+    set((s) => {
+      const tf = { ...s.tagFilter };
+      if (state === "off") delete tf[tag];
+      else tf[tag] = state;
       return { tagFilter: tf };
     }),
   clearTagFilter: () => set({ tagFilter: {} }),
