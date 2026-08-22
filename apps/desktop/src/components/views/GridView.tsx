@@ -44,6 +44,8 @@ interface Props {
   onDeleteFolder: (path: string, deep: number, confirmed?: boolean) => void;
   /** Query-mode folder chip on note cards (T13): true when browsing is off. */
   showFolderChip?: boolean;
+  /** Schema badge declarations passed through to note cards (§7.2). */
+  badges?: { key: string; colors: Record<string, string> }[];
   /** T15: expand the collapsed folder layer for this browse location. */
   onExpandFolders: () => void;
 }
@@ -71,6 +73,7 @@ export function GridView({
   onNameCommit,
   onDeleteFolder,
   showFolderChip,
+  badges,
   onExpandFolders,
 }: Props) {
   const { t } = useI18n();
@@ -142,6 +145,7 @@ export function GridView({
                     onCopyBody={onCopyBody}
                     onDelete={onDelete}
                     showFolderChip={showFolderChip}
+                    badges={badges}
                   />
                 ),
               )}

@@ -275,7 +275,7 @@ pub struct Page<T> {
 
 /// Filter applied to listings (§4.3, §7.5). Composite: include-tag set
 /// (AND or OR), exclude-tag set, folder path-prefix, favorite, deleted.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoFilter {
     /// Memo must contain these tags. Empty = no constraint.
     pub include_tags: Vec<String>,

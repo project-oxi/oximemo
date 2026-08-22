@@ -36,7 +36,9 @@ import {
   getConfig,
   listFolders,
   listMemos,
-  memoStats,
+  folderSchema,
+  queryNotes,
+  applyKnowledgePreset,
   moveNote,
   moveFolder,
   openDailyNote,
@@ -47,6 +49,7 @@ import {
   setFolderView,
   showCaptureWindow,
   updateMemo,
+  memoStats,
   restoreNotes,
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
@@ -66,6 +69,7 @@ import { GalleryView } from "./GalleryView";
 import { SettingsMenu } from "./SettingsMenu";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { GridView, type Cell } from "./views/GridView";
+import { ReviewQueue } from "./ReviewQueue";
 import { ListView } from "./views/ListView";
 import { TimelineView } from "./views/TimelineView";
 import { GraphView } from "./views/GraphView";
@@ -187,13 +191,77 @@ export function CardGrid() {
     getNextPageParam: () => null,
     enabled: debounced.length > 0,
   });
-
   const inSearch = debounced.length > 0;
+
+
+  // Folder schema (design 2026-08-23 §7): badges, property chips, sort,
+  // and the review tab all key off this — no knowledge-specific branches.
+  const schemaQ = useQuery({
+    queryKey: ["folder-schema", folderFilter],
+    queryFn: () => folderSchema(folderFilter ?? ""),
+    enabled: folderFilter !== null,
+    staleTime: 30_000,
+  });
+  const schema = folderFilter !== null ? schemaQ.data ?? null : null;
+  const badgeDefs = useMemo(() => {
+    if (!schema?.properties) return [];
+    return Object.entries(schema.properties)
+      .filter(([, d]) => d.badge)
+      .map(([key, d]) => ({ key, colors: d.colors ?? {} }));
+  }, [schema]);
+  const [reviewMode, setReviewMode] = useState(false);
+  useEffect(() => setReviewMode(false), [folderFilter]);
+  const propChips = useMemo(() => {
+    if (!schema?.properties) return [];
+    return Object.entries(schema.properties)
+      .filter(
+        ([, d]) =>
+          (d.prop_type === "select" || d.prop_type === "multiselect") &&
+          (d.options?.length ?? 0) > 0,
+      )
+      .map(([key, d]) => ({ key, options: d.options ?? [] }));
+  }, [schema]);
+  const [propFilter, setPropFilter] = useState<Record<string, string>>({});
+  const [propSort, setPropSort] = useState<"default" | "oldest" | string>("default");
+  useEffect(() => {
+    setPropFilter({});
+    setPropSort("default");
+  }, [folderFilter]);
+  const propActive =
+    !inSearch && folderFilter !== null && Object.keys(propFilter).length > 0;
+  const propQuery = useInfiniteQuery({
+    queryKey: ["prop-query", folderFilter, propFilter, propSort],
+    queryFn: ({ pageParam }) =>
+      queryNotes({
+        folder: folderFilter,
+        props: Object.entries(propFilter).map(([key, value]) => ({
+          key,
+          op: "Eq" as const,
+          values: [value],
+        })),
+        sort:
+          propSort === "oldest"
+            ? ("UpdatedAsc" as const)
+            : propSort === "default"
+              ? undefined
+              : ({ PropAsc: propSort } as const),
+        offset: pageParam as number,
+        limit: 50,
+      }),
+    initialPageParam: 0,
+    getNextPageParam: (last, all) => {
+      const loaded = all.reduce((n, p) => n + p.items.length, 0);
+      return loaded < last.total ? loaded : undefined;
+    },
+    enabled: propActive,
+  });
+
   const items: MemoSummary[] = useMemo(() => {
     const base = inSearch
       ? searching.data?.pages.flat() ?? []
-      : listing.data?.pages.flatMap((p) => p.items) ?? [];
-    if (!inSearch) return base;
+      : propActive
+        ? propQuery.data?.pages.flatMap((p) => p.items) ?? []
+        : listing.data?.pages.flatMap((p) => p.items) ?? [];
     return base.filter((n) => {
       if (favoritesOnly && !n.favorite) return false;
       // Folder-scoped search (T13): scope to the browse location's
@@ -215,7 +283,7 @@ export function CardGrid() {
       }
       return true;
     });
-  }, [inSearch, includeTags, excludeTags, folderFilter, favoritesOnly, listing.data, searching.data, searchScope]);
+  }, [inSearch, includeTags, excludeTags, folderFilter, favoritesOnly, listing.data, searching.data, searchScope, propActive, propQuery.data]);
 
   // Direct-children folder tiles for the current browse level. We rely on
   // browse-by-default semantics (T5): folderFilter !== null ⇒ show this
@@ -691,6 +759,15 @@ export function CardGrid() {
       void renameFolder(from, to)
         .then(() => {
           invalidate();
+          if (pendingPreset) {
+            setPendingPreset(false);
+            void applyKnowledgePreset(to)
+              .then(() => {
+                void qc.invalidateQueries({ queryKey: ["folder-schema"] });
+                void qc.invalidateQueries({ queryKey: ["folderChildren"] });
+              })
+              .catch((e) => setError(String(e).split("\n")[0]));
+          }
           namingCommitRef.current.path = null;
         })
         .catch((e) => {
@@ -849,6 +926,17 @@ export function CardGrid() {
       toggleSidebar,
       newNote: (format: "markdown" | "html") => (format === "html" ? onNewHtmlNote() : onNewNote()),
       newFolder: () => useUI.getState().requestFolderCreate(),
+      openReviewQueue: (folder: string) => {
+        setView("memos");
+        setFavoritesOnly(false);
+        setFolderFilter(folder);
+        setReviewMode(true);
+        setCmdPaletteOpen(false);
+      },
+      newKnowledgeFolder: () => {
+        setPendingPreset(true);
+        useUI.getState().requestFolderCreate();
+      },
       quickCapture: () => {
         void showCaptureWindow().catch((e) => setError(String(e).split("\n")[0]));
       },
@@ -876,6 +964,9 @@ export function CardGrid() {
       setError, configQ.data, qc,
     ],
   );
+  // Knowledge-preset folder creation (§6.3): the palette action arms a
+  // one-shot flag; the naming session applies the preset on commit.
+  const [pendingPreset, setPendingPreset] = useState(false);
 
   // The palette's "새 폴더" lands in the main area (never in the
   // palette): consume the one-shot flag and start the inline naming
@@ -1115,6 +1206,64 @@ export function CardGrid() {
           </div>
           <SettingsMenu />
         </header>
+        {schema && (propChips.length > 0 || schema.review) && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-4 pb-1.5 pt-1">
+            {propChips.map((p) => (
+              <label
+                key={p.key}
+                className="inline-flex items-center gap-1 text-[11px] text-text-subtle"
+              >
+                <span className="font-medium">{p.key}</span>
+                <select
+                  value={propFilter[p.key] ?? ""}
+                  onChange={(e) =>
+                    setPropFilter((m) => {
+                      const next = { ...m };
+                      if (e.target.value) next[p.key] = e.target.value;
+                      else delete next[p.key];
+                      return next;
+                    })
+                  }
+                  className="rounded-[var(--tag-radius)] border border-line bg-surface px-1 py-0.5 text-[11px]"
+                >
+                  <option value="">all</option>
+                  {p.options.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <select
+              value={propSort}
+              onChange={(e) => setPropSort(e.target.value)}
+              className="ml-auto rounded-[var(--tag-radius)] border border-line bg-surface px-1 py-0.5 text-[11px] text-text-subtle"
+              aria-label="sort"
+            >
+              <option value="default">{t.badge_sort_newest}</option>
+              <option value="oldest">{t.badge_sort_oldest}</option>
+              {schema.review?.order_by && (
+                <option value={schema.review.order_by}>
+                  {t.badge_sort_prop.replace("{key}", schema.review.order_by)}
+                </option>
+              )}
+            </select>
+            {schema.review && (
+              <button
+                type="button"
+                onClick={() => setReviewMode((v) => !v)}
+                className={`rounded-[var(--button-radius)] px-2 py-1 text-[11px] font-medium transition-colors duration-150 ${
+                  reviewMode
+                    ? "bg-interactive-primary text-interactive-primary-foreground"
+                    : "bg-surface-muted text-text-subtle hover:text-text"
+                }`}
+              >
+                {t.review_tab}
+              </button>
+            )}
+          </div>
+        )}
         <div
           ref={scrollerCallbackRef}
           onDragOver={(e) => {
@@ -1140,7 +1289,9 @@ export function CardGrid() {
               the trigger covering the whole scrollable surface. */}
           <CtxRoot>
             <CtxTrigger className="min-h-full">
-            {listing.isError ? (
+            {reviewMode && schema?.review && folderFilter !== null ? (
+              <ReviewQueue folder={folderFilter} review={schema.review} />
+            ) : listing.isError ? (
               <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
                 <p className="text-sm font-medium text-status-error">{t.load_error}</p>
                 <p className="max-w-md break-words text-xs text-text-subtle">{String(listing.error)}</p>
@@ -1215,6 +1366,7 @@ export function CardGrid() {
                 cols={cols}
                 showFolderChip={folderFilter === null}
                 folders={folders}
+                badges={badgeDefs}
                 folderEntries={folderEntries}
                 onOpenFolder={setFolderFilter}
                 onSelect={select}

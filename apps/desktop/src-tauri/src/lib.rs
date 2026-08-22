@@ -203,6 +203,9 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            commands::query_notes,
+            commands::folder_schema,
+            commands::apply_knowledge_preset,
             commands::list_memos,
             commands::get_memo,
             commands::create_memo,
@@ -615,14 +618,61 @@ mod commands {
         id: String,
         body: Option<String>,
         favorite: Option<bool>,
+        props: Option<oximemo_core::PropMutation>,
     ) -> Result<oximemo_core::memo::NoteDto, String> {
         let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
         let memo = state
             .vault
-            .update_note(id, body, favorite)
+            .update_note_with(id, body, favorite, props)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(state.vault.note_dto(&memo))
+    }
+
+    /// Offset-paginated property query (design 2026-08-23 §5.2). The
+    /// payload mirrors `oximemo_core::NoteQuery` (serde on the core type).
+    #[tauri::command]
+    pub fn query_notes(
+        state: State<'_, AppState>,
+        filter: Option<oximemo_core::MemoFilter>,
+        props: Option<Vec<oximemo_core::PropPredicate>>,
+        sort: Option<oximemo_core::SortSpec>,
+        offset: Option<usize>,
+        limit: Option<u32>,
+    ) -> Result<oximemo_core::QueryPage, String> {
+        let query = oximemo_core::NoteQuery {
+            filter: filter.unwrap_or_default(),
+            props: props.unwrap_or_default(),
+            sort: sort.unwrap_or_default(),
+            offset: offset.unwrap_or(0),
+            limit: limit.unwrap_or(50),
+        };
+        state.vault.query_notes(&query).map_err(|e| e.to_string())
+    }
+
+    /// The folder's property schema, or `null` in free-property mode.
+    #[tauri::command]
+    pub fn folder_schema(
+        state: State<'_, AppState>,
+        folder: String,
+    ) -> Result<Option<oximemo_core::FolderSchema>, String> {
+        state.vault.folder_schema(&folder).map_err(|e| e.to_string())
+    }
+
+    /// Install the knowledge preset (TEMPLATE.md + SCHEMA.toml) into a
+    /// freshly created folder (design §6.3).
+    #[tauri::command]
+    pub fn apply_knowledge_preset(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        folder: String,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .apply_knowledge_preset(&folder)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(())
     }
 
     #[tauri::command]

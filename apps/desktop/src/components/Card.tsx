@@ -8,6 +8,8 @@ import { useMemo } from "react";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
+
+
 import { relativeTime } from "../lib/time";
 import { renderPreviewMarkdown } from "../lib/markdownPreview";
 import { useUI } from "../stores/ui";
@@ -25,12 +27,14 @@ interface Props {
   onDelete: (id: string) => void;
   /** Enter the folder shown by the query-mode chip (browse that folder). */
   onOpenFolder?: (folder: string) => void;
-  /** Query-mode folder chip under the tags row (T13). */
   showFolderChip?: boolean;
+  /** Badge declarations from the folder schema: badge = true select
+   *  properties, mapped to value → token color (design §7.2). */
+  badges?: { key: string; colors: Record<string, string> }[];
 }
 
 
-export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip }: Props) {
+export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip, badges }: Props) {
   const { t, locale } = useI18n();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const folderColor = colorForFolder(memo.folder, folders);
@@ -75,6 +79,38 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
           </>
         )}
         <time className="shrink-0 text-[11px]">{relativeTime(memo.updated_at, locale)}</time>
+        {badges?.map((b) => {
+          const v = memo.props?.[b.key];
+          const value = v
+            ? "Str" in v
+              ? v.Str
+              : "List" in v
+                ? v.List[0]
+                : "Bool" in v
+                  ? String(v.Bool)
+                  : undefined
+            : undefined;
+          if (!value) return null;
+          const token = b.colors[value];
+          const tone =
+            token === "success"
+              ? "bg-hue-green/15 text-hue-green"
+              : token === "warning"
+                ? "bg-hue-amber/15 text-hue-amber"
+                : token === "info"
+                  ? "bg-hue-blue/15 text-hue-blue"
+                  : token === "muted"
+                    ? "bg-surface-muted text-text-subtle"
+                    : "bg-surface-muted text-text-subtle";
+          return (
+            <span
+              key={b.key}
+              className={`rounded-[var(--tag-radius)] px-1.5 py-px text-[9px] font-semibold tracking-wide ${tone}`}
+            >
+              {value}
+            </span>
+          );
+        })}
         {memo.path?.endsWith(".html") && (
           <span className="rounded-[var(--tag-radius)] bg-surface-muted px-1 py-px font-mono text-[9px] font-semibold tracking-wide text-text-subtle">
             HTML

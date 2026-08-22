@@ -39,6 +39,11 @@ pub use props::{
     NoteQuery, PropMutation, PropOp, PropPredicate, PropValue, QueryPage, SortSpec, aliases_of,
     parse_sort, parse_where, props_from_table, props_link_text,
 };
+pub use memo::{
+    Cursor, Facets, IndexStats, Memo, MemoFilter, MemoHash, MemoId, MemoStats, MemoSummary,
+    NoteFormat, Page, derive_title, note_title, preview_of, searchable_body, slugify, tags_of,
+    timestamp_filename,
+};
 pub use schema::{
     FolderSchema, KNOWLEDGE_SCHEMA_TOML, KNOWLEDGE_TEMPLATE_MD, MergeKind, OnKind, PropertyDef,
     PropType, ReviewDef, TransitionRule, Violation, WorkspaceDef, apply_transitions, parse_schema,

@@ -13,7 +13,7 @@
  * confirm-Enter must not run a command.
  */
 import { Dialog } from "@base-ui-components/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   Archive,
   CalendarDays,
@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { getConfig, listFacets, listMemos, searchMemos } from "../lib/api";
+import { folderSchema, getConfig, listFacets, listMemos, searchMemos } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import {
@@ -157,6 +157,23 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
   }, [open]);
 
   const dailyEnabled = configQ.data?.daily?.enabled !== false;
+  // Folders whose schema declares [review] (§7.3): one folderSchema query
+  // per folder, cached — the command exists only when the state does.
+  const folderEntries = folders;
+  const schemaQs = useQueries({
+    queries: folderEntries.map((f) => ({
+      queryKey: ["folder-schema", f.path],
+      queryFn: () => folderSchema(f.path),
+      staleTime: 30_000,
+    })),
+  });
+  const reviewFolders = useMemo(
+    () =>
+      folderEntries
+        .map((f, i) => (schemaQs[i].data?.review ? f.path : null))
+        .filter((p): p is string => p !== null),
+    [folderEntries, schemaQs],
+  );
   const commands = useMemo(
     () =>
       buildCommands({
@@ -166,9 +183,10 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
         folders,
         tags: facets.data?.tags ?? [],
         dailyEnabled,
+        reviewFolders,
         callbacks,
       }),
-    [locale, noteView, theme, folders, facets.data, dailyEnabled, callbacks],
+    [locale, noteView, theme, folders, facets.data, dailyEnabled, reviewFolders, callbacks],
   );
 
   const q = query.trim();

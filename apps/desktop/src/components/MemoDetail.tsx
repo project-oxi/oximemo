@@ -13,8 +13,9 @@ import { deleteMemo, getMemo, moveNote, updateMemo, listFolders } from "../lib/a
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { ContextDock } from "./ContextDock";
-import { TagChipRow } from "./TagChipRow";
+import { PropertyPanel } from "./PropertyPanel";
 import { HtmlNoteEditor } from "./HtmlNoteEditor";
+import { TagChipRow } from "./TagChipRow";
 import { MemoEditorForm } from "./MemoEditorForm";
 import type { FolderComboboxHandle } from "./FolderCombobox";
 import type { FolderEntry, Memo } from "../lib/types";
@@ -185,6 +186,9 @@ export function MemoDetail() {
                 {t.done}
               </button>
             </div>
+            {memo.data && seededId === memo.data.id && (
+              <PropertyPanel memo={memo.data} folder={folder || memo.data.folder} />
+            )}
             {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
               <div className="flex h-full items-center justify-center text-text-subtle">…</div>
             ) : memo.data.format === "html" ? (

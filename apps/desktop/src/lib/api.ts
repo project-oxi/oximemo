@@ -14,6 +14,7 @@ import type {
   FolderCard,
   FolderDef,
   FolderEntry,
+  FolderSchema,
   GraphData,
   Memo,
   MemoSummary,
@@ -21,6 +22,9 @@ import type {
   IndexStats,
   DoctorReport,
   Facets,
+  NoteQueryInput,
+  PropMutation,
+  QueryPage,
   ViewMode,
 } from "./types";
 
@@ -76,8 +80,9 @@ export async function updateMemo(
   id: string,
   body: string | null,
   favorite: boolean | null,
+  props?: PropMutation | null,
 ) {
-  return invoke<Memo>("update_memo", { id, body, favorite });
+  return invoke<Memo>("update_memo", { id, body, favorite, props: props ?? null });
 }
 
 export async function brainStatus(): Promise<BrainStatus> {
@@ -281,4 +286,33 @@ export async function uninstallCli(): Promise<void> {
 /** Toggle the quick-capture overlay (same path as the ⌘⇧N shortcut). */
 export function showCaptureWindow(): Promise<void> {
   return invoke<void>("show_capture_window");
+}
+
+// --- Property engine & folder schema (design 2026-08-23) --------------------
+
+/** Offset-paginated property query (§5.2). Used whenever property
+ *  predicates or sorts are present; default browsing stays on the
+ *  cursor path. */
+export function queryNotes(q: NoteQueryInput): Promise<QueryPage> {
+  const filter = {
+    folder: q.folder === undefined ? null : q.folder,
+    favorites_only: q.favorites_only ?? false,
+  };
+  return invoke<QueryPage>("query_notes", {
+    filter: q.folder === undefined && !q.favorites_only ? null : filter,
+    props: q.props ?? null,
+    sort: q.sort ?? null,
+    offset: q.offset ?? 0,
+    limit: q.limit ?? 50,
+  });
+}
+
+/** The folder's property schema; null in free-property mode. */
+export function folderSchema(folder: string): Promise<FolderSchema | null> {
+  return invoke<FolderSchema | null>("folder_schema", { folder });
+}
+
+/** Install the knowledge preset (TEMPLATE.md + SCHEMA.toml) into a folder. */
+export function applyKnowledgePreset(folder: string): Promise<void> {
+  return invoke<void>("apply_knowledge_preset", { folder });
 }

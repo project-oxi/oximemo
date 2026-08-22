@@ -4,6 +4,13 @@ export type MemoId = string;
 
 export type NoteFormat = "markdown" | "html";
 
+/** Property value: scalar, boolean, or string list (design 2026-08-23 §5.1). */
+export type PropValue = { Str: string } | { Bool: boolean } | { List: string[] };
+
+/** Property map: key → value. Serialized as a JSON object keyed by prop
+ *  name whose values are externally-tagged PropValue envelopes. */
+export type Props = Record<string, PropValue>;
+
 export interface Memo {
   id: MemoId;
   created_at: string;
@@ -20,6 +27,8 @@ export interface Memo {
   title: string | null;
   tags: string[];
   body: string;
+  /** Frontmatter properties beyond the core five keys. */
+  props: Props;
   deleted_at: string | null;
 }
 
@@ -58,8 +67,78 @@ export interface MemoSummary {
   /** Derived title; null when untitled (Rust omits the key when None). */
   title: string | null;
   tags: string[];
+  props: Props;
   preview: string;
   deleted: boolean;
+}
+
+// --- Property engine & folder schema (design 2026-08-23) --------------------
+
+/** A minimal set/remove property diff for `update_memo`. */
+export interface PropMutation {
+  sets: [string, PropValue][];
+  removes: string[];
+}
+
+export interface PropPredicate {
+  key: string;
+  op: "Eq" | "In" | "Contains";
+  values: string[];
+}
+
+export type SortSpec =
+  | "UpdatedDesc"
+  | "UpdatedAsc"
+  | { PropAsc: string };
+
+/** Offset query payload; `folder` mirrors the list filter's semantics. */
+export interface NoteQueryInput {
+  folder?: string | null;
+  favorites_only?: boolean;
+  props?: PropPredicate[];
+  sort?: SortSpec;
+  offset?: number;
+  limit?: number;
+}
+
+export interface QueryPage {
+  items: MemoSummary[];
+  total: number;
+}
+
+export type SchemaPropType = "text" | "select" | "multiselect" | "date";
+
+export interface SchemaPropertyDef {
+  prop_type?: SchemaPropType;
+  options?: string[];
+  required?: boolean;
+  badge?: boolean;
+  colors?: Record<string, string>;
+}
+
+export interface SchemaTransitionRule {
+  key: string;
+  from?: string[];
+  to: string[];
+  on?: "Change" | "Write";
+  copy_from?: string | null;
+  into?: string | null;
+  merge?: "Replace" | "Max" | null;
+  stamp_date?: string | null;
+}
+
+export interface SchemaReviewDef {
+  property: string;
+  due_values: string[];
+  order_by?: string | null;
+  decay_to: string;
+}
+
+export interface FolderSchema {
+  workspace?: { name?: string | null };
+  properties?: Record<string, SchemaPropertyDef>;
+  transitions?: SchemaTransitionRule[];
+  review?: SchemaReviewDef | null;
 }
 
 export interface Page<T> {

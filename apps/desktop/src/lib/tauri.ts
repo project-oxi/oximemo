@@ -7,7 +7,7 @@
  */
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { FolderCard, FolderEntry, Memo, MemoSummary } from "./types";
+import type { FolderCard, FolderEntry, FolderSchema, Memo, MemoSummary } from "./types";
 import { extractTags } from "./tags";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -131,6 +131,73 @@ function saveStore(memos: Record<string, Memo>): void {
   localStorage.setItem(STORE_KEY, JSON.stringify(memos));
 }
 
+function loadSchemas(): Record<string, FolderSchema> {
+  try {
+    return JSON.parse(localStorage.getItem("oximemo:schemas") ?? "{}") as Record<
+      string,
+      FolderSchema
+    >;
+  } catch {
+    return {};
+  }
+}
+
+/** JS mirror of the knowledge preset's SCHEMA.toml (design §6.3) so the
+ *  browser fallback can exercise badges, chips, and the review queue. */
+const KNOWLEDGE_PRESET_SCHEMA: FolderSchema = {
+  workspace: { name: "지식" },
+  properties: {
+    status: {
+      prop_type: "select",
+      options: ["stub", "vague", "understood", "mastered", "decayed"],
+      required: true,
+      badge: true,
+      colors: {
+        stub: "neutral",
+        vague: "muted",
+        understood: "info",
+        mastered: "success",
+        decayed: "warning",
+      },
+    },
+    peak_status: { prop_type: "select", options: ["understood", "mastered"] },
+    domain: {
+      prop_type: "select",
+      options: ["SCI", "MATH", "TECH", "SOC", "CULT", "HIST", "FIN"],
+      required: true,
+    },
+    subdomain: {
+      prop_type: "multiselect",
+      options: ["SW", "AI", "DATA", "SEC", "HW", "SYS"],
+    },
+    aliases: { prop_type: "multiselect" },
+    related: { prop_type: "multiselect" },
+    source: { prop_type: "text" },
+    status_changed: { prop_type: "date" },
+  },
+  transitions: [
+    {
+      key: "status",
+      to: ["understood", "mastered"],
+      copy_from: "status",
+      into: "peak_status",
+      merge: "Max",
+    },
+    {
+      key: "status",
+      to: ["stub", "vague", "understood", "mastered", "decayed"],
+      on: "Write",
+      stamp_date: "status_changed",
+    },
+  ],
+  review: {
+    property: "status",
+    due_values: ["understood", "mastered"],
+    order_by: "status_changed",
+    decay_to: "decayed",
+  },
+};
+
 /** Match core's `make_preview`: non-empty trimmed lines joined by newlines
  *  (so previews keep the user's line breaks), truncated on a char boundary. */
 function makePreview(body: string): string {
@@ -168,6 +235,7 @@ function summaryOf(n: Memo): MemoSummary {
     path: n.path,
     title: n.title,
     tags: n.tags,
+    props: n.props ?? {},
     preview: makePreview(n.body),
     deleted: n.deleted_at !== null,
   };
@@ -269,6 +337,7 @@ async function browserFallback(
         title,
         tags: extractTags(body),
         body,
+        props: {},
         deleted_at: null,
       };
       const store = loadStore();
@@ -307,6 +376,7 @@ async function browserFallback(
         title: date,
         tags: [],
         body: `# ${date}\n`,
+        props: {},
         deleted_at: null,
       };
       store[memo.id] = memo;
@@ -326,6 +396,14 @@ async function browserFallback(
         n.tags = extractTags(n.body);
       }
       if (typeof args?.favorite === "boolean") n.favorite = args.favorite;
+      // Property diff (design §5.1). Browser fallback skips schema
+      // transitions — desktop-only surface, same boundary as backlinks.
+      const pm = args?.props as { sets?: [string, unknown][]; removes?: string[] } | null | undefined;
+      if (pm) {
+        n.props = n.props ?? {};
+        for (const k of pm.removes ?? []) delete n.props[k];
+        for (const [k, v] of pm.sets ?? []) n.props[k] = v as Memo["props"][string];
+      }
       n.updated_at = new Date().toISOString();
       n.hash = fakeHash();
       store[id] = n;
@@ -342,6 +420,71 @@ async function browserFallback(
         saveStore(store);
         emitBrowser("memos:changed");
       }
+      return null;
+    }
+
+    // --- Property engine (design 2026-08-23 §7.5: minimal fallback) ---------
+
+    case "query_notes": {
+      const limit = (args?.limit as number | undefined) ?? 50;
+      const offset = (args?.offset as number | undefined) ?? 0;
+      const filter = args?.filter as { folder?: string | null; favorites_only?: boolean } | null;
+      const preds = (args?.props as {
+        key: string;
+        op: string;
+        values: string[];
+      }[]) ?? [];
+      const sort = args?.sort as string | { PropAsc: string } | null | undefined;
+      const propStr = (v: unknown): string =>
+        v == null
+          ? ""
+          : typeof v === "object" && "Str" in (v as object)
+            ? String((v as { Str: string }).Str)
+            : typeof v === "object" && "List" in (v as object)
+              ? ((v as { List: string[] }).List[0] ?? "")
+              : String(v);
+      let memos = liveSorted(loadStore());
+      if (filter?.folder !== null && filter?.folder !== undefined)
+        memos = memos.filter((n) => n.folder === filter.folder);
+      if (filter?.favorites_only) memos = memos.filter((n) => n.favorite);
+      for (const p of preds) {
+        memos = memos.filter((n) => {
+          const v = (n.props ?? {})[p.key];
+          const members =
+            v && typeof v === "object" && "List" in v
+              ? (v as { List: string[] }).List
+              : v !== undefined
+                ? [propStr(v)]
+                : [];
+          return members.some((m) => p.values.includes(m));
+        });
+      }
+      if (typeof sort === "string" && sort === "UpdatedAsc")
+        memos = [...memos].reverse();
+      if (typeof sort === "object" && sort !== null && "PropAsc" in sort) {
+        const key = sort.PropAsc;
+        memos = [...memos].sort((a, b) =>
+          propStr((a.props ?? {})[key]).localeCompare(propStr((b.props ?? {})[key])),
+        );
+      }
+      const total = memos.length;
+      return { items: memos.slice(offset, offset + limit).map(summaryOf), total };
+    }
+
+    case "folder_schema": {
+      const folder = args?.folder as string;
+      const schemas = loadSchemas();
+      return schemas[folder] ?? null;
+    }
+
+    case "apply_knowledge_preset": {
+      const folder = (args?.folder as string) ?? "";
+      const schemas = loadSchemas();
+      if (!schemas[folder]) {
+        schemas[folder] = KNOWLEDGE_PRESET_SCHEMA;
+        localStorage.setItem("oximemo:schemas", JSON.stringify(schemas));
+      }
+      emitBrowser("memos:changed");
       return null;
     }
 

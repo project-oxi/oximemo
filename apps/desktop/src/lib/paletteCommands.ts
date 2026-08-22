@@ -59,6 +59,11 @@ export interface CommandCallbacks {
   /** Request folder creation in the main area (CardGrid effect). */
   newFolder: () => void;
   quickCapture: () => void;
+  /** Open the review queue in a `[review]`-declared folder (§7.3). Absent
+   *  when no folder declares one — the catalog is state-driven. */
+  openReviewQueue?: (folder: string) => void;
+  /** New folder preloaded with the knowledge preset (§6.3). */
+  newKnowledgeFolder?: () => void;
   openSettings: () => void;
   setTheme: (t: Theme) => void;
 }
@@ -70,6 +75,9 @@ export interface CommandDeps {
   folders: FolderEntry[];
   tags: [string, number][];
   dailyEnabled: boolean;
+  /** Folders whose SCHEMA.toml declares [review] — drives the review
+   *  command's existence (design §7.3: the catalog is state-driven). */
+  reviewFolders?: string[];
   callbacks: CommandCallbacks;
 }
 
@@ -146,6 +154,26 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
     add(`tag:${tag}`, "hash", `#${tag}`, `#${tag}`, "nav", () => callbacks.selectTag(tag), {
       count,
     });
+  }
+  // Review queue: one command per `[review]`-declaring folder, plus the
+  // unified first entry when several exist (design §7.3). The commands
+  // exist only when the state does — no folder-name special cases.
+  for (const folder of deps.reviewFolders ?? []) {
+    const r = pair(locale, "palette_review_queue");
+    add(
+      `review:${folder}`,
+      "zap",
+      deps.reviewFolders && deps.reviewFolders.length > 1
+        ? `${r.title} — ${folder}`
+        : r.title,
+      r.alias,
+      "action",
+      () => callbacks.openReviewQueue?.(folder),
+    );
+  }
+  if (callbacks.newKnowledgeFolder) {
+    const k = pair(locale, "palette_knowledge_folder");
+    add("action.new_knowledge_folder", "folder-plus", k.title, k.alias, "action", callbacks.newKnowledgeFolder);
   }
 
   // View-mode switches exclude the active mode (no-op noise).
