@@ -774,6 +774,8 @@ export function SettingsMenu() {
   const setToast = useUI((s) => s.setToast);
   const setError = useUI((s) => s.setError);
   const updateAvailable = useUI((s) => s.updateAvailable);
+  const settingsOpen = useUI((s) => s.settingsOpen);
+  const setSettingsOpen = useUI((s) => s.setSettingsOpen);
   const qc = useQueryClient();
 
   const [busy, setBusy] = useState<"reindex" | "doctor" | "reset" | null>(null);
@@ -869,7 +871,7 @@ export function SettingsMenu() {
   };
 
   return (
-    <Dialog.Root>
+    <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
       <Dialog.Trigger
         aria-label={t.settings}
         className="relative rounded-full p-1.5 text-text-muted transition-colors hover:bg-surface-muted hover:text-text"
