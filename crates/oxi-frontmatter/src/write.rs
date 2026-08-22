@@ -53,6 +53,11 @@ pub struct Mutation {
     /// tombstone at timestamp `t`; `Some(None)` removes the key
     /// (undelete). `None` (outer) means "no change".
     pub deleted: Option<Option<OffsetDateTime>>,
+    /// Arbitrary (non-core) property changes. `Some(v)` sets `key` to
+    /// `v`; `None` removes the key. Keys matching the core schema
+    /// (`id`, `created`, `updated`, `favorite`, `deleted`) are ignored
+    /// — core keys only change through their dedicated fields above.
+    pub set_props: IndexMap<String, Option<Value>>,
 }
 
 /// Whether a missing or `BodyOnly` file is allowed to be
@@ -253,7 +258,6 @@ fn build_next_table(mut existing: Table, mutations: Mutation, now: OffsetDateTim
     if let Some(fav) = mutations.favorite {
         existing.insert("favorite".to_string(), Value::Bool(fav));
     }
-
     // deleted: `Some(Some(t))` writes tombstone; `Some(None)` removes.
     match mutations.deleted {
         Some(Some(ts)) => {
@@ -265,12 +269,30 @@ fn build_next_table(mut existing: Table, mutations: Mutation, now: OffsetDateTim
         None => {}
     }
 
+
+    // Property changes: non-core keys only, applied after the core
+    // fields so a hostile `set_props` cannot override id/created/etc.
+    for (key, change) in mutations.set_props {
+        if matches!(
+            key.as_str(),
+            "id" | "created" | "updated" | "favorite" | "deleted"
+        ) {
+            continue;
+        }
+        match change {
+            Some(v) => {
+                existing.insert(key, v);
+            }
+            None => {
+                existing.shift_remove(&key);
+            }
+        }
+    }
+
     existing
 }
 
 /// Validate that every shape in `table` can be emitted and then
-/// re-read by the parser. The emitter is lossy for a handful of
-/// inputs and we refuse to write an unreadable file.
 ///
 /// `key_path` is the dotted prefix for nested-map diagnostics
 /// (e.g. `"oxios.author"`).
@@ -499,6 +521,105 @@ mod tests {
     }
 
     #[test]
+    fn set_props_sets_and_removes_and_preserves_unknown_keys() {
+        let p = tmp().join("props.md");
+        write_document(
+            &p,
+            "body",
+            NoteFormat::Markdown,
+            Mutation::default(),
+            Synthesize::Yes,
+            now(),
+        )
+        .unwrap();
+        // Foreign key + a prop we will remove.
+        let base = fs::read_to_string(&p).unwrap();
+        fs::write(
+            &p,
+            base.replace("---\n", "---\nforeign: stay\nstatus: stub\ntags: [a]\n"),
+        )
+        .ok();
+
+        let mut set_props = IndexMap::new();
+        set_props.insert("status".to_string(), Some(Value::Str("understood".into())));
+        set_props.insert("tags".to_string(), None); // remove
+        set_props.insert("domain".to_string(), Some(Value::Array(vec!["TECH".into()])));
+        set_props.insert(
+            "updated".to_string(),
+            Some(Value::Str("hostile-override".into())),
+        ); // core key: ignored
+        let out = write_document(
+            &p,
+            "body",
+            NoteFormat::Markdown,
+            Mutation {
+                set_props,
+                ..Default::default()
+            },
+            Synthesize::No,
+            now(),
+        )
+        .unwrap();
+        assert!(matches!(out, WriteOutcome::Written));
+
+        let Parsed::Memo { table, .. } =
+            parse(&fs::read_to_string(&p).unwrap(), NoteFormat::Markdown).unwrap()
+        else {
+            panic!("expected Memo");
+        };
+        assert_eq!(
+            table.get("status"),
+            Some(&Value::Str("understood".into()))
+        );
+        assert_eq!(
+            table.get("domain"),
+            Some(&Value::Array(vec!["TECH".into()]))
+        );
+        assert!(!table.contains_key("tags"), "removed key must be gone");
+        assert_eq!(table.get("foreign"), Some(&Value::Str("stay".into())));
+        assert_ne!(
+            table.get("updated"),
+            Some(&Value::Str("hostile-override".into())),
+            "core keys must be immune to set_props"
+        );
+    }
+
+    #[test]
+    fn set_props_with_same_value_is_noop() {
+        let p = tmp().join("same.md");
+        let mut set_props = IndexMap::new();
+        set_props.insert("status".to_string(), Some(Value::Str("stub".into())));
+        write_document(
+            &p,
+            "b",
+            NoteFormat::Markdown,
+            Mutation {
+                set_props: set_props.clone(),
+                ..Default::default()
+            },
+            Synthesize::Yes,
+            now(),
+        )
+        .unwrap();
+        let out = write_document(
+            &p,
+            "b",
+            NoteFormat::Markdown,
+            Mutation {
+                set_props,
+                ..Default::default()
+            },
+            Synthesize::No,
+            now(),
+        )
+        .unwrap();
+        assert!(
+            matches!(out, WriteOutcome::NoOp),
+            "re-setting the same property value must not touch the file"
+        );
+    }
+
+    #[test]
     fn noop_when_nothing_changed() {
         let p = tmp().join("n.md");
         write_document(
@@ -571,6 +692,7 @@ mod tests {
             Mutation {
                 favorite: None,
                 deleted: Some(Some(now())),
+                set_props: IndexMap::new(),
             },
             Synthesize::No,
             now(),
@@ -584,6 +706,7 @@ mod tests {
             Mutation {
                 favorite: None,
                 deleted: Some(None),
+                set_props: IndexMap::new(),
             },
             Synthesize::No,
             now(),
@@ -864,6 +987,7 @@ mod tests {
             Mutation {
                 favorite: Some(true),
                 deleted: None,
+                set_props: IndexMap::new(),
             },
             Synthesize::No,
             now(),
@@ -935,6 +1059,7 @@ mod tests {
             Mutation {
                 favorite: Some(true),
                 deleted: None,
+                set_props: IndexMap::new(),
             },
             Synthesize::No,
             now(),
