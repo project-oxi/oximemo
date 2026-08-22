@@ -23,6 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   folder-creation requests are store-owned so the palette can drive
   them. IME-safe (composition Enter never runs a command).
 
+- **Sidebar pin management + reordering, tag rename, file import,
+  editor/graph menus** — pinned folder rows gain full management parity
+  (inline rename with note re-pathing, two-click armed delete with deep
+  count) and a ⠿ drag handle for reordering (top/bottom-half drop =
+  before/after, persisted via the new `set_pin_order`); tag chips gain
+  vault-wide rename (`rename_tag` rewrites `#tag` bodies with the
+  shared token-boundary scanner, merges on collision, toasts the
+  changed-note count); dropping `.md`/`.markdown`/`.txt` files on the
+  note area imports them as notes in the current folder (copy
+  semantics); inline editor images get a context menu (delete /
+  reset width / copy URL) and graph nodes get 노트 열기 · 즐겨찾기 ·
+  삭제.
+
 
 ### Changed
 
