@@ -176,29 +176,29 @@ export function Sidebar({
           {t.locations_section}
         </span>
       </div>
-      <button
-        type="button"
-        onClick={() => { setView("memos"); setFavoritesOnly(false); setFolderFilter(""); }}
-        className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
-          view === "memos" && !favoritesOnly && folderFilter === ""
-            ? "bg-surface-muted font-semibold text-text"
-            : "text-text-muted hover:bg-surface-muted"
-        }`}
-      >
-        <Archive size={14} /> {t.vault_root}
-      </button>
+      <LocationsRow
+        path=""
+        selected={view === "memos" && !favoritesOnly && folderFilter === ""}
+        onClick={() => {
+          setView("memos");
+          setFavoritesOnly(false);
+          setFolderFilter("");
+        }}
+        onMoveNote={onMoveNote}
+        onMoveFolderTree={onMoveFolderTree}
+        icon={<Archive size={14} />}
+        label={t.vault_root}
+      />
       {dailyEnabled && dailyFolder && (
-        <button
-          type="button"
+        <LocationsRow
+          path={dailyFolder}
+          selected={view === "memos" && !favoritesOnly && folderFilter === dailyFolder}
           onClick={() => openFolder(dailyFolder)}
-          className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
-            view === "memos" && !favoritesOnly && folderFilter === dailyFolder
-              ? "bg-surface-muted font-semibold text-text"
-              : "text-text-muted hover:bg-surface-muted"
-          }`}
-        >
-          <CalendarDays size={14} /> {dailyFolder}
-        </button>
+          onMoveNote={onMoveNote}
+          onMoveFolderTree={onMoveFolderTree}
+          icon={<CalendarDays size={14} />}
+          label={dailyFolder}
+        />
       )}
       {pins.map((f) => (
         <SidebarFolderRow
@@ -433,6 +433,49 @@ function SidebarFolderRow({
           />
         </CtxMenu>
       </CtxRoot>
+    </div>
+  );
+}
+
+/** One LOCATIONS row (볼트 root / daily): navigation button that is
+ *  also a drop target — dropping a note moves it to this folder,
+ *  dropping a folder subtree reparents it here (T14 semantics).
+ *  Extracted so useFolderDrop runs at a stable hook index. */
+function LocationsRow({
+  path,
+  selected,
+  onClick,
+  onMoveNote,
+  onMoveFolderTree,
+  icon,
+  label,
+}: {
+  path: string;
+  selected: boolean;
+  onClick: () => void;
+  onMoveNote: (id: string, folder: string) => void;
+  onMoveFolderTree?: (p: string, dest: string) => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  const { dropCls, ...dropProps } = useFolderDrop(
+    path,
+    (id) => onMoveNote(id, path),
+    onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
+  );
+  return (
+    <div {...dropProps} className={`mx-2 rounded-md ${dropCls ?? ""}`}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] ${
+          selected
+            ? "bg-surface-muted font-semibold text-text"
+            : "text-text-muted hover:bg-surface-muted"
+        }`}
+      >
+        {icon} <span className="truncate">{label}</span>
+      </button>
     </div>
   );
 }

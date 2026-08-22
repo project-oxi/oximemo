@@ -22,6 +22,7 @@ import { colorForFolder } from "../../lib/color";
 import { relativeTime } from "../../lib/time";
 import { useI18n } from "../../lib/i18n";
 import { previewText } from "../../lib/markdownPreview";
+import { useUI } from "../../stores/ui";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
 interface Props {
@@ -58,6 +59,7 @@ export function TimelineView({
   onNewFolder,
 }: Props) {
   const { t, locale } = useI18n();
+  const setDraggingNote = useUI((s) => s.setDraggingNote);
   const groups = useMemo(() => {
     const m = new Map<string, MemoSummary[]>();
     for (const it of items) {
@@ -90,6 +92,16 @@ export function TimelineView({
                   <CtxTrigger
                     render={
                       <div
+                        draggable
+                        onDragStart={(e: React.DragEvent) => {
+                          setDraggingNote(n);
+                          e.dataTransfer.setData(
+                            "application/x-oximemo-notes",
+                            JSON.stringify([n.id]),
+                          );
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragEnd={() => setDraggingNote(null)}
                         onClick={() => onSelect(n.id)}
                         className="group cursor-pointer rounded-lg border border-transparent px-3 py-2 transition-colors hover:border-line hover:bg-surface-muted"
                       />
