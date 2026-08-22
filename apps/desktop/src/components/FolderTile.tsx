@@ -20,6 +20,7 @@ import { relativeTime } from "../lib/time";
 import type { FolderCard, FolderDef } from "../lib/types";
 
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
+import { TextCtxMenu } from "./TextCtxMenu";
 
 /** A naming session: which folder is being (re)named, and whether it was
  *  just created (cancel then DELETES the brand-new folder — T10's
@@ -214,20 +215,24 @@ export function FolderTile({
       <div className="flex min-w-0 items-center gap-2">
         <Folder size={13} className="shrink-0" style={{ color }} />
         {naming ? (
-          <input
-            autoFocus
-            defaultValue={card.path.split("/").at(-1) ?? ""}
-            onFocus={(e) => e.currentTarget.select()}
-            ref={(el) => el?.select()}
-            onClick={(e) => e.stopPropagation()}
-            onBlur={(e) => onNameCommit(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Enter") onNameCommit(e.currentTarget.value);
-              else if (e.key === "Escape") onNameCommit(null);
-            }}
-            style={{ boxShadow: "none" }}
-            className="w-full min-w-0 flex-1 bg-transparent px-0 py-0 text-sm font-semibold text-text outline-none"
+          <TextCtxMenu
+            render={
+              <input
+                autoFocus
+                defaultValue={card.path.split("/").at(-1) ?? ""}
+                onFocus={(e) => e.currentTarget.select()}
+                ref={(el) => el?.select()}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={(e) => onNameCommit(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") onNameCommit(e.currentTarget.value);
+                  else if (e.key === "Escape") onNameCommit(null);
+                }}
+                style={{ boxShadow: "none" }}
+                className="w-full min-w-0 flex-1 bg-transparent px-0 py-0 text-sm font-semibold text-text outline-none"
+              />
+            }
           />
         ) : (
           <span className="truncate text-sm font-semibold text-text">

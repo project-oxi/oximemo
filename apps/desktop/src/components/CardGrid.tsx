@@ -53,6 +53,7 @@ import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
 
 import { MemoDetail } from "./MemoDetail";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
+import { TextCtxMenu } from "./TextCtxMenu";
 import type { NamingSession } from "./FolderTile";
 import { FolderPalette } from "./FolderPalette";
 import { Sidebar } from "./Sidebar";
@@ -885,15 +886,19 @@ export function CardGrid() {
           )}
           <div className="relative w-56">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-subtle" />
-            <input
-              type="text"
-              value={localSearch}
-              onChange={(e) => {
-                setLocalSearch(e.target.value);
-                setSearch(e.target.value);
-              }}
-              placeholder={t.search_placeholder}
-              className="w-full rounded-[var(--input-radius)] bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-text-subtle shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
+            <TextCtxMenu
+              render={
+                <input
+                  type="text"
+                  value={localSearch}
+                  onChange={(e) => {
+                    setLocalSearch(e.target.value);
+                    setSearch(e.target.value);
+                  }}
+                  placeholder={t.search_placeholder}
+                  className="w-full rounded-[var(--input-radius)] bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-text-subtle shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
+                />
+              }
             />
           </div>
           {/* Finder-style toolbar affordance (browser feedback): the only

@@ -24,6 +24,7 @@ import type { EditorView } from "@codemirror/view";
 
 import { resolveImageUrl, widthOfUrl } from "../lib/assets";
 import { imageInsertionExtension, type ImageViewHandle } from "../lib/cm6Images";
+import { TextCtxMenu } from "./TextCtxMenu";
 import type { Extension } from "@codemirror/state";
 
 interface Props {
@@ -135,7 +136,10 @@ export function MarkdownEditor({
   }, [documentId]);
 
   return (
-    <div className={className} ref={rootRef}>
+    <TextCtxMenu
+      cm6
+      render={<div className={className} ref={rootRef} />}
+    >
       <AtomicCodeMirrorEditor
         documentId={documentId}
         markdownSource={body}
@@ -144,6 +148,6 @@ export function MarkdownEditor({
         onLinkClick={onLinkClick ?? defaultOpenLink}
         extensions={[imageInsertionExtension(viewRef), ...(extensions ?? [])]}
       />
-    </div>
+    </TextCtxMenu>
   );
 }

@@ -26,7 +26,10 @@ export function TextCtxMenu({
   /** The editable's own element (input/textarea/editor host div).
    *  Props are cloned so our pointer capture composes with yours. */
   render: ReactElement<
-    { onPointerDown?: (e: React.PointerEvent) => void } & Record<string, unknown>
+    {
+      onPointerDown?: (e: React.PointerEvent) => void;
+      onContextMenu?: (e: React.MouseEvent) => void;
+    } & Record<string, unknown>
   >;
   children?: ReactNode;
   /** CM6 host: paste dispatches a synthetic ClipboardEvent on the
@@ -83,6 +86,12 @@ export function TextCtxMenu({
         targetRef.current = e.currentTarget;
       }
       render.props.onPointerDown?.(e);
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      // Nested triggers (e.g. a rename input inside FolderMenu's
+      // trigger): stop the bubble so only this menu opens.
+      e.stopPropagation();
+      render.props.onContextMenu?.(e);
     },
   });
 

@@ -24,6 +24,7 @@ import {
 } from "@codemirror/language";
 import { atomicEditorTheme } from "@atomic-editor/editor";
 import "@atomic-editor/editor/styles.css";
+import { TextCtxMenu } from "./TextCtxMenu";
 
 interface Props {
   body: string;
@@ -71,5 +72,10 @@ export function HtmlEditor({ body, onChange, documentId, className, autoFocus = 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- body only seeds the doc; documentId drives remounts.
   }, [documentId]);
 
-  return <div ref={hostRef} key={documentId} className={className} data-html-editor />;
+  return (
+    <TextCtxMenu
+      cm6
+      render={<div ref={hostRef} key={documentId} className={className} data-html-editor />}
+    />
+  );
 }
