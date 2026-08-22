@@ -39,14 +39,19 @@ import {
   memoStats,
   moveNote,
   moveFolder,
+  openDailyNote,
   renameFolder,
   searchMemos,
+  setAppearanceConfig,
   setFolderPinned,
   setFolderView,
+  showCaptureWindow,
   updateMemo,
   restoreNotes,
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { applyTheme, type Theme } from "../lib/theme";
+import { todayLocalISO } from "../lib/dates";
 import { listen } from "../lib/tauri";
 import { useUI, loadQueryView } from "../stores/ui";
 import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
@@ -55,7 +60,7 @@ import { MemoDetail } from "./MemoDetail";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import { TextCtxMenu } from "./TextCtxMenu";
 import type { NamingSession } from "./FolderTile";
-import { FolderPalette } from "./FolderPalette";
+import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
 import { GalleryView } from "./GalleryView";
 import { SettingsMenu } from "./SettingsMenu";
@@ -93,6 +98,11 @@ export function CardGrid() {
   const setView = useUI((s) => s.setView);
   const noteView = useUI((s) => s.noteView);
   const setNoteView = useUI((s) => s.setNoteView);
+  const cycleTag = useUI((s) => s.cycleTag);
+  const cmdPaletteOpen = useUI((s) => s.cmdPaletteOpen);
+  const setCmdPaletteOpen = useUI((s) => s.setCmdPaletteOpen);
+  const requestNewFolder = useUI((s) => s.requestNewFolder);
+  const consumeFolderCreate = useUI((s) => s.consumeFolderCreate);
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
   const hasMemos = (stats.data?.memos ?? 0) > 0;
   const clearAllFilters = () => {
@@ -657,44 +667,44 @@ export function CardGrid() {
     [namingPath, folderFilter, qc, setError, t.rename_failed_left],
   );
 
-
-
-  // ⌘⇧O folder jump palette (T15). Session state — the palette is a
+  // ⌘K command palette + friends. Session state — the palette is a
   // transient overlay, so open/close never persists.
-  const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const cmdOpen = useUI.getState().cmdPaletteOpen;
       // ⌘N / CtrlN — new note in current folder. Inert while the palette
       // modal is open (opening MemoDetail underneath would stack two
       // focus traps).
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
-        if (paletteOpen) return;
+        if (cmdOpen) return;
         e.preventDefault();
         onNewNote();
         return;
       }
-      // ⌘⇧O / Ctrl⇧O — folder jump palette. Guarded while the memo dialog
-      // is open (selectedId): its own key handling wins. Gallery view is
-      // excluded too — <FolderPalette> only mounts in the memos tree, so
-      // toggling it from gallery would arm an invisible open that pops
-      // the moment the user leaves gallery. The capture overlay lives in
-      // its own window/document (App early-returns the capture route), so
-      // it can never see this listener.
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") {
+      // ⌘K / CtrlK — command palette toggle. ⌘⇧O stays as an alias: the
+      // palette subsumed FolderPalette, and the old muscle memory keeps
+      // working. Guarded while the memo dialog is open (selectedId):
+      // its own key handling wins. Works in gallery too — the palette
+      // mounts outside the view branches. The capture overlay lives in
+      // its own window/document, so it never sees this listener.
+      const key = e.key.toLowerCase();
+      const wantsPalette =
+        ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && key === "k") ||
+        ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && key === "o");
+      if (wantsPalette) {
         if (useUI.getState().selectedId) return;
-        if (useUI.getState().view === "gallery") return;
         e.preventDefault();
-        setPaletteOpen((v) => !v);
+        setCmdPaletteOpen(!useUI.getState().cmdPaletteOpen);
         return;
       }
       // ⌘↑ / Ctrl↑ — navigate up one folder (no-op in query mode or at
-      // root; inert under the palette modal). Mirrors the ⌘⇧O and
-      // Escape branches — a memo dialog open (selectedId) wins; without
-      // this guard the editor loses key focus to the parent-folder
-      // jump while the user is reading a note.
+      // root; inert under the palette modal). Mirrors the ⌘K branch: a
+      // memo dialog open (selectedId) wins; without this guard the
+      // editor loses key focus to the parent-folder jump while the user
+      // is reading a note.
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "ArrowUp") {
         if (useUI.getState().selectedId) return;
-        if (paletteOpen) return;
+        if (cmdOpen) return;
         e.preventDefault();
         useUI.getState().navigateUp();
         return;
@@ -703,7 +713,7 @@ export function CardGrid() {
       // dialog/palette handlers manage their own Escape behaviour.
       if (e.key === "Escape") {
         if (useUI.getState().selectedId) return;
-        if (paletteOpen) return;
+        if (cmdOpen) return;
         if (localSearch === "") return;
         e.preventDefault();
         setLocalSearch("");
@@ -713,7 +723,7 @@ export function CardGrid() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onNewNote, localSearch, paletteOpen, setSearch]);
+  }, [onNewNote, localSearch, setSearch, setCmdPaletteOpen]);
 
   // Palette navigation mirrors the sidebar's openFolder convention
   // (Sidebar.tsx): setView("memos") + favoritesOnly(false) + browse the
@@ -730,13 +740,119 @@ export function CardGrid() {
       setView("memos");
       setFavoritesOnly(false);
       setFolderFilter(path);
-      setPaletteOpen(false);
+      setCmdPaletteOpen(false);
       setLocalSearch("");
       setDebounced("");
       setSearch("");
     },
+    [setView, setFavoritesOnly, setFolderFilter, setSearch, setCmdPaletteOpen],
+  );
+
+  // Palette callbacks (CommandCallbacks contract, lib/paletteCommands).
+  // Navigation ones mirror the sidebar/openFolder conventions exactly.
+  const openToday = useCallback(() => {
+    if (configQ.data?.daily?.enabled === false) return;
+    openDailyNote(todayLocalISO())
+      .then(({ memo, created }) => {
+        setView("memos");
+        select(memo.id);
+        // Fresh daily note: closing it untouched discards it (Sidebar's
+        // openDaily flow).
+        if (created) setDraftId(memo.id, memo.body);
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  }, [configQ.data, setView, select, setDraftId, setError]);
+
+  // Bridge row: graduate the palette's transient query into the
+  // persistent header search, in global query mode.
+  const onSearchAll = useCallback(
+    (q: string) => {
+      setView("memos");
+      setFavoritesOnly(false);
+      setFolderFilter(null);
+      setLocalSearch(q);
+      setDebounced(q);
+      setSearch(q);
+    },
     [setView, setFavoritesOnly, setFolderFilter, setSearch],
   );
+
+  const paletteCallbacks = useMemo(
+    () => ({
+      jumpToFolder,
+      openCollection: (kind: "all" | "favorites") => {
+        setView("memos");
+        setFavoritesOnly(false);
+        setFolderFilter(null);
+        if (kind === "favorites") setFavoritesOnly(true);
+      },
+      openGallery: () => setView("gallery"),
+      openToday,
+      selectTag: (tag: string) => {
+        // Sidebar tag convention: vault-wide intent — drop folder and
+        // favorite scope, then cycle the tag in.
+        setView("memos");
+        setFavoritesOnly(false);
+        setFolderFilter(null);
+        cycleTag(tag);
+      },
+      setViewMode: (v: ViewMode) => {
+        setView("memos");
+        setNoteView(v);
+      },
+      toggleSidebar,
+      newNote: (format: "markdown" | "html") => (format === "html" ? onNewHtmlNote() : onNewNote()),
+      newFolder: () => useUI.getState().requestFolderCreate(),
+      quickCapture: () => {
+        void showCaptureWindow().catch((e) => setError(String(e).split("\n")[0]));
+      },
+      // SettingsMenu mounts only in the memos header — from gallery the
+      // drawer would ghost-open with nothing consuming settingsOpen.
+      openSettings: () => {
+        useUI.getState().setView("memos");
+        useUI.getState().setSettingsOpen(true);
+      },
+      // SettingsMenu's onTheme flow, verbatim: instant apply + TOML parity.
+      setTheme: (v: Theme) => {
+        useUI.getState().setTheme(v);
+        applyTheme(v);
+        void setAppearanceConfig({
+          theme: v,
+          show_dock_icon: configQ.data?.appearance?.show_dock_icon ?? true,
+        })
+          .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+          .catch((e) => setError(String(e).split("\n")[0]));
+      },
+    }),
+    [
+      jumpToFolder, openToday, setView, setFavoritesOnly, setFolderFilter,
+      cycleTag, setNoteView, toggleSidebar, onNewNote, onNewHtmlNote,
+      setError, configQ.data, qc,
+    ],
+  );
+
+  // The palette's "새 폴더" lands in the main area (never in the
+  // palette): consume the one-shot flag and start the inline naming
+  // flow. The naming input only mounts in the memos view (folder
+  // tiles / list rows), so leave gallery first — otherwise the folder
+  // is created on disk while its naming session (and cancel path)
+  // never mounts. Query mode has no definite location, so fall back
+  // to the vault root first — the flag stays set and this effect
+  // re-runs once folderFilter commits.
+  useEffect(() => {
+    if (!requestNewFolder) return;
+    // Unconditional: from gallery with a folderFilter set, the branch
+    // below would otherwise consume the flag and create the folder
+    // while the naming input has nowhere to mount.
+    setView("memos");
+    if (folderFilter === null) {
+      setFavoritesOnly(false);
+      setFolderFilter("");
+      return;
+    }
+    consumeFolderCreate();
+    startFolderCreate();
+  }, [requestNewFolder, folderFilter, setView, setFavoritesOnly, setFolderFilter, consumeFolderCreate, startFolderCreate]);
 
   // Sidebar toggle is the first inline element of the header now (see
   // <header> below). The wrapper provides the pl-1 inset and h-12 height so
@@ -812,6 +928,19 @@ export function CardGrid() {
     </div>
   );
 
+  // Mounted once and included in BOTH view trees (gallery early-returns
+  // its own JSX) — ⌘K works everywhere except over the memo dialog.
+  const commandPalette = (
+    <CommandPalette
+      open={cmdPaletteOpen}
+      onClose={() => setCmdPaletteOpen(false)}
+      folders={folderEntries}
+      folderDefs={folders}
+      callbacks={paletteCallbacks}
+      onSearchAll={onSearchAll}
+    />
+  );
+
   if (view === "gallery") {
     // h-dvh: see the memos return below — the height chain anchors here too.
     return (
@@ -829,6 +958,7 @@ export function CardGrid() {
           <GalleryView />
         </div>
         <MemoDetail />
+        {commandPalette}
       </div>
     );
   }
@@ -1074,13 +1204,7 @@ export function CardGrid() {
         </div>
       </div>
       <MemoDetail />
-      <FolderPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        folders={folderEntries}
-        folderDefs={folders}
-        onNavigate={jumpToFolder}
-      />
+      {commandPalette}
     </div>
   );
 }
