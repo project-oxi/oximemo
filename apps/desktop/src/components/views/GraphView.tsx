@@ -1,4 +1,5 @@
-import { Globe } from "lucide-react";
+import { FileText, Globe, Star, Trash2 } from "lucide-react";
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "../ContextMenu";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -31,6 +32,9 @@ interface Props {
   onMoveNote?: (id: string, folder: string) => void;
   /** Move a dragged folder subtree into a chip's folder (drop target). */
   onMoveFolderTree?: (path: string, dest: string) => void;
+  /** Node context menu: favorite toggle + delete. */
+  onToggleFavorite?: (id: string, favorite: boolean) => void;
+  onDelete?: (id: string) => void;
 }
 
 function emptyBrowserGraph(items: MemoSummary[] = []): GraphData {
@@ -65,6 +69,8 @@ export function GraphView({
   onNewFolder,
   onMoveNote,
   onMoveFolderTree,
+  onToggleFavorite,
+  onDelete,
 }: Props) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
@@ -223,26 +229,44 @@ export function GraphView({
                 />
               );
             })}
-            {nodes.map((n) => (
-              <g
-                key={n.id}
-                transform={`translate(${n.x},${n.y})`}
-                style={{ cursor: "pointer" }}
-                onClick={() => select(n.id)}
-              >
-                <circle r={5} fill={n.color || "currentColor"} stroke="var(--color-surface)" strokeWidth={1.5} />
-                <text
-                  x={9}
-                  y={4}
-                  fontSize={10}
-                  fill="currentColor"
-                  opacity={0.7}
-                  style={{ pointerEvents: "none" }}
-                >
-                  {n.title.length > 28 ? `${n.title.slice(0, 28)}…` : n.title}
-                </text>
-              </g>
-            ))}
+            {nodes.map((n) => {
+              const fav = items.find((i) => i.id === n.id)?.favorite ?? false;
+              return (
+                <CtxRoot key={n.id}>
+                  <CtxTrigger
+                    render={
+                      <g
+                        transform={`translate(${n.x},${n.y})`}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => select(n.id)}
+                      />
+                    }
+                  >
+                    <circle r={5} fill={n.color || "currentColor"} stroke="var(--color-surface)" strokeWidth={1.5} />
+                    <text
+                      x={9}
+                      y={4}
+                      fontSize={10}
+                      fill="currentColor"
+                      opacity={0.7}
+                      style={{ pointerEvents: "none" }}
+                    >
+                      {n.title.length > 28 ? `${n.title.slice(0, 28)}…` : n.title}
+                    </text>
+                    <CtxMenu>
+                      <CtxItem icon={FileText} label={t.link_open_note} onClick={() => select(n.id)} />
+                      <CtxItem
+                        icon={Star}
+                        label={fav ? t.action_unfavorite : t.action_favorite}
+                        onClick={() => onToggleFavorite?.(n.id, fav)}
+                      />
+                      <CtxSeparator />
+                      <CtxItem icon={Trash2} label={t.action_delete} danger onClick={() => onDelete?.(n.id)} />
+                    </CtxMenu>
+                  </CtxTrigger>
+                </CtxRoot>
+              );
+            })}
           </g>
         </svg>
       </div>

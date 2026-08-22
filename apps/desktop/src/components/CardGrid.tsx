@@ -1244,6 +1244,8 @@ export function CardGrid() {
                 onNewFolder={startFolderCreate}
                 onMoveNote={onMoveFolder}
                 onMoveFolderTree={moveFolderTree}
+                onToggleFavorite={onToggleFavorite}
+                onDelete={onDelete}
               />
             )}
               <CtxMenu>
