@@ -15,6 +15,8 @@ export const dict: Record<keyof typeof ko, string> = {
   text_copy: "Copy",
   text_paste: "Paste",
   text_select_all: "Select All",
+  gallery_open_note: "Open Note",
+  gallery_view_large: "View Large",
   favorite: "Favorites",
   color: "Color",
   language: "Language",

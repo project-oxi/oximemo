@@ -15,6 +15,8 @@ export const dict = {
   text_copy: "복사",
   text_paste: "붙여넣기",
   text_select_all: "모두 선택",
+  gallery_open_note: "노트 열기",
+  gallery_view_large: "크게 보기",
   color: "색상",
   language: "언어",
   theme_system: "시스템",
