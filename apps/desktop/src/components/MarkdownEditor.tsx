@@ -14,7 +14,8 @@
  *    a blob URL in browser-dev (Tauri resolves it natively), and supports
  *    Alt+drag resize that commits the width back into the markdown.
  */
-import { useEffect, useRef, type MutableRefObject } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { Link2, RotateCcw, Trash2 } from "lucide-react";
 import {
   AtomicCodeMirrorEditor,
   type AtomicCodeMirrorEditorHandle,
@@ -25,6 +26,8 @@ import type { EditorView } from "@codemirror/view";
 import { resolveImageUrl, widthOfUrl } from "../lib/assets";
 import { imageInsertionExtension, type ImageViewHandle } from "../lib/cm6Images";
 import { TextCtxMenu } from "./TextCtxMenu";
+import { PointMenu, PointItem } from "./PointMenu";
+import { useI18n } from "../lib/i18n";
 import type { Extension } from "@codemirror/state";
 
 interface Props {
@@ -82,8 +85,21 @@ export function MarkdownEditor({
   const fallback = useRef<AtomicCodeMirrorEditorHandle | null>(null);
   const handleRef = editorHandleRef ?? fallback;
   const viewFallback = useRef<ImageViewHandle | null>(null);
+  const { t } = useI18n();
   const viewRef = viewHandleRef ?? viewFallback;
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const [imgMenu, setImgMenu] = useState<{ name: string; x: number; y: number } | null>(null);
+
+  // Inline-image context menu (spec D5): cm6Images bridges right-clicks
+  // on rendered images via a window CustomEvent; render a PointMenu here.
+  useEffect(() => {
+    const onImageMenu = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ name: string; x: number; y: number }>).detail;
+      if (detail?.name) setImgMenu({ name: detail.name, x: detail.x, y: detail.y });
+    };
+    window.addEventListener("oximemo:image-menu", onImageMenu);
+    return () => window.removeEventListener("oximemo:image-menu", onImageMenu);
+  }, []);
 
   // Render oximg images: width hint, browser-dev blob swap, Alt+drag resize.
   // Re-scans whenever the document swaps (images are torn down + rebuilt).
@@ -145,6 +161,42 @@ export function MarkdownEditor({
         onLinkClick={onLinkClick ?? defaultOpenLink}
         extensions={[imageInsertionExtension(viewRef), ...(extensions ?? [])]}
       />
+      {imgMenu && (
+        <PointMenu x={imgMenu.x} y={imgMenu.y} onClose={() => setImgMenu(null)}>
+          <PointItem
+            icon={Trash2}
+            label={t.img_delete}
+            danger
+            onClick={() => {
+              const view = viewRef.current?.view;
+              const doc = view?.state.doc.toString();
+              if (view && doc) {
+                const escaped = imgMenu.name.replace(/[.]/g, "\\.");
+                const re = new RegExp(`^.*oximg://localhost/${escaped}(?:#w=\\d+)?.*\\n?`, "gm");
+                view.dispatch({ changes: { from: 0, to: doc.length, insert: doc.replace(re, "") } });
+              }
+              setImgMenu(null);
+            }}
+          />
+          <PointItem
+            icon={RotateCcw}
+            label={t.img_reset_width}
+            onClick={() => {
+              const view = viewRef.current?.view;
+              if (view) commitWidth(view, imgMenu.name, 0);
+              setImgMenu(null);
+            }}
+          />
+          <PointItem
+            icon={Link2}
+            label={t.img_copy_url}
+            onClick={() => {
+              void navigator.clipboard.writeText(`oximg://localhost/${imgMenu.name}`);
+              setImgMenu(null);
+            }}
+          />
+        </PointMenu>
+      )}
     </TextCtxMenu>
   );
 }

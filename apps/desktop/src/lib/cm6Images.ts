@@ -103,6 +103,22 @@ export function imageInsertionExtension(handle: MutableRefObject<ImageViewHandle
         void insertImagesAt(files, at, view);
         return true;
       },
+      contextmenu(e) {
+        // Inline-image context menu (spec 2026-08-22 D5): the img is
+        // CM6-managed DOM, so React can't wrap it — bridge to a window
+        // CustomEvent that MarkdownEditor turns into a PointMenu.
+        const img = e.target instanceof HTMLImageElement ? e.target : null;
+        const name = img?.dataset.oxName;
+        if (!img || !name) return false;
+        e.preventDefault();
+        e.stopPropagation();
+        window.dispatchEvent(
+          new CustomEvent("oximemo:image-menu", {
+            detail: { name, x: e.clientX, y: e.clientY },
+          }),
+        );
+        return true;
+      },
     }),
     ViewPlugin.fromClass(
       class {
