@@ -13,6 +13,7 @@ export function Calendar({
   today,
   locale,
   onSelect,
+  dotTone,
 }: {
   /** ISO dates that have a daily note. */
   dates: Set<string>;
@@ -20,6 +21,10 @@ export function Calendar({
   today: string;
   locale: string;
   onSelect: (date: string) => void;
+  /** Optional per-date dot color (a `bg-*` class). The daily calendar
+   *  passes the folder's badge-property color (mood) — days without a
+   *  badge value keep the neutral dot (user prompt 2026-08-23). */
+  dotTone?: (date: string) => string | null;
 }) {
   const { t } = useI18n();
   // Months derive from the `today` prop, not new Date(), so midnight
@@ -85,8 +90,10 @@ export function Calendar({
                 <i
                   data-daily-dot
                   aria-hidden
-                  className={`absolute bottom-[1px] left-1/2 size-[3px] -translate-x-1/2 rounded-full ${
-                    isToday ? "bg-interactive-primary-foreground" : "bg-text-subtle"
+                  className={`absolute bottom-[1px] left-1/2 size-[4px] -translate-x-1/2 rounded-full ${
+                    isToday
+                      ? "bg-interactive-primary-foreground"
+                      : dotTone?.(c.date) ?? "bg-text-subtle"
                   }`}
                 />
               )}

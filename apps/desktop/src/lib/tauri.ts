@@ -134,6 +134,11 @@ function ensureDefaultFolders(): void {
     const schemas = loadSchemas();
     if (!schemas.knowledge) {
       schemas.knowledge = KNOWLEDGE_PRESET_SCHEMA;
+    }
+    if (!schemas.daily) {
+      schemas.daily = DAILY_PRESET_SCHEMA;
+    }
+    if (schemas.knowledge || schemas.daily) {
       localStorage.setItem("oximemo:schemas", JSON.stringify(schemas));
     }
   } catch {
@@ -170,6 +175,7 @@ function loadSchemas(): Record<string, FolderSchema> {
 const KNOWLEDGE_PRESET_SCHEMA: FolderSchema = {
   workspace: { name: "지식" },
   properties: {
+    kind: { prop_type: "select", options: ["note", "knowledge", "daily"] },
     status: {
       prop_type: "select",
       options: ["stub", "vague", "understood", "mastered", "decayed"],
@@ -218,6 +224,28 @@ const KNOWLEDGE_PRESET_SCHEMA: FolderSchema = {
     due_values: ["understood", "mastered"],
     order_by: "status_changed",
     decay_to: "decayed",
+  },
+};
+
+/** JS mirror of the daily preset's SCHEMA.toml (user prompt 2026-08-23):
+ *  kind + mood (badge → calendar dot colors) + energy, all optional. */
+const DAILY_PRESET_SCHEMA: FolderSchema = {
+  workspace: { name: "데일리" },
+  properties: {
+    kind: { prop_type: "select", options: ["note", "knowledge", "daily"] },
+    mood: {
+      prop_type: "select",
+      options: ["great", "good", "okay", "low", "bad"],
+      badge: true,
+      colors: {
+        great: "success",
+        good: "info",
+        okay: "neutral",
+        low: "warning",
+        bad: "error",
+      },
+    },
+    energy: { prop_type: "select", options: ["high", "medium", "low"] },
   },
 };
 ensureDefaultFolders();
@@ -400,7 +428,7 @@ async function browserFallback(
         title: date,
         tags: [],
         body: `# ${date}\n`,
-        props: {},
+        props: { kind: { Str: "daily" } },
         deleted_at: null,
       };
       store[memo.id] = memo;

@@ -6,12 +6,21 @@
  */
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
-import { Folder, Star } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Folder, Star } from "lucide-react";
 
-import { deleteMemo, getMemo, moveNote, updateMemo, listFolders } from "../lib/api";
+import {
+  deleteMemo,
+  getMemo,
+  getConfig,
+  moveNote,
+  openDailyNote,
+  updateMemo,
+  listFolders,
+} from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { useFolderNames } from "../lib/folders";
+import { daysBetween, shiftISODate, todayLocalISO } from "../lib/dates";
 import { useUI } from "../stores/ui";
 import { ContextDock } from "./ContextDock";
 import { PropertyPanel } from "./PropertyPanel";
@@ -145,6 +154,39 @@ export function MemoDetail() {
       });
   };
 
+  // Daily-note navigation (user prompt 2026-08-23): a note living at
+  // `{daily.folder}/YYYY-MM-DD.*` is a journal entry — offer day arrows
+  // and a relative-date chip. Arrows open (or mint, like the calendar)
+  // the neighbouring day; "next" stops at today so arrows never create
+  // future entries by accident.
+  const configQ = useQuery({ queryKey: ["config"], queryFn: getConfig });
+  const dailyFolder = configQ.data?.daily?.folder || "daily";
+  const dailyDate = useMemo(() => {
+    const m = memo.data?.path?.match(
+      new RegExp(`^${dailyFolder}/(\\d{4}-\\d{2}-\\d{2})\\.(md|html)$`),
+    );
+    return m?.[1] ?? null;
+  }, [memo.data?.path, dailyFolder]);
+  const today = todayLocalISO();
+  const goDaily = (delta: number) => {
+    if (!dailyDate) return;
+    openDailyNote(shiftISODate(dailyDate, delta))
+      .then(({ memo: m, created }) => {
+        select(m.id);
+        if (created) setDraftId(m.id, m.body);
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+  const relLabel = (() => {
+    if (!dailyDate) return null;
+    const diff = daysBetween(today, dailyDate);
+    if (diff === 0) return t.rel_today;
+    if (diff === 1) return t.rel_yesterday;
+    return diff > 1
+      ? t.rel_days_ago.replace("{n}", String(diff))
+      : t.rel_in_days.replace("{n}", String(-diff));
+  })();
+
   const edit = <T,>(setter: (v: T) => void) => (v: T) => {
     setter(v);
     setDirty(true);
@@ -170,6 +212,32 @@ export function MemoDetail() {
                 <Folder size={12} />
                 {folder ? displayFolder(folder) : t.folder_root}
               </button>
+              {dailyDate && (
+                <div className="flex items-center gap-0.5" data-daily-nav>
+                  <button
+                    type="button"
+                    onClick={() => goDaily(-1)}
+                    aria-label={t.daily_prev_day}
+                    title={t.daily_prev_day}
+                    className="rounded-[var(--button-radius)] p-1 text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  >
+                    <ChevronLeft size={13} />
+                  </button>
+                  <span className="min-w-9 text-center text-[11px] text-text-subtle" data-daily-rel>
+                    {relLabel}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => goDaily(1)}
+                    disabled={shiftISODate(dailyDate, 1) > today}
+                    aria-label={t.daily_next_day}
+                    title={t.daily_next_day}
+                    className="rounded-[var(--button-radius)] p-1 text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:opacity-30 disabled:hover:bg-transparent"
+                  >
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => edit(setFavorite)(!favorite)}

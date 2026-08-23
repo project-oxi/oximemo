@@ -51,6 +51,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   searchable as an alias), move/delete menus, capture form, settings,
   and the note detail; rename inputs still edit the physical name.
 
+- **Daily notes as a first-party journal** — the daily folder gains the
+  same preset treatment as the knowledge folder: `Vault::migrate`
+  ships `SCHEMA.toml` (종류/무드/컨디션 — all optional so pre-preset
+  notes never warn) + `TEMPLATE.md` (stamps `kind: daily`) into the
+  *configured* `[daily] folder`, not a hardcoded path. A `kind`
+  property now marks document type on both system presets (지식/데일리;
+  ordinary notes stay kind-free = 일반), so files classify themselves
+  on disk, not just by folder path. Every note's property panel shows
+  a read-only "만든 날 · 고친 날" footer (core timestamps, display
+  only). Opening a daily note adds ‹ › day navigation with a relative
+  chip (오늘/어제/N일 전 — ‹ opens-or-creates the previous day like the
+  calendar, › stops at today), and the sidebar calendar's dots take
+  the folder's badge property color — the mood preset maps 최고=green
+  through 나쁨=red, so the month reads as a mood strip at a glance
+  (dots bumped to 4px for legibility). Property edits now count as
+  "touching" a session draft: setting just the mood on a fresh daily
+  note and closing it keeps the note (previously the pristine-body
+  contract discarded it).
+
 - **First-party knowledge surface** — schema folders stop reading like a
   generic folder with raw keys glued on. Property keys and the status
   vocabulary get localized display names (상태/분야/별칭… and

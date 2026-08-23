@@ -196,11 +196,23 @@ impl Vault {
         Ok(schema)
     }
 
-    /// Install the knowledge preset (design §6.3) into `folder`:
-    /// `TEMPLATE.md` (stub skeleton with initial properties) and
-    /// `SCHEMA.toml` (status lifecycle + review queue). Plain files —
-    /// the user may edit or delete them freely.
+    /// Install the knowledge preset (design §6.3) into `folder`.
+    /// Delegates to [`Self::apply_preset`]; public for the IPC surface
+    /// (`apply_knowledge_preset`) and tests.
     pub fn apply_knowledge_preset(&self, folder: &str) -> Result<()> {
+        self.apply_preset(
+            folder,
+            crate::schema::KNOWLEDGE_TEMPLATE_MD,
+            crate::schema::KNOWLEDGE_SCHEMA_TOML,
+        )
+    }
+
+    /// Install a folder preset: `TEMPLATE.md` (initial properties) and
+    /// `SCHEMA.toml` (rules). Plain files the user may edit or delete
+    /// freely; existing files are never overwritten (system-folder
+    /// semantics — deleting the folder and restarting recreates the
+    /// preset, user edits survive).
+    fn apply_preset(&self, folder: &str, template_md: &str, schema_toml: &str) -> Result<()> {
         let folder = folder.trim_end_matches('/');
         let dir = if folder.is_empty() {
             self.paths.vault.clone()
@@ -210,14 +222,11 @@ impl Vault {
         std::fs::create_dir_all(&dir)?;
         let tmpl = dir.join(crate::paths::TEMPLATE_NAME);
         if !tmpl.exists() {
-            oxi_frontmatter::atomic_write(&tmpl, crate::schema::KNOWLEDGE_TEMPLATE_MD.as_bytes())?;
+            oxi_frontmatter::atomic_write(&tmpl, template_md.as_bytes())?;
         }
         let schema = dir.join(crate::paths::SCHEMA_NAME);
         if !schema.exists() {
-            oxi_frontmatter::atomic_write(
-                &schema,
-                crate::schema::KNOWLEDGE_SCHEMA_TOML.as_bytes(),
-            )?;
+            oxi_frontmatter::atomic_write(&schema, schema_toml.as_bytes())?;
         }
         self.schemas.write().clear();
         Ok(())
@@ -2016,14 +2025,21 @@ impl Vault {
         Ok(())
     }
 
-    /// The vault's default folders. `daily` is created on first use by
-    /// [`Self::open_daily`]; the knowledge folder ships from the start
-    /// (user prompt 2026-08-23: "지식 폴더도 초기부터, 데일리 폴더처럼").
-    /// Deleting the folder and restarting recreates an empty preset —
-    /// system-folder semantics; user edits to the preset files are never
-    /// overwritten (`apply_knowledge_preset` skips existing files).
     fn ensure_default_folders(&self) -> Result<()> {
-        self.apply_knowledge_preset(crate::schema::DEFAULT_KNOWLEDGE_FOLDER)
+        self.apply_knowledge_preset(crate::schema::DEFAULT_KNOWLEDGE_FOLDER)?;
+        // The daily preset follows the *configured* daily folder — a
+        // custom `[daily] folder = "journal"` gets the journaling schema
+        // at that path, not at a hardcoded "daily".
+        let daily = self.with_config(|c| c.daily.folder.clone());
+        let daily = daily.trim_end_matches('/');
+        if !daily.is_empty() {
+            self.apply_preset(
+                daily,
+                crate::schema::DAILY_TEMPLATE_MD,
+                crate::schema::DAILY_SCHEMA_TOML,
+            )?;
+        }
+        Ok(())
     }
 
     /// Re-index a single changed file. Called by the watcher (debounced). Handles
@@ -4058,6 +4074,32 @@ watcher_retry_interval_ms = 200
         );
     }
 
+    /// The daily preset ships with the vault at the *configured* daily
+    /// folder, and `open_daily` creation stamps `kind: daily` via the
+    /// template's frontmatter (user prompt 2026-08-23).
+    #[test]
+    fn migrate_ships_daily_preset_at_configured_folder() {
+        let (_t, v) = tmp_vault();
+        // Custom daily folder: the preset must follow the config, not a
+        // hardcoded "daily" path.
+        v.config.write().daily.folder = "journal".into();
+        v.migrate().unwrap();
+        let root = v.paths().vault.join("journal");
+        assert!(root.join("TEMPLATE.md").exists());
+        assert!(root.join("SCHEMA.toml").exists());
+        let schema = v.folder_schema("journal").unwrap().unwrap();
+        assert!(schema.properties.contains_key("mood"));
+        assert!(!v.paths().vault.join("daily/SCHEMA.toml").exists());
+
+        // Creating a daily note stamps kind via the template frontmatter.
+        let (m, created) = v.open_daily("2026-08-23").unwrap();
+        assert!(created);
+        assert_eq!(
+            m.props.get("kind"),
+            Some(&crate::props::PropValue::Str("daily".into()))
+        );
+        assert_eq!(m.body.lines().next(), Some("# 2026-08-23"));
+    }
     /// Design §6.1/§6.3 end-to-end: the knowledge preset stamps
     /// `status: stub` on captures (blank AND non-blank bodies), the
     /// status lifecycle runs through real vault writes, and `doctor`

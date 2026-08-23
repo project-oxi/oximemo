@@ -7,14 +7,15 @@
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowUpDown, CalendarDays, Folder, GraduationCap, GripVertical, Images, Layers, MoreHorizontal, PenLine, Star, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { dayLabel, todayLocalISO } from "../lib/dates";
 import { useFolderDrop, parentOf } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
-import { folderDisplayName, useFolderNames, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
+import { folderDisplayName, useFolderNames, useSchemaInfo, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
+import { toneBg } from "../lib/propDisplay";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import { Calendar } from "./Calendar";
 import { TextCtxMenu } from "./TextCtxMenu";
@@ -150,6 +151,31 @@ export function Sidebar({
       .map((n) => n.path.match(/\/(\d{4}-\d{2}-\d{2})\.(md|html)$/)?.[1])
       .filter((d): d is string => Boolean(d)),
   );
+  // Mood-colored dots (user prompt 2026-08-23): the daily folder's
+  // badge property (declared by its SCHEMA.toml — mood in the shipped
+  // preset) tints the day's dot. Days without the property stay
+  // neutral; folders without a schema keep plain dots.
+  const dailySchemas = useSchemaInfo(dailyEnabled ? [dailyFolder] : []);
+  const dailySchema = dailySchemas[dailyFolder];
+  const badgeProp = useMemo(() => {
+    const props = dailySchema?.properties;
+    if (!props) return null;
+    const key = Object.keys(props).find((k) => props[k].badge);
+    return key ? { key, colors: props[key].colors } : null;
+  }, [dailySchema]);
+  const moodDot = useMemo(() => {
+    if (!badgeProp) return undefined;
+    const byDate = new Map<string, string>();
+    for (const n of dailyQ.data?.items ?? []) {
+      const d = n.path.match(/\/(\d{4}-\d{2}-\d{2})\.(md|html)$/)?.[1];
+      const v = d ? n.props?.[badgeProp.key] : undefined;
+      if (d && v && "Str" in v) byDate.set(d, v.Str);
+    }
+    return (date: string) => {
+      const v = byDate.get(date);
+      return v ? toneBg(badgeProp.colors?.[v]) : null;
+    };
+  }, [badgeProp, dailyQ.data]);
 
   const openDaily = (date: string) => {
     openDailyNote(date)
@@ -310,7 +336,13 @@ export function Sidebar({
             <span className="ml-auto text-[10px] text-text-subtle">{dayLabel(todayLocalISO(), locale)}</span>
           </button>
           <div className="px-2 pt-1">
-            <Calendar dates={dailyDates} today={todayLocalISO()} locale={locale} onSelect={openDaily} />
+            <Calendar
+              dates={dailyDates}
+              today={todayLocalISO()}
+              locale={locale}
+              onSelect={openDaily}
+              dotTone={moodDot}
+            />
           </div>
         </>
       )}

@@ -385,13 +385,17 @@ fn rank_of(schema: &FolderSchema, key: &str, value: &str) -> usize {
 
 /// The knowledge preset's `TEMPLATE.md` (design §6.3): a stub skeleton
 /// whose frontmatter carries the initial properties.
-pub const KNOWLEDGE_TEMPLATE_MD: &str = "---\nstatus: stub\n---\n\n# \n";
+pub const KNOWLEDGE_TEMPLATE_MD: &str = "---\nkind: knowledge\nstatus: stub\n---\n\n# \n";
 
 /// The knowledge preset's `SCHEMA.toml`: status lifecycle, domains
 /// (required 7 + optional 3 as a commented line), TECH subdomain codes,
 /// peak-preserving transitions, and the review queue.
 pub const KNOWLEDGE_SCHEMA_TOML: &str = r#"[workspace]
 name = "지식"
+
+[properties.kind]
+type = "select"
+options = ["note", "knowledge", "daily"]
 
 [properties.status]
 type = "select"
@@ -449,6 +453,38 @@ property = "status"
 due_values = ["understood", "mastered"]
 order_by = "status_changed"
 decay_to = "decayed"
+"#;
+
+/// The daily preset's `TEMPLATE.md` (user prompt 2026-08-23): frontmatter
+/// stamps the document kind; the H1 normalizes to the date at creation
+/// (`open_daily`), so `{{date}}` here matches the canonical form.
+pub const DAILY_TEMPLATE_MD: &str = "---\nkind: daily\n---\n# {{date}}\n";
+
+/// The daily preset's `SCHEMA.toml`: a lightweight journaling schema —
+/// mood (badge → calendar dot colors) and energy, both optional so
+/// pre-preset notes never warn. Applied to the *configured* daily
+/// folder (`[daily] folder`), not a hardcoded path.
+pub const DAILY_SCHEMA_TOML: &str = r#"[workspace]
+name = "데일리"
+
+[properties.kind]
+type = "select"
+options = ["note", "knowledge", "daily"]
+
+[properties.mood]
+type = "select"
+options = ["great", "good", "okay", "low", "bad"]
+badge = true
+[properties.mood.colors]
+great = "success"
+good = "info"
+okay = "neutral"
+low = "warning"
+bad = "error"
+
+[properties.energy]
+type = "select"
+options = ["high", "medium", "low"]
 "#;
 
 #[cfg(test)]

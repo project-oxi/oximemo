@@ -18,7 +18,8 @@ import { Calendar, Check, ChevronDown, ChevronRight, ListChecks, Pencil, Plus, S
 import { useEffect, useMemo, useRef, useState } from "react";
 import { folderSchema, updateMemo } from "../lib/api";
 import { useI18n } from "../lib/i18n";
-import { todayLocalISO } from "../lib/dates";
+import { useUI } from "../stores/ui";
+import { isoToLocalDate, todayLocalISO } from "../lib/dates";
 import { propKeyLabel, propValueLabel } from "../lib/propDisplay";
 import type {
   FolderSchema,
@@ -599,6 +600,8 @@ function AddPropertyRow({
 export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) {
   const { t } = useI18n();
   const qc = useQueryClient();
+  const draftId = useUI((s) => s.draftId);
+  const setDraftId = useUI((s) => s.setDraftId);
   const schema = useQuery({
     queryKey: ["folder-schema", folder],
     queryFn: () => folderSchema(folder),
@@ -629,6 +632,11 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
       const n = await updateMemo(memo.id, null, null, mutation);
       qc.setQueryData(["memo", memo.id], n);
       setProps(n.props ?? {});
+      // A property write means the user touched this note: a session
+      // draft (fresh daily note, blank capture) must no longer be
+      // discarded on close — only body-pristine drafts are (user prompt
+      // 2026-08-23: setting just the mood must keep the day's note).
+      if (draftId === memo.id) setDraftId(null);
     } catch {
       setProps(memo.props ?? {});
     }
@@ -711,6 +719,18 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
               void commit({ sets: [[key, initial]], removes: [] });
             }}
           />
+          {/* Core timestamps as a quiet read-only footer (user prompt
+           * 2026-08-23): every note shows when it was made and last
+           *  edited — displayed from the core keys, never re-stored. */}
+          <div className="flex items-center gap-2 px-1 pt-0.5 text-[10px] text-text-subtle/70">
+            <span className="tabular-nums">
+              {t.prop_created} {isoToLocalDate(memo.created_at)}
+            </span>
+            <span aria-hidden>·</span>
+            <span className="tabular-nums">
+              {t.prop_updated} {isoToLocalDate(memo.updated_at)}
+            </span>
+          </div>
         </>
       )}
     </div>

@@ -60,3 +60,28 @@ export function dayLabel(iso: string, locale: string): string {
     new Date(y, m - 1, d),
   );
 }
+
+/** Local YYYY-MM-DD from an RFC3339 timestamp (core `created`/`updated`).
+ *  Falls back to the first 10 chars when the timestamp is malformed. */
+export function isoToLocalDate(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso.slice(0, 10)
+    : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** ISO date ± n days, local arithmetic (no UTC drift). */
+export function shiftISODate(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
+/** Whole-day difference between two ISO dates (a - b). */
+export function daysBetween(a: string, b: string): number {
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  return Math.round(
+    (new Date(ay, am - 1, ad).getTime() - new Date(by, bm - 1, bd).getTime()) / 86_400_000,
+  );
+}
