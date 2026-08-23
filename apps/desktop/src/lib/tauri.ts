@@ -467,6 +467,7 @@ async function browserFallback(
         response: `(browser fallback) received: ${msg}`,
         session_id: "browser-session",
         exit_code: 0,
+        signal: null,
         stderr: "",
         timed_out: false,
         changed: changed
