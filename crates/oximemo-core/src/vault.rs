@@ -1773,6 +1773,12 @@ impl Vault {
     pub fn set_metadata_config(&self, v: crate::config::MetadataConfig) -> Result<()> {
         self.replace_section(|c, v| c.metadata = v, v)
     }
+
+    /// `[copilot]` — agent delegation settings (spec 2026-08-23).
+    /// Mirrors the section-setter pattern.
+    pub fn set_copilot_config(&self, v: crate::config::CopilotConfig) -> Result<()> {
+        self.replace_section(|c, v| c.copilot = v, v)
+    }
     /// `[general]` — trash retention and future behavior knobs.
     pub fn set_general_config(&self, v: crate::config::GeneralConfig) -> Result<()> {
         self.replace_section(|c, v| c.general = v, v)

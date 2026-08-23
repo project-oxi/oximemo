@@ -33,6 +33,9 @@ pub struct AppState {
     /// Held for the app lifetime so the menu-bar tray icon is not reclaimed
     /// (TrayIcon is reference-counted and removed when the last clone drops).
     pub tray: Mutex<Option<tauri::tray::TrayIcon>>,
+    /// Process-group id of the copilot turn currently in flight, if any
+    /// (spec §8 — cancellation kills the whole tree via this pgid).
+    pub copilot_active: Mutex<Option<i32>>,
 }
 
 impl AppState {
@@ -41,6 +44,7 @@ impl AppState {
             vault: Arc::new(vault),
             capture_monitor: Mutex::new(None),
             watcher: Mutex::new(None),
+            copilot_active: Mutex::new(None),
             capture_focused: AtomicBool::new(false),
             menu_locale: Mutex::new(default_locale()),
             tray: Mutex::new(None),
@@ -261,6 +265,13 @@ pub fn run() {
             commands::install_cli,
             commands::uninstall_cli,
             commands::show_capture_window,
+            commands::copilot_status,
+            commands::copilot_probe_agents,
+            commands::copilot_disclosure,
+            commands::set_copilot_config,
+            commands::copilot_activate,
+            commands::copilot_send,
+            commands::copilot_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building oximemo desktop app")
@@ -513,6 +524,7 @@ mod commands {
     use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
     use crate::metadata;
     use oximemo_core::sync::ManifestRecord;
+    use tauri::Manager;
     use time::format_description::well_known::Rfc3339;
     use tauri::{AppHandle, Emitter, State};
 
@@ -1360,6 +1372,214 @@ mod commands {
     #[tauri::command]
     pub fn show_capture_window(app: AppHandle) {
         crate::show_capture(&app);
+    }
+
+    // -- Copilot delegation (spec 2026-08-23) --------------------------------
+
+    /// Panel visibility + activation state for the renderer.
+    #[derive(serde::Serialize)]
+    pub struct CopilotStatus {
+        pub enabled: bool,
+        /// True when an agent is activated (entry points become visible).
+        pub activated: bool,
+        pub agent: String,
+        /// A turn is currently in flight.
+        pub busy: bool,
+    }
+
+    #[tauri::command]
+    pub fn copilot_status(state: State<'_, AppState>) -> Result<CopilotStatus, String> {
+        let cfg = state.vault.with_config(|c| c.copilot.clone());
+        Ok(CopilotStatus {
+            enabled: cfg.enabled,
+            activated: !cfg.agent.is_empty() && !cfg.executable.is_empty(),
+            agent: cfg.agent,
+            busy: state.copilot_active.lock().is_some(),
+        })
+    }
+
+    /// Discover agent CLIs on PATH. Never called from the startup path —
+    /// the renderer invokes it on first panel open or settings entry
+    /// (spec §6, acceptance criterion 2).
+    #[tauri::command]
+    pub async fn copilot_probe_agents() -> Result<Vec<crate::copilot::AgentCandidate>, String> {
+        Ok(crate::copilot::probe_candidates().await)
+    }
+
+    /// Where the activated agent may send the user's data (spec §12).
+    #[tauri::command]
+    pub fn copilot_disclosure(agent: String) -> Result<crate::copilot::Disclosure, String> {
+        Ok(crate::copilot::disclosure(&agent))
+    }
+
+    /// `[copilot]` section setter (mirrors `set_brain_config`).
+    #[tauri::command]
+    pub fn set_copilot_config(
+        state: State<'_, AppState>,
+        copilot: oximemo_core::config::CopilotConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_copilot_config(copilot)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Explicit activation (spec §6): validate that the executable still
+    /// probes, then persist the verified absolute path. Returns the
+    /// provider disclosure so the consent dialog can show it.
+    #[tauri::command]
+    pub async fn copilot_activate(
+        state: State<'_, AppState>,
+        agent: String,
+        executable: String,
+    ) -> Result<crate::copilot::Disclosure, String> {
+        let supported = crate::copilot::KNOWN_AGENTS
+            .iter()
+            .any(|(id, _, ok)| *id == agent && *ok);
+        if !supported {
+            return Err(format!(
+                "agent '{agent}' has no verified non-interactive adapter in this version"
+            ));
+        }
+        let exe = std::path::PathBuf::from(&executable);
+        if !exe.is_file() {
+            return Err("executable not found — re-run detection".to_string());
+        }
+        // Re-probe at activation time: the stored probe result is a label,
+        // not a trust boundary.
+        if crate::copilot::probe_version(&exe).await.is_none() {
+            return Err("executable did not answer --version within 3s".to_string());
+        }
+        let disc = crate::copilot::disclosure(&agent);
+        let mut cfg = state.vault.with_config(|c| c.copilot.clone());
+        cfg.agent = agent;
+        cfg.executable = exe.display().to_string();
+        state
+            .vault
+            .set_copilot_config(cfg)
+            .map_err(|e| e.to_string())?;
+        Ok(disc)
+    }
+
+    #[derive(serde::Deserialize)]
+    pub struct ActiveMemoArg {
+        pub id: String,
+        pub title: String,
+        pub path: String,
+    }
+
+    /// One copilot turn result. `changed` lists vault changes observed
+    /// during the turn — causality is deliberately not claimed (spec §9.4).
+    #[derive(serde::Serialize)]
+    pub struct TurnResult {
+        pub response: String,
+        pub session_id: Option<String>,
+        pub exit_code: Option<i32>,
+        pub stderr: String,
+        pub timed_out: bool,
+        pub changed: Vec<crate::copilot::ChangedNote>,
+        pub duration_ms: u64,
+    }
+
+    fn manifest_snapshot(state: &State<'_, AppState>) -> Vec<(String, String, bool)> {
+        state
+            .vault
+            .export_manifest(None)
+            .map(|recs| {
+                recs.into_iter()
+                    .map(|r| (r.id.0.to_string(), r.hash.0, r.deleted))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[tauri::command]
+    pub async fn copilot_send(
+        app: AppHandle,
+        state: State<'_, AppState>,
+        message: String,
+        active_memo: Option<ActiveMemoArg>,
+        session: Option<String>,
+    ) -> Result<TurnResult, String> {
+        let cfg = state.vault.with_config(|c| c.copilot.clone());
+        if !cfg.enabled || cfg.agent.is_empty() || cfg.executable.is_empty() {
+            return Err("copilot agent is not activated".to_string());
+        }
+        let exe = std::path::PathBuf::from(&cfg.executable);
+        if !exe.is_file() {
+            return Err(
+                "activated agent executable is missing — re-activate it in Settings".to_string(),
+            );
+        }
+        if state.copilot_active.lock().is_some() {
+            return Err("a copilot turn is already running".to_string());
+        }
+        let vault_root = state.vault.paths().vault.clone();
+        let Some(cli) = bundled_cli_path() else {
+            return Err("could not locate the bundled CLI".to_string());
+        };
+        let skill = app
+            .path()
+            .resolve(
+                "skills/oximemo/SKILL.md",
+                tauri::path::BaseDirectory::Resource,
+            )
+            .map_err(|e| format!("SKILL.md is not bundled: {e}"))?;
+        let active = active_memo.as_ref().map(|m| crate::copilot::ActiveMemo {
+            id: m.id.clone(),
+            title: m.title.clone(),
+            path: m.path.clone(),
+        });
+        let ctx = crate::copilot::build_context(&vault_root, &cli, &skill, active.as_ref());
+        let args = crate::copilot::oxios_args(session.as_deref(), &message);
+        let before = manifest_snapshot(&state);
+        let started = std::time::Instant::now();
+        let outcome = {
+            let busy = &state.copilot_active;
+            let out =
+                crate::copilot::run_agent_process(&exe, &args, &ctx, cfg.timeout_secs, move |pgid| {
+                    *busy.lock() = Some(pgid);
+                })
+                .await;
+            // Always clear the busy marker, even on error paths.
+            *state.copilot_active.lock() = None;
+            out?
+        };
+        let duration_ms = started.elapsed().as_millis() as u64;
+        let after = manifest_snapshot(&state);
+        let changed = crate::copilot::diff_manifests(&before, &after);
+        if !changed.is_empty() {
+            // Refresh the grid: the watcher also reacts, but the panel
+            // result lands the moment the process exits.
+            let _ = app.emit("memos:changed", ());
+        }
+        let (response, session_id) = if outcome.timed_out {
+            (String::new(), None)
+        } else {
+            crate::copilot::parse_agent_json(&outcome.stdout)
+        };
+        Ok(TurnResult {
+            response,
+            session_id,
+            exit_code: outcome.exit_code,
+            stderr: outcome.stderr,
+            timed_out: outcome.timed_out,
+            changed,
+            duration_ms,
+        })
+    }
+
+    /// Kill the in-flight turn's whole process tree (spec §8).
+    #[tauri::command]
+    pub fn copilot_cancel(state: State<'_, AppState>) -> Result<bool, String> {
+        let pgid = state.copilot_active.lock().take();
+        match pgid {
+            Some(p) => {
+                crate::copilot::kill_turn(p);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
     /// Run a shell snippet with administrator privileges via osascript. macOS

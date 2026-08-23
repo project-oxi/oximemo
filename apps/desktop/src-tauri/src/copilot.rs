@@ -32,7 +32,7 @@ pub struct AgentCandidate {
 }
 
 /// Known agent binaries. (id, executable name, v1 adapter support).
-const KNOWN_AGENTS: &[(&str, &str, bool)] = &[
+pub(crate) const KNOWN_AGENTS: &[(&str, &str, bool)] = &[
     ("oxios", "oxios", true),
     ("oxicode", "oxicode", false),
     ("claude", "claude", false),
@@ -292,6 +292,7 @@ pub async fn run_agent_process(
     args: &[String],
     stdin_data: &str,
     timeout_secs: u64,
+    on_spawn: impl FnOnce(i32),
 ) -> Result<ProcessOutcome, String> {
     let mut cmd = Command::new(exe);
     cmd.args(args)
@@ -302,6 +303,7 @@ pub async fn run_agent_process(
         .process_group(0);
     let mut child = cmd.spawn().map_err(|e| format!("spawn {}: {e}", exe.display()))?;
     let pgid = child.id().map(|p| p as i32).unwrap_or(0);
+    on_spawn(pgid);
 
     // Write the context block, then close stdin — an agent that prompts
     // for input sees EOF, not a hung pipe (spec §11). Context blocks are
@@ -521,7 +523,7 @@ pid_file = "/x"
         // /bin/echo ignores stdin and prints its args — exercises spawn,
         // stdin write, wait, and output capture without any agent.
         let args = vec!["hello".to_string(), "agent".to_string()];
-        let out = run_agent_process(Path::new("/bin/echo"), &args, "ctx", 10)
+        let out = run_agent_process(Path::new("/bin/echo"), &args, "ctx", 10, |_| {})
             .await
             .unwrap();
         assert_eq!(out.exit_code, Some(0));
@@ -536,7 +538,7 @@ pid_file = "/x"
         // has a grandchild. Tree-kill must reap both.
         let args = vec!["-c".to_string(), "sleep 30 & wait".to_string()];
         let t0 = std::time::Instant::now();
-        let out = run_agent_process(Path::new("/bin/sh"), &args, "", 1)
+        let out = run_agent_process(Path::new("/bin/sh"), &args, "", 1, |_| {})
             .await
             .unwrap();
         assert!(out.timed_out);
