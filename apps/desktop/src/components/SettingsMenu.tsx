@@ -17,6 +17,7 @@ import {
 } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  Bot,
   Brain,
   Check,
   ChevronDown,
@@ -42,6 +43,11 @@ import {
 import {
   brainListSpaces,
   cliStatus,
+  copilotProbeAgents,
+  copilotActivate,
+  copilotDisclosure,
+  setCopilotConfig,
+  type AgentCandidate,
   installCli,
   uninstallCli,
   type CliState,
@@ -343,6 +349,201 @@ function BrainSection() {
           <p className="mt-1 text-[10px] text-text-subtle">{t.brain_space_offline}</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/** `[copilot]` — agent delegation (spec 2026-08-23). Detection is
+ *  pane-local: probing never runs at app startup (§6). Activation is
+ *  explicit and gated by a one-time provider-consent dialog (§12). */
+function CopilotSection() {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const setError = useUI((s) => s.setError);
+  const { config, save } = useConfigSection();
+  const copilot = config.data?.copilot;
+  const [candidates, setCandidates] = useState<AgentCandidate[] | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [activating, setActivating] = useState(false);
+  const [pending, setPending] = useState<AgentCandidate | null>(null);
+
+  const pendingDisclosure = useQuery({
+    queryKey: ["copilot-disclosure", pending?.id ?? ""],
+    queryFn: () => copilotDisclosure(pending!.id),
+    enabled: pending !== null,
+    staleTime: 60_000,
+  });
+
+  const detect = () => {
+    setDetecting(true);
+    copilotProbeAgents()
+      .then(setCandidates)
+      .catch((e) => setError(String(e).split("\n")[0]))
+      .finally(() => setDetecting(false));
+  };
+
+  const activate = (c: AgentCandidate) => {
+    setActivating(true);
+    copilotActivate(c.id, c.executable)
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["config"] });
+        qc.invalidateQueries({ queryKey: ["copilot-status"] });
+        qc.invalidateQueries({ queryKey: ["copilot-disclosure"] });
+      })
+      .catch((e) => setError(String(e).split("\n")[0]))
+      .finally(() => {
+        setActivating(false);
+        setPending(null);
+      });
+  };
+
+  const patch = (p: Partial<NonNullable<typeof copilot>>) =>
+    save(
+      setCopilotConfig({
+        enabled: copilot?.enabled ?? true,
+        agent: copilot?.agent ?? "",
+        executable: copilot?.executable ?? "",
+        timeout_secs: copilot?.timeout_secs ?? 300,
+        ...p,
+      }),
+      ["copilot-status"],
+    );
+
+  const activeAgent = copilot?.agent ?? "";
+  const disclosure = useQuery({
+    queryKey: ["copilot-disclosure", activeAgent],
+    queryFn: () => copilotDisclosure(activeAgent),
+    enabled: activeAgent !== "",
+    staleTime: 60_000,
+  });
+
+  return (
+    <div className="space-y-2">
+      <ToggleRow
+        label={t.copilot_enabled}
+        checked={copilot?.enabled ?? true}
+        onChange={(v) => patch({ enabled: v })}
+      />
+
+      {activeAgent !== "" ? (
+        <div className="rounded-lg bg-surface-sunken px-3 py-2">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-text-subtle">{t.copilot_active_agent}</p>
+            <button
+              type="button"
+              onClick={() => {
+                patch({ agent: "", executable: "" });
+                qc.invalidateQueries({ queryKey: ["copilot-status"] });
+              }}
+              className="text-[10px] text-text-muted underline underline-offset-2 hover:text-text"
+            >
+              {t.copilot_deactivate}
+            </button>
+          </div>
+          <p className="mt-0.5 font-mono text-xs text-text">{activeAgent}</p>
+          <p className="truncate font-mono text-[10px] text-text-subtle">
+            {copilot?.executable}
+          </p>
+          <p className="mt-1 text-[10px] text-text-subtle">
+            {disclosure.data?.model ?? t.copilot_consent_unknown_provider}
+          </p>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={detecting}
+          onClick={detect}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-interactive-primary px-2 py-2 text-xs font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary/90 disabled:opacity-50"
+        >
+          <RefreshCw size={12} className={detecting ? "animate-spin" : ""} />
+          {detecting ? t.copilot_detecting : t.copilot_detect}
+        </button>
+      )}
+
+      {activeAgent === "" && candidates !== null && (
+        <div className="space-y-1.5">
+          {candidates.length === 0 && (
+            <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] text-text-subtle">
+              {t.copilot_none_found}
+            </p>
+          )}
+          {candidates.map((c) => (
+            <div key={c.id} className="rounded-lg bg-surface-sunken px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs text-text">{c.display_name}</p>
+                  <p className="truncate font-mono text-[10px] text-text-subtle">
+                    {c.executable}
+                  </p>
+                </div>
+                {c.supported ? (
+                  <button
+                    type="button"
+                    disabled={activating}
+                    onClick={() => setPending(c)}
+                    className="shrink-0 rounded-md bg-surface-raised px-2 py-1 text-[10px] font-medium text-text transition-colors hover:bg-surface-muted"
+                  >
+                    {activating ? t.copilot_activating : t.copilot_activate}
+                  </button>
+                ) : (
+                  <span className="shrink-0 text-[10px] text-text-subtle">
+                    {t.copilot_unsupported}
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 text-[10px] text-text-subtle">
+                {c.version ?? t.copilot_version_unknown}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeAgent !== "" && (
+        <NumberRow
+          label={t.copilot_timeout}
+          value={copilot?.timeout_secs ?? 300}
+          min={10}
+          max={3600}
+          onCommit={(v) => patch({ timeout_secs: v })}
+        />
+      )}
+
+      {/* Consent dialog (§12): shown at activation. The text names the
+          agent and where data may travel — an honest "unknown provider"
+          when the agent's config is unreadable. */}
+      {pending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-[380px] rounded-[var(--dialog-radius)] border border-line bg-surface p-4 shadow-lg">
+            <p className="text-sm font-semibold text-text">{t.copilot_consent_title}</p>
+            <p className="mt-2 text-xs leading-relaxed text-text-muted">
+              {t.copilot_consent_body
+                .replace("{agent}", pending.display_name)
+                .replace(
+                  "{provider}",
+                  pendingDisclosure.data?.provider ?? t.copilot_consent_unknown_provider,
+                )}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPending(null)}
+                className="rounded-lg bg-surface-muted px-3 py-1.5 text-xs text-text-muted transition-colors hover:text-text"
+              >
+                {t.copilot_consent_cancel}
+              </button>
+              <button
+                type="button"
+                disabled={activating}
+                onClick={() => activate(pending)}
+                className="rounded-lg bg-interactive-primary px-3 py-1.5 text-xs font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary/90 disabled:opacity-50"
+              >
+                {activating ? t.copilot_activating : t.copilot_consent_accept}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1186,6 +1387,7 @@ export function SettingsMenu() {
       group: t.settings_group_integrations,
       items: [
         { id: "brain", label: t.section_brain, icon: <Brain size={13} /> },
+        { id: "copilot", label: t.section_copilot, icon: <Bot size={13} /> },
         { id: "metadata", label: t.metadata, icon: <Database size={13} /> },
       ],
     },
@@ -1329,6 +1531,12 @@ export function SettingsMenu() {
                 </section>
               )}
               {activeTab === "metadata" && <MetadataSection />}
+              {activeTab === "copilot" && (
+                <section>
+                  <PaneHeader title={t.section_copilot} />
+                  <CopilotSection />
+                </section>
+              )}
               {activeTab === "folders" && (
                 <section>
                   <PaneHeader title={t.section_folders} />
