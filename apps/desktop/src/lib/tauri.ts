@@ -422,6 +422,60 @@ async function browserFallback(
   args?: Record<string, unknown>,
 ): Promise<unknown> {
   switch (cmd) {
+    // --- copilot (spec 2026-08-23): browser smoke mirrors the activated
+    // state so the panel/consent surfaces are exercisable without a
+    // Tauri shell. No subprocess ever runs here.
+    case "copilot_status":
+      return { enabled: true, activated: true, agent: "oxios", busy: false };
+    case "copilot_probe_agents":
+      return [
+        {
+          id: "oxios",
+          display_name: "oxios",
+          executable: "/opt/homebrew/bin/oxios",
+          version: "oxios 0.66.0",
+          supported: true,
+        },
+        {
+          id: "claude",
+          display_name: "claude",
+          executable: "/usr/local/bin/claude",
+          version: "1.0.0",
+          supported: false,
+        },
+      ];
+    case "copilot_disclosure":
+      return {
+        agent: (args?.agent as string) ?? "oxios",
+        model: "zai-coding-plan/glm-5-turbo",
+        provider: "zai-coding-plan",
+      };
+    case "copilot_activate":
+      return {
+        agent: args?.agent ?? "oxios",
+        model: "zai-coding-plan/glm-5-turbo",
+        provider: "zai-coding-plan",
+      };
+    case "set_copilot_config":
+      return null;
+    case "copilot_cancel":
+      return true;
+    case "copilot_send": {
+      const msg = (args?.message as string) ?? "";
+      const changed = liveSorted(loadStore())[0];
+      return {
+        response: `(browser fallback) received: ${msg}`,
+        session_id: "browser-session",
+        exit_code: 0,
+        stderr: "",
+        timed_out: false,
+        changed: changed
+          ? [{ id: changed.id, kind: "changed" as const }]
+          : [],
+        duration_ms: 42,
+      };
+    }
+
     case "list_memos": {
       const after = (args?.after as string | null | undefined) ?? null;
       const limit = (args?.limit as number | undefined) ?? 50;
