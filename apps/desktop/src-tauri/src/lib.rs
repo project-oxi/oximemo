@@ -1652,9 +1652,24 @@ mod commands {
                 "activated agent executable is missing — re-activate it in Settings".to_string(),
             );
         }
-        if state.copilot_active.lock().is_some() {
-            return Err("a copilot turn is already running".to_string());
+        // Atomically claim the busy slot BEFORE any prep work: the old
+        // check-then-spawn window let two concurrent sends both pass.
+        // Sentinel 0 means "claimed, pgid pending" — `kill_turn` ignores
+        // it, and the guard clears the slot on EVERY exit path.
+        struct BusyGuard<'a>(&'a parking_lot::Mutex<Option<i32>>);
+        impl Drop for BusyGuard<'_> {
+            fn drop(&mut self) {
+                *self.0.lock() = None;
+            }
         }
+        {
+            let mut slot = state.copilot_active.lock();
+            if slot.is_some() {
+                return Err("a copilot turn is already running".to_string());
+            }
+            *slot = Some(0);
+        }
+        let _busy_guard = BusyGuard(&state.copilot_active);
         let vault_root = state.vault.paths().vault.clone();
         let Some(cli) = bundled_cli_path() else {
             return Err("could not locate the bundled CLI".to_string());
@@ -1687,8 +1702,6 @@ mod commands {
                 },
             )
             .await;
-            // Always clear the busy marker, even on error paths.
-            *state.copilot_active.lock() = None;
             out?
         };
         let duration_ms = started.elapsed().as_millis() as u64;

@@ -67,14 +67,20 @@ export function CopilotPanel() {
     };
   }, [selectedId]);
 
+  // Agent identity change = new conversation (spec §15): session ids are
+  // not portable across activations, let alone adapters.
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [entries, busy]);
+    setEntries([]);
+    setSession(null);
+  }, [agentId]);
+
 
   const send = async () => {
     const message = draft.trim();
     if (!message || busy) return;
     setDraft("");
+    setEntries((es) => [...es, { role: "user", text: message }]);
+    setBusy(true);
     try {
       const result = await copilotSend(message, activeMemo, session);
       if (result.session_id) setSession(result.session_id);
@@ -242,9 +248,11 @@ function AgentMessage({ result }: { result: TurnResult }) {
                 <button
                   type="button"
                   onClick={() => {
-                    // Opening the note is the read path; draftId is only
-                    // for minted drafts, so clear it here.
-                    setDraftId(null);
+                    // Mirror PropertyPanel's close semantics: only clear
+                    // the draft marker when the clicked note IS the open
+                    // pristine draft — clearing it for other notes would
+                    // make that blank draft permanently non-discardable.
+                    setDraftId(useUI.getState().draftId === c.id ? null : useUI.getState().draftId);
                     useUI.setState({ selectedId: c.id });
                   }}
                   className="font-mono text-[10px] text-text-muted underline decoration-line underline-offset-2 hover:text-text"
