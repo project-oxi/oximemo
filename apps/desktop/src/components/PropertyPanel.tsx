@@ -14,8 +14,8 @@
  */
 import { Popover } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Calendar, Check, ChevronDown, ChevronRight, ListChecks, Pencil, Plus, SquareCheck, Tags, TriangleAlert, Type, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Pencil, Plus, X } from "lucide-react";
 import { folderSchema, updateMemo } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { todayLocalISO } from "../lib/dates";
@@ -385,8 +385,24 @@ function PropertyRow({
     );
   };
 
+  const TypeIcon =
+    type === "text"
+      ? Type
+      : type === "select"
+        ? ListChecks
+        : type === "multiselect"
+          ? Tags
+          : type === "date"
+            ? Calendar
+            : SquareCheck;
+
   return (
-    <div className="group grid grid-cols-[7rem_minmax(0,1fr)_1.25rem] items-start gap-1 rounded-md px-1 py-0.5 transition-colors duration-150 hover:bg-surface-muted/60">
+    <div className="group grid grid-cols-[1rem_6.5rem_minmax(0,1fr)_1.25rem] items-start gap-1 rounded-md px-1 py-1 transition-colors duration-150 hover:bg-surface-muted/60">
+      <TypeIcon
+        size={12}
+        aria-hidden
+        className="mt-1 shrink-0 text-text-subtle/70"
+      />
       {naming ? (
         <input
           autoFocus
@@ -433,7 +449,8 @@ function PropertyRow({
       <div className="flex min-w-0 flex-col gap-0.5">
         {valueEditor()}
         {violation && (
-          <span className="pl-1 text-[10px] leading-tight text-hue-red">
+          <span className="inline-flex items-center gap-0.5 pl-1 text-[10px] leading-tight text-hue-red">
+            <TriangleAlert size={9} aria-hidden className="shrink-0" />
             {violation === "required"
               ? t.prop_violation_required
               : violation.startsWith("not allowed: ")
@@ -501,24 +518,27 @@ function AddPropertyRow({
   };
 
   return (
-    <Popover.Root
-      open={open}
-      onOpenChange={(o) => {
-        setOpen(o);
-        if (!o) reset();
-      }}
-    >
-      <Popover.Trigger
-        render={
-          <button
-            type="button"
-            className="flex items-center gap-1.5 rounded-md px-1 py-0.5 text-[12px] text-text-subtle transition-colors duration-150 hover:bg-surface-muted/60 hover:text-text"
-          >
-            <Plus size={11} />
-            {t.prop_add_row}
-          </button>
-        }
-      />
+    <div className="mt-0.5 border-t border-line/70 pt-1">
+      <Popover.Root
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) reset();
+        }}
+      >
+        <Popover.Trigger
+          render={
+            <button
+              type="button"
+              className="group/add flex items-center gap-1.5 rounded-md px-1 py-1 text-[12px] text-text-subtle transition-colors duration-150 hover:text-text"
+            >
+              <span className="grid size-4 place-items-center rounded-full border border-line text-text-subtle transition-colors duration-150 group-hover/add:border-line-strong group-hover/add:text-text">
+                <Plus size={9} />
+              </span>
+              {t.prop_add_row}
+            </button>
+          }
+        />
       <Popover.Portal>
         <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-[70]">
           <Popover.Popup className="w-64 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
@@ -569,7 +589,8 @@ function AddPropertyRow({
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
-    </Popover.Root>
+      </Popover.Root>
+    </div>
   );
 }
 
@@ -650,15 +671,23 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
   ));
 
   return (
-    <div className="flex flex-col gap-1 border-b border-line pb-2">
+    <div className="flex flex-col gap-1.5 border-b border-line pb-2.5">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1 self-start text-[11px] font-medium text-text-subtle transition-colors duration-150 hover:text-text"
+        className="flex items-center gap-1 self-start text-[10px] font-semibold uppercase tracking-wide text-text-subtle transition-colors duration-150 hover:text-text"
       >
-        <Plus size={11} className={expanded ? "rotate-45 transition-transform" : "transition-transform"} />
+        <ChevronRight
+          size={11}
+          aria-hidden
+          className={expanded ? "rotate-90 transition-transform duration-150" : "transition-transform duration-150"}
+        />
         {defs ? t.prop_schema_title : t.prop_free_title}
-        <span className="tabular-nums">{keys.length > 0 ? ` ${keys.length}` : ""}</span>
+        {keys.length > 0 && (
+          <span className="rounded-full border border-line bg-surface-muted px-1.5 text-[9px] font-semibold normal-case tracking-normal tabular-nums text-text-subtle">
+            {keys.length}
+          </span>
+        )}
       </button>
       {expanded && (
         <>
