@@ -11,8 +11,9 @@ import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-quer
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bot,
+  BookOpen,
   Clock,
+  Clapperboard,
   CodeXml,
   FilePlus2,
   FolderPlus,
@@ -81,6 +82,7 @@ import { ListView } from "./views/ListView";
 import { TimelineView } from "./views/TimelineView";
 import { GraphView } from "./views/GraphView";
 import { BreadcrumbBar } from "./BreadcrumbBar";
+import { MetadataAddDialog } from "./MetadataAddDialog";
 import { ReviewQueue } from "./ReviewQueue";
 const PAGE_SIZE = 50;
 const MIN_COL_W = 240;
@@ -117,7 +119,6 @@ export function CardGrid() {
   const setCmdPaletteOpen = useUI((s) => s.setCmdPaletteOpen);
   const requestNewFolder = useUI((s) => s.requestNewFolder);
   const consumeFolderCreate = useUI((s) => s.consumeFolderCreate);
-  const copilotOpen = useUI((s) => s.copilotOpen);
   const setCopilotOpen = useUI((s) => s.setCopilotOpen);
   // Panel visibility is config-driven (§6): no activated agent → the
   // entry points stay hidden, no nudge.
@@ -625,6 +626,17 @@ export function CardGrid() {
     [folderFilter, select, setDraftId, setError, qc],
   );
 
+
+  // First-party add gate (user prompt 2026-08-24): in a metadata-backed
+  // collection (book/movie or a custom schema with mapped fields), every
+  // "add" affordance opens the search dialog first — pick a hit and the
+  // note is born stamped. Plain folders keep the direct blank-note path.
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const addDomain = useMemo(() => metadataDomainOf(schema), [schema]);
+  const requestAdd = useCallback(() => {
+    if (addDomain) setAddDialogOpen(true);
+    else onNewNote();
+  }, [addDomain, onNewNote]);
   const onNewHtmlNote = useCallback(() => onNewNote("html"), [onNewNote]);
 
   // Create a new memo in a specific folder (used by FolderTile's empty-state
@@ -877,7 +889,7 @@ export function CardGrid() {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
         if (cmdOpen) return;
         e.preventDefault();
-        onNewNote();
+        requestAdd();
         return;
       }
       // ⌘K / CtrlK — command palette toggle. ⌘⇧O stays as an alias: the
@@ -896,12 +908,12 @@ export function CardGrid() {
         setCmdPaletteOpen(!useUI.getState().cmdPaletteOpen);
         return;
       }
-      // ⌘⇧C / Ctrl⇧C — copilot panel toggle (spec §15). Guarded like the
-      // ⌘K branch: inert under the palette modal and while a memo dialog
-      // holds focus. Hidden entirely when no agent is activated — the
-      // shortcut mirrors the header button's visibility.
+      // ⌘⇧C / Ctrl⇧C — copilot window toggle. Deliberately LIVE while a
+      // memo dialog holds focus: the copilot window is a layer ABOVE the
+      // dialog (selection-context flow depends on this). Still inert under
+      // the palette modal, and hidden when no agent is activated — the
+      // shortcut mirrors the FAB's visibility.
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && key === "c") {
-        if (useUI.getState().selectedId) return;
         if (cmdOpen) return;
         if (!copilotVisible) return;
         e.preventDefault();
@@ -934,7 +946,7 @@ export function CardGrid() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onNewNote, localSearch, setSearch, setCmdPaletteOpen, setCopilotOpen, copilotVisible]);
+  }, [requestAdd, localSearch, setSearch, setCmdPaletteOpen, setCopilotOpen, copilotVisible]);
 
   // Palette navigation mirrors the sidebar's openFolder convention
   // (Sidebar.tsx): setView("memos") + favoritesOnly(false) + browse the
@@ -1305,7 +1317,7 @@ export function CardGrid() {
           <div className="flex shrink-0 items-center">
             <button
               type="button"
-              onClick={() => onNewNote()}
+              onClick={() => requestAdd()}
               aria-label={schema ? schemaAddLabel : t.new_memo}
               title={schema ? schemaAddLabel : t.new_note_md}
               className={`inline-flex h-7 items-center justify-center bg-interactive-primary text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90 ${
@@ -1332,21 +1344,6 @@ export function CardGrid() {
               </button>
             )}
           </div>
-          {copilotVisible && (
-            <button
-              type="button"
-              onClick={() => useUI.getState().setCopilotOpen(!copilotOpen)}
-              aria-label={t.copilot_panel_title}
-              title={t.copilot_panel_title}
-              className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--button-radius)] transition-colors duration-150 ${
-                copilotOpen
-                  ? "bg-surface-muted text-text"
-                  : "text-text-muted hover:bg-surface-muted hover:text-text"
-              }`}
-            >
-              <Bot size={15} strokeWidth={2} />
-            </button>
-          )}
           <SettingsMenu />
         </header>
         {schema && (propChips.length > 0 || schema.review) && (
@@ -1525,13 +1522,19 @@ export function CardGrid() {
                       // named collection, stamped-state promise, named add.
                       <>
                         <div className="grid size-12 place-items-center rounded-full bg-surface-muted text-text-subtle">
-                          <GraduationCap size={22} aria-hidden="true" />
+                          {addDomain === "book" ? (
+                            <BookOpen size={22} aria-hidden="true" />
+                          ) : addDomain === "movie" ? (
+                            <Clapperboard size={22} aria-hidden="true" />
+                          ) : (
+                            <GraduationCap size={22} aria-hidden="true" />
+                          )}
                         </div>
                         <p className="text-sm font-semibold text-text">
                           {t.schema_empty_headline.replace("{name}", schemaName)}
                         </p>
                         <p className="-mt-2 text-xs text-text-subtle">
-                          {t.schema_empty_sub}
+                          {addDomain ? t.schema_empty_sub_search : t.schema_empty_sub}
                         </p>
                       </>
                     ) : (
@@ -1542,7 +1545,7 @@ export function CardGrid() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => onNewNote()}
+                        onClick={() => requestAdd()}
                         className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
                       >
                         <Plus size={15} strokeWidth={2.5} />{" "}
@@ -1635,7 +1638,7 @@ export function CardGrid() {
                 <CtxItem
                   icon={FilePlus2}
                   label={schema ? schemaAddLabel : t.new_note_md}
-                  onClick={() => onNewNote()}
+                  onClick={() => requestAdd()}
                 />
                 {!schema && <CtxItem icon={CodeXml} label={t.new_note_html} onClick={onNewHtmlNote} />}
                 {folderFilter !== null && !schema && (
@@ -1649,7 +1652,13 @@ export function CardGrid() {
           </CtxRoot>
         </div>
       </div>
-      <MemoDetail />
+      <MetadataAddDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        folder={folderFilter ?? ""}
+        schema={schema}
+        onManual={() => onNewNote()}
+      />
       {commandPalette}
     </div>
   );

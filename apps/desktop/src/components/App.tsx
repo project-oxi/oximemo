@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Terminal, X } from "lucide-react";
+import { Bot, Terminal, X } from "lucide-react";
 import { isRouteCapture } from "../lib/window";
 import { listFolders, getConfig, setFolderPinned } from "../lib/api";
 import { useSchemaInfo } from "../lib/folders";
@@ -16,7 +16,7 @@ import { Toast } from "./Toast";
 import { useUI } from "../stores/ui";
 import { applyTheme, saveTheme } from "../lib/theme";
 import { useI18n } from "../lib/i18n";
-import { cliStatus, installCli } from "../lib/api";
+import { cliStatus, copilotStatus, installCli } from "../lib/api";
 import { checkForUpdate } from "../lib/updater";
 
 const qc = new QueryClient({
@@ -66,6 +66,7 @@ function Shell() {
     <>
       <CardGrid />
       {copilotOpen && <CopilotPanel />}
+      <CopilotFab />
       <CollectionAutopin />
       <CliNudge />
       <ErrorToast />
@@ -73,6 +74,34 @@ function Shell() {
     </>
   );
 }
+
+/**
+ * Bottom-right floating action button (Notion-style) — the copilot's
+ * always-visible entry point. Sits ABOVE the note dialog (z-[70] vs the
+ * dialog's z-50) so the copilot stays reachable while a note is open;
+ * hidden while the window is open, and entirely when no agent is
+ * activated (spec §6.5: no nudge, no dead buttons).
+ */
+function CopilotFab() {
+  const { t } = useI18n();
+  const copilotOpen = useUI((s) => s.copilotOpen);
+  const setCopilotOpen = useUI((s) => s.setCopilotOpen);
+  const status = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
+  const visible = (status.data?.enabled ?? false) && (status.data?.activated ?? false);
+  if (!visible || copilotOpen) return null;
+  return (
+    <button
+      type="button"
+      aria-label={t.copilot_fab}
+      title={t.copilot_fab}
+      onClick={() => setCopilotOpen(true)}
+      className="fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line bg-interactive-primary text-interactive-primary-foreground shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95"
+    >
+      <Bot size={18} />
+    </button>
+  );
+}
+
 
 /**
  * One-shot migration (2026-08-23): collections installed before install-time

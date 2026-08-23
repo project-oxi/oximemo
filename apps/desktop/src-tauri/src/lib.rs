@@ -301,6 +301,8 @@ pub fn run() {
             commands::copilot_disclosure,
             commands::set_copilot_config,
             commands::copilot_activate,
+            commands::copilot_models,
+            commands::copilot_set_model,
             commands::copilot_send,
             commands::copilot_cancel,
         ])
@@ -1586,6 +1588,8 @@ mod commands {
         /// True when an agent is activated (entry points become visible).
         pub activated: bool,
         pub agent: String,
+        /// Human-facing name ("Oh My Pi"), for panel headers.
+        pub agent_name: String,
         /// A turn is currently in flight.
         pub busy: bool,
     }
@@ -1596,6 +1600,7 @@ mod commands {
         Ok(CopilotStatus {
             enabled: cfg.enabled,
             activated: !cfg.agent.is_empty() && !cfg.executable.is_empty(),
+            agent_name: crate::copilot::display_name(&cfg.agent).to_string(),
             agent: cfg.agent,
             busy: state.copilot_active.lock().is_some(),
         })
@@ -1638,7 +1643,7 @@ mod commands {
     ) -> Result<crate::copilot::Disclosure, String> {
         let supported = crate::copilot::KNOWN_AGENTS
             .iter()
-            .any(|(id, _, ok)| *id == agent && *ok);
+            .any(|(id, _, _, ok)| *id == agent && *ok);
         if !supported {
             return Err(format!(
                 "agent '{agent}' has no verified non-interactive adapter in this version"
@@ -1675,6 +1680,44 @@ mod commands {
         pub id: String,
         pub title: String,
         pub path: String,
+        /// Text currently selected in the note editor, if any.
+        pub selection: Option<String>,
+    }
+
+    /// One selectable model for the panel picker.
+    #[tauri::command]
+    pub async fn copilot_models(
+        state: State<'_, AppState>,
+    ) -> Result<Vec<crate::copilot::ModelInfo>, String> {
+        let cfg = state.vault.with_config(|c| c.copilot.clone());
+        if cfg.agent.is_empty() || cfg.executable.is_empty() {
+            return Err("copilot agent is not activated".to_string());
+        }
+        crate::copilot::list_models(&cfg.agent, std::path::Path::new(&cfg.executable)).await
+    }
+
+    /// Switch the durable default model. Only oxios needs this — its `run`
+    /// has no per-turn model flag, so the picker edits `engine.default_model`
+    /// via oxios's own comment-preserving `config set`. omp models are
+    /// selected per turn with `--model` in `copilot_send`.
+    #[tauri::command]
+    pub async fn copilot_set_model(
+        state: State<'_, AppState>,
+        model: String,
+    ) -> Result<crate::copilot::Disclosure, String> {
+        let cfg = state.vault.with_config(|c| c.copilot.clone());
+        if cfg.agent != "oxios" {
+            return Err(format!(
+                "agent '{}' selects its model per turn in the panel",
+                cfg.agent
+            ));
+        }
+        crate::copilot::oxios_set_default_model(
+            std::path::Path::new(&cfg.executable),
+            &model,
+        )
+        .await?;
+        Ok(crate::copilot::disclosure(&cfg.agent))
     }
 
     /// One copilot turn result. `changed` lists vault changes observed
@@ -1690,6 +1733,10 @@ mod commands {
         pub timed_out: bool,
         pub changed: Vec<crate::copilot::ChangedNote>,
         pub duration_ms: u64,
+        /// Model/provider ACTUALLY used this turn, when the agent's output
+        /// discloses it (omp's JSONL stream does; oxios's does not).
+        pub model: Option<String>,
+        pub provider: Option<String>,
     }
 
     /// Full-vault manifest walk; heavy (redb + per-file read/hash), so
@@ -1714,6 +1761,7 @@ mod commands {
         message: String,
         active_memo: Option<ActiveMemoArg>,
         session: Option<String>,
+        model: Option<String>,
     ) -> Result<TurnResult, String> {
         let cfg = state.vault.with_config(|c| c.copilot.clone());
         if !cfg.enabled || cfg.agent.is_empty() || cfg.executable.is_empty() {
@@ -1739,6 +1787,13 @@ mod commands {
                     "agent executable changed since activation — re-activate it in Settings"
                         .to_string(),
                 );
+            }
+        }
+        // Per-turn model (omp only). The id came from the agent's own
+        // listing, but re-validate: it goes straight into a subprocess argv.
+        if let Some(m) = model.as_deref() {
+            if !crate::copilot::valid_model_id(m) {
+                return Err("invalid model id".to_string());
             }
         }
         // Atomically claim the busy slot BEFORE any prep work: the old
@@ -1774,9 +1829,24 @@ mod commands {
             id: m.id.clone(),
             title: m.title.clone(),
             path: m.path.clone(),
+            selection: m.selection.clone(),
         });
         let ctx = crate::copilot::build_context(&vault_root, &cli, &skill, active.as_ref());
-        let args = crate::copilot::oxios_args(session.as_deref(), &message);
+        // Adapter dispatch (spec §5): argv shape, cwd, and stdout dialect
+        // are per-agent facts. oxios context rides stdin (`--context-file -`);
+        // omp appends stdin to the prompt as context. omp turns run with
+        // the vault as cwd so its file tools land in the right tree.
+        let (args, cwd): (Vec<String>, Option<&std::path::Path>) = match cfg.agent.as_str() {
+            "oxios" => (
+                crate::copilot::oxios_args(session.as_deref(), &message),
+                None,
+            ),
+            "omp" => (
+                crate::copilot::omp_args(session.as_deref(), model.as_deref(), &message),
+                Some(vault_root.as_path()),
+            ),
+            other => return Err(format!("no copilot adapter for '{other}'")),
+        };
         let before = {
             let v = state.vault.clone();
             tokio::task::spawn_blocking(move || manifest_snapshot(v))
@@ -1790,6 +1860,7 @@ mod commands {
                 &exe,
                 &args,
                 &ctx,
+                cwd,
                 cfg.timeout_secs,
                 move |pgid| {
                     *busy.lock() = Some(pgid);
@@ -1818,10 +1889,17 @@ mod commands {
             // result lands the moment the process exits.
             let _ = app.emit("memos:changed", ());
         }
-        let (response, session_id) = if outcome.timed_out {
-            (String::new(), None)
+        // Response parsing is adapter-dialect work: oxios prints one JSON
+        // object, omp a JSONL event stream that also discloses the model
+        // and provider ACTUALLY used this turn (spec §12).
+        let (response, session_id, model, provider) = if outcome.timed_out {
+            (String::new(), None, None, None)
+        } else if cfg.agent == "omp" {
+            let t = crate::copilot::parse_omp_jsonl(&outcome.stdout);
+            (t.response, t.session_id, t.model, t.provider)
         } else {
-            crate::copilot::parse_agent_json(&outcome.stdout)
+            let (r, s) = crate::copilot::parse_agent_json(&outcome.stdout);
+            (r, s, None, None)
         };
         Ok(TurnResult {
             response,
@@ -1832,6 +1910,8 @@ mod commands {
             timed_out: outcome.timed_out,
             changed,
             duration_ms,
+            model,
+            provider,
         })
     }
 

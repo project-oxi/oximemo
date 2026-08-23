@@ -63,7 +63,7 @@ export const COLLECTION_CATALOG: CollectionPresetInfo[] = [
     icon: PenLine,
     nameKey: "collection_name_novel",
     descKey: "collection_desc_novel",
-    defaultFolder: { ko: "소설", en: "novel" },
+    defaultFolder: { ko: "집필", en: "writing" },
     hasMetadata: false,
   },
   {

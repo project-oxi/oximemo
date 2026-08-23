@@ -313,7 +313,7 @@ const BLOG_PRESET_SCHEMA: FolderSchema = {
 
 const NOVEL_PRESET_SCHEMA: FolderSchema = {
   meta: { preset: "novel" },
-  workspace: { name: "소설" },
+  workspace: { name: "집필" },
   properties: {
     kind: { prop_type: "select", options: KIND_OPTIONS },
     status: {
@@ -426,19 +426,32 @@ async function browserFallback(
     // state so the panel/consent surfaces are exercisable without a
     // Tauri shell. No subprocess ever runs here.
     case "copilot_status":
-      return { enabled: true, activated: true, agent: "oxios", busy: false };
+      return {
+        enabled: true,
+        activated: true,
+        agent: "oxios",
+        agent_name: "Oxios",
+        busy: false,
+      };
     case "copilot_probe_agents":
       return [
         {
           id: "oxios",
-          display_name: "oxios",
+          display_name: "Oxios",
           executable: "/opt/homebrew/bin/oxios",
           version: "oxios 0.66.0",
           supported: true,
         },
         {
+          id: "omp",
+          display_name: "Oh My Pi",
+          executable: "/Users/demo/.bun/bin/omp",
+          version: "omp/18.0.1",
+          supported: true,
+        },
+        {
           id: "claude",
-          display_name: "claude",
+          display_name: "Claude Code",
           executable: "/usr/local/bin/claude",
           version: "1.0.0",
           supported: false,
@@ -456,15 +469,43 @@ async function browserFallback(
         model: "zai-coding-plan/glm-5-turbo",
         provider: "zai-coding-plan",
       };
+    case "copilot_models":
+      return [
+        {
+          id: "zai-coding-plan/GLM-5-Turbo",
+          name: "GLM-5-Turbo",
+          provider: "zai-coding-plan",
+          context_window: 200000,
+        },
+        {
+          id: "zai-coding-plan/GLM-5.2",
+          name: "GLM-5.2",
+          provider: "zai-coding-plan",
+          context_window: 1000000,
+        },
+        {
+          id: "zai-coding-plan/GLM-4.5-Air",
+          name: "GLM-4.5-Air",
+          provider: "zai-coding-plan",
+          context_window: 131000,
+        },
+      ];
+    case "copilot_set_model":
+      return {
+        agent: "oxios",
+        model: (args?.model as string) ?? "",
+        provider: "zai-coding-plan",
+      };
     case "set_copilot_config":
       return null;
     case "copilot_cancel":
       return true;
     case "copilot_send": {
       const msg = (args?.message as string) ?? "";
+      const memo = args?.activeMemo as { selection?: string | null } | null;
       const changed = liveSorted(loadStore())[0];
       return {
-        response: `(browser fallback) received: ${msg}`,
+        response: `(browser fallback) received: ${msg}${memo?.selection ? " +selection" : ""}`,
         session_id: "browser-session",
         exit_code: 0,
         signal: null,
@@ -474,9 +515,10 @@ async function browserFallback(
           ? [{ id: changed.id, kind: "changed" as const }]
           : [],
         duration_ms: 42,
+        model: "glm-5.2",
+        provider: "zai",
       };
     }
-
     case "list_memos": {
       const after = (args?.after as string | null | undefined) ?? null;
       const limit = (args?.limit as number | undefined) ?? 50;

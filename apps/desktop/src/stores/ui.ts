@@ -104,9 +104,14 @@ interface UIState {
    * reset it in CardGrid. */
   reviewMode: boolean;
   setReviewMode: (b: boolean) => void;
-  /** Copilot side panel open (⌘⇧C / header icon). Transient. */
+  /** Copilot floating window open (⌘⇧C / FAB). Transient. */
   copilotOpen: boolean;
   setCopilotOpen: (b: boolean) => void;
+  /** Text currently selected in the note editor, paired with the memo it
+   * belongs to. Synced by the editor's CM6 update listener; the copilot
+   * panel folds it into the turn context (Claude-desktop style). */
+  copilotSelection: { memoId: string; text: string } | null;
+  setCopilotSelection: (s: { memoId: string; text: string } | null) => void;
   requestFolderCreate: () => void;
   consumeFolderCreate: () => void;
 }
@@ -224,6 +229,8 @@ export const useUI = create<UIState>((set) => ({
   setReviewMode: (b) => set({ reviewMode: b }),
   copilotOpen: false,
   setCopilotOpen: (b) => set({ copilotOpen: b }),
+  copilotSelection: null,
+  setCopilotSelection: (s) => set({ copilotSelection: s }),
   /** One-shot settings tab request — consumed by SettingsMenu on open
    *  (⌘K 컬렉션 관리 → collections pane). */
   settingsTab: null,

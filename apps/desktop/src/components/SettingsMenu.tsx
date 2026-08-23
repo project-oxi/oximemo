@@ -22,7 +22,6 @@ import {
   Check,
   ChevronDown,
   Copy,
-  Database,
   DownloadCloud,
   Folder,
   FolderTree,
@@ -79,7 +78,7 @@ import { useUI } from "../stores/ui";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { checkForUpdate, type UpdateAvailable } from "../lib/updater";
 import { COLLECTION_CATALOG, SYSTEM_COLLECTIONS, type DictKey } from "../lib/collectionCatalog";
-import { MetadataSection } from "./MetadataSection";
+import { MetadataRegionSelect, ProviderKeys } from "./ProviderKeys";
 import { useSchemaInfo } from "../lib/folders";
 import { applyTheme, type Theme } from "../lib/theme";
 import type { FolderEntry } from "../lib/types";
@@ -780,7 +779,6 @@ function CollectionsSection() {
   const setError = useUI((s) => s.setError);
   const setFolderFilter = useUI((s) => s.setFolderFilter);
   const setSettingsOpen = useUI((s) => s.setSettingsOpen);
-  const setSettingsTab = useUI((s) => s.setSettingsTab);
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const setReviewMode = useUI((s) => s.setReviewMode);
   const config = useQuery({ queryKey: ["config"], queryFn: getConfig });
@@ -1013,14 +1011,10 @@ function CollectionsSection() {
                     </button>
                   )}
                   {(row.id === "book" || row.id === "movie") && (
-                    <button
-                      type="button"
-                      onClick={() => setSettingsTab("metadata")}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-1.5 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-muted"
-                    >
-                      <Database size={12} />
-                      {t.collection_metadata_keys}
-                    </button>
+                    <MetadataRegionSelect />
+                  )}
+                  {(row.id === "book" || row.id === "movie") && (
+                    <ProviderKeys domain={row.id} />
                   )}
                   {(row.id === "book" || row.id === "movie") && (
                     <div>
@@ -1388,7 +1382,6 @@ export function SettingsMenu() {
       items: [
         { id: "brain", label: t.section_brain, icon: <Brain size={13} /> },
         { id: "copilot", label: t.section_copilot, icon: <Bot size={13} /> },
-        { id: "metadata", label: t.metadata, icon: <Database size={13} /> },
       ],
     },
     {
@@ -1530,7 +1523,7 @@ export function SettingsMenu() {
                   <BrainSection />
                 </section>
               )}
-              {activeTab === "metadata" && <MetadataSection />}
+
               {activeTab === "copilot" && (
                 <section>
                   <PaneHeader title={t.section_copilot} />

@@ -678,15 +678,17 @@ type = "text"
 type = "date"
 "#;
 
-/// Novel (light): project folder, chapters as notes, chapter status.
-/// Long-form dedicated views stay out of scope (spec §7).
+/// Novel — 집필 (manuscript writing): project folder, chapters as notes,
+/// chapter status. Renamed from "소설" (2026-08-24): the writing
+/// collection must not read as a reading one next to 책. Long-form
+/// dedicated views stay out of scope (spec §7).
 pub const NOVEL_TEMPLATE_MD: &str = "---\nkind: novel\nstatus: outline\n---\n\n# \n";
 
 pub const NOVEL_SCHEMA_TOML: &str = r#"[meta]
 preset = "novel"
 
 [workspace]
-name = "소설"
+name = "집필"
 
 [properties.kind]
 type = "select"

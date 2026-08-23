@@ -4,6 +4,7 @@
  */
 import { Image as ImageIcon } from "lucide-react";
 import { type Ref, useEffect, useMemo, useRef } from "react";
+import { EditorView } from "@codemirror/view";
 
 import { createFolder } from "../lib/api";
 import { useI18n } from "../lib/i18n";
@@ -44,6 +45,7 @@ export function MemoEditorForm({
 }: MemoEditorFormProps) {
   const { t, locale } = useI18n();
   const select = useUI((s) => s.select);
+  const setCopilotSelection = useUI((s) => s.setCopilotSelection);
   const editorHandleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null);
   const viewHandleRef = useRef<ImageViewHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -52,8 +54,26 @@ export function MemoEditorForm({
       imagePickerKeymap(() => fileInputRef.current?.click()),
       wikiLinks(buildWikiLinksConfig({ onOpen: select, locale })),
       ...embedExtension({ onOpen: select, labels: t }),
+      // Selection → copilot context (Claude-desktop style): the panel
+      // folds whatever is highlighted into the next turn. Authoritative
+      // CM6 state, not DOM selection — synced on every selection/doc
+      // change; cleared when the editor unmounts (dialog close).
+      EditorView.updateListener.of((u) => {
+        if (!u.selectionSet && !u.docChanged) return;
+        const sel = u.state.selection.main;
+        if (sel.empty) {
+          setCopilotSelection(null);
+          return;
+        }
+        const text = u.state.sliceDoc(sel.from, sel.to);
+        setCopilotSelection(text.trim() ? { memoId: documentId, text } : null);
+      }),
     ],
-    [select, locale, t],
+    [select, locale, t, documentId, setCopilotSelection],
+  );
+  useEffect(
+    () => () => setCopilotSelection(null),
+    [setCopilotSelection],
   );
   useEffect(() => {
     const id = requestAnimationFrame(() => editorHandleRef.current?.focus());

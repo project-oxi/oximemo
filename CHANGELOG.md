@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **First-party collection tier (spec 2026-08-24)** — book/movie/blog/
+  집필/idea collections now behave like shipped system folders:
+  - **위치 icons** — a pinned folder carrying a `[meta] preset` marker
+    renders with its catalog icon (BookOpen/Clapperboard/FileText/
+    PenLine/Lightbulb) instead of the generic folder glyph, at the
+    same visual tier as 볼트/데일리/지식. Pin management (rename,
+    unpin, reorder, delete) is unchanged — collections ARE folders.
+  - **소설 → 집필** — the writing collection renamed (en: Novel →
+    Writing) so it no longer reads as a reading collection next to
+    책. Preset id `novel` and `kind` values are untouched; new
+    installs get the 집필 workspace name, existing SCHEMA.toml files
+    are never rewritten.
+  - **Search-to-add (책/영화)** — every add affordance (header button,
+    empty-state CTA, context menu, ⌘N) in a metadata-backed folder
+    opens a search dialog first: pick a hit and the note is born with
+    its H1 plus all schema-declared descriptive props
+    (author/isbn/director/…/source_url/cover_url) stamped in one
+    shot. "직접 추가" keeps the blank-template path for offline/no-hit
+    cases; created notes are deliberate, never draft-discarded.
+  - **Per-collection provider keys** — the 연동 → 메타데이터 settings
+    pane is gone; book/movie expand areas in 설정 → 컬렉션 embed their
+    own provider rows (badges, reveal-toggle key inputs, auto-save on
+    commit) plus the shared region select. `[metadata] enabled`
+    remains a config.toml field with no UI (search is always
+    user-initiated; empty keys already disable keyed providers).
+
 - **Copilot panel — terminal-agent CLI delegation (spec
   2026-08-23)** — an optional side panel (`⌘⇧C` / header button) that
   delegates vault work (write a note, tidy up, suggest tags) to a

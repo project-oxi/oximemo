@@ -160,6 +160,9 @@ export interface MetaHit {
   title: string;
   subtitle?: string | null;
   url?: string | null;
+  /** Poster/cover image URL (core MetaHit.cover_url) — stamped into a
+   *  schema-declared `cover_url` prop like source_url. */
+  cover_url?: string | null;
   fields: Record<string, string>;
 }
 
@@ -226,6 +229,7 @@ export interface CopilotStatus {
   enabled: boolean;
   activated: boolean;
   agent: string;
+  agent_name: string;
   busy: boolean;
 }
 
@@ -258,12 +262,25 @@ export interface TurnResult {
   timed_out: boolean;
   changed: ChangedNote[];
   duration_ms: number;
+  /** Model/provider actually used this turn, when the agent's output
+   * discloses it (omp's JSONL stream does). */
+  model: string | null;
+  provider: string | null;
 }
 
 export interface ActiveMemoRef {
   id: string;
   title: string;
   path: string;
+  /** Text currently selected in the note editor, if any. */
+  selection?: string | null;
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  context_window: number | null;
 }
 
 export function copilotStatus(): Promise<CopilotStatus> {
@@ -291,12 +308,23 @@ export function copilotActivate(agent: string, executable: string): Promise<Disc
   return invoke<Disclosure>("copilot_activate", { agent, executable });
 }
 
+export function copilotModels(): Promise<ModelInfo[]> {
+  return invoke<ModelInfo[]>("copilot_models");
+}
+
+/** oxios only: its `run` has no per-turn model flag, so the picker edits
+ * the durable `engine.default_model` via oxios's own `config set`. */
+export function copilotSetModel(model: string): Promise<Disclosure> {
+  return invoke<Disclosure>("copilot_set_model", { model });
+}
+
 export function copilotSend(
   message: string,
   activeMemo: ActiveMemoRef | null,
   session: string | null,
+  model: string | null,
 ): Promise<TurnResult> {
-  return invoke<TurnResult>("copilot_send", { message, activeMemo, session });
+  return invoke<TurnResult>("copilot_send", { message, activeMemo, session, model });
 }
 
 export function copilotCancel(): Promise<boolean> {

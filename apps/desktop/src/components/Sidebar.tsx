@@ -15,12 +15,16 @@ import { dayLabel, todayLocalISO } from "../lib/dates";
 import { useFolderDrop, parentOf } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
 import { folderDisplayName, useFolderNames, useSchemaInfo, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
+import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
 import { toneBg } from "../lib/propDisplay";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import { Calendar } from "./Calendar";
 import { TextCtxMenu } from "./TextCtxMenu";
 import { useUI, type TagState } from "../stores/ui";
 import type { FolderDef } from "../lib/types";
+/** Static preset-id → icon table (drives 위치 collection rows). */
+const PRESET_ICON: Record<string, (typeof COLLECTION_CATALOG)[number]["icon"]> =
+  Object.fromEntries(COLLECTION_CATALOG.map((c) => [c.id, c.icon]));
 
 const STATE_CLASS: Record<TagState, string> = {
   off: "bg-surface-muted text-text-muted hover:bg-surface-muted/80",
@@ -132,6 +136,20 @@ export function Sidebar({
   };
   const pins = folders.filter((f) => f.pinned);
   const pinPaths = pins.map((f) => f.path);
+  // First-party tier (user prompt 2026-08-24): an installed collection
+  // shows its catalog icon — a pinned folder carrying a `[meta] preset`
+  // marker renders like the 볼트/데일리/지식 location rows, not as a
+  // generic folder. The row keeps full pin management (rename/unpin/
+  // reorder/delete) — collections ARE folders.
+  const pinSchemas = useSchemaInfo(pinPaths);
+  const presetIcons = useMemo(() => {
+    const out: Record<string, React.ReactNode> = {};
+    for (const [p, s] of Object.entries(pinSchemas)) {
+      const Icon = s?.meta?.preset ? PRESET_ICON[s.meta.preset] : undefined;
+      if (Icon) out[p] = <Icon size={14} className="shrink-0 text-text-subtle" aria-hidden />;
+    }
+    return out;
+  }, [pinSchemas]);
 
   // Daily notes: opt-out via config (absent = enabled). Config drives
   // folder + flag; the calendar query refreshes the dot set as memos
@@ -300,6 +318,7 @@ export function Sidebar({
         <SidebarFolderRow
           key={f.path}
           path={f.path}
+          icon={presetIcons[f.path]}
           folders={folders}
           selected={folderFilter === f.path}
           naming={pinNaming === f.path}
@@ -481,6 +500,7 @@ export function Sidebar({
  *  the hooks run at a stable index inside the pins map. */
 function SidebarFolderRow({
   path,
+  icon,
   folders,
   selected,
   naming,
@@ -495,6 +515,8 @@ function SidebarFolderRow({
   onMoveFolderTree,
 }: {
   path: string;
+  /** Collection icon override — pinned folder carrying a preset marker. */
+  icon?: React.ReactNode;
   folders: FolderDef[];
   selected: boolean;
   /** Inline rename session active for this row. */
@@ -612,10 +634,12 @@ function SidebarFolderRow({
             onClick={() => onOpen(path)}
             className="flex flex-1 items-center gap-2 truncate px-2 py-0.5 text-left"
           >
-            <Folder
-              size={12}
-              style={{ color: colorForFolder(path, folders) }}
-            />
+            {icon ?? (
+              <Folder
+                size={12}
+                style={{ color: colorForFolder(path, folders) }}
+              />
+            )}
             <span className="truncate">{displayFolder(path)}</span>
           </button>
         )}
