@@ -1,0 +1,28 @@
+[package]
+name = "oxi-vault-git"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+authors = ["oximemo"]
+license = "MIT"
+description = "Oxi ecosystem shared vault git layer: local, offline-capable revision safety net for ~/.oxi/vault (oximemo + oxios)"
+repository = "https://github.com/project-oxi/oximemo"
+homepage = "https://github.com/project-oxi/oximemo"
+categories = ["filesystem"]
+keywords = ["git", "vault", "oxi", "version-control", "gix"]
+publish = true
+
+[lib]
+name = "oxi_vault_git"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+gix = { version = "0.83", features = ["tree-editor", "blob-diff"] }
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+similar = "2"
+tempfile = "3"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
