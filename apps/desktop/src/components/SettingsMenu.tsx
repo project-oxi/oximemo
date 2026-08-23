@@ -21,6 +21,7 @@ import {
   Copy,
   DownloadCloud,
   Folder,
+  FolderPlus,
   FolderTree,
   HardDrive,
   Info,
@@ -59,17 +60,20 @@ import {
   setCaptureConfig,
   setGeneralConfig,
   setIndexConfig,
+  setDailyConfig,
+  installCollection,
   vaultPath,
 } from "../lib/api";
 
-import { applyTheme, type Theme } from "../lib/theme";
 import { useI18n } from "../lib/i18n";
 import { useFolderNames } from "../lib/folders";
 import { useUI } from "../stores/ui";
-import type { FolderEntry } from "../lib/types";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { checkForUpdate, type UpdateAvailable } from "../lib/updater";
-
+import { COLLECTION_CATALOG, SYSTEM_COLLECTIONS, type DictKey } from "../lib/collectionCatalog";
+import { useSchemaInfo } from "../lib/folders";
+import { applyTheme, type Theme } from "../lib/theme";
+import type { FolderEntry } from "../lib/types";
 const APP_VERSION = __APP_VERSION__;
 
 function Segmented<T extends string>({
@@ -108,19 +112,7 @@ function PaneHeader({ title }: { title: string }) {
   return <h2 className="mb-3 text-sm font-semibold text-text">{title}</h2>;
 }
 
-/** Settings rail tab ids. `general` matches the config section name
- *  ([general], labeled 동작/Behavior), not its rail position. */
-type TabId =
-  | "appearance"
-  | "general"
-  | "capture"
-  | "brain"
-  | "folders"
-  | "storage"
-  | "advanced"
-  | "cli"
-  | "updates"
-  | "about";
+
 
 /** Boolean setting row with a switch. Commits immediately. */
 function ToggleRow({
@@ -560,6 +552,139 @@ function FoldersSection() {
   );
 }
 
+/** Icon + i18n name for a preset id (system pair first, then the
+ *  installable catalog; `Folder` as the never-hit fallback). */
+function collectionVisual(id: string): { icon: ReactNode; nameKey: DictKey } {
+  const sys = SYSTEM_COLLECTIONS.find((s) => s.id === id);
+  if (sys) return { icon: <sys.icon size={13} />, nameKey: sys.nameKey };
+  const cat = COLLECTION_CATALOG.find((c) => c.id === id);
+  if (cat) return { icon: <cat.icon size={13} />, nameKey: cat.nameKey };
+  return { icon: <Folder size={13} />, nameKey: "settings_group_collections" };
+}
+
+/** One installed collection's pane (spec §4.3) — deliberately thin:
+ *  folder path, go-to-folder, remove. System folders (knowledge/daily)
+ *  label the destructive action 초기화 and explain the recreate-on-
+ *  migrate semantics; daily also surfaces the TOML-only `[daily]
+ *  enabled` toggle (0.9.3 GUI-parity gap). Rename/pinning stays in the
+ *  Folders tab; book/movie point at the metadata provider keys. */
+function CollectionSection({ presetId }: { presetId: string }) {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const setError = useUI((s) => s.setError);
+  const setFolderFilter = useUI((s) => s.setFolderFilter);
+  const setSettingsOpen = useUI((s) => s.setSettingsOpen);
+  const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
+  const config = useQuery({ queryKey: ["config"], queryFn: getConfig });
+  const folders = useQuery({ queryKey: ["folders"], queryFn: listFolders });
+  const dailyFolder = config.data?.daily?.folder ?? "daily";
+  const isSystem = presetId === "knowledge" || presetId === "daily";
+  const fallbackPath = presetId === "daily" ? dailyFolder : presetId;
+  const schemaInfo = useSchemaInfo((folders.data ?? []).map((f) => f.path));
+  const folder =
+    (folders.data ?? []).find((f) => schemaInfo[f.path]?.meta?.preset === presetId)
+      ?.path ?? fallbackPath;
+  const exists = (folders.data ?? []).some((f) => f.path === folder);
+  const [armed, setArmed] = useState(false);
+  const { nameKey } = collectionVisual(presetId);
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["folders"] });
+    void qc.invalidateQueries({ queryKey: ["folder-schema"] });
+    void qc.invalidateQueries({ queryKey: ["folderChildren"] });
+  };
+
+  const remove = () => {
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    void deleteFolder(folder)
+      .then(invalidate)
+      .catch((e) => setError(String(e).split("\n")[0]))
+      .finally(() => setArmed(false));
+  };
+
+  const reinstall = () => {
+    void installCollection(presetId, folder)
+      .then(invalidate)
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+
+  return (
+    <section>
+      <PaneHeader title={t[nameKey]} />
+      <div className="space-y-2.5">
+        <div>
+          <p className="mb-1 text-[11px] text-text-subtle">{t.collection_folder_name}</p>
+          <code className="block truncate rounded-lg bg-surface-sunken px-2.5 py-1.5 font-mono text-[11px] text-text-muted">
+            {folder}
+          </code>
+        </div>
+        {exists ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsOpen(false);
+                setFavoritesOnly(false);
+                setFolderFilter(folder);
+              }}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted"
+            >
+              <FolderTree size={13} />
+              {t.collection_goto_folder}
+            </button>
+            <button
+              type="button"
+              onClick={remove}
+              className={
+                "flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors " +
+                (armed
+                  ? "border-status-error bg-status-error text-interactive-primary-foreground hover:bg-status-error/90"
+                  : "border-status-error text-status-error hover:bg-status-error-subtle")
+              }
+            >
+              <Trash2 size={13} />
+              {armed ? t.collection_remove_confirm : isSystem ? t.reset : t.collection_remove}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={reinstall}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted"
+          >
+            <FolderPlus size={13} />
+            {t.collection_install}
+          </button>
+        )}
+        {presetId === "daily" && (
+          <ToggleRow
+            label={t.collection_daily_enabled}
+            checked={config.data?.daily?.enabled ?? true}
+            onChange={(v) =>
+              setDailyConfig({
+                enabled: v,
+                folder: dailyFolder,
+              })
+                .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+                .catch((e) => setError(String(e).split("\n")[0]))
+            }
+          />
+        )}
+        {isSystem && (
+          <p className="text-[10px] leading-snug text-text-subtle">{t.collection_system_note}</p>
+        )}
+        {(presetId === "book" || presetId === "movie") && (
+          <p className="text-[10px] leading-snug text-text-subtle">{t.collection_provider_hint}</p>
+        )}
+        <p className="text-[10px] leading-snug text-text-subtle">{t.collection_rename_hint}</p>
+      </div>
+    </section>
+  );
+}
+
 
 
 /** Command-line tool install section. Surfaces the bundled `oximemo` CLI on
@@ -763,8 +888,7 @@ function UpdaterSection() {
           onClick={onCheck}
           className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted"
         >
-          <RefreshCw size={13} />
-          {t.update_check}
+          {status === "error" ? t.update_check : t.update_check}
         </button>
       )}
     </div>
@@ -774,12 +898,12 @@ export function SettingsMenu() {
   const { t, locale, setLocale } = useI18n();
   const theme = useUI((s) => s.theme);
   const setTheme = useUI((s) => s.setTheme);
-  const setToast = useUI((s) => s.setToast);
-  const setError = useUI((s) => s.setError);
-  const updateAvailable = useUI((s) => s.updateAvailable);
   const settingsOpen = useUI((s) => s.settingsOpen);
   const setSettingsOpen = useUI((s) => s.setSettingsOpen);
   const qc = useQueryClient();
+  const setError = useUI((s) => s.setError);
+  const setToast = useUI((s) => s.setToast);
+  const updateAvailable = useUI((s) => s.updateAvailable);
 
   const [busy, setBusy] = useState<"reindex" | "doctor" | "reset" | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -874,8 +998,21 @@ export function SettingsMenu() {
       .finally(() => setBusy(null));
   };
 
-  const [activeTab, setActiveTab] = useState<TabId>("appearance");
-  const rail: { group: string; items: { id: TabId; label: string; icon: ReactNode }[] }[] = [
+  const [activeTab, setActiveTab] = useState<string>("appearance");
+  const folders = useQuery({ queryKey: ["folders"], queryFn: listFolders });
+  const schemaInfo = useSchemaInfo((folders.data ?? []).map((f) => f.path));
+  const dailyFolder = config.data?.daily?.folder ?? "daily";
+  const collectionEntries: { id: string; folder: string }[] = [
+    { id: "knowledge", folder: "knowledge" },
+    { id: "daily", folder: dailyFolder },
+  ];
+  for (const f of folders.data ?? []) {
+    const preset = schemaInfo[f.path]?.meta?.preset;
+    if (preset && preset !== "knowledge" && preset !== "daily") {
+      collectionEntries.push({ id: preset, folder: f.path });
+    }
+  }
+  const rail: { group: string; items: { id: string; label: string; icon: ReactNode }[] }[] = [
     {
       group: t.settings_group_general,
       items: [
@@ -887,6 +1024,20 @@ export function SettingsMenu() {
     {
       group: t.settings_group_integrations,
       items: [{ id: "brain", label: t.section_brain, icon: <Brain size={13} /> }],
+    },
+    {
+      group: t.settings_group_collections,
+      items: [
+        ...collectionEntries.map((c) => {
+          const v = collectionVisual(c.id);
+          return { id: `col:${c.id}`, label: t[v.nameKey], icon: v.icon };
+        }),
+        {
+          id: "col-add",
+          label: `+ ${t.collection_add_title}`,
+          icon: <FolderPlus size={13} />,
+        },
+      ],
     },
     {
       group: "",
@@ -948,7 +1099,13 @@ export function SettingsMenu() {
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => setActiveTab(item.id)}
+                      onClick={() => {
+                        if (item.id === "col-add") {
+                          useUI.getState().setCollectionPickerOpen(true);
+                          return;
+                        }
+                        setActiveTab(item.id);
+                      }}
                       aria-current={activeTab === item.id ? "page" : undefined}
                       className={
                         "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs transition-colors " +
@@ -1123,6 +1280,9 @@ export function SettingsMenu() {
                   <PaneHeader title={t.section_updates} />
                   <UpdaterSection />
                 </section>
+              )}
+              {activeTab.startsWith("col:") && activeTab !== "col-add" && (
+                <CollectionSection presetId={activeTab.slice(4)} />
               )}
               {activeTab === "about" && (
                 <section>

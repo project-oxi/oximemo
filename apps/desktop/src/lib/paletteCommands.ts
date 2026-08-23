@@ -12,7 +12,8 @@
  * decaying recency boost); the host persists the recency log.
  */
 import { dict as en } from "./locales/en";
-import { dict as ko, type DictKey } from "./locales/ko";
+import { dict as ko } from "./locales/ko";
+import type { DictKey } from "./collectionCatalog";
 import type { Theme } from "./theme";
 import { folderDisplayName } from "./folders";
 import type { FolderEntry, ViewMode } from "./types";
@@ -65,6 +66,8 @@ export interface CommandCallbacks {
   openReviewQueue?: (folder: string) => void;
   /** New folder preloaded with the knowledge preset (§6.3). */
   newKnowledgeFolder?: () => void;
+  /** Open the collection catalog picker (spec §2.1). */
+  openCollectionPicker?: () => void;
   openSettings: () => void;
   setTheme: (t: Theme) => void;
 }
@@ -84,10 +87,14 @@ export interface CommandDeps {
   callbacks: CommandCallbacks;
 }
 
-const tr = (locale: "ko" | "en", key: DictKey) => (locale === "ko" ? ko[key] : en[key]);
+const tr = (locale: "ko" | "en", key: DictKey): string => (locale === "ko" ? ko[key] : en[key]) as string;
 /** Display title in `locale`, alias in the other locale. */
-const pair = (locale: "ko" | "en", key: DictKey): { title: string; alias: string } =>
-  locale === "ko" ? { title: ko[key], alias: en[key] } : { title: en[key], alias: ko[key] };
+const pair = (locale: "ko" | "en", key: DictKey): { title: string; alias: string } => {
+  const dict = locale === "ko" ? ko : en;
+  const other = locale === "ko" ? en : ko;
+  return { title: dict[key], alias: other[key] };
+};
+
 
 const VIEW_KEYS = {
   grid: "palette_view_grid",
@@ -180,6 +187,10 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
   if (callbacks.newKnowledgeFolder) {
     const k = pair(locale, "palette_knowledge_folder");
     add("action.new_knowledge_folder", "folder-plus", k.title, k.alias, "action", callbacks.newKnowledgeFolder);
+  }
+  if (callbacks.openCollectionPicker) {
+    const c = pair(locale, "palette_add_collection");
+    add("action.add_collection", "folder-plus", c.title, c.alias, "action", callbacks.openCollectionPicker);
   }
 
   // View-mode switches exclude the active mode (no-op noise).

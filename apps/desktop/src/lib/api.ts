@@ -111,6 +111,13 @@ export async function setBrainConfig(brain: BrainSection): Promise<void> {
   return invoke("set_brain_config", { brain });
 }
 
+export async function setDailyConfig(daily: {
+  enabled: boolean;
+  folder: string;
+}): Promise<void> {
+  return invoke("set_daily_config", { daily });
+}
+
 export async function setGeneralConfig(general: {
   trash_retention_days: number;
 }): Promise<void> {

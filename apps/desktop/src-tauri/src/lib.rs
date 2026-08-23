@@ -205,6 +205,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::query_notes,
             commands::folder_schema,
+            commands::set_daily_config,
             commands::install_collection,
             commands::list_memos,
             commands::get_memo,
@@ -670,8 +671,6 @@ mod commands {
     ) -> Result<(), String> {
         state
             .vault
-            .lock()
-            .map_err(|e| e.to_string())?
             .install_collection(&preset_id, &folder)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
@@ -1050,6 +1049,17 @@ mod commands {
         state
             .vault
             .set_general_config(general)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn set_daily_config(
+        state: State<'_, AppState>,
+        daily: oximemo_core::config::DailyConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_daily_config(daily)
             .map_err(|e| e.to_string())
     }
 

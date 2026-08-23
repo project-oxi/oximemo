@@ -1761,6 +1761,12 @@ impl Vault {
         self.replace_section(|c, v| c.brain = v, v)
     }
 
+    /// `[daily]` — the daily-notes surface (spec 2026-08-23 §4.3: the
+    /// TOML-only `enabled` flag finally gets a GUI toggle).
+    pub fn set_daily_config(&self, v: crate::config::DailyConfig) -> Result<()> {
+        self.replace_section(|c, v| c.daily = v, v)
+    }
+
     /// `[general]` — trash retention and future behavior knobs.
     pub fn set_general_config(&self, v: crate::config::GeneralConfig) -> Result<()> {
         self.replace_section(|c, v| c.general = v, v)

@@ -71,6 +71,7 @@ import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
 import { GalleryView } from "./GalleryView";
 import { SettingsMenu } from "./SettingsMenu";
+import { CollectionCatalogPicker } from "./CollectionCatalogPicker";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { GridView, type Cell } from "./views/GridView";
 import { ReviewQueue } from "./ReviewQueue";
@@ -1000,6 +1001,10 @@ export function CardGrid() {
         setPendingPreset(true);
         useUI.getState().requestFolderCreate();
       },
+      openCollectionPicker: () => {
+        useUI.getState().setView("memos");
+        useUI.getState().setCollectionPickerOpen(true);
+      },
       quickCapture: () => {
         void showCaptureWindow().catch((e) => setError(String(e).split("\n")[0]));
       },
@@ -1284,6 +1289,7 @@ export function CardGrid() {
               </button>
             )}
           </div>
+          <CollectionCatalogPicker />
           <SettingsMenu />
         </header>
         {schema && (propChips.length > 0 || schema.review) && (
