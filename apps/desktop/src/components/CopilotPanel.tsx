@@ -13,9 +13,9 @@ import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import {
   copilotCancel,
+  copilotStatus,
   copilotDisclosure,
   copilotSend,
-  getConfig,
   getMemo,
   type TurnResult,
   type ActiveMemoRef,
@@ -38,8 +38,8 @@ export function CopilotPanel() {
   const [draft, setDraft] = useState("");
   const [activeMemo, setActiveMemo] = useState<ActiveMemoRef | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const config = useQuery({ queryKey: ["config"], queryFn: getConfig });
-  const agentId = config.data?.copilot?.agent ?? "";
+  const status = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
+  const agentId = status.data?.agent ?? "";
   const disclosure = useQuery({
     queryKey: ["copilot-disclosure", agentId],
     queryFn: () => copilotDisclosure(agentId),
