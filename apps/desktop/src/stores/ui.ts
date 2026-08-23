@@ -104,6 +104,9 @@ interface UIState {
    * reset it in CardGrid. */
   reviewMode: boolean;
   setReviewMode: (b: boolean) => void;
+  /** Copilot side panel open (⌘⇧C / header icon). Transient. */
+  copilotOpen: boolean;
+  setCopilotOpen: (b: boolean) => void;
   requestFolderCreate: () => void;
   consumeFolderCreate: () => void;
 }
@@ -219,6 +222,8 @@ export const useUI = create<UIState>((set) => ({
   setSettingsOpen: (b) => set({ settingsOpen: b }),
   reviewMode: false,
   setReviewMode: (b) => set({ reviewMode: b }),
+  copilotOpen: false,
+  setCopilotOpen: (b) => set({ copilotOpen: b }),
   /** One-shot settings tab request — consumed by SettingsMenu on open
    *  (⌘K 컬렉션 관리 → collections pane). */
   settingsTab: null,

@@ -9,6 +9,7 @@ import { useSchemaInfo } from "../lib/folders";
 import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
 
 import { CardGrid } from "./CardGrid";
+import { CopilotPanel } from "./CopilotPanel";
 import { CaptureOverlay } from "./CaptureOverlay";
 import { ErrorToast } from "./ErrorBoundary";
 import { Toast } from "./Toast";
@@ -36,6 +37,7 @@ export function App() {
 }
 
 function Shell() {
+  const copilotOpen = useUI((s) => s.copilotOpen);
   const theme = useUI((s) => s.theme);
   const setUpdateAvailable = useUI((s) => s.setUpdateAvailable);
   const setToast = useUI((s) => s.setToast);
@@ -63,6 +65,7 @@ function Shell() {
   return (
     <>
       <CardGrid />
+      {copilotOpen && <CopilotPanel />}
       <CollectionAutopin />
       <CliNudge />
       <ErrorToast />

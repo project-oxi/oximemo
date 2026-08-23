@@ -11,6 +11,7 @@ import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-quer
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Bot,
   Clock,
   CodeXml,
   FilePlus2,
@@ -38,6 +39,7 @@ import {
   getConfig,
   listFolders,
   listMemos,
+  copilotStatus,
   folderSchema,
   queryNotes,
   installCollection,
@@ -115,6 +117,12 @@ export function CardGrid() {
   const setCmdPaletteOpen = useUI((s) => s.setCmdPaletteOpen);
   const requestNewFolder = useUI((s) => s.requestNewFolder);
   const consumeFolderCreate = useUI((s) => s.consumeFolderCreate);
+  const copilotOpen = useUI((s) => s.copilotOpen);
+  const setCopilotOpen = useUI((s) => s.setCopilotOpen);
+  // Panel visibility is config-driven (§6): no activated agent → the
+  // entry points stay hidden, no nudge.
+  const copilot = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
+  const copilotVisible = (copilot.data?.enabled ?? false) && (copilot.data?.activated ?? false);
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
   const hasMemos = (stats.data?.memos ?? 0) > 0;
   const clearAllFilters = () => {
@@ -888,6 +896,18 @@ export function CardGrid() {
         setCmdPaletteOpen(!useUI.getState().cmdPaletteOpen);
         return;
       }
+      // ⌘⇧C / Ctrl⇧C — copilot panel toggle (spec §15). Guarded like the
+      // ⌘K branch: inert under the palette modal and while a memo dialog
+      // holds focus. Hidden entirely when no agent is activated — the
+      // shortcut mirrors the header button's visibility.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && key === "c") {
+        if (useUI.getState().selectedId) return;
+        if (cmdOpen) return;
+        if (!copilotVisible) return;
+        e.preventDefault();
+        setCopilotOpen(!useUI.getState().copilotOpen);
+        return;
+      }
       // ⌘↑ / Ctrl↑ — navigate up one folder (no-op in query mode or at
       // root; inert under the palette modal). Mirrors the ⌘K branch: a
       // memo dialog open (selectedId) wins; without this guard the
@@ -914,7 +934,7 @@ export function CardGrid() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onNewNote, localSearch, setSearch, setCmdPaletteOpen]);
+  }, [onNewNote, localSearch, setSearch, setCmdPaletteOpen, setCopilotOpen, copilotVisible]);
 
   // Palette navigation mirrors the sidebar's openFolder convention
   // (Sidebar.tsx): setView("memos") + favoritesOnly(false) + browse the
@@ -1312,6 +1332,21 @@ export function CardGrid() {
               </button>
             )}
           </div>
+          {copilotVisible && (
+            <button
+              type="button"
+              onClick={() => useUI.getState().setCopilotOpen(!copilotOpen)}
+              aria-label={t.copilot_panel_title}
+              title={t.copilot_panel_title}
+              className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--button-radius)] transition-colors duration-150 ${
+                copilotOpen
+                  ? "bg-surface-muted text-text"
+                  : "text-text-muted hover:bg-surface-muted hover:text-text"
+              }`}
+            >
+              <Bot size={15} strokeWidth={2} />
+            </button>
+          )}
           <SettingsMenu />
         </header>
         {schema && (propChips.length > 0 || schema.review) && (
