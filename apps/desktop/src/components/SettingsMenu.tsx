@@ -1,9 +1,11 @@
 /**
- * Settings drawer: a right-anchored Dialog panel that slides in from the
- * right edge. Stacks vertical sections — Appearance, Categories (CRUD UI),
- * Storage/Vault, and About. Every action maps onto an existing IPC command
- * (theme/locale are local state; category management + reindex/doctor hit
- * the vault). Triggered by the gear button in the CardGrid header.
+ * Settings window: a centered modal with a left category rail and a
+ * content pane (macOS System Settings / Obsidian pattern). Rail groups —
+ * 일반(외관/동작/캡처), 연동(브레인; 메타데이터 and the installed-
+ * collections group join later), 폴더 관리, 시스템(저장소/고급/CLI/
+ * 업데이트/정보). Section bodies are plain components carried over
+ * from the old drawer verbatim. Triggered by the gear button in the
+ * CardGrid header.
  */
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -100,25 +102,25 @@ function Segmented<T extends string>({
   );
 }
 
-function Section({
-  icon,
-  title,
-  children,
-}: {
-  icon: ReactNode;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <section>
-      <h2 className="mb-2.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
-        <span className="text-text-subtle">{icon}</span>
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
+/** Content-pane title. The rail already carries the icon; panes repeat
+ *  only the label so the active section stays self-evident. */
+function PaneHeader({ title }: { title: string }) {
+  return <h2 className="mb-3 text-sm font-semibold text-text">{title}</h2>;
 }
+
+/** Settings rail tab ids. `general` matches the config section name
+ *  ([general], labeled 동작/Behavior), not its rail position. */
+type TabId =
+  | "appearance"
+  | "general"
+  | "capture"
+  | "brain"
+  | "folders"
+  | "storage"
+  | "advanced"
+  | "cli"
+  | "updates"
+  | "about";
 
 /** Boolean setting row with a switch. Commits immediately. */
 function ToggleRow({
@@ -872,6 +874,36 @@ export function SettingsMenu() {
       .finally(() => setBusy(null));
   };
 
+  const [activeTab, setActiveTab] = useState<TabId>("appearance");
+  const rail: { group: string; items: { id: TabId; label: string; icon: ReactNode }[] }[] = [
+    {
+      group: t.settings_group_general,
+      items: [
+        { id: "appearance", label: t.section_appearance, icon: <Palette size={13} /> },
+        { id: "general", label: t.section_general, icon: <Settings size={13} /> },
+        { id: "capture", label: t.section_capture, icon: <Zap size={13} /> },
+      ],
+    },
+    {
+      group: t.settings_group_integrations,
+      items: [{ id: "brain", label: t.section_brain, icon: <Brain size={13} /> }],
+    },
+    {
+      group: "",
+      items: [{ id: "folders", label: t.section_folders, icon: <FolderTree size={13} /> }],
+    },
+    {
+      group: t.settings_group_system,
+      items: [
+        { id: "storage", label: t.section_storage, icon: <HardDrive size={13} /> },
+        { id: "advanced", label: t.section_advanced, icon: <SlidersHorizontal size={13} /> },
+        { id: "cli", label: t.section_cli, icon: <Terminal size={13} /> },
+        { id: "updates", label: t.section_updates, icon: <DownloadCloud size={13} /> },
+        { id: "about", label: t.section_about, icon: <Info size={13} /> },
+      ],
+    },
+  ];
+
   return (
     <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
       <Dialog.Trigger
@@ -886,13 +918,11 @@ export function SettingsMenu() {
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <Dialog.Popup
-          className="fixed right-0 top-0 z-50 flex h-full w-[380px] max-w-[92vw] translate-x-full flex-col overflow-hidden border-l border-line bg-surface shadow-lg transition-transform duration-200 ease-out data-[open]:translate-x-0"
+          className="fixed left-1/2 top-1/2 z-50 flex h-[min(640px,85vh)] w-[min(880px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface shadow-lg transition-[opacity,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0"
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-            <h1 className="text-sm font-semibold text-text">
-              {t.settings}
-            </h1>
+            <h1 className="text-sm font-semibold text-text">{t.settings}</h1>
             <Dialog.Close
               aria-label={t.close}
               className="rounded-lg p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text-muted"
@@ -901,159 +931,213 @@ export function SettingsMenu() {
             </Dialog.Close>
           </div>
 
-          {/* Body */}
-          <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
-            <Section icon={<Palette size={12} />} title={t.section_appearance}>
-              <Segmented
-                value={theme}
-                onChange={onTheme}
-                options={[
-                  { value: "system", label: t.theme_system },
-                  { value: "light", label: t.theme_light },
-                  { value: "dark", label: t.theme_dark },
-                ]}
-              />
-              <div className="mt-2.5">
-                <Segmented
-                  value={locale}
-                  onChange={setLocale}
-                  options={[
-                    { value: "ko", label: t.locale_ko },
-                    { value: "en", label: t.locale_en },
-                  ]}
-                />
-              </div>
-              <div className="mt-2.5">
-                <ToggleRow
-                  label={t.dock_icon}
-                  checked={config.data?.appearance?.show_dock_icon ?? true}
-                  onChange={(v) =>
-                    setAppearanceConfig({
-                      theme: theme,
-                      show_dock_icon: v,
-                    })
-                      .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-                      .catch((e) => setError(String(e).split("\n")[0]))
-                  }
-                />
-              </div>
-            </Section>
-
-            <Section icon={<Brain size={12} />} title={t.section_brain}>
-              <BrainSection />
-            </Section>
-
-            <Section icon={<Zap size={12} />} title={t.section_capture}>
-              <CaptureSection />
-            </Section>
-
-            <Section icon={<FolderTree size={12} />} title="Folders">
-              <FoldersSection />
-            </Section>
-
-            <Section icon={<Settings size={12} />} title={t.section_general}>
-              <GeneralSection />
-            </Section>
-
-            <Section icon={<HardDrive size={12} />} title={t.section_storage}>
-              <div className="space-y-2.5">
-                <div>
-                  <p className="mb-1 text-[11px] text-text-subtle">
-                    {t.vault_location}
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <code
-                      title={vault.data ?? ""}
-                      className="min-w-0 flex-1 truncate rounded-lg bg-surface-sunken px-2.5 py-1.5 font-mono text-[11px] text-text-muted"
+          {/* Body: category rail + active pane */}
+          <div className="flex min-h-0 flex-1">
+            <nav
+              aria-label={t.settings}
+              className="w-[200px] shrink-0 overflow-y-auto border-r border-line py-2"
+            >
+              {rail.map((group, gi) => (
+                <div key={group.group || `g${gi}`} className="mb-1">
+                  {group.group && (
+                    <p className="px-3 pb-1 pt-2.5 text-[10px] font-medium uppercase tracking-wide text-text-subtle">
+                      {group.group}
+                    </p>
+                  )}
+                  {group.items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveTab(item.id)}
+                      aria-current={activeTab === item.id ? "page" : undefined}
+                      className={
+                        "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs transition-colors " +
+                        (activeTab === item.id
+                          ? "bg-surface-muted font-medium text-text"
+                          : "text-text-muted hover:bg-surface-muted/50 hover:text-text")
+                      }
                     >
-                      {vault.data ?? "…"}
-                    </code>
+                      {item.icon}
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </nav>
+            <div className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
+              {activeTab === "appearance" && (
+                <section>
+                  <PaneHeader title={t.section_appearance} />
+                  <Segmented
+                    value={theme}
+                    onChange={onTheme}
+                    options={[
+                      { value: "system", label: t.theme_system },
+                      { value: "light", label: t.theme_light },
+                      { value: "dark", label: t.theme_dark },
+                    ]}
+                  />
+                  <div className="mt-2.5">
+                    <Segmented
+                      value={locale}
+                      onChange={setLocale}
+                      options={[
+                        { value: "ko", label: t.locale_ko },
+                        { value: "en", label: t.locale_en },
+                      ]}
+                    />
+                  </div>
+                  <div className="mt-2.5">
+                    <ToggleRow
+                      label={t.dock_icon}
+                      checked={config.data?.appearance?.show_dock_icon ?? true}
+                      onChange={(v) =>
+                        setAppearanceConfig({
+                          theme: theme,
+                          show_dock_icon: v,
+                        })
+                          .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+                          .catch((e) => setError(String(e).split("\n")[0]))
+                      }
+                    />
+                  </div>
+                </section>
+              )}
+              {activeTab === "general" && (
+                <section>
+                  <PaneHeader title={t.section_general} />
+                  <GeneralSection />
+                </section>
+              )}
+              {activeTab === "capture" && (
+                <section>
+                  <PaneHeader title={t.section_capture} />
+                  <CaptureSection />
+                </section>
+              )}
+              {activeTab === "brain" && (
+                <section>
+                  <PaneHeader title={t.section_brain} />
+                  <BrainSection />
+                </section>
+              )}
+              {activeTab === "folders" && (
+                <section>
+                  <PaneHeader title={t.section_folders} />
+                  <FoldersSection />
+                </section>
+              )}
+              {activeTab === "storage" && (
+                <section>
+                  <PaneHeader title={t.section_storage} />
+                  <div className="space-y-2.5">
+                    <div>
+                      <p className="mb-1 text-[11px] text-text-subtle">
+                        {t.vault_location}
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <code
+                          title={vault.data ?? ""}
+                          className="min-w-0 flex-1 truncate rounded-lg bg-surface-sunken px-2.5 py-1.5 font-mono text-[11px] text-text-muted"
+                        >
+                          {vault.data ?? "…"}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => void copyVault()}
+                          aria-label={t.copy}
+                          className="shrink-0 rounded-lg p-1.5 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
+                        >
+                          {copied ? <Check size={13} className="text-status-success" /> : <Copy size={13} />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text-muted">
+                      <span>{t.memo_count.replace("{n}", String(stats.data?.memos ?? 0))}</span>
+                      <span>{t.favorites_count.replace("{n}", String(stats.data?.favorites ?? 0))}</span>
+                    </div>
+                    <div className="flex gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={onReindex}
+                        disabled={busy !== null}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-50"
+                      >
+                        <RefreshCw size={13} className={busy === "reindex" ? "animate-spin" : ""} />
+                        {busy === "reindex" ? t.reindexing : t.reindex}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onDoctor}
+                        disabled={busy !== null}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-50"
+                      >
+                        <Stethoscope size={13} />
+                        {busy === "doctor" ? t.checking : t.doctor}
+                      </button>
+                    </div>
+                    {issues !== null && busy === null && (
+                      <p
+                        className={
+                          "flex items-center gap-1 text-xs " +
+                          (issues === 0
+                            ? "text-status-success"
+                            : "text-status-warning")
+                        }
+                      >
+                        <ShieldCheck size={13} />
+                        {issues === 0 ? t.vault_ok : `${t.vault_issues}: ${issues}`}
+                      </p>
+                    )}
                     <button
                       type="button"
-                      onClick={() => void copyVault()}
-                      aria-label={t.copy}
-                      className="shrink-0 rounded-lg p-1.5 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
+                      onClick={onResetClick}
+                      disabled={busy !== null}
+                      className={
+                        "mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors disabled:opacity-50 " +
+                        (confirmReset
+                          ? "border-status-error bg-status-error text-interactive-primary-foreground hover:bg-status-error/90"
+                          : "border-status-error text-status-error hover:bg-status-error-subtle")
+                      }
                     >
-                      {copied ? <Check size={13} className="text-status-success" /> : <Copy size={13} />}
+                      <Trash2 size={13} />
+                      {busy === "reset" ? "…" : confirmReset ? t.reset_confirm : t.reset}
                     </button>
                   </div>
-                </div>
-                <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text-muted">
-                  <span>{t.memo_count.replace("{n}", String(stats.data?.memos ?? 0))}</span>
-                  <span>{t.favorites_count.replace("{n}", String(stats.data?.favorites ?? 0))}</span>
-                </div>
-                <div className="flex gap-2 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={onReindex}
-                    disabled={busy !== null}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-50"
-                  >
-                    <RefreshCw size={13} className={busy === "reindex" ? "animate-spin" : ""} />
-                    {busy === "reindex" ? t.reindexing : t.reindex}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onDoctor}
-                    disabled={busy !== null}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-50"
-                  >
-                    <Stethoscope size={13} />
-                    {busy === "doctor" ? t.checking : t.doctor}
-                  </button>
-                </div>
-                {issues !== null && busy === null && (
-                  <p
-                    className={
-                      "flex items-center gap-1 text-xs " +
-                      (issues === 0
-                        ? "text-status-success"
-                        : "text-status-warning")
-                    }
-                  >
-                    <ShieldCheck size={13} />
-                    {issues === 0 ? t.vault_ok : `${t.vault_issues}: ${issues}`}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={onResetClick}
-                  disabled={busy !== null}
-                  className={
-                    "mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors disabled:opacity-50 " +
-                    (confirmReset
-                      ? "border-status-error bg-status-error text-interactive-primary-foreground hover:bg-status-error/90"
-                      : "border-status-error text-status-error hover:bg-status-error-subtle")
-                  }
-                >
-                  <Trash2 size={13} />
-                  {busy === "reset" ? "…" : confirmReset ? t.reset_confirm : t.reset}
-                </button>
-              </div>
-            </Section>
-
-            <Section icon={<Terminal size={12} />} title={t.section_cli}>
-              <CliSection />
-            </Section>
-
-            <Section icon={<SlidersHorizontal size={12} />} title={t.section_advanced}>
-              <AdvancedSection />
-            </Section>
-
-            <Section icon={<DownloadCloud size={12} />} title={t.section_updates}>
-              <UpdaterSection />
-            </Section>
-
-            <Section icon={<Info size={12} />} title={t.section_about}>
-              <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
-                <span className="text-xs text-text-muted">oximemo</span>
-                <span className="font-mono text-xs text-text-subtle">v{APP_VERSION}</span>
-              </div>
-              <div className="mt-1.5 flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
-                <span className="text-xs text-text-muted">{t.capture_shortcut}</span>
-                <kbd className="font-mono text-xs text-text-subtle">⌘⇧N</kbd>
-              </div>
-            </Section>
+                </section>
+              )}
+              {activeTab === "advanced" && (
+                <section>
+                  <PaneHeader title={t.section_advanced} />
+                  <AdvancedSection />
+                </section>
+              )}
+              {activeTab === "cli" && (
+                <section>
+                  <PaneHeader title={t.section_cli} />
+                  <CliSection />
+                </section>
+              )}
+              {activeTab === "updates" && (
+                <section>
+                  <PaneHeader title={t.section_updates} />
+                  <UpdaterSection />
+                </section>
+              )}
+              {activeTab === "about" && (
+                <section>
+                  <PaneHeader title={t.section_about} />
+                  <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
+                    <span className="text-xs text-text-muted">oximemo</span>
+                    <span className="font-mono text-xs text-text-subtle">v{APP_VERSION}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
+                    <span className="text-xs text-text-muted">{t.capture_shortcut}</span>
+                    <kbd className="font-mono text-xs text-text-subtle">⌘⇧N</kbd>
+                  </div>
+                </section>
+              )}
+            </div>
           </div>
         </Dialog.Popup>
       </Dialog.Portal>
