@@ -147,12 +147,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings window redesign — drawer → centered rail+content modal** —
   the 380px slide-in drawer with ten stacked sections couldn't carry
   collections × metadata providers × per-folder settings, so it became
-  a centered modal (~880×640) with a left category rail (groups:
-  일반 · 연동 · 설치된 컬렉션 · 시스템) and one active content pane.
-  Every section body carries over verbatim — the Section icon+title
-  wrapper is gone because the rail already labels each item. The
-  gear trigger, `settingsOpen` store flag, and ESC/backdrop close are
-  unchanged.
+  a centered modal (~880×640) with a left category rail and one
+  active content pane. The gear trigger, `settingsOpen` store flag,
+  and ESC/backdrop close are unchanged. A second pass (same day,
+  user feedback) collapsed the rail from 12+N to 8+N tabs in four
+  groups: 일반(외관+동작+고급+데일리 노트 토글 merged under
+  SectionLabel subheadings · 캡처 + ⌘⇧N), 연동(Brain · 메타데이터),
+  볼트(컬렉션 동적 + 추가 + 폴더 관리 — collections are special
+  folders, so vault-scoped management lives together), 시스템(저장소 ·
+  업데이트+정보 merged with the full shortcut list ⌘K/⌘N/⌘⇧N/⌘↑ ·
+  CLI). Feature settings moved out of collection panes (daily
+  enabled → 일반); collection panes are now purely path/goto/remove.
+  Metadata provider keys got the biggest visibility fix: the old
+  128px in-row password field (a screenshot reviewer read it as a
+  "…" menu) became a two-row card — identity+badges on top, a
+  full-width key input with paste placeholder and per-card 👁 reveal
+  below, and a green "키 구성됨" state when a key is present.
 
 - **Installable collection library** — every preset is now pure data
   (`TEMPLATE.md` + `SCHEMA.toml`) and installs through one IPC,

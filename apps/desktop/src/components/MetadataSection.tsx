@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check } from "lucide-react";
+import { Check, Eye, EyeOff } from "lucide-react";
 
 import {
   getConfig,
@@ -53,11 +53,9 @@ function PaneHeader({ title }: { title: string }) {
 
 function ProviderBadge({
   access,
-  hasKey,
   t,
 }: {
   access: ProviderDisplay["access"];
-  hasKey: boolean;
   t: I18nContextValue["t"];
 }) {
   if (access === "keyless") {
@@ -69,9 +67,9 @@ function ProviderBadge({
   if (access === "approval") {
     return <span className="rounded-full bg-status-warning-subtle px-1.5 py-0.5 text-[10px] text-status-warning">{t.metadata_provider_approval}</span>;
   }
-  return hasKey ? (
-    <span className="rounded-full bg-status-success-subtle px-1.5 py-0.5 text-[10px] text-status-success">{t.metadata_provider_keyed}</span>
-  ) : (
+  // The "keyed + key set" success state is rendered by ProviderCard
+  // itself (키 구성됨); the badge only reports the requirement.
+  return (
     <span className="rounded-full bg-status-warning-subtle px-1.5 py-0.5 text-[10px] text-status-warning">{t.metadata_provider_keyed}</span>
   );
 }
@@ -217,40 +215,96 @@ function ProviderGroup({
 }) {
   return (
     <div>
-      <p className="mb-1 text-[11px] text-text-subtle">{label}</p>
+      <p className="mb-1.5 text-[11px] text-text-subtle">{label}</p>
       <div className="space-y-1.5">
-        {providers.map((p) => {
-          const field = KEY_FIELD[p.id];
-          const value = field ? (draft[field] ?? "") : "";
-          const hasKey = value.trim() !== "";
-          return (
-            <div key={p.id} className="flex items-center gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5">
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="truncate text-xs font-medium text-text">
-                  {p.id === "aladin" ? t.metadata_provider_aladin : p.name}
-                </span>
-                {isRecommended(p) && (
-                  <span className="rounded-full bg-interactive-primary-subtle px-1.5 py-0.5 text-[10px] text-interactive-primary">
-                    {t.metadata_provider_recommended}
-                  </span>
-                )}
-                <ProviderBadge access={p.access} hasKey={hasKey} t={t} />
-              </div>
-              {p.access === "keyless" ? null : p.access === "conditional" ? (
-                <span className="text-[10px] text-text-subtle">—</span>
-              ) : (
-                <input
-                  type="password"
-                  value={value}
-                  onChange={(e) => field && update({ [field]: e.target.value } as Partial<MetadataConfig>)}
-                  placeholder="•••"
-                  className="w-32 rounded-md bg-surface px-2 py-1 font-mono text-[11px] text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
-                />
-              )}
-            </div>
-          );
-        })}
+        {providers.map((p) => (
+          <ProviderCard
+            key={p.id}
+            p={p}
+            draft={draft}
+            update={update}
+            recommended={isRecommended(p)}
+            t={t}
+          />
+        ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One provider as a two-row card: identity + status on top, a
+ * full-width key input below. The old layout squeezed a 128px
+ * password field into the trailing slot of a single row — invisible
+ * in practice (a screenshot reviewer read it as a "…" menu). Keys
+ * now get the whole width, a paste-friendly placeholder, a per-card
+ * reveal toggle, and a green "키 구성됨" state.
+ */
+function ProviderCard({
+  p,
+  draft,
+  update,
+  recommended,
+  t,
+}: {
+  p: ProviderDisplay;
+  draft: MetadataConfig;
+  update: (patch: Partial<MetadataConfig>) => void;
+  recommended: boolean;
+  t: I18nContextValue["t"];
+}) {
+  const [reveal, setReveal] = useState(false);
+  const field = KEY_FIELD[p.id];
+  const value = field ? (draft[field] ?? "") : "";
+  const hasKey = value.trim() !== "";
+  const keyed = p.access === "keyed" || p.access === "approval";
+  return (
+    <div className="rounded-lg border border-line bg-surface-sunken px-3 py-2">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate text-xs font-medium text-text">
+          {p.id === "aladin" ? t.metadata_provider_aladin : p.name}
+        </span>
+        {recommended && (
+          <span className="shrink-0 rounded-full bg-interactive-primary-subtle px-1.5 py-0.5 text-[10px] text-interactive-primary">
+            {t.metadata_provider_recommended}
+          </span>
+        )}
+        <span className="ml-auto shrink-0">
+          {keyed && hasKey ? (
+            <span className="rounded-full bg-status-success-subtle px-1.5 py-0.5 text-[10px] text-status-success">
+              {t.metadata_key_configured}
+            </span>
+          ) : (
+            <ProviderBadge access={p.access} t={t} />
+          )}
+        </span>
+      </div>
+      {keyed && (
+        <div className="mt-1.5 flex gap-1">
+          <input
+            type={reveal ? "text" : "password"}
+            value={value}
+            onChange={(e) => field && update({ [field]: e.target.value } as Partial<MetadataConfig>)}
+            placeholder={t.metadata_key_placeholder}
+            autoComplete="off"
+            spellCheck={false}
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2.5 py-1.5 font-mono text-[11px] text-text outline-none placeholder:font-sans placeholder:text-text-subtle focus:ring-1 focus:ring-line"
+          />
+          <button
+            type="button"
+            onClick={() => setReveal((v) => !v)}
+            aria-label={reveal ? t.metadata_key_hide : t.metadata_key_show}
+            className="shrink-0 rounded-md border border-line bg-surface px-2 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
+          >
+            {reveal ? <EyeOff size={13} /> : <Eye size={13} />}
+          </button>
+        </div>
+      )}
+      {p.access === "conditional" && (
+        <p className="mt-1 text-[10px] leading-snug text-text-subtle">
+          {t.metadata_provider_ndl_note}
+        </p>
+      )}
     </div>
   );
 }

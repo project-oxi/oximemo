@@ -25,14 +25,11 @@ import {
   FolderPlus,
   FolderTree,
   HardDrive,
-  Info,
-  Palette,
   Pin,
   PinOff,
   RefreshCw,
   Settings,
   ShieldCheck,
-  SlidersHorizontal,
   Stethoscope,
   Terminal,
   Trash2,
@@ -111,6 +108,16 @@ function Segmented<T extends string>({
  *  only the label so the active section stays self-evident. */
 function PaneHeader({ title }: { title: string }) {
   return <h2 className="mb-3 text-sm font-semibold text-text">{title}</h2>;
+}
+
+/** In-pane subheading for merged panes (일반 groups several
+ * formerly-separate tabs — the label keeps them scannable). */
+function SectionLabel({ title }: { title: string }) {
+  return (
+    <p className="mb-1.5 mt-4 text-[10px] font-medium uppercase tracking-wide text-text-subtle first:mt-0">
+      {title}
+    </p>
+  );
 }
 
 
@@ -566,9 +573,9 @@ function collectionVisual(id: string): { icon: ReactNode; nameKey: DictKey } {
 /** One installed collection's pane (spec §4.3) — deliberately thin:
  *  folder path, go-to-folder, remove. System folders (knowledge/daily)
  *  label the destructive action 초기화 and explain the recreate-on-
- *  migrate semantics; daily also surfaces the TOML-only `[daily]
- *  enabled` toggle (0.9.3 GUI-parity gap). Rename/pinning stays in the
- *  Folders tab; book/movie point at the metadata provider keys. */
+ *  migrate semantics. The `[daily] enabled` feature toggle lives in
+ *  일반 (feature settings, not collection management); rename/pinning
+ *  stays in the Folders tab; book/movie point at provider keys. */
 function CollectionSection({ presetId }: { presetId: string }) {
   const { t } = useI18n();
   const qc = useQueryClient();
@@ -659,20 +666,6 @@ function CollectionSection({ presetId }: { presetId: string }) {
             <FolderPlus size={13} />
             {t.collection_install}
           </button>
-        )}
-        {presetId === "daily" && (
-          <ToggleRow
-            label={t.collection_daily_enabled}
-            checked={config.data?.daily?.enabled ?? true}
-            onChange={(v) =>
-              setDailyConfig({
-                enabled: v,
-                folder: dailyFolder,
-              })
-                .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-                .catch((e) => setError(String(e).split("\n")[0]))
-            }
-          />
         )}
         {isSystem && (
           <p className="text-[10px] leading-snug text-text-subtle">{t.collection_system_note}</p>
@@ -999,7 +992,7 @@ export function SettingsMenu() {
       .finally(() => setBusy(null));
   };
 
-  const [activeTab, setActiveTab] = useState<string>("appearance");
+  const [activeTab, setActiveTab] = useState<string>("general");
   const folders = useQuery({ queryKey: ["folders"], queryFn: listFolders });
   const schemaInfo = useSchemaInfo((folders.data ?? []).map((f) => f.path));
   const dailyFolder = config.data?.daily?.folder ?? "daily";
@@ -1017,8 +1010,7 @@ export function SettingsMenu() {
     {
       group: t.settings_group_general,
       items: [
-        { id: "appearance", label: t.section_appearance, icon: <Palette size={13} /> },
-        { id: "general", label: t.section_general, icon: <Settings size={13} /> },
+        { id: "general", label: t.settings_group_general, icon: <Settings size={13} /> },
         { id: "capture", label: t.section_capture, icon: <Zap size={13} /> },
       ],
     },
@@ -1030,7 +1022,9 @@ export function SettingsMenu() {
       ],
     },
     {
-      group: t.settings_group_collections,
+      // Collections are special folders — vault-scoped management
+      // (installed presets, add, folder tree) lives together.
+      group: t.settings_group_vault,
       items: [
         ...collectionEntries.map((c) => {
           const v = collectionVisual(c.id);
@@ -1041,20 +1035,15 @@ export function SettingsMenu() {
           label: `+ ${t.collection_add_title}`,
           icon: <FolderPlus size={13} />,
         },
+        { id: "folders", label: t.section_folders, icon: <FolderTree size={13} /> },
       ],
-    },
-    {
-      group: "",
-      items: [{ id: "folders", label: t.section_folders, icon: <FolderTree size={13} /> }],
     },
     {
       group: t.settings_group_system,
       items: [
         { id: "storage", label: t.section_storage, icon: <HardDrive size={13} /> },
-        { id: "advanced", label: t.section_advanced, icon: <SlidersHorizontal size={13} /> },
-        { id: "cli", label: t.section_cli, icon: <Terminal size={13} /> },
         { id: "updates", label: t.section_updates, icon: <DownloadCloud size={13} /> },
-        { id: "about", label: t.section_about, icon: <Info size={13} /> },
+        { id: "cli", label: t.section_cli, icon: <Terminal size={13} /> },
       ],
     },
   ];
@@ -1126,9 +1115,10 @@ export function SettingsMenu() {
               ))}
             </nav>
             <div className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
-              {activeTab === "appearance" && (
+              {activeTab === "general" && (
                 <section>
-                  <PaneHeader title={t.section_appearance} />
+                  <PaneHeader title={t.settings_group_general} />
+                  <SectionLabel title={t.section_appearance} />
                   <Segmented
                     value={theme}
                     onChange={onTheme}
@@ -1162,18 +1152,33 @@ export function SettingsMenu() {
                       }
                     />
                   </div>
-                </section>
-              )}
-              {activeTab === "general" && (
-                <section>
-                  <PaneHeader title={t.section_general} />
+                  <SectionLabel title={t.section_general} />
                   <GeneralSection />
+                  <SectionLabel title={t.daily_notes_label} />
+                  <ToggleRow
+                    label={t.collection_daily_enabled}
+                    checked={config.data?.daily?.enabled ?? true}
+                    onChange={(v) =>
+                      setDailyConfig({
+                        enabled: v,
+                        folder: config.data?.daily?.folder ?? "daily",
+                      })
+                        .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+                        .catch((e) => setError(String(e).split("\n")[0]))
+                    }
+                  />
+                  <SectionLabel title={t.section_advanced} />
+                  <AdvancedSection />
                 </section>
               )}
               {activeTab === "capture" && (
                 <section>
                   <PaneHeader title={t.section_capture} />
                   <CaptureSection />
+                  <div className="mt-2 flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
+                    <span className="text-xs text-text-muted">{t.capture_shortcut}</span>
+                    <kbd className="font-mono text-xs text-text-subtle">⌘⇧N</kbd>
+                  </div>
                 </section>
               )}
               {activeTab === "brain" && (
@@ -1268,12 +1273,6 @@ export function SettingsMenu() {
                   </div>
                 </section>
               )}
-              {activeTab === "advanced" && (
-                <section>
-                  <PaneHeader title={t.section_advanced} />
-                  <AdvancedSection />
-                </section>
-              )}
               {activeTab === "cli" && (
                 <section>
                   <PaneHeader title={t.section_cli} />
@@ -1284,23 +1283,33 @@ export function SettingsMenu() {
                 <section>
                   <PaneHeader title={t.section_updates} />
                   <UpdaterSection />
-                </section>
-              )}
-              {activeTab.startsWith("col:") && activeTab !== "col-add" && (
-                <CollectionSection presetId={activeTab.slice(4)} />
-              )}
-              {activeTab === "about" && (
-                <section>
-                  <PaneHeader title={t.section_about} />
+                  <SectionLabel title={t.section_about} />
                   <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
                     <span className="text-xs text-text-muted">oximemo</span>
                     <span className="font-mono text-xs text-text-subtle">v{APP_VERSION}</span>
                   </div>
-                  <div className="mt-1.5 flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
-                    <span className="text-xs text-text-muted">{t.capture_shortcut}</span>
-                    <kbd className="font-mono text-xs text-text-subtle">⌘⇧N</kbd>
+                  <div className="mt-1.5 space-y-1.5">
+                    {(
+                      [
+                        [t.shortcut_palette, "⌘K"],
+                        [t.shortcut_new_note, "⌘N"],
+                        [t.capture_shortcut, "⌘⇧N"],
+                        [t.shortcut_goto_root, "⌘↑"],
+                      ] as const
+                    ).map(([label, keys]) => (
+                      <div
+                        key={keys}
+                        className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2"
+                      >
+                        <span className="text-xs text-text-muted">{label}</span>
+                        <kbd className="font-mono text-xs text-text-subtle">{keys}</kbd>
+                      </div>
+                    ))}
                   </div>
                 </section>
+              )}
+              {activeTab.startsWith("col:") && activeTab !== "col-add" && (
+                <CollectionSection presetId={activeTab.slice(4)} />
               )}
             </div>
           </div>
