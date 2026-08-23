@@ -205,18 +205,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dnb/google/open, otherwise google/open; movie ko → tmdb/kmdb/omdb,
   otherwise tmdb/omdb). Ratings never map. `src-tauri/metadata.rs`
   hosts the adapters and IPC; the search command runs only providers
-  whose key is set (or keyless), in region order. **The HTTP layer
-  ships as stubs** — URL builders and the fixture-tested field
-  mappings are pinned, but `fetch_*` returns empty until the follow-up
-  wires reqwest, so v1 searches always come back empty. The browser
-  fallback has the same registry as pure data.
+  whose key is set (or keyless), in region order, over a shared
+  reqwest client (8s timeout, rustls, oximemo UA). Live for the five
+  JSON providers (Open Library, Google Books, 알라딘, TMDB, OMDb);
+  NDL/DNB await XML parsing and KMDB its approval, so those three
+  stay silent. The browser fallback has the same registry as pure
+  data.
 
-- **Metadata settings pane** — Integrations → Metadata: enabled toggle,
-  region select (auto-detect default + KR/JP/DE/Other), and the eight
-  providers grouped by domain with key inputs and badges (keyless /
-  conditional / keyed / approval-pending). Region selects re-rank
-  recommended providers first within each group; save commits the
-  whole `[metadata]` config in one shot.
+- **Metadata settings pane + fill-from-search** — Integrations →
+  Metadata: enabled toggle, region select (auto-detect resolves
+  through Intl — "자동 감지 · 추정: 대한민국" — and the detected region
+  rides into the search commands as an override since Rust has no
+  locale), the eight providers grouped by domain with key inputs and
+  badges, and a save button that confirms via metadata_saved. On the
+  note side, the property panel gains "메타데이터 채우기" whenever the
+  folder schema declares `metadata`-mapped props (preset marker
+  decides book vs movie; field vocabulary infers it for marker-less
+  schemas): a popover searches the enabled providers in region order
+  and stamping a hit fills only empty schema-declared props plus
+  `source_url` — existing values and the user's rating/status never
+  move (stamp_into now honors the preserve contract it always
+  documented). The book/movie presets declare the full mapping
+  vocabulary (isbn/published_date/page_count, director/release_date/
+  runtime_min/original_title, source_url) — new installs only; the
+  walker drops fields a schema doesn't declare.
 
 
 - **Custom context menus everywhere + DnD completion** — the native

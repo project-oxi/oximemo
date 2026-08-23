@@ -17,6 +17,7 @@ import {
 import type { I18nContextValue } from "../lib/i18n";
 import { useI18n } from "../lib/i18n";
 import { ToggleRow } from "./SettingsMenu";
+import { effectiveRegion } from "../lib/metadataRegion";
 
 interface ProviderDisplay {
   id: string;
@@ -97,8 +98,18 @@ export function MetadataSection() {
     });
   }, [cfg.data, draft]);
 
-
-  const region = draft?.region ?? "";
+  // "" (auto) resolves through Intl detection for the badges and the
+  // group ordering; the stored value stays "" until the user picks.
+  const region = effectiveRegion(draft?.region ?? "");
+  const storedRegion = draft?.region ?? "";
+  const detectedLabel =
+    region === "KR" ? t.metadata_region_kr
+      : region === "JP" ? t.metadata_region_jp
+        : region === "DE" ? t.metadata_region_de
+          : null;
+  const autoLabel = detectedLabel
+    ? `${t.metadata_region_auto} · ${detectedLabel}`
+    : t.metadata_region_auto;
   const isRecommended = useMemo(
     () => (p: ProviderDisplay) => p.recommended.includes(region),
     [region],
@@ -106,13 +117,16 @@ export function MetadataSection() {
   const update = (patch: Partial<MetadataConfig>) =>
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
 
-
+  const [saved, setSaved] = useState(false);
   const save = async () => {
     if (!draft) return;
     setSaving(true);
+    setSaved(false);
     try {
       await setMetadataConfig(draft);
       await qc.invalidateQueries({ queryKey: ["config"] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
     } finally {
       setSaving(false);
     }
@@ -144,11 +158,13 @@ export function MetadataSection() {
         <div>
           <p className="mb-1 text-[11px] text-text-subtle">{t.metadata_region}</p>
           <select
-            value={region}
+            value={storedRegion}
             onChange={(e) => update({ region: e.target.value })}
             className="w-full rounded-md bg-surface-sunken px-2.5 py-1.5 text-xs text-text outline-none focus:ring-1 focus:ring-line"
           >
-            <option value="">{t.metadata_region_auto}</option>
+            <option value="">
+              {autoLabel}
+            </option>
             <option value="KR">{t.metadata_region_kr}</option>
             <option value="JP">{t.metadata_region_jp}</option>
             <option value="DE">{t.metadata_region_de}</option>
@@ -175,10 +191,9 @@ export function MetadataSection() {
           type="button"
           onClick={() => void save()}
           disabled={saving}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-interactive-primary px-2 py-2 text-xs font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary-hover disabled:opacity-50"
         >
           <Check size={13} />
-          {saving ? "…" : t.metadata_save}
+          {saving ? "…" : saved ? t.metadata_saved : t.metadata_save}
         </button>
       </div>
     </section>

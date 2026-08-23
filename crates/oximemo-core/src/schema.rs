@@ -577,6 +577,21 @@ options = ["1", "2", "3", "4", "5"]
 type = "text"
 metadata = "author"
 
+[properties.isbn]
+type = "text"
+metadata = "isbn"
+
+[properties.published_date]
+type = "text"
+metadata = "published_date"
+
+[properties.page_count]
+type = "text"
+metadata = "page_count"
+
+[properties.source_url]
+type = "text"
+
 [review]
 property = "status"
 due_values = ["done"]
@@ -606,6 +621,25 @@ options = ["1", "2", "3", "4", "5"]
 
 [properties.series]
 type = "bool"
+
+[properties.director]
+type = "text"
+metadata = "director"
+
+[properties.release_date]
+type = "text"
+metadata = "release_date"
+
+[properties.runtime_min]
+type = "text"
+metadata = "runtime_min"
+
+[properties.original_title]
+type = "text"
+metadata = "original_title"
+
+[properties.source_url]
+type = "text"
 "#;
 
 /// Blog: a writing pipeline (초고 → 수정 → 예약 → 발행).

@@ -13,9 +13,8 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-// TODO(metadata): fetch_* adapters are stubs (spec §3.5 follow-up) — the
-// map_* fns and DTOs below are test-pinned only until HTTP lands.
-#[allow(dead_code)]
+// NDL/DNB (XML) and KMDB (approval-gated) adapters stay stubs — see
+// the fetch_* bodies in metadata.rs for the follow-up notes.
 mod metadata;
 
 pub struct AppState {
@@ -250,6 +249,7 @@ pub fn run() {
             commands::set_index_config,
             commands::set_appearance_config,
             commands::set_daily_config,
+            commands::stamp_metadata,
             commands::set_menu_locale,
             commands::get_backlinks,
             commands::save_image_bytes,
@@ -1075,12 +1075,20 @@ mod commands {
     pub async fn search_book_metadata(
         state: State<'_, AppState>,
         query: String,
+        region: Option<String>,
     ) -> Result<Vec<oximemo_core::metadata::MetaHit>, String> {
         let cfg = {
             let v = state.vault.clone();
             tokio::task::spawn_blocking(move || v.with_config(|c| c.metadata.clone()))
                 .await
                 .map_err(|e| e.to_string())?
+        };
+        // `region` carries the auto-detected locale when the stored
+        // config is "" (auto): the renderer resolves Intl there, the
+        // Rust side has no locale to consult.
+        let cfg = match region {
+            Some(r) if !r.is_empty() => oximemo_core::config::MetadataConfig { region: r, ..cfg },
+            _ => cfg,
         };
         Ok(metadata::search_books(&cfg, &query).await)
     }
@@ -1089,7 +1097,7 @@ mod commands {
     pub async fn search_movie_metadata(
         state: State<'_, AppState>,
         query: String,
-
+        region: Option<String>,
     ) -> Result<Vec<oximemo_core::metadata::MetaHit>, String> {
         let cfg = {
             let v = state.vault.clone();
@@ -1097,7 +1105,52 @@ mod commands {
                 .await
                 .map_err(|e| e.to_string())?
         };
+        let cfg = match region {
+            Some(r) if !r.is_empty() => oximemo_core::config::MetadataConfig { region: r, ..cfg },
+            _ => cfg,
+        };
         Ok(metadata::search_movies(&cfg, &query).await)
+    }
+
+    /// Stamp a chosen `MetaHit` onto a note (spec §3.5): fills only
+    /// schema-declared metadata props that are still empty, plus
+    /// `source_url` (attribution link) when the schema declares it.
+    /// Existing values are never overwritten — the core walker owns
+    /// that contract.
+    #[tauri::command]
+    pub fn stamp_metadata(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        id: String,
+        hit: oximemo_core::metadata::MetaHit,
+    ) -> Result<oximemo_core::memo::NoteDto, String> {
+        let mid = oximemo_core::MemoId::parse(&id).map_err(|e| e.to_string())?;
+        let memo = state.vault.get_memo(mid).map_err(|e| e.to_string())?;
+        let dto = state.vault.note_dto(&memo);
+        let schema = state
+            .vault
+            .folder_schema(&dto.folder)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        let mut sets: Vec<(String, oximemo_core::PropValue)> =
+            oximemo_core::metadata::stamp_targets(&schema, &hit)
+                .into_iter()
+                .filter(|(k, _)| !memo.props.contains_key(k))
+                .collect();
+        if let (Some(url), false) = (&hit.url, memo.props.contains_key("source_url")) {
+            if schema.properties.contains_key("source_url") {
+                sets.push(("source_url".into(), oximemo_core::PropValue::Str(url.clone())));
+            }
+        }
+        if sets.is_empty() {
+            return Ok(dto);
+        }
+        let memo = state
+            .vault
+            .update_note_with(mid, None, None, Some(oximemo_core::PropMutation { sets, removes: Vec::new() }))
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(state.vault.note_dto(&memo))
     }
     #[tauri::command]
     pub fn set_daily_config(

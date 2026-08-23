@@ -144,7 +144,9 @@ pub fn stamp_targets(schema: &FolderSchema, hit: &MetaHit) -> Vec<(String, PropV
 pub fn stamp_into(schema: &FolderSchema, hit: &MetaHit, base: &Props) -> Props {
     let mut next = base.clone();
     for (key, value) in stamp_targets(schema, hit) {
-        next.insert(key, value);
+        // Preserve user-written values — metadata fills blanks, never
+        // overwrites (the doc contract this fn has always claimed).
+        next.entry(key).or_insert(value);
     }
     next
 }
@@ -192,11 +194,13 @@ mod tests {
             ..Default::default()
         };
         let stamps = stamp_targets(&schema, &hit);
-        // Book preset only declares `author` with metadata="author".
-        assert_eq!(stamps.len(), 1);
+        // author/isbn/page_count are declared with metadata mappings
+        // (published_date missing from the hit drops out silently).
+        assert_eq!(stamps.len(), 3);
         assert_eq!(stamps[0].0, "author");
         assert_eq!(stamps[0].1, PropValue::Str("Yuval Noah Harari".into()));
-        assert!(has_metadata_targets(&schema));
+        assert!(stamps.iter().any(|(k, _)| k == "isbn"));
+        assert!(stamps.iter().any(|(k, _)| k == "page_count"));
     }
 
     #[test]
@@ -214,13 +218,11 @@ mod tests {
         assert_eq!(next.get("rating").and_then(|v| if let PropValue::Str(s) = v { Some(s.as_str()) } else { None }), Some("5"));
         assert_eq!(next.get("author").and_then(|v| if let PropValue::Str(s) = v { Some(s.as_str()) } else { None }), Some("Test"));
     }
-
     #[test]
-    fn movie_preset_does_not_declare_metadata_yet() {
-        // The v1 movie preset is rating + watched_at + series — no
-        // metadata-mapped field. Stamp flow shows zero targets but the
-        // gate `has_metadata_targets` returns false so the panel hides
-        // the affordance. (Future: map director/runtime to props.)
+    fn movie_preset_maps_director_and_runtime() {
+        // The movie preset now declares the metadata vocabulary the
+        // adapters deliver — director/release_date/runtime_min/
+        // original_title — so the panel surfaces 채우기 for movies too.
         let schema = parse_schema(MOVIE_SCHEMA_TOML).unwrap();
         let hit = MetaHit {
             provider: "tmdb".into(),
@@ -231,8 +233,29 @@ mod tests {
             ]),
             ..Default::default()
         };
-        assert!(stamp_targets(&schema, &hit).is_empty());
-        assert!(!has_metadata_targets(&schema));
+        let stamps = stamp_targets(&schema, &hit);
+        assert_eq!(stamps.len(), 2);
+        assert!(stamps.iter().any(|(k, _)| k == "director"));
+        assert!(stamps.iter().any(|(k, _)| k == "runtime_min"));
+        assert!(has_metadata_targets(&schema));
+    }
+
+    #[test]
+    fn stamp_into_never_overwrites_existing_values() {
+        let schema = parse_schema(BOOK_SCHEMA_TOML).unwrap();
+        let mut base = Props::new();
+        base.insert("author".into(), PropValue::Str("내가 쓴 저자".into()));
+        let hit = MetaHit {
+            provider: "open_library".into(),
+            title: "X".into(),
+            fields: BTreeMap::from([(MetaField::Author, "External".into())]),
+            ..Default::default()
+        };
+        let next = stamp_into(&schema, &hit, &base);
+        assert_eq!(
+            next.get("author"),
+            Some(&PropValue::Str("내가 쓴 저자".into()))
+        );
     }
 
     #[test]

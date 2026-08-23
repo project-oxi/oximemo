@@ -11,11 +11,32 @@
 //! list when metadata is disabled.
 
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use serde::Deserialize;
 
 use oximemo_core::config::MetadataConfig;
 use oximemo_core::metadata::{MetaField, MetaHit, ProviderDomain, ProviderInfo, PROVIDER_CATALOG, provider_order};
+
+/// Shared HTTP client: 8s timeout per provider call (search fans out
+/// sequentially, so three slow providers must not freeze the palette),
+/// a descriptive UA (Open Library rejects bare defaults), and rustls
+/// (no native TLS linkage surprises on macOS).
+static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .user_agent(concat!("oximemo/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .expect("reqwest client with rustls")
+});
+
+/// GET + decode JSON into the provider DTO. Errors bubble to the
+/// adapter, which converts them to "no hits from this provider" —
+/// one dead provider never blanks the whole search.
+async fn fetch_json<T: for<'de> Deserialize<'de>>(url: &str) -> anyhow::Result<T> {
+    Ok(HTTP.get(url).send().await?.error_for_status()?.json().await?)
+}
 
 /// Return the list of providers that should run for a given domain and
 /// region — filtered by `[metadata] enabled` and per-provider key
@@ -200,14 +221,6 @@ fn urlencoded(s: &str) -> String {
     out
 }
 
-async fn fetch_open_library(_url: &str) -> anyhow::Result<Vec<MetaHit>> { Ok(Vec::new()) }
-async fn fetch_google_books(_url: &str) -> anyhow::Result<Vec<MetaHit>> { Ok(Vec::new()) }
-async fn fetch_aladin(_url: &str) -> anyhow::Result<Vec<MetaHit>> { Ok(Vec::new()) }
-async fn fetch_ndl(_url: &str) -> anyhow::Result<Vec<MetaHit>> { Ok(Vec::new()) }
-async fn fetch_dnb(_url: &str) -> anyhow::Result<Vec<MetaHit>> { Ok(Vec::new()) }
-async fn fetch_tmdb(_url: &str) -> anyhow::Result<Vec<MetaHit>> { Ok(Vec::new()) }
-async fn fetch_omdb(_url: &str) -> anyhow::Result<Vec<MetaHit>> { Ok(Vec::new()) }
-async fn fetch_kmdb(_url: &str) -> anyhow::Result<Vec<MetaHit>> { Ok(Vec::new()) }
 
 // ---- Normalization (public for testing) -----------------------------------
 
@@ -219,6 +232,35 @@ pub fn map_ol_hits(payload: &OlPayload) -> Vec<MetaHit> {
         url: d.key.as_ref().map(|k| format!("https://openlibrary.org{k}")),
         fields: ol_fields(d),
     }).collect()
+}
+async fn fetch_open_library(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_ol_hits(&fetch_json::<OlPayload>(url).await?))
+}
+async fn fetch_google_books(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_google_books(&fetch_json::<GbPayload>(url).await?))
+}
+async fn fetch_aladin(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_aladin(&fetch_json::<AladinPayload>(url).await?))
+}
+// NDL Search and DNB SRU answer in XML (OpenSearch / SRW). No XML
+// dependency yet — they stay silent until a quick-xml follow-up maps
+// them; keyless badge in settings keeps expectations honest.
+async fn fetch_ndl(_url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(Vec::new())
+}
+async fn fetch_dnb(_url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(Vec::new())
+}
+async fn fetch_tmdb(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_tmdb(&fetch_json::<TmdbPayload>(url).await?))
+}
+async fn fetch_omdb(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_omdb(&fetch_json::<OmdbPayload>(url).await?))
+}
+// KMDB wraps results in a nested Data[0].Result envelope and requires
+// an approved developer account — adapter lands with the approval.
+async fn fetch_kmdb(_url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(Vec::new())
 }
 
 fn ol_fields(d: &OlDoc) -> BTreeMap<MetaField, String> {
@@ -307,7 +349,7 @@ pub fn map_omdb(payload: &OmdbPayload) -> Vec<MetaHit> {
         provider: "omdb".into(),
         title: s.title.clone().unwrap_or_default(),
         subtitle: s.year.clone(),
-        url: None,
+        url: s.imdb_id.as_ref().map(|i| format!("https://www.imdb.com/title/{i}/")),
         fields: {
             let mut m = BTreeMap::new();
             if let Some(y) = s.year.clone() { m.insert(MetaField::ReleaseDate, format!("{y}-01-01")); }

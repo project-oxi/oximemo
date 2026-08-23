@@ -12,11 +12,20 @@
  * (peak_status, status_changed) and the semantic NoOp contract keeps
  * same-value re-saves from touching the file.
  */
-import { Popover } from "@base-ui-components/react";
+import { Popover, } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, Check, ChevronDown, ChevronRight, ListChecks, Pencil, Plus, SquareCheck, Tags, TriangleAlert, Type, X } from "lucide-react";
+import { Calendar, Check, ChevronDown, ChevronRight, ListChecks, Pencil, Plus, Sparkles, SquareCheck, Tags, TriangleAlert, Type, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { folderSchema, updateMemo } from "../lib/api";
+import {
+  folderSchema,
+  getConfig,
+  searchBookMetadata,
+  searchMovieMetadata,
+  stampMetadata,
+  updateMemo,
+  type MetaHit,
+} from "../lib/api";
+import { effectiveRegion, metadataDomainOf } from "../lib/metadataRegion";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { isoToLocalDate, todayLocalISO } from "../lib/dates";
@@ -595,7 +604,138 @@ function AddPropertyRow({
   );
 }
 
-// --- Panel -------------------------------------------------------------------
+/**
+ * "메타데이터 채우기" (spec §3.5): a search popover under the
+ * property rows. Gated by the folder schema declaring at least one
+ * `metadata`-mapped prop; the domain (book/movie) comes from the
+ * preset marker with field-vocabulary fallback. Choosing a hit stamps
+ * via the backend — only empty schema-declared props fill, existing
+ * values and the user's judgment (rating/status) stay untouched.
+ */
+function MetadataFill({
+  memo,
+  schema,
+  region,
+  onApplied,
+}: {
+  memo: Memo;
+  schema: FolderSchema | null | undefined;
+  region: string | undefined;
+  onApplied: (props: Props) => void;
+}) {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<MetaHit[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [applying, setApplying] = useState<string | null>(null);
+
+  const domain = useMemo(() => metadataDomainOf(schema), [schema]);
+
+  const run = async () => {
+    if (!q.trim() || !domain) return;
+    setBusy(true);
+    try {
+      const list =
+        domain === "book"
+          ? await searchBookMetadata(q, region)
+          : await searchMovieMetadata(q, region);
+      setHits(list);
+    } catch {
+      setHits([]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const apply = async (hit: MetaHit) => {
+    setApplying(hit.url ?? hit.title);
+    try {
+      const dto = await stampMetadata(memo.id, hit);
+      if (!dto) return;
+      qc.setQueryData(["memo", memo.id], dto);
+      onApplied(dto.props ?? {});
+      void qc.invalidateQueries({ queryKey: ["memos"] });
+      setOpen(false);
+      setHits(null);
+      setQ("");
+    } finally {
+      setApplying(null);
+    }
+  };
+
+  if (!domain) return null;
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
+        render={
+          <button
+            type="button"
+            className="flex items-center gap-1 self-start rounded-md px-1 py-0.5 text-[11px] font-medium text-interactive-primary transition-colors duration-150 hover:bg-interactive-primary/10"
+          >
+            <Sparkles size={11} aria-hidden />
+            {t.metadata_fill}
+          </button>
+        }
+      />
+      <Popover.Portal>
+        <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[70]">
+          <Popover.Popup className="w-72 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
+            <form
+              className="flex gap-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void run();
+              }}
+            >
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={t.metadata_fill_query}
+                className="min-w-0 flex-1 rounded-md bg-surface-sunken px-2 py-1 text-[12px] text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
+              />
+              <button
+                type="submit"
+                disabled={busy || !q.trim()}
+                className="rounded-md bg-interactive-primary px-2 py-1 text-[11px] font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary-hover disabled:opacity-50"
+              >
+                {busy ? "…" : t.metadata_fill_search}
+              </button>
+            </form>
+            <div className="mt-1.5 max-h-56 overflow-y-auto">
+              {hits === null ? null : hits.length === 0 ? (
+                <p className="px-1 py-2 text-[11px] leading-relaxed text-text-subtle">{t.metadata_fill_empty}</p>
+              ) : (
+                <ul role="listbox">
+                  {hits.map((h) => (
+                    <li key={`${h.provider}:${h.url ?? h.title}:${h.subtitle ?? ""}`}>
+                      <button
+                        type="button"
+                        disabled={applying !== null}
+                        onClick={() => void apply(h)}
+                        className="flex w-full flex-col items-start gap-0.5 rounded-md px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-surface-muted disabled:opacity-50"
+                      >
+                        <span className="line-clamp-1 text-[12px] font-medium text-text">{h.title}</span>
+                        {h.subtitle && (
+                          <span className="line-clamp-1 text-[10px] text-text-subtle">{h.subtitle}</span>
+                        )}
+                        <span className="text-[9px] uppercase tracking-wide text-text-subtle/80">
+                          {t.metadata_fill_provider}: {h.provider}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
 
 export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) {
   const { t } = useI18n();
@@ -607,6 +747,16 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
     queryFn: () => folderSchema(folder),
     staleTime: 30_000,
   });
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: getConfig,
+    staleTime: 60_000,
+  });
+  // Auto ("") region resolves through Intl here; an explicit stored
+  // choice rides the config into the backend and stays undefined.
+  const fillRegion = config.data?.metadata?.region
+    ? undefined
+    : effectiveRegion("") || undefined;
 
   const [props, setProps] = useState<Props>(memo.props ?? {});
   const [expanded, setExpanded] = useState(true);
@@ -704,6 +854,12 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
           ) : (
             <p className="px-1 text-[12px] text-text-subtle">{t.prop_empty_list}</p>
           )}
+          <MetadataFill
+            memo={memo}
+            schema={schema.data}
+            region={fillRegion}
+            onApplied={(p) => setProps(p)}
+          />
           <AddPropertyRow
             defs={defs}
             usedKeys={keys}

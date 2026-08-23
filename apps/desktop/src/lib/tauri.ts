@@ -873,6 +873,14 @@ async function browserFallback(
       }
       return config;
     }
+    // Metadata search/stamp need network + the Rust adapter layer —
+    // desktop-only surfaces (backlinks precedent). The panel still
+    // renders; searches just come back empty in the browser preview.
+    case "search_book_metadata":
+    case "search_movie_metadata":
+      return [];
+    case "stamp_metadata":
+      return null;
     case "set_brain_config":
     case "set_daily_config":
     case "set_general_config":

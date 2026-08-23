@@ -140,12 +140,20 @@ export interface MetaHit {
   fields: Record<string, string>;
 }
 
-export async function searchBookMetadata(query: string): Promise<MetaHit[]> {
-  return invoke<MetaHit[]>("search_book_metadata", { query });
+export async function searchBookMetadata(query: string, region?: string): Promise<MetaHit[]> {
+  return invoke<MetaHit[]>("search_book_metadata", { query, region: region ?? null });
 }
 
-export async function searchMovieMetadata(query: string): Promise<MetaHit[]> {
-  return invoke<MetaHit[]>("search_movie_metadata", { query });
+export async function searchMovieMetadata(query: string, region?: string): Promise<MetaHit[]> {
+  return invoke<MetaHit[]>("search_movie_metadata", { query, region: region ?? null });
+}
+
+/**
+ * Stamp a chosen hit onto a note: the backend fills only empty
+ * schema-declared props (+ source_url); it never overwrites.
+ */
+export async function stampMetadata(id: string, hit: MetaHit): Promise<Memo> {
+  return invoke<Memo>("stamp_metadata", { id, hit });
 }
 
 export async function setGeneralConfig(general: {
