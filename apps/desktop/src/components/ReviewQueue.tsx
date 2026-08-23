@@ -1,17 +1,21 @@
 /**
  * Review queue (design 2026-08-23 §7.3): notes whose review property is
  * one of the schema's `due_values`, oldest-first by `order_by` (falling
- * back to core `updated` when the date property is missing). Two actions
- * per item — "설명 가능함" reasserts the same value (backend `on="write"`
- * rule stamps the review date) and "막힘" transitions to `decay_to` (the
- * max-merge rule preserves `peak_status`).
+ * back to core `updated` when the date property is missing). Two
+ * actions per item by default — "설명 가능함" reasserts the same value
+ * (backend `on="write"` rule stamps the review date) and "막힘"
+ * transitions to `decay_to` (the max-merge rule preserves `peak_status`).
  *
- * Renders only for folders whose SCHEMA.toml declares `[review]`.
+ * When the schema declares `[review.promote]` (ideas → knowledge, spec
+ * §2.3), the queue swaps to a promote/archive pair: `archive` is the
+ * decay transition; `promote` is a folder move + kind stamp + initial
+ * status — a clean cutover between presets with no backend primitive
+ * beyond existing move_note + update_memo props diff.
  */
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, X } from "lucide-react";
+import { ArrowUpRight, Check, X } from "lucide-react";
 
-import { queryNotes, updateMemo } from "../lib/api";
+import { moveNote, queryNotes, updateMemo } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { propValueLabel } from "../lib/propDisplay";
 import { relativeTime } from "../lib/time";
@@ -53,6 +57,32 @@ export function ReviewQueue({ folder, review }: { folder: string; review: Schema
       await updateMemo(id, null, null, { sets: [[review.property, { Str: value }]], removes: [] });
       await qc.invalidateQueries({ queryKey: ["review"] });
       await qc.invalidateQueries({ queryKey: ["memos"] });
+    } catch {
+      /* grid surfaces IPC errors */
+    }
+  };
+
+  const promote = async (id: string) => {
+    const p = review.promote;
+    if (!p) return;
+    try {
+      // Folder move first; the stamp runs after so the destination's
+      // schema sees the props at evaluation time (knowledge stamp_date
+      await moveNote(id, p.into);
+      await updateMemo(id, null, null, {
+
+        sets: [
+          ["kind", { Str: p.kind } as PropValue],
+          ...(p.start_status
+            ? ([["status", { Str: p.start_status } as PropValue]] as [string, PropValue][])
+            : []),
+        ],
+        removes: ["source"],
+      });
+      await qc.invalidateQueries({ queryKey: ["review"] });
+      await qc.invalidateQueries({ queryKey: ["memos"] });
+      await qc.invalidateQueries({ queryKey: ["folder-schema"] });
+      await qc.invalidateQueries({ queryKey: ["folderChildren"] });
     } catch {
       /* grid surfaces IPC errors */
     }
@@ -100,23 +130,48 @@ export function ReviewQueue({ folder, review }: { folder: string; review: Schema
                   relativeTime(n.updated_at, locale)}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void act(n.id, first(n.props?.[review.property]) ?? review.due_values[0])}
-              className="inline-flex items-center gap-1 rounded-[var(--button-radius)] bg-interactive-primary px-2.5 py-1.5 text-[11px] font-medium text-interactive-primary-foreground transition-colors duration-150 hover:bg-interactive-primary/90"
-              title={t.review_still_valid}
-            >
-              <Check size={12} />
-              {t.review_pass}
-            </button>
-            <button
-              type="button"
-              onClick={() => void act(n.id, review.decay_to)}
-              className="inline-flex items-center gap-1 rounded-[var(--button-radius)] border border-line bg-surface px-2.5 py-1.5 text-[11px] font-medium text-hue-red transition-colors duration-150 hover:bg-surface-muted"
-            >
-              <X size={12} />
-              {t.review_fail}
-            </button>
+            {review.promote ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void promote(n.id)}
+                  className="inline-flex items-center gap-1 rounded-[var(--button-radius)] bg-interactive-primary px-2.5 py-1.5 text-[11px] font-medium text-interactive-primary-foreground transition-colors duration-150 hover:bg-interactive-primary/90"
+                  title={t.review_promote_to.replace("{folder}", review.promote.into)}
+                >
+                  <ArrowUpRight size={12} />
+                  {t.review_promote}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void act(n.id, review.decay_to)}
+                  className="inline-flex items-center gap-1 rounded-[var(--button-radius)] border border-line bg-surface px-2.5 py-1.5 text-[11px] font-medium text-hue-red transition-colors duration-150 hover:bg-surface-muted"
+                  title={t.review_still_valid}
+                >
+                  <X size={12} />
+                  {t.review_archive}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void act(n.id, first(n.props?.[review.property]) ?? review.due_values[0])}
+                  className="inline-flex items-center gap-1 rounded-[var(--button-radius)] bg-interactive-primary px-2.5 py-1.5 text-[11px] font-medium text-interactive-primary-foreground transition-colors duration-150 hover:bg-interactive-primary/90"
+                  title={t.review_still_valid}
+                >
+                  <Check size={12} />
+                  {t.review_pass}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void act(n.id, review.decay_to)}
+                  className="inline-flex items-center gap-1 rounded-[var(--button-radius)] border border-line bg-surface px-2.5 py-1.5 text-[11px] font-medium text-hue-red transition-colors duration-150 hover:bg-surface-muted"
+                >
+                  <X size={12} />
+                  {t.review_fail}
+                </button>
+              </>
+            )}
           </li>
         ))}
       </ul>
