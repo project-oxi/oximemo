@@ -106,7 +106,7 @@ export interface QueryPage {
   total: number;
 }
 
-export type SchemaPropType = "text" | "select" | "multiselect" | "date";
+export type SchemaPropType = "text" | "select" | "multiselect" | "date" | "bool";
 
 export interface SchemaPropertyDef {
   prop_type?: SchemaPropType;
@@ -114,6 +114,8 @@ export interface SchemaPropertyDef {
   required?: boolean;
   badge?: boolean;
   colors?: Record<string, string>;
+  /** Provider field this property auto-fills from (spec §3.1). */
+  metadata?: string | null;
 }
 
 export interface SchemaTransitionRule {
@@ -127,15 +129,25 @@ export interface SchemaTransitionRule {
   stamp_date?: string | null;
 }
 
+/** `[review.promote]` — schema-declared promotion (ideas → knowledge). */
+export interface SchemaPromoteDef {
+  into: string;
+  kind: string;
+  start_status?: string | null;
+}
+
 export interface SchemaReviewDef {
   property: string;
   due_values: string[];
   order_by?: string | null;
   decay_to: string;
+  promote?: SchemaPromoteDef | null;
 }
 
 export interface FolderSchema {
   workspace?: { name?: string | null };
+  /** `[meta]` — preset provenance marker (spec §2.1). */
+  meta?: { preset?: string | null };
   properties?: Record<string, SchemaPropertyDef>;
   transitions?: SchemaTransitionRule[];
   review?: SchemaReviewDef | null;

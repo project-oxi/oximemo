@@ -172,10 +172,13 @@ function loadSchemas(): Record<string, FolderSchema> {
 
 /** JS mirror of the knowledge preset's SCHEMA.toml (design §6.3) so the
  *  browser fallback can exercise badges, chips, and the review queue. */
+const KIND_OPTIONS = ["note", "knowledge", "daily", "book", "movie", "blog", "novel", "idea"];
+
 const KNOWLEDGE_PRESET_SCHEMA: FolderSchema = {
+  meta: { preset: "knowledge" },
   workspace: { name: "지식" },
   properties: {
-    kind: { prop_type: "select", options: ["note", "knowledge", "daily"] },
+    kind: { prop_type: "select", options: KIND_OPTIONS },
     status: {
       prop_type: "select",
       options: ["stub", "vague", "understood", "mastered", "decayed"],
@@ -230,9 +233,10 @@ const KNOWLEDGE_PRESET_SCHEMA: FolderSchema = {
 /** JS mirror of the daily preset's SCHEMA.toml (user prompt 2026-08-23):
  *  kind + mood (badge → calendar dot colors) + energy, all optional. */
 const DAILY_PRESET_SCHEMA: FolderSchema = {
+  meta: { preset: "daily" },
   workspace: { name: "데일리" },
   properties: {
-    kind: { prop_type: "select", options: ["note", "knowledge", "daily"] },
+    kind: { prop_type: "select", options: KIND_OPTIONS },
     mood: {
       prop_type: "select",
       options: ["great", "good", "okay", "low", "bad"],
@@ -247,6 +251,99 @@ const DAILY_PRESET_SCHEMA: FolderSchema = {
     },
     energy: { prop_type: "select", options: ["high", "medium", "low"] },
   },
+};
+
+/** JS mirrors of the five installable collection presets (spec
+ *  2026-08-23 §2.2) — schema seeding only; the fallback has no file
+ *  templates, so kind/status stamping on creation stays desktop-only. */
+const BOOK_PRESET_SCHEMA: FolderSchema = {
+  meta: { preset: "book" },
+  workspace: { name: "책" },
+  properties: {
+    kind: { prop_type: "select", options: KIND_OPTIONS },
+    status: {
+      prop_type: "select",
+      options: ["reading", "done", "paused", "abandoned"],
+      badge: true,
+      colors: { reading: "info", done: "success", paused: "neutral", abandoned: "muted" },
+    },
+    rating: { prop_type: "select", options: ["1", "2", "3", "4", "5"] },
+    author: { prop_type: "text", metadata: "author" },
+  },
+  review: { property: "status", due_values: ["done"], decay_to: "reading" },
+};
+
+const MOVIE_PRESET_SCHEMA: FolderSchema = {
+  meta: { preset: "movie" },
+  workspace: { name: "영화" },
+  properties: {
+    kind: { prop_type: "select", options: KIND_OPTIONS },
+    watched_at: { prop_type: "date" },
+    rating: { prop_type: "select", options: ["1", "2", "3", "4", "5"] },
+    series: { prop_type: "bool" },
+  },
+};
+
+const BLOG_PRESET_SCHEMA: FolderSchema = {
+  meta: { preset: "blog" },
+  workspace: { name: "블로그" },
+  properties: {
+    kind: { prop_type: "select", options: KIND_OPTIONS },
+    status: {
+      prop_type: "select",
+      options: ["draft", "revising", "scheduled", "published"],
+      badge: true,
+      colors: { draft: "neutral", revising: "warning", scheduled: "info", published: "success" },
+    },
+    platform: { prop_type: "text" },
+    published_at: { prop_type: "date" },
+  },
+};
+
+const NOVEL_PRESET_SCHEMA: FolderSchema = {
+  meta: { preset: "novel" },
+  workspace: { name: "소설" },
+  properties: {
+    kind: { prop_type: "select", options: KIND_OPTIONS },
+    status: {
+      prop_type: "select",
+      options: ["outline", "draft", "rev1", "done"],
+      badge: true,
+      colors: { outline: "neutral", draft: "info", rev1: "warning", done: "success" },
+    },
+  },
+};
+
+const IDEA_PRESET_SCHEMA: FolderSchema = {
+  meta: { preset: "idea" },
+  workspace: { name: "아이디어" },
+  properties: {
+    kind: { prop_type: "select", options: KIND_OPTIONS },
+    status: {
+      prop_type: "select",
+      options: ["fleeting", "archived"],
+      badge: true,
+      colors: { fleeting: "info", archived: "neutral" },
+    },
+    source: { prop_type: "text" },
+  },
+  review: {
+    property: "status",
+    due_values: ["fleeting"],
+    decay_to: "archived",
+    promote: { into: "knowledge", kind: "knowledge", start_status: "stub" },
+  },
+};
+
+/** Fallback mirror of core's `collection_preset` registry (spec §2). */
+const COLLECTION_PRESET_SCHEMAS: Record<string, FolderSchema> = {
+  knowledge: KNOWLEDGE_PRESET_SCHEMA,
+  daily: DAILY_PRESET_SCHEMA,
+  book: BOOK_PRESET_SCHEMA,
+  movie: MOVIE_PRESET_SCHEMA,
+  blog: BLOG_PRESET_SCHEMA,
+  novel: NOVEL_PRESET_SCHEMA,
+  idea: IDEA_PRESET_SCHEMA,
 };
 ensureDefaultFolders();
 
@@ -528,12 +625,19 @@ async function browserFallback(
       const schemas = loadSchemas();
       return schemas[folder] ?? null;
     }
-
-    case "apply_knowledge_preset": {
+    case "install_collection": {
+      const presetId = (args?.presetId as string) ?? "";
       const folder = (args?.folder as string) ?? "";
+      const preset = COLLECTION_PRESET_SCHEMAS[presetId];
+      if (!preset) {
+        return Promise.reject(new Error(`unknown collection preset: ${presetId}`));
+      }
+      if (folder && !loadFolders().includes(folder)) {
+        saveFolders([...loadFolders(), folder]);
+      }
       const schemas = loadSchemas();
       if (!schemas[folder]) {
-        schemas[folder] = KNOWLEDGE_PRESET_SCHEMA;
+        schemas[folder] = preset;
         localStorage.setItem("oximemo:schemas", JSON.stringify(schemas));
       }
       emitBrowser("memos:changed");

@@ -39,7 +39,7 @@ import {
   listMemos,
   folderSchema,
   queryNotes,
-  applyKnowledgePreset,
+  installCollection,
   moveNote,
   moveFolder,
   openDailyNote,
@@ -824,7 +824,7 @@ export function CardGrid() {
           invalidate();
           if (pendingPreset) {
             setPendingPreset(false);
-            void applyKnowledgePreset(to)
+            void installCollection("knowledge", to)
               .then(() => {
                 void qc.invalidateQueries({ queryKey: ["folder-schema"] });
                 void qc.invalidateQueries({ queryKey: ["folderChildren"] });

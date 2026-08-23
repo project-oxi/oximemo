@@ -205,7 +205,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::query_notes,
             commands::folder_schema,
-            commands::apply_knowledge_preset,
+            commands::install_collection,
             commands::list_memos,
             commands::get_memo,
             commands::create_memo,
@@ -662,14 +662,17 @@ mod commands {
     /// Install the knowledge preset (TEMPLATE.md + SCHEMA.toml) into a
     /// freshly created folder (design §6.3).
     #[tauri::command]
-    pub fn apply_knowledge_preset(
+    pub fn install_collection(
         state: State<'_, AppState>,
         app: AppHandle,
+        preset_id: String,
         folder: String,
     ) -> Result<(), String> {
         state
             .vault
-            .apply_knowledge_preset(&folder)
+            .lock()
+            .map_err(|e| e.to_string())?
+            .install_collection(&preset_id, &folder)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(())

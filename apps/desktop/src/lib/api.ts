@@ -312,7 +312,10 @@ export function folderSchema(folder: string): Promise<FolderSchema | null> {
   return invoke<FolderSchema | null>("folder_schema", { folder });
 }
 
-/** Install the knowledge preset (TEMPLATE.md + SCHEMA.toml) into a folder. */
-export function applyKnowledgePreset(folder: string): Promise<void> {
-  return invoke<void>("apply_knowledge_preset", { folder });
+/** Install a collection preset (TEMPLATE.md + SCHEMA.toml) into a
+ *  folder — the generalized surface behind every managed collection
+ *  (knowledge/daily included). Clean cutover from the old
+ *  applyKnowledgePreset IPC (spec 2026-08-23 §2). */
+export function installCollection(presetId: string, folder: string): Promise<void> {
+  return invoke<void>("install_collection", { presetId, folder });
 }
