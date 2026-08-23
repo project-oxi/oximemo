@@ -17,7 +17,9 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use oximemo_core::config::MetadataConfig;
-use oximemo_core::metadata::{MetaField, MetaHit, ProviderDomain, ProviderInfo, PROVIDER_CATALOG, provider_order};
+use oximemo_core::metadata::{
+    MetaField, MetaHit, PROVIDER_CATALOG, ProviderDomain, ProviderInfo, provider_order,
+};
 
 /// Shared HTTP client: 8s timeout per provider call (search fans out
 /// sequentially, so three slow providers must not freeze the palette),
@@ -35,14 +37,23 @@ static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
 /// adapter, which converts them to "no hits from this provider" —
 /// one dead provider never blanks the whole search.
 async fn fetch_json<T: for<'de> Deserialize<'de>>(url: &str) -> anyhow::Result<T> {
-    Ok(HTTP.get(url).send().await?.error_for_status()?.json().await?)
+    Ok(HTTP
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?)
 }
 
 /// Return the list of providers that should run for a given domain and
 /// region — filtered by `[metadata] enabled` and per-provider key
 /// presence. Keyless providers (Open Library, DNB, conditional NDL)
 /// always qualify; keyed ones only when their key is set.
-pub fn enabled_providers(cfg: &MetadataConfig, domain: ProviderDomain) -> Vec<&'static ProviderInfo> {
+pub fn enabled_providers(
+    cfg: &MetadataConfig,
+    domain: ProviderDomain,
+) -> Vec<&'static ProviderInfo> {
     if !cfg.enabled {
         return Vec::new();
     }
@@ -52,7 +63,12 @@ pub fn enabled_providers(cfg: &MetadataConfig, domain: ProviderDomain) -> Vec<&'
         .filter(|p| p.domain == domain && provider_key(cfg, p.id).is_some())
         .collect();
     // Region priority: stable sort by the index each id has in `order`.
-    out.sort_by_key(|p| order.iter().position(|id| *id == p.id).unwrap_or(usize::MAX));
+    out.sort_by_key(|p| {
+        order
+            .iter()
+            .position(|id| *id == p.id)
+            .unwrap_or(usize::MAX)
+    });
     out
 }
 
@@ -214,25 +230,35 @@ fn urlencoded(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
     out
 }
 
-
 // ---- Normalization (public for testing) -----------------------------------
 
 pub fn map_ol_hits(payload: &OlPayload) -> Vec<MetaHit> {
-    payload.docs.iter().map(|d| MetaHit {
-        provider: "open_library".into(),
-        title: d.title.clone().unwrap_or_default(),
-        subtitle: d.first_publish_year.map(|y| y.to_string()),
-        url: d.key.as_ref().map(|k| format!("https://openlibrary.org{k}")),
-        cover_url: d.cover_i.map(|c| format!("https://covers.openlibrary.org/b/id/{c}-M.jpg")),
-        fields: ol_fields(d),
-    }).collect()
+    payload
+        .docs
+        .iter()
+        .map(|d| MetaHit {
+            provider: "open_library".into(),
+            title: d.title.clone().unwrap_or_default(),
+            subtitle: d.first_publish_year.map(|y| y.to_string()),
+            url: d
+                .key
+                .as_ref()
+                .map(|k| format!("https://openlibrary.org{k}")),
+            cover_url: d
+                .cover_i
+                .map(|c| format!("https://covers.openlibrary.org/b/id/{c}-M.jpg")),
+            fields: ol_fields(d),
+        })
+        .collect()
 }
 async fn fetch_open_library(url: &str) -> anyhow::Result<Vec<MetaHit>> {
     Ok(map_ol_hits(&fetch_json::<OlPayload>(url).await?))
@@ -282,21 +308,27 @@ fn ol_fields(d: &OlDoc) -> BTreeMap<MetaField, String> {
 }
 
 pub fn map_google_books(payload: &GbPayload) -> Vec<MetaHit> {
-    payload.items.as_deref().unwrap_or(&[]).iter().map(|it| {
-        let vi = &it.volume_info;
-        MetaHit {
-            provider: "google_books".into(),
-            title: vi.title.clone().unwrap_or_default(),
-            subtitle: vi.published_date.clone(),
-            url: vi.info_link.clone(),
-            cover_url: vi
-                .image_links
-                .as_ref()
-                .and_then(|l| l.thumbnail.clone())
-                .map(|t| t.replace("http://", "https://")),
-            fields: gb_fields(vi),
-        }
-    }).collect()
+    payload
+        .items
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|it| {
+            let vi = &it.volume_info;
+            MetaHit {
+                provider: "google_books".into(),
+                title: vi.title.clone().unwrap_or_default(),
+                subtitle: vi.published_date.clone(),
+                url: vi.info_link.clone(),
+                cover_url: vi
+                    .image_links
+                    .as_ref()
+                    .and_then(|l| l.thumbnail.clone())
+                    .map(|t| t.replace("http://", "https://")),
+                fields: gb_fields(vi),
+            }
+        })
+        .collect()
 }
 
 fn gb_fields(vi: &GbVolumeInfo) -> BTreeMap<MetaField, String> {
@@ -320,52 +352,86 @@ fn gb_fields(vi: &GbVolumeInfo) -> BTreeMap<MetaField, String> {
 }
 
 pub fn map_aladin(payload: &AladinPayload) -> Vec<MetaHit> {
-    payload.item.iter().map(|it| MetaHit {
-        provider: "aladin".into(),
-        title: it.title.clone().unwrap_or_default(),
-        subtitle: it.pub_date.clone(),
-        url: it.link.clone(),
-        cover_url: it.cover.clone(),
-        fields: {
-            let mut m = BTreeMap::new();
-            if let Some(a) = it.author.clone() { m.insert(MetaField::Author, a); }
-            if let Some(i) = it.isbn13.clone().or(it.isbn.clone()) { m.insert(MetaField::Isbn, i); }
-            if let Some(d) = it.pub_date.clone() { m.insert(MetaField::PublishedDate, d); }
-            m
-        },
-    }).collect()
+    payload
+        .item
+        .iter()
+        .map(|it| MetaHit {
+            provider: "aladin".into(),
+            title: it.title.clone().unwrap_or_default(),
+            subtitle: it.pub_date.clone(),
+            url: it.link.clone(),
+            cover_url: it.cover.clone(),
+            fields: {
+                let mut m = BTreeMap::new();
+                if let Some(a) = it.author.clone() {
+                    m.insert(MetaField::Author, a);
+                }
+                if let Some(i) = it.isbn13.clone().or(it.isbn.clone()) {
+                    m.insert(MetaField::Isbn, i);
+                }
+                if let Some(d) = it.pub_date.clone() {
+                    m.insert(MetaField::PublishedDate, d);
+                }
+                m
+            },
+        })
+        .collect()
 }
 
 pub fn map_tmdb(payload: &TmdbPayload) -> Vec<MetaHit> {
-    payload.results.iter().map(|r| MetaHit {
-        provider: "tmdb".into(),
-        title: r.title.clone().unwrap_or_default(),
-        subtitle: r.release_date.clone(),
-        url: None,
-        cover_url: r.poster_path.as_ref().map(|p| format!("https://image.tmdb.org/t/p/w342{p}")),
-        fields: {
-            let mut m = BTreeMap::new();
-            if let Some(d) = r.release_date.clone() { m.insert(MetaField::ReleaseDate, d); }
-            if let Some(t) = r.original_title.clone() { m.insert(MetaField::OriginalTitle, t); }
-            m
-        },
-    }).collect()
+    payload
+        .results
+        .iter()
+        .map(|r| MetaHit {
+            provider: "tmdb".into(),
+            title: r.title.clone().unwrap_or_default(),
+            subtitle: r.release_date.clone(),
+            url: None,
+            cover_url: r
+                .poster_path
+                .as_ref()
+                .map(|p| format!("https://image.tmdb.org/t/p/w342{p}")),
+            fields: {
+                let mut m = BTreeMap::new();
+                if let Some(d) = r.release_date.clone() {
+                    m.insert(MetaField::ReleaseDate, d);
+                }
+                if let Some(t) = r.original_title.clone() {
+                    m.insert(MetaField::OriginalTitle, t);
+                }
+                m
+            },
+        })
+        .collect()
 }
 
 pub fn map_omdb(payload: &OmdbPayload) -> Vec<MetaHit> {
-    payload.search.as_deref().unwrap_or(&[]).iter().map(|s| MetaHit {
-        provider: "omdb".into(),
-        title: s.title.clone().unwrap_or_default(),
-        subtitle: s.year.clone(),
-        url: s.imdb_id.as_ref().map(|i| format!("https://www.imdb.com/title/{i}/")),
-        cover_url: s.poster.clone().filter(|p| p != "N/A"),
-        fields: {
-            let mut m = BTreeMap::new();
-            if let Some(y) = s.year.clone() { m.insert(MetaField::ReleaseDate, format!("{y}-01-01")); }
-            if let Some(t) = s.title.clone() { m.insert(MetaField::OriginalTitle, t); }
-            m
-        },
-    }).collect()
+    payload
+        .search
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|s| MetaHit {
+            provider: "omdb".into(),
+            title: s.title.clone().unwrap_or_default(),
+            subtitle: s.year.clone(),
+            url: s
+                .imdb_id
+                .as_ref()
+                .map(|i| format!("https://www.imdb.com/title/{i}/")),
+            cover_url: s.poster.clone().filter(|p| p != "N/A"),
+            fields: {
+                let mut m = BTreeMap::new();
+                if let Some(y) = s.year.clone() {
+                    m.insert(MetaField::ReleaseDate, format!("{y}-01-01"));
+                }
+                if let Some(t) = s.title.clone() {
+                    m.insert(MetaField::OriginalTitle, t);
+                }
+                m
+            },
+        })
+        .collect()
 }
 
 // ---- Cached DTO shapes (deserialized from each provider's JSON/XML) -------
@@ -478,10 +544,22 @@ mod tests {
         assert_eq!(hits.len(), 1);
         let h = &hits[0];
         assert_eq!(h.provider, "open_library");
-        assert_eq!(h.fields.get(&MetaField::Author).map(String::as_str), Some("Yuval Noah Harari"));
-        assert_eq!(h.fields.get(&MetaField::Isbn).map(String::as_str), Some("9780062316097"));
-        assert_eq!(h.fields.get(&MetaField::PageCount).map(String::as_str), Some("464"));
-        assert_eq!(h.fields.get(&MetaField::PublishedDate).map(String::as_str), Some("2011-01-01"));
+        assert_eq!(
+            h.fields.get(&MetaField::Author).map(String::as_str),
+            Some("Yuval Noah Harari")
+        );
+        assert_eq!(
+            h.fields.get(&MetaField::Isbn).map(String::as_str),
+            Some("9780062316097")
+        );
+        assert_eq!(
+            h.fields.get(&MetaField::PageCount).map(String::as_str),
+            Some("464")
+        );
+        assert_eq!(
+            h.fields.get(&MetaField::PublishedDate).map(String::as_str),
+            Some("2011-01-01")
+        );
     }
 
     #[test]
@@ -489,7 +567,10 @@ mod tests {
         let json = r#"{"items":[{"volume_info":{"title":"X","authors":["A"],"isbn_10":"0","isbn_13":"978X","page_count":100,"published_date":"2020"}}]}"#;
         let p: GbPayload = serde_json::from_str(json).unwrap();
         let hits = map_google_books(&p);
-        assert_eq!(hits[0].fields.get(&MetaField::Isbn).map(String::as_str), Some("978X"));
+        assert_eq!(
+            hits[0].fields.get(&MetaField::Isbn).map(String::as_str),
+            Some("978X")
+        );
     }
 
     #[test]
@@ -497,7 +578,10 @@ mod tests {
         let json = r#"{"item":[{"title":"책","author":"지은이","isbn":"89","isbn13":"97889","pub_date":"2024-01-01","link":"https://aladin"}]}"#;
         let p: AladinPayload = serde_json::from_str(json).unwrap();
         let hits = map_aladin(&p);
-        assert_eq!(hits[0].fields.get(&MetaField::Isbn).map(String::as_str), Some("97889"));
+        assert_eq!(
+            hits[0].fields.get(&MetaField::Isbn).map(String::as_str),
+            Some("97889")
+        );
     }
 
     #[test]
@@ -505,7 +589,13 @@ mod tests {
         let json = r#"{"results":[{"title":"Inception","original_title":"Inception","release_date":"2010-07-15"}]}"#;
         let p: TmdbPayload = serde_json::from_str(json).unwrap();
         let hits = map_tmdb(&p);
-        assert_eq!(hits[0].fields.get(&MetaField::ReleaseDate).map(String::as_str), Some("2010-07-15"));
+        assert_eq!(
+            hits[0]
+                .fields
+                .get(&MetaField::ReleaseDate)
+                .map(String::as_str),
+            Some("2010-07-15")
+        );
     }
 
     #[test]
@@ -513,7 +603,13 @@ mod tests {
         let json = r#"{"search":[{"Title":"Arrival","Year":"2016","imdbID":"tt2543164"}]}"#;
         let p: OmdbPayload = serde_json::from_str(json).unwrap();
         let hits = map_omdb(&p);
-        assert_eq!(hits[0].fields.get(&MetaField::ReleaseDate).map(String::as_str), Some("2016-01-01"));
+        assert_eq!(
+            hits[0]
+                .fields
+                .get(&MetaField::ReleaseDate)
+                .map(String::as_str),
+            Some("2016-01-01")
+        );
     }
 
     #[test]
@@ -531,6 +627,9 @@ mod tests {
     fn keyed_provider_without_key_is_hidden() {
         let cfg = MetadataConfig::default();
         let providers = enabled_providers(&cfg, ProviderDomain::Movie);
-        assert!(providers.is_empty(), "keyed providers with empty keys must not surface");
+        assert!(
+            providers.is_empty(),
+            "keyed providers with empty keys must not surface"
+        );
     }
 }

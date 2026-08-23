@@ -15,8 +15,8 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 // NDL/DNB (XML) and KMDB (approval-gated) adapters stay stubs — see
 // the fetch_* bodies in metadata.rs for the follow-up notes.
-mod metadata;
 mod copilot;
+mod metadata;
 
 pub struct AppState {
     pub vault: Arc<oximemo_core::Vault>,
@@ -395,9 +395,11 @@ fn spawn_git_consumer(
                 batch.push(next);
             }
             for path in batch {
-                let Some(rel) = path.strip_prefix(&vault_root).ok().map(|p| {
-                    p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
-                }) else {
+                let Some(rel) = path
+                    .strip_prefix(&vault_root)
+                    .ok()
+                    .map(|p| p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
+                else {
                     continue;
                 };
                 if rel.is_empty() {
@@ -608,12 +610,12 @@ async fn brain_connect(
 }
 
 mod commands {
-    use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
     use crate::metadata;
+    use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
     use oximemo_core::sync::ManifestRecord;
     use tauri::Manager;
-    use time::format_description::well_known::Rfc3339;
     use tauri::{AppHandle, Emitter, State};
+    use time::format_description::well_known::Rfc3339;
 
     use super::AppState;
 
@@ -765,7 +767,10 @@ mod commands {
         state: State<'_, AppState>,
         folder: String,
     ) -> Result<Option<oximemo_core::FolderSchema>, String> {
-        state.vault.folder_schema(&folder).map_err(|e| e.to_string())
+        state
+            .vault
+            .folder_schema(&folder)
+            .map_err(|e| e.to_string())
     }
 
     /// Install the knowledge preset (TEMPLATE.md + SCHEMA.toml) into a
@@ -1264,22 +1269,36 @@ mod commands {
                 .into_iter()
                 .filter(|(k, _)| !memo.props.contains_key(k))
                 .collect();
-        if let (Some(url), false) = (&hit.url, memo.props.contains_key("source_url")) {
-            if schema.properties.contains_key("source_url") {
-                sets.push(("source_url".into(), oximemo_core::PropValue::Str(url.clone())));
-            }
+        if let (Some(url), false) = (&hit.url, memo.props.contains_key("source_url"))
+            && schema.properties.contains_key("source_url")
+        {
+            sets.push((
+                "source_url".into(),
+                oximemo_core::PropValue::Str(url.clone()),
+            ));
         }
-        if let (Some(cover), false) = (&hit.cover_url, memo.props.contains_key("cover_url")) {
-            if schema.properties.contains_key("cover_url") {
-                sets.push(("cover_url".into(), oximemo_core::PropValue::Str(cover.clone())));
-            }
+        if let (Some(cover), false) = (&hit.cover_url, memo.props.contains_key("cover_url"))
+            && schema.properties.contains_key("cover_url")
+        {
+            sets.push((
+                "cover_url".into(),
+                oximemo_core::PropValue::Str(cover.clone()),
+            ));
         }
         if sets.is_empty() {
             return Ok(dto);
         }
         let memo = state
             .vault
-            .update_note_with(mid, None, None, Some(oximemo_core::PropMutation { sets, removes: Vec::new() }))
+            .update_note_with(
+                mid,
+                None,
+                None,
+                Some(oximemo_core::PropMutation {
+                    sets,
+                    removes: Vec::new(),
+                }),
+            )
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(state.vault.note_dto(&memo))
@@ -1300,10 +1319,7 @@ mod commands {
         state: State<'_, AppState>,
         git: oximemo_core::config::GitConfig,
     ) -> Result<(), String> {
-        state
-            .vault
-            .set_git_config(git)
-            .map_err(|e| e.to_string())
+        state.vault.set_git_config(git).map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -1661,11 +1677,16 @@ mod commands {
         let started = std::time::Instant::now();
         let outcome = {
             let busy = &state.copilot_active;
-            let out =
-                crate::copilot::run_agent_process(&exe, &args, &ctx, cfg.timeout_secs, move |pgid| {
+            let out = crate::copilot::run_agent_process(
+                &exe,
+                &args,
+                &ctx,
+                cfg.timeout_secs,
+                move |pgid| {
                     *busy.lock() = Some(pgid);
-                })
-                .await;
+                },
+            )
+            .await;
             // Always clear the busy marker, even on error paths.
             *state.copilot_active.lock() = None;
             out?

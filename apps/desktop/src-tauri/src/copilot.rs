@@ -64,11 +64,7 @@ pub async fn probe_version(exe: &Path) -> Option<String> {
         .trim()
         .to_string();
     let line: String = line.chars().take(120).collect();
-    if line.is_empty() {
-        None
-    } else {
-        Some(line)
-    }
+    if line.is_empty() { None } else { Some(line) }
 }
 
 /// Discover every known agent present on `PATH`. Lazy by design — callers
@@ -114,14 +110,14 @@ fn disclosure_from_config(agent: &str, text: &str) -> Disclosure {
             section = line[1..line.len() - 1].trim().to_string();
             continue;
         }
-        if section == "engine" && model.is_none() {
-            if let Some((key, value)) = line.split_once('=') {
-                if key.trim() == "default_model" {
-                    let v = value.trim().trim_matches('"').trim_matches('\'');
-                    if !v.is_empty() {
-                        model = Some(v.to_string());
-                    }
-                }
+        if section == "engine"
+            && model.is_none()
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "default_model"
+        {
+            let v = value.trim().trim_matches('"').trim_matches('\'');
+            if !v.is_empty() {
+                model = Some(v.to_string());
             }
         }
     }
@@ -221,7 +217,10 @@ pub fn diff_manifests(
     after: &[(String, String, bool)],
 ) -> Vec<ChangedNote> {
     let mut out = Vec::new();
-    fn lookup<'a>(rows: &'a [(String, String, bool)], id: &str) -> Option<&'a (String, String, bool)> {
+    fn lookup<'a>(
+        rows: &'a [(String, String, bool)],
+        id: &str,
+    ) -> Option<&'a (String, String, bool)> {
         rows.iter().find(|(i, _, _)| i == id)
     }
     for (id, hash, deleted) in after {
@@ -301,7 +300,9 @@ pub async fn run_agent_process(
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .process_group(0);
-    let mut child = cmd.spawn().map_err(|e| format!("spawn {}: {e}", exe.display()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("spawn {}: {e}", exe.display()))?;
     let pgid = child.id().map(|p| p as i32).unwrap_or(0);
     on_spawn(pgid);
 
@@ -377,20 +378,20 @@ pub fn oxios_args(session: Option<&str>, prompt: &str) -> Vec<String> {
 /// sees exactly what the agent said.
 pub fn parse_agent_json(stdout: &str) -> (String, Option<String>) {
     let trimmed = stdout.trim();
-    if trimmed.starts_with('{') {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            let response = v
-                .get("response")
-                .and_then(|r| r.as_str())
-                .unwrap_or(trimmed)
-                .to_string();
-            let session = v
-                .get("session_id")
-                .and_then(|s| s.as_str())
-                .filter(|s| !s.is_empty())
-                .map(str::to_string);
-            return (response, session);
-        }
+    if trimmed.starts_with('{')
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed)
+    {
+        let response = v
+            .get("response")
+            .and_then(|r| r.as_str())
+            .unwrap_or(trimmed)
+            .to_string();
+        let session = v
+            .get("session_id")
+            .and_then(|s| s.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        return (response, session);
     }
     (trimmed.to_string(), None)
 }
@@ -487,10 +488,10 @@ pid_file = "/x"
             ("gone".to_string(), "h1".to_string(), false),
         ];
         let after = vec![
-            ("a".to_string(), "h2".to_string(), false),  // changed
-            ("b".to_string(), "h1".to_string(), false),  // untouched
-            ("del".to_string(), "h1".to_string(), true), // live → trashed
-            ("new".to_string(), "h9".to_string(), false), // created
+            ("a".to_string(), "h2".to_string(), false),    // changed
+            ("b".to_string(), "h1".to_string(), false),    // untouched
+            ("del".to_string(), "h1".to_string(), true),   // live → trashed
+            ("new".to_string(), "h9".to_string(), false),  // created
             ("ghost".to_string(), "h1".to_string(), true), // created+deleted in-turn: never surfaced
         ];
         let mut diff = diff_manifests(&before, &after);
@@ -555,7 +556,13 @@ pid_file = "/x"
         assert_eq!(
             a,
             vec![
-                "run", "--json", "--context-file", "-", "--session", "s1", "do it"
+                "run",
+                "--json",
+                "--context-file",
+                "-",
+                "--session",
+                "s1",
+                "do it"
             ]
         );
         let b = oxios_args(None, "q");
