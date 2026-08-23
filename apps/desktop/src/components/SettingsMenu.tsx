@@ -624,6 +624,9 @@ function CollectionsSection() {
     void qc.invalidateQueries({ queryKey: ["folders"] });
     void qc.invalidateQueries({ queryKey: ["folder-schema"] });
     void qc.invalidateQueries({ queryKey: ["folderChildren"] });
+    // Pins/views live in config — the sidebar's 위치 rows and this pane's
+    // default-view segments read it, so installs/uninstalls must refresh it.
+    void qc.invalidateQueries({ queryKey: ["config"] });
   };
 
   const install = (row: Row) => {
@@ -635,7 +638,12 @@ function CollectionsSection() {
           ? dailyFolder
           : "knowledge"
         : COLLECTION_CATALOG.find((c) => c.id === row.id)!.defaultFolder[locale]);
+    // Installing means the user wants the collection at hand: pin it to the
+    // sidebar's 위치 section so it appears immediately (user report
+    // 2026-08-23 — installed collections were only reachable via 볼트 tiles).
+    // Uninstalling deletes the folder, which prunes the pin with it.
     void installCollection(row.id, folder)
+      .then(() => setFolderPinned(folder, true))
       .then(() => {
         invalidate();
         setExpanded(row.id);

@@ -1,9 +1,12 @@
 /** App entry: provider chain + the main window shell. */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Terminal, X } from "lucide-react";
 import { isRouteCapture } from "../lib/window";
+import { listFolders, getConfig, setFolderPinned } from "../lib/api";
+import { useSchemaInfo } from "../lib/folders";
+import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
 
 import { CardGrid } from "./CardGrid";
 import { CaptureOverlay } from "./CaptureOverlay";
@@ -60,11 +63,53 @@ function Shell() {
   return (
     <>
       <CardGrid />
+      <CollectionAutopin />
       <CliNudge />
       <ErrorToast />
       <Toast />
     </>
   );
+}
+
+/**
+ * One-shot migration (2026-08-23): collections installed before install-time
+ * auto-pinning landed (user report — installed collections never showed in
+ * the sidebar's 위치 section) get pinned once. Runs after every folder schema
+ * settles, pins unpinned collection presets, then marks itself done; a later
+ * deliberate unpin is respected forever after.
+ */
+function CollectionAutopin() {
+  const qc = useQueryClient();
+  const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
+  const configQ = useQuery({ queryKey: ["config"], queryFn: getConfig });
+  const schemas = useSchemaInfo((foldersQ.data ?? []).map((f) => f.path));
+
+  useEffect(() => {
+    const MKEY = "oximemo.collectionAutopin.v1";
+    if (window.localStorage.getItem(MKEY)) return;
+    const folders = foldersQ.data;
+    const config = configQ.data;
+    if (!folders || !config) return;
+    // useSchemaInfo yields {} until every per-folder query settles — wait so
+    // this single pass sees all installed collections at once.
+    if (folders.length > 0 && Object.keys(schemas).length < folders.length) return;
+    const ids = new Set(COLLECTION_CATALOG.map((c) => c.id));
+    const pinned = new Set(
+      (config.folders ?? []).filter((f) => f.pinned).map((f) => f.path),
+    );
+    const targets = folders.filter(
+      (f) => ids.has(schemas[f.path]?.meta?.preset ?? "") && !pinned.has(f.path),
+    );
+    window.localStorage.setItem(MKEY, "1");
+    if (targets.length === 0) return;
+    void Promise.all(targets.map((f) => setFolderPinned(f.path, true)))
+      .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+      .catch(() => {
+        // Pinning is presentation-only; a failure just leaves the
+        // pre-migration sidebar (the user can pin manually).
+      });
+  }, [foldersQ.data, configQ.data, schemas, qc]);
+  return null;
 }
 
 /**

@@ -220,6 +220,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other mode. The collections pane's book/movie rows gain a 기본 보기
   segment (그리드/셸프) that pins the folder's default view.
 
+- **Installed collections auto-pin to the sidebar's 위치 section** (user
+  report 2026-08-23: adding a collection never made it appear in the
+  sidebar — it was only reachable via the 볼트 tile grid). Install
+  pins the folder immediately and invalidates `["config"]` so the
+  sidebar reads the new pin; uninstall prunes the pin with the folder
+  (core's delete_folder already retained the right entries). Pre-fix
+  installs are caught by a one-shot `oximemo.collectionAutopin.v1`
+  migration hook (`CollectionAutopin` in App) that pins any collection
+  preset that wasn't explicitly unpinned — recorded once so a later
+  deliberate unpin is respected forever.
+
 - **Ideas = fleeting-note inbox into the knowledge ladder** — instead of
   inventing a separate taxonomy, ideas inherit the existing knowledge
   status ladder. `status` has two values (fleeting/archived), the
