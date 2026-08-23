@@ -16,6 +16,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 // NDL/DNB (XML) and KMDB (approval-gated) adapters stay stubs — see
 // the fetch_* bodies in metadata.rs for the follow-up notes.
 mod metadata;
+mod copilot;
 
 pub struct AppState {
     pub vault: Arc<oximemo_core::Vault>,

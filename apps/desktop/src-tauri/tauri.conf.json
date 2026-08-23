@@ -37,6 +37,9 @@
     "createUpdaterArtifacts": true,
     "targets": ["dmg", "app"],
     "externalBin": ["binaries/oximemo"],
+    "resources": {
+      "../../../skills/oximemo": "skills/oximemo"
+    },
     "publisher": "oximemo",
     "category": "Productivity",
     "copyright": "© 2026 oximemo",
