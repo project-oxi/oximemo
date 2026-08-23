@@ -143,11 +143,46 @@ v1이 반드시 제공하는 것:
 
 ## 9. vault 쓰기 안전과 "관찰된 변경"
 
-**보장하는 것**: 에이전트에게 `oximemo` CLI와 `SKILL.md`를 알려준다. oxios처럼 `oxi-frontmatter` 계약을 따르는 에이전트는 원자적 쓰기를 한다.
+### 9.1 역할 분리 — 사고는 네이티브, 커밋은 CLI
 
-**보장하지 않는 것 (문서에 명시할 것)**: 범용 터미널 에이전트는 raw `.md` 편집·임의 shell 실행이 가능하다. oximemo는 이를 막을 수 없다. 따라서 **"에이전트의 vault 변경이 항상 계약을 따른다"고 약속하지 않는다.** 실제 제약은 사용자가 고른 에이전트의 샌드박스·승인 정책에서 나온다(§11).
+에이전트의 네이티브 편집 도구와 `oximemo` CLI는 경쟁 관계가 아니다. **잘하는 일이 다르다.**
 
-**변경 표시의 인과 귀속 금지**: 공유 vault에서 턴 도중 관찰된 파일 변경이 그 에이전트의 것이라는 보장은 없다 — §C5에 따라 oxios·Obsidian·다른 CLI가 동시에 같은 트리에 쓸 수 있고, oximemo 워처는 디바운스된다. 따라서 UI 라벨은 반드시:
+```
+에이전트 네이티브: read → 판단 → 새 본문 작성   (지능은 전부 여기)
+                            ↓
+CLI: oximemo update <id> --body-stdin            (바이트 커밋만 여기)
+```
+
+"3번째 문단을 더 조밀하게 다시 써라"를 표현할 CLI 명령은 없고 있어서도 안 된다 — 산문 편집은 네이티브 도구가 압도적으로 낫다. 반면 **최종 바이트를 디스크에 쓰는 행위**는 계약을 통과해야 한다.
+
+| 작업 | 수단 |
+|---|---|
+| 기존 본문 수정 | 네이티브 read+판단 → `oximemo update <id> --body-stdin` |
+| 새 노트 생성 | `oximemo new --folder <path>` |
+| 속성·태그·카테고리·즐겨찾기 | `oximemo update --set / --unset / --favorite` |
+| 삭제 | `oximemo delete` (→ `.trash/`, 경로 보존) |
+
+### 9.2 네이티브 raw write가 실제로 잃는 것 (실측)
+
+| 잃는 것 | 근거 |
+|---|---|
+| `updated` 갱신 | `updated_at`은 프런트매터 `updated` 키에서 읽는다(`store/files.rs`가 v4 on-disk 키를 타입 필드로 매핑; mtime 아님). bump는 `oxi-frontmatter::write_document` step 6에서만 발생. raw write는 이를 건드리지 않아 `export --since` 커서가 변경을 **누락**한다(README "Synchronization for agents" 4단계는 `max(updated_at)`으로 커서를 전진시킨다). 최근순 정렬도 틀어진다. |
+| 원자적 쓰기 | C5 규율 1 — "Direct `fs::write` to a vault `.md` is a contract violation." |
+| 미지 키·앱 테이블 보존 | `write_document`는 쓰기 시점에 파일을 재독해 `oxios:` 앱 테이블과 미지 키를 보존한다. 순진한 전체 재작성은 이를 파괴한다. |
+| core key 무결성 | `set_props`로 core key를 조작하려는 시도는 무시된다(테스트 `core keys must be immune to set_props`). |
+| 엄격 파싱 통과 | BOM·중복 키·미닫힌 `---`·탭은 하드 에러 → 노트가 인덱스에서 사라진다(BodyOnly). |
+| 생성 시 정합성 | UUIDv7(시간순 정렬성), `created`/`updated`, TEMPLATE.md 시딩, SCHEMA 프로퍼티 기본값(`status: stub`)이 CLI에서는 공짜. 손으로 쓰면 전부 오류 여지. |
+
+### 9.3 알려진 비용과 한계
+
+- `--body-stdin`은 **본문 전체를 재전송**한다. 긴 문서(`novel` 컬렉션의 챕터 등)에서는 네이티브 서지컬 편집보다 토큰 비용이 크다. 이 앱은 짧은 메모가 지배적이라 기본값은 CLI 커밋이 옳다. 긴 문서가 실제 병목이 되면 해법은 raw write 허용이 아니라 **계약 내부의 서지컬 프리미티브 추가**(`update --body-patch` 등)다.
+- **"네이티브로 고친 뒤 CLI로 bump만" 우회는 불가능하다.** 디스크 본문이 이미 새 내용이면 `write_document`가 NoOp로 판정하고 bump하지 않는다(step 6: "a true NoOp never bumps it").
+- **강제할 수는 없다.** 범용 터미널 에이전트는 raw 편집·임의 shell 실행이 가능하고 oximemo는 이를 막을 수 없다. §9.1은 `SKILL.md`를 통해 전달되는 **권고 경로**이며, 실효 제약은 사용자가 고른 에이전트의 샌드박스·승인 정책에서 나온다(§11). 따라서 "에이전트의 vault 변경이 항상 계약을 따른다"고 약속하지 않는다.
+- `updated` stale 자체는 코파일럿 고유 위험이 아니다 — Obsidian 등 외부 에디터도 동일한 효과를 내고 oximemo는 이미 이를 감당한다(워처가 디바운스·부분 쓰기 재시도). 다만 코파일럿은 이를 빈번·조직적으로 만들기 때문에 기본 경로를 옳게 잡는다.
+
+### 9.4 변경 표시의 인과 귀속 금지
+
+공유 vault에서 턴 도중 관찰된 파일 변경이 그 에이전트의 것이라는 보장은 없다 — §C5에 따라 oxios·Obsidian·다른 CLI가 동시에 같은 트리에 쓸 수 있고, oximemo 워처는 디바운스된다. 따라서 UI 라벨은 반드시:
 
 - ✅ **"이 턴 동안 변경된 노트"** (항상 참)
 - ❌ "에이전트가 수정한 노트" (거짓 가능)
@@ -235,6 +270,7 @@ timeout_secs = 300
 
 **선행 항목 (§7이 요구하는 것, 코파일럿 코드보다 먼저)**
 
+0. **`skills/oximemo/SKILL.md`를 v4로 갱신한다 — 최우선 블로커.** 현재 SKILL.md는 RFC-050 이전 상태다: vault 기본 경로를 `~/Library/Application Support/com.oximemo.app/vault/`로 안내(34행, 실제는 `~/.oxi/vault`), 프런트매터를 "TOML"·"첫 줄은 정확히 `+++`"로 규정(124–131행, 실제 v4는 `---` YAML), 위키링크를 "v0.3+ 연기"로 표기(199행, 이미 출하), `new --folder/--html`·`update --set/--unset` 누락(41·50행). §7이 "지시문을 저술하지 않고 SKILL.md를 가리킨다"에 `no prompt` 가드레일 전체를 걸고 있으므로, **이 파일이 틀린 상태에서 코파일럿을 출하하면 위임된 에이전트가 v4 vault에 v3 포맷을 쓴다** — RFC-050 검증 기준으로 하드 에러이거나 BodyOnly(인덱스에서 소멸). §9.1의 역할 분리(네이티브 판단 → `update --body-stdin` 커밋)도 여기에 명문화해야 전달된다. 이 결함은 코파일럿과 무관하게 이미 존재하는 버그이므로 독립적으로도 수정 가치가 있다.
 1. `skills/oximemo/`를 `tauri.conf.json`의 `bundle.resources`에 추가하고 런타임에서 리소스 절대 경로를 해석한다. 현재 번들되지 않으므로 이것이 없으면 `skill` 포인터가 배포 빌드에서 깨진다.
 2. 사이드카 `binaries/oximemo`의 런타임 절대 경로 해석 경로를 확정한다(`externalBin`은 이미 선언돼 있다).
 
@@ -260,3 +296,4 @@ timeout_secs = 300
 7. 어댑터 최초 활성화 시 provider 고지·동의가 표시되고, 패널 헤더에 상시 노출된다.
 8. oximemo가 권한 우회 플래그를 자동으로 부착하지 않는다.
 9. 릴리스 번들(`.app`)에서 `cli`·`skill` 경로가 모두 실존하며, 사용자 PATH에 `oximemo`가 없어도 코파일럿 턴이 성립한다.
+10. `SKILL.md`가 v4 사실만 담는다 — `---` YAML 프런트매터, `~/.oxi/vault` 기본 경로, §9.1 역할 분리, 현재 CLI 플래그 전체. 위임된 에이전트가 이 문서만 읽고 만든 노트가 인덱스에 정상 등재된다.
