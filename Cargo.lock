@@ -4057,8 +4057,8 @@ dependencies = [
 
 [[package]]
 name = "oxibrain-client"
-version = "0.6.0"
-source = "git+https://github.com/a7garden/oxibrain?tag=v0.6.0#18950374e2195c54e9e382e15fd451b86c69cc6e"
+version = "0.7.0"
+source = "git+https://github.com/a7garden/oxibrain?tag=v0.7.0#d5107cb3e0e2f65feb96b86ea6d4e2c0c2d6ea34"
 dependencies = [
  "anyhow",
  "serde",

@@ -103,6 +103,23 @@ export async function brainGather(
   return invoke<BrainRecall>("brain_gather", { query, budget });
 }
 
+/** One synced revision of a note from the brain's occurrence chain
+ *  (Consumption Contract 1.3). Oldest-first when listed. */
+export interface HistoryEpisode {
+  id: string;
+  seq: number;
+  content: string;
+  /** Unix milliseconds. */
+  occurred_at: number;
+  ingested_at: number;
+}
+
+/** Revision history of one vault-relative note path; throws when the
+ *  daemon is offline — callers hide the surface (C1), never error. */
+export async function brainHistory(path: string): Promise<HistoryEpisode[]> {
+  return invoke<HistoryEpisode[]>("brain_history", { path });
+}
+
 // --- TOML ⇄ GUI parity: config section setters ---------------------------
 
 export type BrainSection = NonNullable<Config["brain"]>;

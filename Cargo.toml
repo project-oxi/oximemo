@@ -50,13 +50,13 @@ objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSApplication", "NSWi
 # Errors
 objc2-foundation = { version = "0.3", features = ["NSString", "NSProcessInfo", "NSThread", "NSRunLoop"] }
 thiserror = "2"
-oxi-vault-git = "0.1"
+oxibrain-client = { version = "0.7", git = "https://github.com/a7garden/oxibrain", tag = "v0.7.0" }
 anyhow = "1"
+oxi-vault-git = "0.1"
 
 # Internal crates
 oximemo-core = { path = "crates/oximemo-core", version = "0.9.3" }
 oximemo-capture = { path = "crates/oximemo-capture", version = "0.9.3" }
-oxibrain-client = { version = "0.6", git = "https://github.com/a7garden/oxibrain", tag = "v0.6.0" }
 
 [profile.release]
 codegen-units = 1

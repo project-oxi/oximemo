@@ -276,6 +276,7 @@ pub fn run() {
             commands::brain_status,
             commands::brain_gather,
             commands::brain_list_spaces,
+            commands::brain_history,
             commands::set_brain_config,
             commands::set_general_config,
             commands::set_capture_config,
@@ -1101,6 +1102,33 @@ mod commands {
             .recall(&query, &cfg.space, budget.unwrap_or(4000) as usize)
             .await
             .map_err(|e| format!("brain recall failed: {e}"))
+    }
+
+    /// Occurrence-chain history of one note from the brain ledger
+    /// (Consumption Contract 1.3): every revision the vault sync ingested,
+    /// oldest first, full content. Daemon down → Err so the panel hides
+    /// itself; the note editor is unaffected (C1). Mechanical undo is the
+    /// local git layer's job — this is the semantic "how it evolved" view.
+    #[tauri::command]
+    pub async fn brain_history(
+        state: State<'_, AppState>,
+        path: String,
+    ) -> Result<serde_json::Value, String> {
+        let cfg = state
+            .vault
+            .with_config(|c| crate::BrainEndpointConf::from_brain(&c.brain));
+        if !cfg.enabled {
+            return Err("brain disabled in config".to_string());
+        }
+        let dir = state.vault.paths().vault.to_string_lossy().into_owned();
+        let (mut client, _caps) = crate::brain_connect(&cfg)
+            .await
+            .map_err(|e| format!("brain offline: {e}"))?;
+        let episodes = client
+            .episodes_for_locator(&dir, &path, &cfg.space)
+            .await
+            .map_err(|e| format!("brain history failed: {e}"))?;
+        serde_json::to_value(&episodes).map_err(|e| e.to_string())
     }
 
     /// Spaces the daemon exposes, for the settings picker. Offline is a

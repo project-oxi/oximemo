@@ -23,6 +23,7 @@ import { useFolderNames } from "../lib/folders";
 import { daysBetween, shiftISODate, todayLocalISO } from "../lib/dates";
 import { useUI } from "../stores/ui";
 import { ContextDock } from "./ContextDock";
+import { HistoryPanel } from "./HistoryPanel";
 import { PropertyPanel } from "./PropertyPanel";
 import { HtmlNoteEditor } from "./HtmlNoteEditor";
 import { TagChipRow } from "./TagChipRow";
@@ -288,6 +289,9 @@ export function MemoDetail() {
                 tags={memo.data.tags}
                 dirty={dirty}
               />
+            )}
+            {memo.data && seededId === memo.data.id && memo.data.path && (
+              <HistoryPanel path={memo.data.path} />
             )}
           </div>
         </Dialog.Popup>
