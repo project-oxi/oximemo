@@ -586,7 +586,9 @@ function CollectionsSection() {
   const schemaInfo = useSchemaInfo((folders.data ?? []).map((f) => f.path));
   const dailyFolder = config.data?.daily?.folder ?? "daily";
   const [armed, setArmed] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const armTimer = useRef<number | null>(null);
 
   interface Row {
     id: string;
@@ -628,8 +630,16 @@ function CollectionsSection() {
     // default-view segments read it, so installs/uninstalls must refresh it.
     void qc.invalidateQueries({ queryKey: ["config"] });
   };
+  const disarm = () => {
+    setArmed(null);
+    if (armTimer.current) {
+      window.clearTimeout(armTimer.current);
+      armTimer.current = null;
+    }
+  };
 
   const install = (row: Row) => {
+    if (busy) return;
     const existing = installedFolder(row.id);
     const folder =
       existing ??
@@ -638,6 +648,7 @@ function CollectionsSection() {
           ? dailyFolder
           : "knowledge"
         : COLLECTION_CATALOG.find((c) => c.id === row.id)!.defaultFolder[locale]);
+    setBusy(row.id);
     // Installing means the user wants the collection at hand: pin it to the
     // sidebar's 위치 section so it appears immediately (user report
     // 2026-08-23 — installed collections were only reachable via 볼트 tiles).
@@ -648,19 +659,34 @@ function CollectionsSection() {
         invalidate();
         setExpanded(row.id);
       })
-      .catch((e) => setError(String(e).split("\n")[0]));
+      .catch((e) => setError(String(e).split("\n")[0]))
+      .finally(() => setBusy(null));
   };
 
   const uninstall = (row: Row, folder: string) => {
+    if (busy) return;
+    // Two-click confirm: first click arms (red warning + confirm label),
+    // second within 4s commits — window.confirm is unreliable inside the
+    // WKWebView. Disarming explicitly on install, on a different row, and on
+    // timer expiry keeps the second click unambiguously aimed at commit
+    // rather than "the row is gone but still armed".
     if (armed !== row.id) {
+      disarm();
       setArmed(row.id);
+      armTimer.current = window.setTimeout(disarm, 4000);
       return;
     }
-    setArmed(null);
+    if (!window.confirm(t.collection_remove_confirm)) {
+      disarm();
+      return;
+    }
+    disarm();
+    setBusy(row.id);
     setExpanded((e) => (e === row.id ? null : e));
     void deleteFolder(folder)
       .then(invalidate)
-      .catch((e) => setError(String(e).split("\n")[0]));
+      .catch((e) => setError(String(e).split("\n")[0]))
+      .finally(() => setBusy(null));
   };
 
   const gotoFolder = (folder: string) => {
@@ -715,7 +741,16 @@ function CollectionsSection() {
                   role="switch"
                   aria-checked={!!folder}
                   aria-label={t[row.nameKey]}
-                  onClick={() => (folder ? uninstall(row, folder) : install(row))}
+                  onClick={() => {
+                    // Always read installedFolder fresh — uninstall may be
+                    // mid-flight and the closure value would lag by one render.
+                    const f = installedFolder(row.id);
+                    if (f) uninstall(row, f);
+                    else {
+                      disarm(); // hitting install also clears any stale arm
+                      install(row);
+                    }
+                  }}
                   className={
                     "relative h-5 w-9 shrink-0 rounded-full transition-colors " +
                     (folder ? "bg-interactive-primary" : "bg-line")

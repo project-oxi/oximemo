@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 
+- **Collection uninstall/install reactivity (busy guard + 4s arm)** —
+  the collections pane switch used to leave the row stuck and the next
+  click felt like nothing happened (user report 2026-08-23: 삭제 후 다시
+  설치 시 반응 없음). Root cause: the closure value of `folder` in the
+  switch `onClick` was captured at render time, so uninstall's mid-flight
+  invalidation hadn't repainted yet — the second click saw the still-true
+  folder and re-armed instead of installing; an arm could also leak past
+  a fresh install and disarm only on a different-row click. The fix:
+  `CollectionsSection` now keeps `busy` (per-row IPC-pending) and a 4s
+  `armTimer` mirroring FoldersSection's pattern; the switch `onClick`
+  reads `installedFolder(row.id)` fresh on every click; install calls
+  `disarm()` so a stale arm cannot poison the next click; uninstall
+  uses `window.confirm` for the second click (renders an `error` row
+  with a confirm copy on the first click). Same fix covers both
+  desktop IPC and the browser fallback.
+
 - **Note properties & folder schemas (knowledge management)** — every
   frontmatter key beyond the core five is now a first-class *property*:
   indexed (`IndexRecord.props`), carried on `Memo`/`MemoSummary`/`NoteDto`,
