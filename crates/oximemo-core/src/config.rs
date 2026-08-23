@@ -24,6 +24,9 @@ pub struct VaultConfig {
     /// Metadata providers (book/movie search; spec 2026-08-23 §3). Keys
     /// live here per-provider; empty = provider hidden from the search.
     pub metadata: MetadataConfig,
+    /// Copilot delegation (spec 2026-08-23). `agent`/`executable` are
+    /// empty until the user explicitly activates a detected agent CLI.
+    pub copilot: CopilotConfig,
     /// Forward-compatible schema marker. Unknown fields are ignored.
     pub schema_version: u32,
 }
@@ -39,6 +42,7 @@ impl Default for VaultConfig {
             brain: BrainConfig::default(),
             daily: DailyConfig::default(),
             metadata: MetadataConfig::default(),
+            copilot: CopilotConfig::default(),
             schema_version: 3,
         }
     }
@@ -63,6 +67,33 @@ impl Default for BrainConfig {
             enabled: true,
             socket: String::new(),
             space: "personal".to_string(),
+        }
+    }
+}
+
+/// Copilot delegation settings (spec 2026-08-23). The panel stays hidden
+/// until the user explicitly activates a detected agent CLI; `agent` and
+/// `executable` are empty until then.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CopilotConfig {
+    /// Master switch. `false` hides the copilot entry points entirely.
+    pub enabled: bool,
+    /// Activated adapter id (e.g. "oxios"); empty = not activated.
+    pub agent: String,
+    /// Verified absolute path of the activated agent executable.
+    pub executable: String,
+    /// Per-turn subprocess timeout in seconds.
+    pub timeout_secs: u64,
+}
+
+impl Default for CopilotConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            agent: String::new(),
+            executable: String::new(),
+            timeout_secs: 300,
         }
     }
 }
@@ -277,6 +308,7 @@ impl VaultConfig {
             "folders": self.folders.items,
             "brain": self.brain,
             "daily": self.daily,
+            "copilot": self.copilot,
         })
     }
 }
@@ -320,6 +352,40 @@ space = "work"
         // Exposed via config_json for the frontend.
         let j = c2.config_json();
         assert_eq!(j["brain"]["socket"], "/tmp/custom.sock");
+    }
+
+    #[test]
+    fn copilot_section_defaults_and_roundtrip() {
+        let c = VaultConfig::default();
+        assert!(c.copilot.enabled);
+        assert_eq!(c.copilot.agent, "");
+        assert_eq!(c.copilot.executable, "");
+        assert_eq!(c.copilot.timeout_secs, 300);
+
+        // Round-trips through TOML.
+        let s = c.to_toml().unwrap();
+        let back: VaultConfig = toml::from_str(&s).unwrap();
+        assert!(back.copilot.enabled);
+        assert_eq!(back.copilot.timeout_secs, 300);
+
+        // Explicit override wins.
+        let t = r#"
+[copilot]
+enabled = false
+agent = "oxios"
+executable = "/opt/homebrew/bin/oxios"
+timeout_secs = 60
+"#;
+        let c2: VaultConfig = toml::from_str(t).unwrap();
+        assert!(!c2.copilot.enabled);
+        assert_eq!(c2.copilot.agent, "oxios");
+        assert_eq!(c2.copilot.executable, "/opt/homebrew/bin/oxios");
+        assert_eq!(c2.copilot.timeout_secs, 60);
+
+        // Exposed via config_json for the frontend.
+        let j = c2.config_json();
+        assert_eq!(j["copilot"]["agent"], "oxios");
+        assert_eq!(j["copilot"]["timeout_secs"], 60);
     }
     #[test]
     fn daily_section_defaults_and_overrides() {
