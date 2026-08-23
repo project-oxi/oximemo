@@ -24,6 +24,7 @@ type Ctx = {
   setLocale: (l: Locale) => void;
   t: Dict;
 };
+export type I18nContextValue = Ctx;
 
 const I18nContext = createContext<Ctx | null>(null);
 

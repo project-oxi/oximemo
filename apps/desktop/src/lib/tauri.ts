@@ -854,6 +854,7 @@ async function browserFallback(
         general: { trash_retention_days: 30 },
         capture: { double_tap_threshold_ms: 350, overlay_max_height: 400 },
         daily: { enabled: true, folder: "daily" },
+        metadata: { enabled: true, region: "", google_books_key: "", aladin_key: "", tmdb_key: "", omdb_key: "", kmdb_key: "" },
         appearance: { theme: "system", show_dock_icon: true },
         folders: [
           ...Object.entries(loadViews()).map(([path, view]) => ({ path, view, color: null,

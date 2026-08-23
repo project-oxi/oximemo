@@ -231,6 +231,15 @@ export interface Config {
   folders?: FolderDef[];
   brain?: { enabled?: boolean; socket?: string; space?: string };
   daily?: { enabled?: boolean; folder?: string };
+  metadata?: {
+    enabled?: boolean;
+    region?: string;
+    google_books_key?: string;
+    aladin_key?: string;
+    tmdb_key?: string;
+    omdb_key?: string;
+    kmdb_key?: string;
+  };
   index?: { watcher_debounce_ms?: number };
 }
 

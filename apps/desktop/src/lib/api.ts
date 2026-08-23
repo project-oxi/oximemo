@@ -118,6 +118,36 @@ export async function setDailyConfig(daily: {
   return invoke("set_daily_config", { daily });
 }
 
+export interface MetadataConfig {
+  enabled: boolean;
+  region: string;
+  google_books_key: string;
+  aladin_key: string;
+  tmdb_key: string;
+  omdb_key: string;
+  kmdb_key: string;
+}
+
+export async function setMetadataConfig(metadata: MetadataConfig): Promise<void> {
+  return invoke("set_metadata_config", { metadata });
+}
+
+export interface MetaHit {
+  provider: string;
+  title: string;
+  subtitle?: string | null;
+  url?: string | null;
+  fields: Record<string, string>;
+}
+
+export async function searchBookMetadata(query: string): Promise<MetaHit[]> {
+  return invoke<MetaHit[]>("search_book_metadata", { query });
+}
+
+export async function searchMovieMetadata(query: string): Promise<MetaHit[]> {
+  return invoke<MetaHit[]>("search_movie_metadata", { query });
+}
+
 export async function setGeneralConfig(general: {
   trash_retention_days: number;
 }): Promise<void> {

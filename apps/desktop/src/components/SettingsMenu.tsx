@@ -19,6 +19,7 @@ import {
   Brain,
   Check,
   Copy,
+  Database,
   DownloadCloud,
   Folder,
   FolderPlus,
@@ -38,7 +39,6 @@ import {
   X,
   Zap,
 } from "lucide-react";
-
 import {
   brainListSpaces,
   cliStatus,
@@ -71,6 +71,7 @@ import { useUI } from "../stores/ui";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { checkForUpdate, type UpdateAvailable } from "../lib/updater";
 import { COLLECTION_CATALOG, SYSTEM_COLLECTIONS, type DictKey } from "../lib/collectionCatalog";
+import { MetadataSection } from "./MetadataSection";
 import { useSchemaInfo } from "../lib/folders";
 import { applyTheme, type Theme } from "../lib/theme";
 import type { FolderEntry } from "../lib/types";
@@ -115,7 +116,7 @@ function PaneHeader({ title }: { title: string }) {
 
 
 /** Boolean setting row with a switch. Commits immediately. */
-function ToggleRow({
+export function ToggleRow({
   label,
   checked,
   onChange,
@@ -1023,7 +1024,10 @@ export function SettingsMenu() {
     },
     {
       group: t.settings_group_integrations,
-      items: [{ id: "brain", label: t.section_brain, icon: <Brain size={13} /> }],
+      items: [
+        { id: "brain", label: t.section_brain, icon: <Brain size={13} /> },
+        { id: "metadata", label: t.metadata, icon: <Database size={13} /> },
+      ],
     },
     {
       group: t.settings_group_collections,
@@ -1178,6 +1182,7 @@ export function SettingsMenu() {
                   <BrainSection />
                 </section>
               )}
+              {activeTab === "metadata" && <MetadataSection />}
               {activeTab === "folders" && (
                 <section>
                   <PaneHeader title={t.section_folders} />
