@@ -144,10 +144,12 @@ export const dict: Record<keyof typeof ko, string> = {
   section_about: "About",
   vault_location: "Vault location",
   git_autocommit: "Git auto-commit (local versioning)",
-  git_autocommit_hint: "Record note changes in the vault's git repository. Works without the brain daemon.",
+
+  git_autocommit_hint: "Record note and config changes (markdown, HTML, oximemo.toml) in the vault's git repository. Works without the brain daemon. While off, edits are not queued — turning it back on only covers changes made after that point.",
   brain_history: "History",
   brain_history_count: "· {n} revisions",
   brain_history_empty: "No recorded revisions yet. They appear here once the note syncs to the brain.",
+  brain_history_more_chars: "more characters",
   all_memos: "All Notes",
   locations_section: "Locations",
   tags_section: "Tags",

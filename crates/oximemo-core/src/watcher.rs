@@ -46,7 +46,7 @@ impl MemoWatcher {
                         return;
                     }
                     for p in ev.paths {
-                        if is_markdown(&p) {
+                        if is_user_content(&p) {
                             let _ = tx.send(p);
                         }
                     }
@@ -99,6 +99,15 @@ fn debounce_loop(rx: mpsc::Receiver<PathBuf>, debounce: Duration, on_change: OnC
     }
 }
 
-fn is_markdown(p: &Path) -> bool {
-    p.extension().is_some_and(|e| e == "md")
+/// Truth-half file extensions under version control: markdown notes
+/// (`.md`), HTML notes (`.html`), and the vault config (`.toml`). Asset
+/// files under `_assets/` are excluded by the watcher's root scope, so
+/// arbitrary binary commits never land.
+fn is_user_content(p: &Path) -> bool {
+    matches!(
+        p.extension().and_then(|e| e.to_str()),
+        Some("md" | "html" | "markdown" | "htm")
+    ) || p
+        .file_name()
+        .is_some_and(|n| n == "oximemo.toml")
 }

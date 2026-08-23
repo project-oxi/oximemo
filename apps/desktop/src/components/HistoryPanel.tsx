@@ -19,7 +19,7 @@ export function HistoryPanel({ path }: { path: string }) {
     queryKey: ["brain-history", path],
     queryFn: () => brainHistory(path),
     enabled: open,
-    staleTime: 30_000,
+    staleTime: 0,
     retry: false,
   });
 
@@ -51,17 +51,27 @@ export function HistoryPanel({ path }: { path: string }) {
           {q.isLoading ? null : episodes.length === 0 ? (
             <p className="py-1 text-xs text-text-subtle">{t.brain_history_empty}</p>
           ) : (
-            newest.map((e) => (
-              <div key={e.id} className="rounded-md bg-surface-muted/60 px-2 py-1.5">
-                <p className="text-[10px] font-medium text-text-subtle">
-                  {new Date(e.occurred_at).toLocaleString()}
-                  <span className="ml-1 font-normal">#{e.seq}</span>
-                </p>
-                <pre className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-text">
-                  {e.content.trim().slice(0, 400)}
-                </pre>
-              </div>
-            ))
+            newest.map((e) => {
+              const content = e.content.trim();
+              const shown = content.slice(0, 400);
+              const remaining = content.length - shown.length;
+              return (
+                <div key={e.id} className="rounded-md bg-surface-muted/60 px-2 py-1.5">
+                  <p className="text-[10px] font-medium text-text-subtle">
+                    {new Date(e.occurred_at).toLocaleString()}
+                    <span className="ml-1 font-normal">#{e.seq}</span>
+                  </p>
+                  <pre className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-text">
+                    {shown}
+                  </pre>
+                  {remaining > 0 && (
+                    <p className="mt-0.5 text-[10px] text-text-subtle">
+                      +{remaining} {t.brain_history_more_chars}
+                    </p>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       )}

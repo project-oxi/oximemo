@@ -143,10 +143,12 @@ export const dict = {
   section_about: "정보",
   vault_location: "볼트 위치",
   git_autocommit: "git 자동 커밋 (로컬 버전 관리)",
-  git_autocommit_hint: "노트 변경을 볼트의 git 저장소에 기록합니다. 브레인 데몬 없이도 동작합니다.",
+
+  git_autocommit_hint: "볼트의 git 저장소에 노트(마크다운, HTML)와 설정(oximemo.toml) 변경을 기록합니다. 브레인 데몬 없이도 동작합니다. 꺼져 있는 동안의 변경은 대기열에 쌓이지 않으며, 다시 켜도 그 시점 이후 변경만 반영됩니다.",
   brain_history: "히스토리",
   brain_history_count: "· {n}개 리비전",
   brain_history_empty: "아직 기록된 리비전이 없습니다. 노트가 브레인에 동기화되면 여기에 쌓입니다.",
+  brain_history_more_chars: "자 더 있음",
   all_memos: "전체 메모",
   locations_section: "위치",
   tags_section: "태그",

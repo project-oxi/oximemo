@@ -232,7 +232,7 @@ pub(crate) fn reset_registration_memo_for_test(reg: &Registration) {
 ///
 /// 1. `~/.oxi/config.toml [vault].space` — ecosystem-wide override.
 /// 2. `fallback` — the vault-local `BrainConfig::space` default.
-pub(crate) fn resolve_space(home: &Path, fallback: &str) -> String {
+pub fn resolve_space(home: &Path, fallback: &str) -> String {
     let path = home.join(".oxi").join("config.toml");
     let Ok(text) = std::fs::read_to_string(&path) else {
         return fallback.to_string();

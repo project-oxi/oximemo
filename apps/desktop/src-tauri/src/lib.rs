@@ -50,12 +50,12 @@ pub struct AppState {
 
 impl AppState {
     fn new(
-        vault: oximemo_core::Vault,
+        vault: Arc<oximemo_core::Vault>,
         git: Arc<oxi_vault_git::GitLayer>,
         git_tx: tokio::sync::mpsc::UnboundedSender<PathBuf>,
     ) -> Self {
         Self {
-            vault: Arc::new(vault),
+            vault,
             capture_monitor: Mutex::new(None),
             watcher: Mutex::new(None),
             copilot_active: Mutex::new(None),
@@ -142,7 +142,8 @@ pub fn run() {
                 git_adopt,
             )?);
             let (git_tx, git_rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
-            spawn_git_consumer(git.clone(), vault.paths().vault.clone(), git_rx);
+            let vault = Arc::new(vault);
+            spawn_git_consumer(git.clone(), vault.clone(), vault.paths().vault.clone(), git_rx);
             app.manage(AppState::new(vault, git, git_tx));
             let wstate = app.state::<AppState>();
             spawn_watcher(&wstate, app.handle());
@@ -389,15 +390,40 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
 /// interactive path. Coalesces bursts: after a message arrives, drain any
 /// queued siblings for 250 ms so a save-burst produces one commit per file
 /// state, not per event. `commit_file`'s content dedup makes unchanged
+
+/// Background consumer for vault git auto-commits. Receives settled paths
+/// from the watcher thread and performs the gix commit/remove off every
+/// interactive path. Coalesces bursts: after a message arrives, drain any
+/// queued siblings for 250 ms so a save-burst produces one commit per file
+/// state, not per event. `commit_file`'s content dedup makes unchanged
 /// re-commits no-ops.
+///
+/// The toggle is **live-read** on every message: `vault.with_config(|c|
+/// c.git.auto_commit)` is consulted so flipping the Settings → Storage
+/// switch takes effect on the next settled event (no restart). This
+/// mirrors how `brain_gather`, `brain_status`, and `open_daily` read
+/// their section on every call — there is no cached config handle here
+/// either. `git.is_enabled()` independently gates on construction-time
+/// state (foreign / corrupt repos degrade to disabled; not user-toggle).
 fn spawn_git_consumer(
     git: Arc<oxi_vault_git::GitLayer>,
+    vault: Arc<oximemo_core::Vault>,
     vault_root: PathBuf,
     mut rx: tokio::sync::mpsc::UnboundedReceiver<PathBuf>,
 ) {
     std::thread::spawn(move || {
         while let Some(path) = rx.blocking_recv() {
-            if !git.is_enabled() {
+            // Live-read the user's auto_commit toggle (analogous to how
+            // `brain_gather` re-reads `c.brain` on every call). Toggling
+            // OFF in Settings stops the next commit immediately; toggling
+            // ON allows the next one. `git.is_enabled()` still gates the
+            // construction-time disabled state (foreign / corrupt repo).
+            let auto = vault.with_config(|c| c.git.auto_commit);
+            if !auto || !git.is_enabled() {
+                // NOTE: the dropped fs-event is gone — there is no
+                // reconcile-on-re-enable pass. Toggling auto_commit back
+                // ON only covers edits made after that point; edits made
+                // while it was OFF are never retroactively committed.
                 continue;
             }
             // Coalesce the burst behind this event.
@@ -407,16 +433,18 @@ fn spawn_git_consumer(
                 batch.push(next);
             }
             for path in batch {
-                let Some(rel) = path
-                    .strip_prefix(&vault_root)
-                    .ok()
-                    .map(|p| p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
-                else {
-                    continue;
+                // The git layer expects tree-key paths relative to its
+                // root. On macOS (the only supported target today) the
+                // vault IS the git root — strip the vault prefix to get
+                // the tree key directly. `oxi_vault_git::rel_path` is
+                // designed for the legacy nested-layout case and falls
+                // back to the input string when `git_root == kb_root`,
+                // which would re-emit the absolute path. Do the explicit
+                // strip here; revisit if Windows / nested layouts ever ship.
+                let rel = match path.strip_prefix(&vault_root) {
+                    Ok(p) => p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"),
+                    Err(_) => continue,
                 };
-                if rel.is_empty() {
-                    continue;
-                }
                 let exists = path.exists();
                 let msg = if exists {
                     format!("vault: update {rel}")
@@ -596,6 +624,26 @@ impl BrainEndpointConf {
             enabled: b.enabled,
             socket: b.socket.clone(),
             space: b.space.clone(),
+        }
+    }
+
+    /// Resolve the brain endpoint with **ecosystem-canonical** space:
+    /// `~/.oxi/config.toml [vault].space` wins over the vault-local
+    /// `BrainConfig::space` (ECOSYSTEM.md §C5). All brain_* commands
+    /// must use this constructor — they read the same space the daemon's
+    /// `register_vault` (vault.rs:117) registered the watcher under. Using
+    /// `from_brain` directly silently queries the wrong space when the
+    /// operator sets the ecosystem override.
+    fn from_vault_config(c: &oximemo_core::config::VaultConfig) -> Self {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let space = oximemo_core::brain::resolve_space(
+            std::path::Path::new(&home),
+            &c.brain.space,
+        );
+        Self {
+            enabled: c.brain.enabled,
+            socket: c.brain.socket.clone(),
+            space,
         }
     }
 }
@@ -1071,7 +1119,7 @@ mod commands {
     pub async fn brain_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
         let cfg = state
             .vault
-            .with_config(|c| crate::BrainEndpointConf::from_brain(&c.brain));
+            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c));
         if !cfg.enabled {
             return Ok(serde_json::json!({"online": false, "disabled": true}));
         }
@@ -1110,7 +1158,7 @@ mod commands {
     ) -> Result<serde_json::Value, String> {
         let cfg = state
             .vault
-            .with_config(|c| crate::BrainEndpointConf::from_brain(&c.brain));
+            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c));
         if !cfg.enabled {
             return Err("brain disabled in config".to_string());
         }
@@ -1135,7 +1183,7 @@ mod commands {
     ) -> Result<serde_json::Value, String> {
         let cfg = state
             .vault
-            .with_config(|c| crate::BrainEndpointConf::from_brain(&c.brain));
+            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c));
         if !cfg.enabled {
             return Err("brain disabled in config".to_string());
         }
@@ -1159,7 +1207,7 @@ mod commands {
     ) -> Result<serde_json::Value, String> {
         let cfg = state
             .vault
-            .with_config(|c| crate::BrainEndpointConf::from_brain(&c.brain));
+            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c));
         if !cfg.enabled {
             return Ok(serde_json::json!({ "online": false, "spaces": [] }));
         }
@@ -1883,21 +1931,118 @@ mod tests {
     /// The git auto-commit consumer: a settled path under the vault must
     /// land as a commit; a deleted path must land as a removal. Drives the
     /// REAL `spawn_git_consumer` against a REAL `GitLayer` on disk.
+    /// The git auto-commit consumer:
+    ///   1. drives the REAL `spawn_git_consumer` against a REAL `GitLayer`
+    ///      on disk;
+    ///   2. passes a REAL `Vault` handle so the consumer's live
+    ///      `c.git.auto_commit` read is exercised;
+    ///   3. asserts that toggling `auto_commit` off in the live config
+    ///      stops the next commit immediately (C1 regression guard).
     #[test]
-    fn git_consumer_commits_and_removes() {
+    fn git_consumer_commits_and_respects_toggle() {
         let dir = tempfile::tempdir().unwrap();
-        let vault = dir.path().join("vault");
-        std::fs::create_dir_all(&vault).unwrap();
+        let vault_path = dir.path().join("vault");
+        std::fs::create_dir_all(&vault_path).unwrap();
+        let vault = std::sync::Arc::new(
+            oximemo_core::Vault::open(Some(&vault_path)).unwrap(),
+        );
+        vault.ensure_initialized().unwrap();
+        // Default `[git].auto_commit = true`.
         let git = std::sync::Arc::new(
-            oxi_vault_git::GitLayer::new_for_vault(vault.clone(), true, false).unwrap(),
+            oxi_vault_git::GitLayer::new_for_vault(vault.paths().vault.clone(), true, false).unwrap(),
         );
         assert!(git.is_enabled(), "fresh vault repo must be enabled");
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<std::path::PathBuf>();
-        super::spawn_git_consumer(git.clone(), vault.clone(), rx);
+        super::spawn_git_consumer(git.clone(), vault.clone(), vault.paths().vault.clone(), rx);
 
-        // Create → settled path → commit lands.
-        let note = vault.join("notes/hello.md");
+        let deadline = || std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let poll = |msg: &str, f: &dyn Fn() -> bool| -> bool {
+            let d = deadline();
+            while !f() {
+                assert!(std::time::Instant::now() < d, "{msg}");
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            true
+        };
+
+        // Create → commit lands (toggle is ON).
+        let note = vault.paths().vault.join("notes/hello.md");
+        std::fs::create_dir_all(note.parent().unwrap()).unwrap();
+        std::fs::write(&note, "# hello\n").unwrap();
+        tx.send(note.clone()).unwrap();
+        poll(
+            "create commit never landed",
+            &|| !git.log_for_file("notes/hello.md", 10).unwrap().is_empty(),
+        );
+
+        // Toggle auto_commit OFF at runtime.
+        vault
+            .set_git_config(oximemo_core::config::GitConfig {
+                auto_commit: false,
+                adopt_foreign_repo: false,
+            })
+            .unwrap();
+
+        // Edit the same note while toggle is OFF.
+        std::fs::write(&note, "# hello v2\n").unwrap();
+        tx.send(note.clone()).unwrap();
+        // Wait long enough for the consumer to drain past the 250 ms burst
+        // window — if the toggle were a no-op (C1 regression), a fresh
+        let log = git.log_for_file("notes/hello.md", 10).unwrap();
+        // Filter marker commits so the assertion is stable across crate
+        // versions that may add bookkeeping commits alongside user edits.
+        let user_commits: Vec<_> = log
+            .iter()
+            .filter(|e| e.message.starts_with("vault:"))
+            .collect();
+        assert_eq!(
+            user_commits.len(),
+            1,
+            "toggle OFF must drop the v2 edit; saw {user_commits:?}"
+        );
+        assert!(
+            user_commits[0].message.contains("update notes/hello.md"),
+            "unexpected surviving commit message: {}",
+            user_commits[0].message
+        );
+
+        // Toggle ON again → the next edit commits.
+        vault
+            .set_git_config(oximemo_core::config::GitConfig {
+                auto_commit: true,
+                adopt_foreign_repo: false,
+            })
+            .unwrap();
+        std::fs::write(&note, "# hello v3\n").unwrap();
+        tx.send(note.clone()).unwrap();
+        poll(
+            "second commit never landed after toggle ON",
+            &|| git.log_for_file("notes/hello.md", 10).unwrap().len() >= 2,
+        );
+    }
+
+    /// The git auto-commit consumer produces a removal commit when the
+    /// file disappears from disk. `log_for_file` only lists commits where
+    /// the path still exists in the tree, so the delete commit is
+    /// asserted on the full repo log (`log`).
+    #[test]
+    fn git_consumer_removal_commit_lands() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault_path = dir.path().join("vault");
+        std::fs::create_dir_all(&vault_path).unwrap();
+        let vault = std::sync::Arc::new(
+            oximemo_core::Vault::open(Some(&vault_path)).unwrap(),
+        );
+        vault.ensure_initialized().unwrap();
+        let git = std::sync::Arc::new(
+            oxi_vault_git::GitLayer::new_for_vault(vault.paths().vault.clone(), true, false).unwrap(),
+        );
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<std::path::PathBuf>();
+        super::spawn_git_consumer(git.clone(), vault.clone(), vault.paths().vault.clone(), rx);
+
+        let note = vault.paths().vault.join("notes/hello.md");
         std::fs::create_dir_all(note.parent().unwrap()).unwrap();
         std::fs::write(&note, "# hello\n").unwrap();
         tx.send(note.clone()).unwrap();
@@ -1906,20 +2051,12 @@ mod tests {
         loop {
             let log = git.log_for_file("notes/hello.md", 10).unwrap();
             if !log.is_empty() {
-                assert!(
-                    log[0].message.contains("update notes/hello.md"),
-                    "unexpected commit message: {}",
-                    log[0].message
-                );
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "commit never landed");
+            assert!(std::time::Instant::now() < deadline, "create commit never landed");
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
 
-        // Delete → removal commit. NOTE: `log_for_file` only lists commits
-        // where the path EXISTS in the tree, so the removal is asserted on
-        // the full repo log (`log`), not the per-path log.
         std::fs::remove_file(&note).unwrap();
         tx.send(note.clone()).unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
