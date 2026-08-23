@@ -381,6 +381,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never discarded. `open_daily_note` now returns `{memo, created}` so the
   frontend only marks fresh notes as discardable drafts.
 
+### Changed (copilot revision 2026-08-24)
+
+- **Copilot layer rework** — the header button + right-docked side
+  panel are replaced by a bottom-right floating action button (z-70,
+  Notion-style) and a floating copilot window (z-60) that sits ABOVE
+  the note dialog (z-50): the copilot is now usable while a note is
+  open, which the selection-context flow requires. `⌘⇧C` is live even
+  when the memo dialog holds focus.
+- **omp (Oh My Pi) adapter — verified agent #2.** Non-interactive
+  contract measured on the wire: `-p --mode=json` runs a full turn,
+  stdin carries the context block, `-r <id>` resumes the session,
+  `--model <selector>` picks per turn, and the JSONL event stream
+  discloses the provider/model ACTUALLY used — shown per turn in the
+  panel (measured disclosure, not configured). omp turns run with the
+  vault as cwd.
+- **Agent discovery works from GUI launches.** Finder/Dock launches
+  inherit launchd's minimal PATH, hiding `~/.bun/bin/omp` and
+  `~/.cargo/bin/oxios`; discovery now also probes the standard user
+  install roots (`~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin`,
+  `~/bin`, `~/go/bin`, Homebrew) and requires the executable bit.
+- **Model switching per agent contract.** The panel header model chip
+  opens a picker listing the agent's own models (`oxios models` /
+  `omp models --json`). omp applies the selection per turn; oxios has
+  no per-turn flag, so picking rewrites its durable default via
+  `oxios config set engine.default_model` (comment-preserving) and the
+  UI discloses the global change. Model ids are charset-validated
+  before they enter any argv.
+- **Selection context (Claude-desktop style).** Text selected in the
+  note editor is synced from CM6 state into the turn context, shown as
+  a removable "선택 영역 포함" chip, and injected into the context block
+  as a re-indented block scalar (every payload line is prefixed by us,
+  so dedent injection is structurally impossible; 8,000-char cap).
+
 ## [0.9.3] — 2026-08-21
 
 ### Added

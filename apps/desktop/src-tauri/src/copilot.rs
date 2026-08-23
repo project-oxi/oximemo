@@ -78,7 +78,9 @@ fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf>
     for abs in ["/opt/homebrew/bin", "/usr/local/bin"] {
         dirs.push(PathBuf::from(abs));
     }
-    dirs.into_iter().map(|d| d.join(name)).find(|p| is_executable(&p))
+    dirs.into_iter()
+        .map(|d| d.join(name))
+        .find(|p| is_executable(&p))
 }
 
 fn which(name: &str) -> Option<PathBuf> {
@@ -541,11 +543,7 @@ pub fn parse_agent_json(stdout: &str) -> (String, Option<String>) {
 /// `-p` is non-interactive, `--mode=json` emits a JSONL event stream,
 /// stdin is appended as context, `--model` takes a selector from
 /// `omp models --json`, and `-r <id>` resumes a prior session.
-pub fn omp_args(
-    session: Option<&str>,
-    model: Option<&str>,
-    prompt: &str,
-) -> Vec<String> {
+pub fn omp_args(session: Option<&str>, model: Option<&str>, prompt: &str) -> Vec<String> {
     let mut args = vec!["-p".to_string(), "--mode=json".to_string()];
     if let Some(m) = model {
         args.push("--model".to_string());
@@ -682,7 +680,10 @@ async fn capture_stdout(exe: &Path, args: &[&str], budget_secs: u64) -> Result<S
         return Err(format!(
             "exit {}: {}",
             out.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("")
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .next()
+                .unwrap_or("")
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
@@ -747,7 +748,7 @@ pub fn parse_omp_models(text: &str) -> Result<Vec<ModelInfo>, String> {
                 id: selector.to_string(),
                 name: m
                     .get("name")
-.and_then(|n| n.as_str())
+                    .and_then(|n| n.as_str())
                     .unwrap_or(selector)
                     .to_string(),
                 provider: m
@@ -764,7 +765,9 @@ pub fn parse_omp_models(text: &str) -> Result<Vec<ModelInfo>, String> {
 /// List the activated agent's selectable models (lazy — picker-only).
 pub async fn list_models(agent: &str, exe: &Path) -> Result<Vec<ModelInfo>, String> {
     match agent {
-        "oxios" => Ok(parse_oxios_models(&capture_stdout(exe, &["models"], 30).await?)),
+        "oxios" => Ok(parse_oxios_models(
+            &capture_stdout(exe, &["models"], 30).await?,
+        )),
         "omp" => parse_omp_models(&capture_stdout(exe, &["models", "--json"], 30).await?),
         other => Err(format!("model listing is not implemented for {other}")),
     }
@@ -789,7 +792,9 @@ pub async fn oxios_set_default_model(exe: &Path, model: &str) -> Result<(), Stri
     if !valid_model_id(model) {
         return Err("invalid model id".to_string());
     }
-    capture_stdout(exe, &["config", "set", "engine.default_model", model], 15).await.map(|_| ())
+    capture_stdout(exe, &["config", "set", "engine.default_model", model], 15)
+        .await
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -897,7 +902,8 @@ pid_file = "/x"
         assert_eq!(d.provider, None);
 
         // An empty router table does not degrade.
-        let d2 = disclosure_from_config("oxios", "[engine]\ndefault_model = \"a/b\"\nrouter = []\n");
+        let d2 =
+            disclosure_from_config("oxios", "[engine]\ndefault_model = \"a/b\"\nrouter = []\n");
         assert_eq!(d2.model.as_deref(), Some("a/b"));
     }
 
@@ -951,10 +957,7 @@ pid_file = "/x"
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let pidfile = dir.join("grandchild.pid");
-        let script = format!(
-            "sleep 30 & echo $! > {}; wait",
-            pidfile.display()
-        );
+        let script = format!("sleep 30 & echo $! > {}; wait", pidfile.display());
         let args = vec!["-c".to_string(), script];
         let t0 = std::time::Instant::now();
         let out = run_agent_process(Path::new("/bin/sh"), &args, "", None, 1, |_| {})
@@ -977,7 +980,13 @@ pid_file = "/x"
         let mut gone = false;
         for _ in 0..100 {
             let rc = unsafe { libc::kill(pid, 0) };
-            if rc == -1 && *std::io::Error::last_os_error().raw_os_error().as_ref().unwrap_or(&0) == libc::ESRCH {
+            if rc == -1
+                && *std::io::Error::last_os_error()
+                    .raw_os_error()
+                    .as_ref()
+                    .unwrap_or(&0)
+                    == libc::ESRCH
+            {
                 gone = true;
                 break;
             }
@@ -1018,7 +1027,14 @@ pid_file = "/x"
         let b = oxios_args(None, "-dashed message");
         assert_eq!(
             b,
-            vec!["run", "--json", "--context-file", "-", "--", "-dashed message"]
+            vec![
+                "run",
+                "--json",
+                "--context-file",
+                "-",
+                "--",
+                "-dashed message"
+            ]
         );
     }
 
@@ -1092,7 +1108,16 @@ pid_file = "/x"
         let a = omp_args(Some("s1"), Some("zai/glm-5.2"), "do it");
         assert_eq!(
             a,
-            vec!["-p", "--mode=json", "--model", "zai/glm-5.2", "-r", "s1", "--", "do it"]
+            vec![
+                "-p",
+                "--mode=json",
+                "--model",
+                "zai/glm-5.2",
+                "-r",
+                "s1",
+                "--",
+                "do it"
+            ]
         );
         let b = omp_args(None, None, "-dashed");
         assert_eq!(b, vec!["-p", "--mode=json", "--", "-dashed"]);
@@ -1101,13 +1126,20 @@ pid_file = "/x"
     #[test]
     fn omp_jsonl_parse_extracts_turn_facts() {
         let stream = concat!(
-            r#"{"type":"session","version":3,"id":"01a02f5d","cwd":"/tmp"}"#, "\n",
-            r#"{"type":"thinking_level_changed","thinkingLevel":"high"}"#, "\n",
-            r#"{"type":"message_start","message":{"role":"user"}}"#, "\n",
-            r#"{"type":"message_start","message":{"role":"assistant","provider":"zai","model":"glm-5.2"}}"#, "\n",
-            r#"noise from a TUI"#, "\n",
-            r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"part one"}]}}"#, "\n",
-            r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"final answer"}]}}"#, "\n",
+            r#"{"type":"session","version":3,"id":"01a02f5d","cwd":"/tmp"}"#,
+            "\n",
+            r#"{"type":"thinking_level_changed","thinkingLevel":"high"}"#,
+            "\n",
+            r#"{"type":"message_start","message":{"role":"user"}}"#,
+            "\n",
+            r#"{"type":"message_start","message":{"role":"assistant","provider":"zai","model":"glm-5.2"}}"#,
+            "\n",
+            r#"noise from a TUI"#,
+            "\n",
+            r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"part one"}]}}"#,
+            "\n",
+            r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"final answer"}]}}"#,
+            "\n",
         );
         let t = parse_omp_jsonl(stream);
         assert_eq!(t.response, "final answer", "last assistant message wins");
@@ -1168,8 +1200,12 @@ pid_file = "/x"
             std::path::Path::new(&home).join(".local/bin"),
             std::path::Path::new(&home).join("bin"),
         ];
-        let Some(bin) = probe.iter().find(|d| d.is_dir()) else { return };
-        let Some(entry) = std::fs::read_dir(bin).unwrap().find_map(|e| e.ok()) else { return };
+        let Some(bin) = probe.iter().find(|d| d.is_dir()) else {
+            return;
+        };
+        let Some(entry) = std::fs::read_dir(bin).unwrap().find_map(|e| e.ok()) else {
+            return;
+        };
         let name = entry.file_name().to_string_lossy().to_string();
         let found = which_in(&name, Some(std::ffi::OsString::from("/usr/bin:/bin")));
         assert!(
@@ -1199,14 +1235,22 @@ pid_file = "/x"
                 selection: Some("selected fact: 424242".into()),
             }),
         );
-        let args = omp_args(None, None, "The stdin context names a selected fact. Reply with ONLY its numeric value.");
+        let args = omp_args(
+            None,
+            None,
+            "The stdin context names a selected fact. Reply with ONLY its numeric value.",
+        );
         let out = run_agent_process(&exe, &args, &ctx, None, 120, |_| {})
             .await
             .unwrap();
         assert!(!out.timed_out, "stderr: {}", out.stderr);
         assert_eq!(out.exit_code, Some(0), "stderr: {}", out.stderr);
         let turn = parse_omp_jsonl(&out.stdout);
-        assert!(turn.session_id.is_some(), "no session id in: {}", out.stdout);
+        assert!(
+            turn.session_id.is_some(),
+            "no session id in: {}",
+            out.stdout
+        );
         assert!(turn.model.is_some(), "no model disclosure");
         assert!(
             turn.response.contains("424242"),

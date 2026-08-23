@@ -143,7 +143,12 @@ pub fn run() {
             )?);
             let (git_tx, git_rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
             let vault = Arc::new(vault);
-            spawn_git_consumer(git.clone(), vault.clone(), vault.paths().vault.clone(), git_rx);
+            spawn_git_consumer(
+                git.clone(),
+                vault.clone(),
+                vault.paths().vault.clone(),
+                git_rx,
+            );
             app.manage(AppState::new(vault, git, git_tx));
             let wstate = app.state::<AppState>();
             spawn_watcher(&wstate, app.handle());
@@ -325,12 +330,7 @@ pub fn run() {
             // Quitting mid-turn must not leave the agent's process group
             // running with vault access: kill the whole stored group.
             tauri::RunEvent::ExitRequested { .. } => {
-                if let Some(pgid) = handle
-                    .state::<AppState>()
-                    .copilot_active
-                    .lock()
-                    .take()
-                {
+                if let Some(pgid) = handle.state::<AppState>().copilot_active.lock().take() {
                     crate::copilot::kill_turn(pgid);
                 }
             }
@@ -638,10 +638,7 @@ impl BrainEndpointConf {
     /// operator sets the ecosystem override.
     fn from_vault_config(c: &oximemo_core::config::VaultConfig) -> Self {
         let home = std::env::var("HOME").unwrap_or_default();
-        let space = oximemo_core::brain::resolve_space(
-            std::path::Path::new(&home),
-            &c.brain.space,
-        );
+        let space = oximemo_core::brain::resolve_space(std::path::Path::new(&home), &c.brain.space);
         Self {
             enabled: c.brain.enabled,
             socket: c.brain.socket.clone(),
@@ -673,10 +670,10 @@ async fn brain_connect(
 
 mod commands {
     use crate::metadata;
-    use std::sync::Arc;
-    use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
     use oximemo_core::Vault;
+    use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
     use oximemo_core::sync::ManifestRecord;
+    use std::sync::Arc;
     use tauri::Manager;
     use tauri::{AppHandle, Emitter, State};
     use time::format_description::well_known::Rfc3339;
@@ -1712,11 +1709,8 @@ mod commands {
                 cfg.agent
             ));
         }
-        crate::copilot::oxios_set_default_model(
-            std::path::Path::new(&cfg.executable),
-            &model,
-        )
-        .await?;
+        crate::copilot::oxios_set_default_model(std::path::Path::new(&cfg.executable), &model)
+            .await?;
         Ok(crate::copilot::disclosure(&cfg.agent))
     }
 
@@ -1741,9 +1735,7 @@ mod commands {
 
     /// Full-vault manifest walk; heavy (redb + per-file read/hash), so
     /// callers run it via `spawn_blocking` to keep the async runtime free.
-    fn manifest_snapshot(
-        vault: Arc<Vault>,
-    ) -> Result<Vec<(String, String, bool)>, String> {
+    fn manifest_snapshot(vault: Arc<Vault>) -> Result<Vec<(String, String, bool)>, String> {
         vault
             .export_manifest(None)
             .map(|recs| {
@@ -2023,13 +2015,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let vault_path = dir.path().join("vault");
         std::fs::create_dir_all(&vault_path).unwrap();
-        let vault = std::sync::Arc::new(
-            oximemo_core::Vault::open(Some(&vault_path)).unwrap(),
-        );
+        let vault = std::sync::Arc::new(oximemo_core::Vault::open(Some(&vault_path)).unwrap());
         vault.ensure_initialized().unwrap();
         // Default `[git].auto_commit = true`.
         let git = std::sync::Arc::new(
-            oxi_vault_git::GitLayer::new_for_vault(vault.paths().vault.clone(), true, false).unwrap(),
+            oxi_vault_git::GitLayer::new_for_vault(vault.paths().vault.clone(), true, false)
+                .unwrap(),
         );
         assert!(git.is_enabled(), "fresh vault repo must be enabled");
 
@@ -2051,10 +2042,9 @@ mod tests {
         std::fs::create_dir_all(note.parent().unwrap()).unwrap();
         std::fs::write(&note, "# hello\n").unwrap();
         tx.send(note.clone()).unwrap();
-        poll(
-            "create commit never landed",
-            &|| !git.log_for_file("notes/hello.md", 10).unwrap().is_empty(),
-        );
+        poll("create commit never landed", &|| {
+            !git.log_for_file("notes/hello.md", 10).unwrap().is_empty()
+        });
 
         // Toggle auto_commit OFF at runtime.
         vault
@@ -2096,10 +2086,9 @@ mod tests {
             .unwrap();
         std::fs::write(&note, "# hello v3\n").unwrap();
         tx.send(note.clone()).unwrap();
-        poll(
-            "second commit never landed after toggle ON",
-            &|| git.log_for_file("notes/hello.md", 10).unwrap().len() >= 2,
-        );
+        poll("second commit never landed after toggle ON", &|| {
+            git.log_for_file("notes/hello.md", 10).unwrap().len() >= 2
+        });
     }
 
     /// The git auto-commit consumer produces a removal commit when the
@@ -2111,12 +2100,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let vault_path = dir.path().join("vault");
         std::fs::create_dir_all(&vault_path).unwrap();
-        let vault = std::sync::Arc::new(
-            oximemo_core::Vault::open(Some(&vault_path)).unwrap(),
-        );
+        let vault = std::sync::Arc::new(oximemo_core::Vault::open(Some(&vault_path)).unwrap());
         vault.ensure_initialized().unwrap();
         let git = std::sync::Arc::new(
-            oxi_vault_git::GitLayer::new_for_vault(vault.paths().vault.clone(), true, false).unwrap(),
+            oxi_vault_git::GitLayer::new_for_vault(vault.paths().vault.clone(), true, false)
+                .unwrap(),
         );
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<std::path::PathBuf>();
@@ -2133,7 +2121,10 @@ mod tests {
             if !log.is_empty() {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "create commit never landed");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "create commit never landed"
+            );
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
 

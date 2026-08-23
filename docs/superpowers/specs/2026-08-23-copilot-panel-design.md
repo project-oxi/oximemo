@@ -1,7 +1,7 @@
 # 코파일럿 패널 — 터미널 에이전트 CLI 위임
 
 - 날짜: 2026-08-23
-- 상태: **구현 완료 (2026-08-23, 커밋 `ebc5193..dd86a5b` — SKILL.md v4 · [copilot] config · copilot 모듈·IPC · 패널·설정·동의 · 문서).** 검증: cargo test 259통과, 실제 `oxios run --json` 턴 실측(`response:"OK"`, exit 0), 브라우저 스모크(패널·설정·동의·provider 고지). 남은 후속: 릴리스 번들에서 cli/skill 리소스 실존 확인(AC-9는 dev 검증까지만), 어댑터 2호 이상.
+- 상태 갱신 (2026-08-24): **개정 시행 — omp(Oh My Pi) 어댑터 2호, 모델 전환, FAB/플로팅 윈도우 계층, 선택 컨텍스트.** §13의 "v1 어댑터 1개" 제한은 omp의 비대화형 계약 실측(`-p --mode=json`, stdin 컨텍스트, `-r` 재개, `--model`, JSONL의 턴별 provider/model 폭로)으로 해제됐다. §15의 헤더 버튼+사이드패널은 폐기되고 우하단 FAB(z-70) + 플로팅 윈도우(z-60, 노트 다이얼로그 z-50 위)로 대체 — 노트 열림 상태 사용성이 요구사항이 됐다. §7에 `active_memo.selection`(재들여쓰기 block scalar, 8,000자 상한) 추가. 탐지(§6)는 GUI 실행의 최소 PATH를 보강한다. `doc/DESIGN.md` §10.4 참조.
 - 선행 문서: `2026-08-18-brain-knowledge-integration-design.md`, `2026-08-23-collections-metadata-settings-design.md`
 - 외부 캐노니컬: `oxibrain/doc/ECOSYSTEM.md` v1.1 §3.1·C1·C5, `oxios/docs/rfc-050-vault-unification.md`
 - 트리거: "앱에 코파일럿을 내장하는 건 어떤가 — 생태계 전체로 봤을 때" 논의. 3차에 걸친 아키텍처 개정(oxios HTTP 종속 → oxios CLI 종속 → 범용 터미널 에이전트 위임)의 최종안.
