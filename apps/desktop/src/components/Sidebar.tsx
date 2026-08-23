@@ -6,7 +6,7 @@
  * the main area; the 볼트 row enters it at the root.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowUpDown, CalendarDays, Folder, GripVertical, Images, Layers, MoreHorizontal, PenLine, Star, Trash2 } from "lucide-react";
+import { Archive, ArrowUpDown, CalendarDays, Folder, GraduationCap, GripVertical, Images, Layers, MoreHorizontal, PenLine, Star, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag } from "../lib/api";
@@ -14,7 +14,7 @@ import { colorForFolder } from "../lib/color";
 import { dayLabel, todayLocalISO } from "../lib/dates";
 import { useFolderDrop, parentOf } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
-import { folderDisplayName, useFolderNames } from "../lib/folders";
+import { folderDisplayName, useFolderNames, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import { Calendar } from "./Calendar";
 import { TextCtxMenu } from "./TextCtxMenu";
@@ -253,6 +253,21 @@ export function Sidebar({
           onMoveFolderTree={onMoveFolderTree}
           icon={<CalendarDays size={14} />}
           label={folderDisplayName(dailyFolder, t, dailyFolder)}
+        />
+      )}
+      {/* The knowledge folder is a shipped system folder (migrate
+          guarantees it, macOS Desktop-style) — always present in
+          LOCATIONS like the daily row, unless the user pinned it
+          (a pin would render a duplicate row below). */}
+      {!pinPaths.includes(DEFAULT_KNOWLEDGE_FOLDER) && (
+        <LocationsRow
+          path={DEFAULT_KNOWLEDGE_FOLDER}
+          selected={view === "memos" && !favoritesOnly && folderFilter === DEFAULT_KNOWLEDGE_FOLDER}
+          onClick={() => openFolder(DEFAULT_KNOWLEDGE_FOLDER)}
+          onMoveNote={onMoveNote}
+          onMoveFolderTree={onMoveFolderTree}
+          icon={<GraduationCap size={14} />}
+          label={t.sysfolder_knowledge}
         />
       )}
       {pins.map((f) => (
