@@ -21,6 +21,9 @@ pub struct VaultConfig {
     pub brain: BrainConfig,
     /// Daily notes section (spec 2026-08-21 §1).
     pub daily: DailyConfig,
+    /// Metadata providers (book/movie search; spec 2026-08-23 §3). Keys
+    /// live here per-provider; empty = provider hidden from the search.
+    pub metadata: MetadataConfig,
     /// Forward-compatible schema marker. Unknown fields are ignored.
     pub schema_version: u32,
 }
@@ -35,6 +38,7 @@ impl Default for VaultConfig {
             index: IndexConfig::default(),
             brain: BrainConfig::default(),
             daily: DailyConfig::default(),
+            metadata: MetadataConfig::default(),
             schema_version: 3,
         }
     }
@@ -76,6 +80,38 @@ impl Default for DailyConfig {
         Self {
             enabled: true,
             folder: "daily".into(),
+        }
+    }
+}
+
+/// Metadata providers (spec 2026-08-23 §3.4). Empty keys hide the
+/// provider from search — no key = no entry in the results. Keys live
+/// in the local config.toml (not the keychain in v1 — keychain
+/// hardening is a follow-up).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetadataConfig {
+    pub enabled: bool,
+    /// ISO 3166-1 alpha-2 region code (e.g. "KR", "JP", "DE"). Empty =
+    /// auto-detect from `Intl.DateTimeFormat().resolvedOptions().locale`.
+    pub region: String,
+    pub google_books_key: String,
+    pub aladin_key: String,
+    pub tmdb_key: String,
+    pub omdb_key: String,
+    pub kmdb_key: String,
+}
+
+impl Default for MetadataConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            region: String::new(),
+            google_books_key: String::new(),
+            aladin_key: String::new(),
+            tmdb_key: String::new(),
+            omdb_key: String::new(),
+            kmdb_key: String::new(),
         }
     }
 }

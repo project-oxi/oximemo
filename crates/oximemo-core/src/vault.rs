@@ -1767,6 +1767,12 @@ impl Vault {
         self.replace_section(|c, v| c.daily = v, v)
     }
 
+
+    /// `[metadata]` — provider keys and region preference (spec 2026-
+    /// 08-23 §3.4). Mirrors `set_brain_config`'s section-setter pattern.
+    pub fn set_metadata_config(&self, v: crate::config::MetadataConfig) -> Result<()> {
+        self.replace_section(|c, v| c.metadata = v, v)
+    }
     /// `[general]` — trash retention and future behavior knobs.
     pub fn set_general_config(&self, v: crate::config::GeneralConfig) -> Result<()> {
         self.replace_section(|c, v| c.general = v, v)

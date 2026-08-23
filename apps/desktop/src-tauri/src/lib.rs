@@ -13,6 +13,8 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+mod metadata;
+use time::format_description::well_known::Rfc3339;
 
 pub struct AppState {
     pub vault: Arc<oximemo_core::Vault>,
@@ -205,7 +207,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::query_notes,
             commands::folder_schema,
-            commands::set_daily_config,
+            commands::set_metadata_config,
+            commands::search_book_metadata,
+            commands::search_movie_metadata,
             commands::install_collection,
             commands::list_memos,
             commands::get_memo,
@@ -503,9 +507,10 @@ async fn brain_connect(
 
 mod commands {
     use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
+    use crate::metadata;
     use oximemo_core::sync::ManifestRecord;
-    use tauri::{AppHandle, Emitter, State};
     use time::format_description::well_known::Rfc3339;
+    use tauri::{AppHandle, Emitter, State};
 
     use super::AppState;
 
@@ -1053,6 +1058,44 @@ mod commands {
     }
 
     #[tauri::command]
+    pub fn set_metadata_config(
+        state: State<'_, AppState>,
+        metadata: oximemo_core::config::MetadataConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_metadata_config(metadata)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn search_book_metadata(
+        state: State<'_, AppState>,
+        query: String,
+    ) -> Result<Vec<oximemo_core::metadata::MetaHit>, String> {
+        let cfg = {
+            let v = state.vault.clone();
+            tokio::task::spawn_blocking(move || v.with_config(|c| c.metadata.clone()))
+                .await
+                .map_err(|e| e.to_string())?
+        };
+        Ok(metadata::search_books(&cfg, &query).await)
+    }
+
+    #[tauri::command]
+    pub async fn search_movie_metadata(
+        state: State<'_, AppState>,
+        query: String,
+
+    ) -> Result<Vec<oximemo_core::metadata::MetaHit>, String> {
+        let cfg = {
+            let v = state.vault.clone();
+            tokio::task::spawn_blocking(move || v.with_config(|c| c.metadata.clone()))
+                .await
+                .map_err(|e| e.to_string())?
+        };
+        Ok(metadata::search_movies(&cfg, &query).await)
+    }
     pub fn set_daily_config(
         state: State<'_, AppState>,
         daily: oximemo_core::config::DailyConfig,
