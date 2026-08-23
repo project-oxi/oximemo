@@ -1,7 +1,7 @@
 # 코파일럿 패널 — 터미널 에이전트 CLI 위임
 
 - 날짜: 2026-08-23
-- 상태: 설계 확정, 구현 전
+- 상태: **구현 완료 (2026-08-23, 커밋 `ebc5193..dd86a5b` — SKILL.md v4 · [copilot] config · copilot 모듈·IPC · 패널·설정·동의 · 문서).** 검증: cargo test 259통과, 실제 `oxios run --json` 턴 실측(`response:"OK"`, exit 0), 브라우저 스모크(패널·설정·동의·provider 고지). 남은 후속: 릴리스 번들에서 cli/skill 리소스 실존 확인(AC-9는 dev 검증까지만), 어댑터 2호 이상.
 - 선행 문서: `2026-08-18-brain-knowledge-integration-design.md`, `2026-08-23-collections-metadata-settings-design.md`
 - 외부 캐노니컬: `oxibrain/doc/ECOSYSTEM.md` v1.1 §3.1·C1·C5, `oxios/docs/rfc-050-vault-unification.md`
 - 트리거: "앱에 코파일럿을 내장하는 건 어떤가 — 생태계 전체로 봤을 때" 논의. 3차에 걸친 아키텍처 개정(oxios HTTP 종속 → oxios CLI 종속 → 범용 터미널 에이전트 위임)의 최종안.

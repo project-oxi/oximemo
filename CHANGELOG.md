@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Copilot panel — terminal-agent CLI delegation (spec
+  2026-08-23)** — an optional side panel (`⌘⇧C` / header button) that
+  delegates vault work (write a note, tidy up, suggest tags) to a
+  terminal-agent CLI the user explicitly activates in Settings → 연동 →
+  코파일럿 (v1 adapter: `oxios run --json --session`, verified live).
+  oximemo contains no model, no prompt, no embedding: each turn spawns
+  one subprocess with a **declarative context block** (`vault_root`,
+  bundled `cli`, bundled `SKILL.md` via new `bundle.resources`,
+  `active_memo`) plus the user's raw request. Approvals/sandboxing stay
+  with the agent — oximemo never attaches permission-bypass flags.
+  Turn lifecycle: configurable timeout, user cancel, **process-group
+  tree kill** (no orphaned grandchildren), stderr + exit-code exposure.
+  Vault changes observed during a turn (manifest diff before/after)
+  surface as "이 턴 동안 변경된 노트" links — observation, never claimed
+  causality. Provider disclosure (`~/.oxios/config.toml` engine model)
+  rides a one-time consent dialog at activation and the panel header.
+  Agent detection (PATH probe of oxios/oxicode/claude/codex/omp) runs
+  only from the settings pane or first panel open — never on the app
+  startup or capture paths. No agent activated → every entry point
+  hides (C1-style degrade). Core gains a `[copilot]` config section
+  (`enabled`/`agent`/`executable`/`timeout_secs`); browser-fallback
+  mirrors the activated state for UI smoke.
+- **SKILL.md v4 rewrite** — the agent contract now matches RFC-050
+  reality: `~/.oxi/vault` default path, `---` YAML-subset frontmatter
+  (was `+++` TOML), core keys `id/created/updated/favorite/deleted`,
+  unknown-key + `oxios:` app-table preservation, the
+  native-reason → CLI-commit role split (`update --body-stdin`),
+  current CLI surface (`new --folder/--html`, `list --where/--sort`,
+  `update --set/--unset`), and the walk-time-derived hash. The stale
+  v3 doc was the top blocker: an agent following it would write v3
+  frontmatter into a v4 vault (hard parse error or BodyOnly).
 
 - **Collection uninstall/install reactivity (busy guard + 4s arm)** —
   the collections pane switch used to leave the row stuck and the next
