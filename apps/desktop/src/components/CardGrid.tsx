@@ -57,8 +57,9 @@ import { useI18n } from "../lib/i18n";
 import { applyTheme, type Theme } from "../lib/theme";
 import { listen } from "../lib/tauri";
 import { todayLocalISO } from "../lib/dates";
-import { useFolderNames, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
+import { useFolderNames, useSchemaInfo, schemaDisplayName } from "../lib/folders";
 import { propKeyLabel, propValueLabel, badgeTone } from "../lib/propDisplay";
+import { PropSelect } from "./PropSelect";
 import { useUI, loadQueryView } from "../stores/ui";
 import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
 
@@ -208,14 +209,21 @@ export function CardGrid() {
   });
   const schema = folderFilter !== null ? schemaQ.data ?? null : null;
   // First-party vocabulary: the default knowledge folder's display name
-  // follows the locale; custom schema folders use their declared
-  // workspace name (the author's language).
   const schemaName = schema
-    ? folderFilter === DEFAULT_KNOWLEDGE_FOLDER
-      ? t.sysfolder_knowledge
-      : (schema.workspace?.name || (folderFilter ?? "").split("/").at(-1) || "")
+    ? schemaDisplayName(folderFilter ?? "", schema, t)
     : "";
   const schemaAddLabel = schema ? t.schema_add.replace("{name}", schemaName) : "";
+  // Schemas across ALL folders (tiles + drop guards) — one cached query
+  // per path, same key the palette uses.
+  const schemaInfo = useSchemaInfo(folderEntries.map((f) => f.path));
+  const isSchemaFolder = (p: string) => p !== "" && schemaInfo[p] != null;
+  const folderAddLabels = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const [p, s] of Object.entries(schemaInfo)) {
+      if (s) out[p] = t.schema_add.replace("{name}", schemaDisplayName(p, s, t));
+    }
+    return out;
+  }, [schemaInfo, t]);
   const badgeDefs = useMemo(() => {
     if (!schema?.properties) return [];
     return Object.entries(schema.properties)
@@ -702,6 +710,13 @@ export function CardGrid() {
   // cycles/parent no-ops authoritatively; errors surface via the toast.
   const moveFolderTree = useCallback(
     (path: string, dest: string) => {
+      // Schema folders classify by properties (domain etc.) — a folder
+      // hierarchy inside one contradicts the model, so the drop is a
+      // explained no-op rather than a silent acceptance.
+      if (isSchemaFolder(dest)) {
+        setToast(t.schema_no_subfolders);
+        return;
+      }
       void moveFolder(path, dest)
         .then(() => {
           qc.invalidateQueries({ queryKey: ["folderChildren"] });
@@ -1035,6 +1050,13 @@ export function CardGrid() {
       setFolderFilter("");
       return;
     }
+    // Schema folders classify by properties — folder creation is not an
+    // offered action there; consume the request without creating.
+    if (isSchemaFolder(folderFilter)) {
+      consumeFolderCreate();
+      setToast(t.schema_no_subfolders);
+      return;
+    }
     consumeFolderCreate();
     startFolderCreate();
   }, [requestNewFolder, folderFilter, setView, setFavoritesOnly, setFolderFilter, consumeFolderCreate, startFolderCreate]);
@@ -1221,7 +1243,7 @@ export function CardGrid() {
               context menu stays as the secondary path. Hidden in query
               mode (same rule as the empty-area menu) so "new folder"
               never lands in an ambiguous location. */}
-          {folderFilter !== null && (
+          {folderFilter !== null && !schema && (
             <button
               type="button"
               onClick={startFolderCreate}
@@ -1321,49 +1343,49 @@ export function CardGrid() {
             {propChips
               .filter((p) => !badgeKeys.includes(p.key))
               .map((p) => (
-                <label
+                <PropSelect
                   key={p.key}
-                  className="inline-flex items-center gap-1 text-[11px] text-text-subtle"
-                >
-                  <span className="font-medium">{propKeyLabel(p.key, t)}</span>
-                  <select
-                    value={propFilter[p.key] ?? ""}
-                    onChange={(e) =>
-                      setPropFilter((m) => {
-                        const next = { ...m };
-                        if (e.target.value) next[p.key] = e.target.value;
-                        else delete next[p.key];
-                        return next;
-                      })
-                    }
-                    className="rounded-[var(--tag-radius)] border border-line bg-surface px-1 py-0.5 text-[11px]"
-                  >
-                    <option value="">{t.prop_all}</option>
-                    {p.options.map((o) => (
-                      <option key={o} value={o}>
-                        {propValueLabel(p.key, o, t)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  label={propKeyLabel(p.key, t)}
+                  value={propFilter[p.key] ?? ""}
+                  options={[
+                    { value: "", label: t.prop_all },
+                    ...p.options.map((o) => ({
+                      value: o,
+                      label: propValueLabel(p.key, o, t),
+                    })),
+                  ]}
+                  onChange={(v) =>
+                    setPropFilter((m) => {
+                      const next = { ...m };
+                      if (v) next[p.key] = v;
+                      else delete next[p.key];
+                      return next;
+                    })
+                  }
+                />
               ))}
-            <select
-              value={propSort}
-              onChange={(e) => setPropSort(e.target.value)}
-              className="ml-auto rounded-[var(--tag-radius)] border border-line bg-surface px-1 py-0.5 text-[11px] text-text-subtle"
-              aria-label={t.badge_sort_oldest}
-            >
-              <option value="default">{t.badge_sort_newest}</option>
-              <option value="oldest">{t.badge_sort_oldest}</option>
-              {schema.review?.order_by && (
-                <option value={schema.review.order_by}>
-                  {t.badge_sort_prop.replace(
-                    "{key}",
-                    propKeyLabel(schema.review.order_by, t),
-                  )}
-                </option>
-              )}
-            </select>
+            <div className="ml-auto">
+              <PropSelect
+                label={t.sort_label}
+                value={propSort}
+                options={[
+                  { value: "default", label: t.badge_sort_newest },
+                  { value: "oldest", label: t.badge_sort_oldest },
+                  ...(schema.review?.order_by
+                    ? [
+                        {
+                          value: schema.review.order_by,
+                          label: t.badge_sort_prop.replace(
+                            "{key}",
+                            propKeyLabel(schema.review.order_by, t),
+                          ),
+                        },
+                      ]
+                    : []),
+                ]}
+                onChange={(v) => setPropSort(v || "default")}
+              />
+            </div>
             {schema.review && (
               <button
                 type="button"
@@ -1463,13 +1485,15 @@ export function CardGrid() {
                         <Plus size={15} strokeWidth={2.5} />{" "}
                         {schema ? schemaAddLabel : t.new_note_md}
                       </button>
-                      <button
-                        type="button"
-                        onClick={startFolderCreate}
-                        className="inline-flex items-center gap-2 rounded-[var(--button-radius)] border border-line bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted shadow-sm transition-colors duration-150 hover:border-line-strong hover:text-text"
-                      >
-                        {t.folder_new}
-                      </button>
+                      {!schema && (
+                        <button
+                          type="button"
+                          onClick={startFolderCreate}
+                          className="inline-flex items-center gap-2 rounded-[var(--button-radius)] border border-line bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted shadow-sm transition-colors duration-150 hover:border-line-strong hover:text-text"
+                        >
+                          {t.folder_new}
+                        </button>
+                      )}
                     </div>
                   </>
                 ) : favoritesOnly && !inSearch && includeTags.length === 0 && excludeTags.length === 0 ? (
@@ -1523,6 +1547,7 @@ export function CardGrid() {
                 onNameCommit={commitFolderName}
                 onDeleteFolder={onDeleteFolder}
                 onExpandFolders={expandFolders}
+                folderAddLabels={folderAddLabels}
               />
             ) : noteView === "list" ? (
               <ListView {...viewProps} />
@@ -1548,7 +1573,7 @@ export function CardGrid() {
                   onClick={() => onNewNote()}
                 />
                 {!schema && <CtxItem icon={CodeXml} label={t.new_note_html} onClick={onNewHtmlNote} />}
-                {folderFilter !== null && (
+                {folderFilter !== null && !schema && (
                   <>
                     <CtxSeparator />
                     <CtxItem icon={FolderPlus} label={t.folder_new} onClick={startFolderCreate} />

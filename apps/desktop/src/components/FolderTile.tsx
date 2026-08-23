@@ -142,6 +142,8 @@ interface Props {
   onMoveFolderTree?: (path: string, dest: string) => void;
   /** Naming session of the folder being edited (inline rename/create). */
   namingPath: NamingSession | null;
+  /** Naming for the empty-state add button; absent → "MD 노트". */
+  addNoteLabel?: string;
   /** null = cancelled (Esc) → caller handles teardown; string = confirm (rename if changed). */
   onNameCommit: (value: string | null) => void;
 }
@@ -160,11 +162,11 @@ export function FolderTile({
   onDelete,
   namingPath,
   onNameCommit,
+  addNoteLabel,
 }: Props) {
   const { t, locale } = useI18n();
   const color = colorForFolder(card.path, folders);
   const naming = namingPath?.path === card.path;
-  // M16: the tile is inert while the dragged note already lives here.
   // Folder drags: also a target — cycles/parent no-ops suppressed in the
   // hook; the handler moves the dragged folder INTO this tile's folder.
   const { dropCls, ...dropProps } = useFolderDrop(
@@ -273,7 +275,7 @@ export function FolderTile({
             }}
             className="rounded-[var(--tag-radius)] border border-line bg-surface-raised px-2.5 py-1 text-xs text-text-muted hover:border-line-strong hover:text-text"
           >
-            <Plus size={11} className="mr-1 inline" /> {t.new_note_md}
+            <Plus size={11} className="mr-1 inline" /> {addNoteLabel ?? t.new_note_md}
           </button>
         </div>
       )}

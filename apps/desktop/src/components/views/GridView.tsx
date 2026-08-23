@@ -48,6 +48,9 @@ interface Props {
   badges?: { key: string; colors: Record<string, string> }[];
   /** T15: expand the collapsed folder layer for this browse location. */
   onExpandFolders: () => void;
+  /** Per-folder add-button labels for schema (property-classified)
+   *  collections, e.g. knowledge → "지식 추가". */
+  folderAddLabels?: Record<string, string>;
 }
 
 const CARD_H = 176;
@@ -75,6 +78,7 @@ export function GridView({
   showFolderChip,
   badges,
   onExpandFolders,
+  folderAddLabels,
 }: Props) {
   const { t } = useI18n();
   const rowCount = Math.ceil(cells.length / cols);
@@ -111,8 +115,9 @@ export function GridView({
                     pinned={folders.find((f) => f.path === cell.card.path)?.pinned ?? false}
                     onOpen={onOpenFolder}
                     onOpenNote={onSelect}
-                    onNewNote={onNewNoteIn}
+                    addNoteLabel={folderAddLabels?.[cell.card.path]}
                     onRename={onRenameFolder}
+                    onNewNote={onNewNoteIn}
                     onTogglePin={onToggleFolderPin}
                     onMoveFolder={onMoveFolder}
                     onMoveFolderTree={onMoveFolderTree}

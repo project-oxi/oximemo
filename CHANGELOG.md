@@ -66,6 +66,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collection's name; the HTML note affordance is hidden there. The
   default folder's name follows the locale ("지식"/"Knowledge") rather
   than the preset file's baked string.
+
+  Refinements after dogfooding: **schema folders are flat** —
+  subfolder creation is withdrawn everywhere (header, empty state,
+  context menu, ⌘K folder-create, and folder drops land on an
+  explained toast: classification is the properties' job, the folder
+  hierarchy isn't a dimension). Folder tiles of schema collections
+  label their add button with the collection name ("지식 추가" instead
+  of "MD 노트"). The remaining filter/sort controls leave the native
+  `<select>` for a designed popover menu (checkmark list, compact
+  caption chip showing the active value, e.g. "분야 · TECH").
 - **Command palette (⌘K)** — a global intent surface: navigation
   (전체 메모 · 즐겨찾기 · 갤러리 · 볼트 루트 · 오늘의 노트 · every folder ·
   #tags), view switches (grid/list/timeline/graph, sidebar), and actions

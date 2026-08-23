@@ -6,10 +6,12 @@
  * (user prompt 2026-08-23). Only the leading path segment is mapped —
  * nested folders keep their physical names.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 
-import { getConfig } from "./api";
+import { folderSchema, getConfig } from "./api";
 import { useI18n } from "./i18n";
+import type { FolderSchema } from "./types";
+import { useMemo, useRef } from "react";
 
 /** Just the two keys this module reads — accepts either locale dict. */
 type FolderNames = { sysfolder_daily: string; sysfolder_knowledge: string };
@@ -63,4 +65,44 @@ export function useFolderNames() {
     displayName: (p: string | null | undefined) => folderDisplayName(p, t, dailyFolder),
     leafName: (p: string) => folderLeafName(p, t, dailyFolder),
   };
+}
+
+/** Locale-aware display name for a schema-declaring folder: the default
+ *  knowledge folder follows the UI language, custom schemas use their
+ *  declared workspace name. */
+export function schemaDisplayName(
+  path: string,
+  s: FolderSchema | null | undefined,
+  t: FolderNames,
+): string {
+  if (path === DEFAULT_KNOWLEDGE_FOLDER) return t.sysfolder_knowledge;
+  return s?.workspace?.name || path.split("/").at(-1) || path;
+}
+
+/** Schemas for a set of folder paths (one cached query each) — drives
+ *  folder-tile add labels and the no-subfolders rule in schema folders. */
+export function useSchemaInfo(paths: string[]): Record<string, FolderSchema | null> {
+  const key = paths.join("\n");
+  const list = key === "" ? [] : key.split("\n");
+  const qs = useQueries({
+    queries: list.map((p) => ({
+      queryKey: ["folder-schema", p],
+      queryFn: () => folderSchema(p),
+      staleTime: 30_000,
+    })),
+  });
+  const ready = qs.every((q) => !q.isPending);
+  const stamp = ready ? key : `${key}#pending`;
+  const cache = useRef<Record<string, FolderSchema | null>>({});
+  return useMemo(() => {
+    if (!ready) return cache.current;
+    const out: Record<string, FolderSchema | null> = {};
+    qs.forEach((q, i) => {
+      out[list[i]] = (q.data as FolderSchema | null) ?? null;
+    });
+    cache.current = out;
+    return out;
+    // `stamp` pins the memo until every query has settled for this path set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stamp]);
 }
