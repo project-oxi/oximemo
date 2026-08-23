@@ -879,6 +879,7 @@ async function browserFallback(
     case "set_capture_config":
     case "set_index_config":
     case "set_appearance_config":
+    case "set_metadata_config":
       return null;
 
     case "brain_list_spaces":

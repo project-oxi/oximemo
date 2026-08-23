@@ -149,14 +149,14 @@ export function MetadataSection() {
             className="w-full rounded-md bg-surface-sunken px-2.5 py-1.5 text-xs text-text outline-none focus:ring-1 focus:ring-line"
           >
             <option value="">{t.metadata_region_auto}</option>
-            <option value="KR">대한민국</option>
-            <option value="JP">日本</option>
-            <option value="DE">Deutschland</option>
-            <option value="US">Other</option>
+            <option value="KR">{t.metadata_region_kr}</option>
+            <option value="JP">{t.metadata_region_jp}</option>
+            <option value="DE">{t.metadata_region_de}</option>
+            <option value="US">{t.metadata_region_other}</option>
           </select>
         </div>
         <ProviderGroup
-          label="책"
+          label={t.metadata_domain_book}
           providers={grouped("book")}
           draft={draft}
           update={update}
@@ -164,7 +164,7 @@ export function MetadataSection() {
           t={t}
         />
         <ProviderGroup
-          label="영화"
+          label={t.metadata_domain_movie}
           providers={grouped("movie")}
           draft={draft}
           update={update}
@@ -211,7 +211,9 @@ function ProviderGroup({
           return (
             <div key={p.id} className="flex items-center gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="truncate text-xs font-medium text-text">{p.name}</span>
+                <span className="truncate text-xs font-medium text-text">
+                  {p.id === "aladin" ? t.metadata_provider_aladin : p.name}
+                </span>
                 {isRecommended(p) && (
                   <span className="rounded-full bg-interactive-primary-subtle px-1.5 py-0.5 text-[10px] text-interactive-primary">
                     {t.metadata_provider_recommended}

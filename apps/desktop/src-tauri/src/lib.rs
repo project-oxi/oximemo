@@ -13,8 +13,10 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+// TODO(metadata): fetch_* adapters are stubs (spec §3.5 follow-up) — the
+// map_* fns and DTOs below are test-pinned only until HTTP lands.
+#[allow(dead_code)]
 mod metadata;
-use time::format_description::well_known::Rfc3339;
 
 pub struct AppState {
     pub vault: Arc<oximemo_core::Vault>,
@@ -247,6 +249,7 @@ pub fn run() {
             commands::set_capture_config,
             commands::set_index_config,
             commands::set_appearance_config,
+            commands::set_daily_config,
             commands::set_menu_locale,
             commands::get_backlinks,
             commands::save_image_bytes,
@@ -1096,6 +1099,7 @@ mod commands {
         };
         Ok(metadata::search_movies(&cfg, &query).await)
     }
+    #[tauri::command]
     pub fn set_daily_config(
         state: State<'_, AppState>,
         daily: oximemo_core::config::DailyConfig,

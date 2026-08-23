@@ -187,6 +187,7 @@ pub fn count_notes(paths: &Paths, folder: &str) -> u32 {
 }
 
 /// Strip `+++...+++` frontmatter from template text, keeping only the body.
+#[cfg(test)]
 fn strip_frontmatter(text: &str) -> String {
     let first_line = text.lines().next().unwrap_or("").trim_end_matches('\r');
     if first_line != "+++" {

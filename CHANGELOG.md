@@ -204,9 +204,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`kr` → aladin/google/open, `jp` → ndl/google/open, `de` →
   dnb/google/open, otherwise google/open; movie ko → tmdb/kmdb/omdb,
   otherwise tmdb/omdb). Ratings never map. `src-tauri/metadata.rs`
-  hosts the HTTP adapters and IPC; the search command runs only
-  providers whose key is set (or keyless), in region order. The
-  browser fallback has the same registry as pure data.
+  hosts the adapters and IPC; the search command runs only providers
+  whose key is set (or keyless), in region order. **The HTTP layer
+  ships as stubs** — URL builders and the fixture-tested field
+  mappings are pinned, but `fetch_*` returns empty until the follow-up
+  wires reqwest, so v1 searches always come back empty. The browser
+  fallback has the same registry as pure data.
 
 - **Metadata settings pane** — Integrations → Metadata: enabled toggle,
   region select (auto-detect default + KR/JP/DE/Other), and the eight
