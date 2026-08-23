@@ -15,9 +15,10 @@
 import { Popover } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
+import { Check, ChevronDown, Pencil, Plus, X } from "lucide-react";
 import { folderSchema, updateMemo } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { todayLocalISO } from "../lib/dates";
 import { propKeyLabel, propValueLabel } from "../lib/propDisplay";
 import type {
   FolderSchema,
@@ -28,7 +29,6 @@ import type {
   SchemaPropertyDef,
 } from "../lib/types";
 
-/** Unwrap a PropValue envelope into display strings. */
 function members(v: PropValue | undefined): string[] {
   if (!v) return [];
   if ("List" in v) return v.List;
@@ -36,9 +36,20 @@ function members(v: PropValue | undefined): string[] {
   if ("Bool" in v) return [String(v.Bool)];
   return [];
 }
-
 function toValue(items: string[]): PropValue {
   return items.length === 1 ? { Str: items[0] } : { List: items };
+}
+
+/** Editor type for a schema-less (custom) key, inferred from the stored
+ *  envelope: Bool → toggle, List → chips, ISO-date Str → date input.
+ *  Keeps the type the user picked at creation time stable across
+ *  reloads without inventing a sidecar store. */
+function inferredType(v: PropValue | undefined): "text" | "multiselect" | "date" | "bool" {
+  if (!v) return "text";
+  if ("Bool" in v) return "bool";
+  if ("List" in v) return "multiselect";
+  if ("Str" in v && /^\d{4}-\d{2}-\d{2}$/.test(v.Str)) return "date";
+  return "text";
 }
 
 /** Client-side warning-level validation (§6.2 — never blocks a save). */
@@ -63,6 +74,9 @@ function violationsOf(
   }
   return out;
 }
+
+/** Add-property type choice; "schema" = use the declared def's type. */
+type PropTypeChoice = "text" | "list" | "date" | "bool" | "schema";
 
 // --- Typed value editors ----------------------------------------------------
 
@@ -285,20 +299,33 @@ function ChipsEditor({
 function PropertyRow({
   propKey,
   def,
-  values,
+  stored,
   violation,
   onCommit,
+  onBool,
+  onRename,
 }: {
   propKey: string;
   def: SchemaPropertyDef | undefined;
-  values: string[];
+  stored: PropValue | undefined;
   violation?: string;
   onCommit: (next: string[] | null) => void;
+  /** Bool-typed commits (toggle) — distinct envelope from string lists. */
+  onBool?: (b: boolean) => void;
+  /** Custom (schema-less) keys rename in place; schema keys are fixed. */
+  onRename?: (nextKey: string) => void;
 }) {
   const { t } = useI18n();
-  const type = def?.prop_type ?? "text";
+  const type = def?.prop_type ?? inferredType(stored);
   const options = def?.options ?? [];
   const label = propKeyLabel(propKey, t);
+  const values = members(stored);
+  const [naming, setNaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(propKey);
+  const onCommitBool = (b: boolean) => {
+    // Bool commits bypass the string[] contract via a dedicated setter.
+    onBool?.(b);
+  };
 
   const valueEditor = () => {
     if (type === "select") {
@@ -311,7 +338,7 @@ function PropertyRow({
         />
       );
     }
-    if (type === "multiselect" || (type !== "date" && values.length > 1)) {
+    if (type === "multiselect") {
       return (
         <ChipsEditor propKey={propKey} values={values} options={options} onChange={onCommit} />
       );
@@ -324,6 +351,24 @@ function PropertyRow({
           onChange={(e) => onCommit(e.target.value ? [e.target.value] : null)}
           className="bg-transparent px-1 py-0 text-[12px] text-text outline-none"
         />
+      );
+    }
+    if (type === "bool") {
+      return (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={stored && "Bool" in stored ? stored.Bool : false}
+          onClick={() => onCommitBool(!(stored && "Bool" in stored ? stored.Bool : false))}
+          className="relative inline-flex h-4 w-7 items-center rounded-full bg-surface-muted transition-colors duration-150 aria-checked:bg-hue-blue/70"
+        >
+          <span
+            aria-hidden
+            className={`inline-block size-3 rounded-full bg-surface-raised shadow-sm transition-transform duration-150 ${
+              stored && "Bool" in stored && stored.Bool ? "translate-x-3.5" : "translate-x-0.5"
+            }`}
+          />
+        </button>
       );
     }
     return (
@@ -342,9 +387,49 @@ function PropertyRow({
 
   return (
     <div className="group grid grid-cols-[7rem_minmax(0,1fr)_1.25rem] items-start gap-1 rounded-md px-1 py-0.5 transition-colors duration-150 hover:bg-surface-muted/60">
-      <span className="truncate py-0.5 text-[12px] text-text-subtle" title={propKey}>
-        {label}
-      </span>
+      {naming ? (
+        <input
+          autoFocus
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={() => {
+            const v = nameDraft.trim();
+            setNaming(false);
+            if (v && v !== propKey) onRename?.(v);
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") e.currentTarget.blur();
+            else if (e.key === "Escape") {
+              setNameDraft(propKey);
+              setNaming(false);
+            }
+          }}
+          className="w-full bg-transparent px-0.5 py-0 text-[12px] font-medium text-text outline-none"
+        />
+      ) : onRename ? (
+        <button
+          type="button"
+          title={t.prop_rename_hint}
+          onClick={() => {
+            setNameDraft(propKey);
+            setNaming(true);
+          }}
+          className="group/name flex min-w-0 items-center gap-0.5 truncate py-0.5 text-left text-[12px] text-text-subtle transition-colors duration-150 hover:text-text"
+        >
+          <span className="truncate">{label}</span>
+          <Pencil
+            size={9}
+            aria-hidden
+            className="shrink-0 opacity-0 transition-opacity duration-150 group-hover/name:opacity-100"
+          />
+        </button>
+      ) : (
+        <span className="truncate py-0.5 text-[12px] text-text-subtle" title={propKey}>
+          {label}
+        </span>
+      )}
       <div className="flex min-w-0 flex-col gap-0.5">
         {valueEditor()}
         {violation && (
@@ -389,29 +474,38 @@ function PropertyRow({
 function AddPropertyRow({
   defs,
   usedKeys,
-  onPick,
+  onAdd,
 }: {
   defs: Record<string, SchemaPropertyDef> | null;
   usedKeys: string[];
-  onPick: (key: string) => void;
+  /** Add `key` with the schema's type (declared keys) or the picked
+   *  type (custom keys) — Obsidian's name → type → value flow. */
+  onAdd: (key: string, type: PropTypeChoice) => void;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const unused = useMemo(() => {
-    const declared = defs ? Object.keys(defs) : [];
-    const pool = declared.filter((k) => !usedKeys.includes(k));
-    const query = q.trim().toLowerCase();
-    return query ? pool.filter((k) => k.toLowerCase().includes(query) || propKeyLabel(k, t).toLowerCase().includes(query)) : pool;
-  }, [defs, usedKeys, q, t]);
-  const custom = q.trim() && !usedKeys.includes(q.trim()) && !(defs && q.trim() in defs);
+  const [name, setName] = useState("");
+  const [type, setType] = useState<PropTypeChoice>("text");
+  const nameTaken = !name.trim() || usedKeys.includes(name.trim()) || (defs ? name.trim() in defs : false);
+
+  const TYPES: { value: PropTypeChoice; label: string }[] = [
+    { value: "text", label: t.prop_type_text },
+    { value: "list", label: t.prop_type_list },
+    { value: "date", label: t.prop_type_date },
+    { value: "bool", label: t.prop_type_bool },
+  ];
+
+  const reset = () => {
+    setName("");
+    setType("text");
+  };
 
   return (
     <Popover.Root
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
-        if (!o) setQ("");
+        if (!o) reset();
       }}
     >
       <Popover.Trigger
@@ -427,53 +521,51 @@ function AddPropertyRow({
       />
       <Popover.Portal>
         <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-[70]">
-          <Popover.Popup className="min-w-52 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
-            <div className="flex items-center gap-1.5 px-1 pb-1">
-              <Search size={11} aria-hidden className="text-text-subtle" />
-              <input
-                autoFocus
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder={t.prop_search_keys}
-                className="w-full bg-transparent py-0.5 text-[12px] text-text outline-none placeholder:text-text-subtle/70"
-              />
-            </div>
-            <ul role="listbox" className="max-h-56 overflow-y-auto">
-              {unused.map((k) => (
-                <li key={k}>
-                  <button
-                    type="button"
-                    role="option"
-                    onClick={() => {
-                      onPick(k);
-                      setOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text"
-                  >
-                    <span aria-hidden className="size-1 rounded-full bg-text-subtle/50" />
-                    {propKeyLabel(k, t)}
-                  </button>
-                </li>
+          <Popover.Popup className="w-64 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
+            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+              {t.prop_new_section}
+            </p>
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !nameTaken) {
+                  onAdd(name.trim(), type);
+                  setOpen(false);
+                }
+              }}
+              placeholder={t.prop_new_key}
+              className="w-full rounded-[var(--input-radius)] bg-surface-sunken px-2 py-1 text-[12px] text-text shadow-[var(--input-shadow)] outline-none placeholder:text-text-subtle/70 focus-visible:shadow-[var(--input-shadow-focus)]"
+            />
+            <div className="mt-1.5 flex items-center gap-1">
+              {TYPES.map((ty) => (
+                <button
+                  key={ty.value}
+                  type="button"
+                  aria-pressed={type === ty.value}
+                  onClick={() => setType(ty.value)}
+                  className={`rounded-full px-2 py-0.5 text-[11px] transition-colors duration-150 ${
+                    type === ty.value
+                      ? "bg-surface-muted font-semibold text-text"
+                      : "text-text-subtle hover:bg-surface-muted/60 hover:text-text"
+                  }`}
+                >
+                  {ty.label}
+                </button>
               ))}
-              {custom && (
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onPick(q.trim());
-                      setOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-interactive-primary transition-colors duration-150 hover:bg-surface-muted"
-                  >
-                    <Plus size={11} aria-hidden className="shrink-0" />
-                    {q.trim()}
-                  </button>
-                </li>
-              )}
-              {unused.length === 0 && !custom && (
-                <li className="px-2 py-1 text-[12px] text-text-subtle">{t.folder_empty}</li>
-              )}
-            </ul>
+            </div>
+            <button
+              type="button"
+              disabled={nameTaken}
+              onClick={() => {
+                onAdd(name.trim(), type);
+                setOpen(false);
+              }}
+              className="mt-2 w-full rounded-[var(--button-radius)] bg-interactive-primary px-2 py-1 text-[12px] font-medium text-interactive-primary-foreground transition-colors duration-150 hover:bg-interactive-primary/90 disabled:opacity-40"
+            >
+              {t.prop_add_confirm}
+            </button>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -535,7 +627,7 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
       key={key}
       propKey={key}
       def={defs?.[key]}
-      values={members(props[key])}
+      stored={props[key]}
       violation={violationOf(key)}
       onCommit={(next) =>
         commit(
@@ -543,6 +635,16 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
             ? { sets: [], removes: [key] }
             : { sets: [[key, toValue(next)]], removes: [] },
         )
+      }
+      onBool={(b) => void commit({ sets: [[key, { Bool: b }]], removes: [] })}
+      onRename={
+        defs && key in defs
+          ? undefined
+          : (nextKey) =>
+              void commit({
+                sets: [[nextKey, props[key] ?? { Str: "" }]],
+                removes: [key],
+              })
       }
     />
   ));
@@ -568,7 +670,17 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
           <AddPropertyRow
             defs={defs}
             usedKeys={keys}
-            onPick={(key) => void commit({ sets: [[key, { Str: "" }]], removes: [] })}
+            onAdd={(key, type) => {
+              const initial: PropValue =
+                type === "list"
+                  ? { List: [] }
+                  : type === "date"
+                    ? { Str: todayLocalISO() }
+                    : type === "bool"
+                      ? { Bool: false }
+                      : { Str: "" };
+              void commit({ sets: [[key, initial]], removes: [] });
+            }}
           />
         </>
       )}

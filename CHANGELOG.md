@@ -87,6 +87,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "+ 속성 추가" row opens a searchable key menu (unused schema keys +
   custom keys); the old two-input add form is gone. Header shows the
   property count.
+
+  Add-property follows **Obsidian's name → type → value flow** instead
+  of a search-picker: the popover presents a name field plus a type
+  segmented control (텍스트 · 목록 · 날짜 · 체크박스). The chosen type
+  sticks through the stored envelope — list keys save as `List`,
+  checkbox keys as `Bool` toggles (new editor), date keys stamp today
+  as an ISO `Str` so the date input re-opens on reload — no sidecar
+  type store. Custom keys rename in place (hover the name cell for the
+  pencil; schema-declared names stay fixed), and the value commits as
+  one atomic rename (set new + remove old).
 - **Command palette (⌘K)** — a global intent surface: navigation
   (전체 메모 · 즐겨찾기 · 갤러리 · 볼트 루트 · 오늘의 노트 · every folder ·
   #tags), view switches (grid/list/timeline/graph, sidebar), and actions
