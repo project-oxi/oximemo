@@ -26,6 +26,8 @@ pub struct FolderSchema {
     #[serde(default)]
     pub workspace: WorkspaceDef,
     #[serde(default)]
+    pub meta: SchemaMeta,
+    #[serde(default)]
     pub properties: BTreeMap<String, PropertyDef>,
     #[serde(default)]
     pub transitions: Vec<TransitionRule>,
@@ -42,7 +44,20 @@ pub struct WorkspaceDef {
     pub name: Option<String>,
 }
 
-/// Editor type of one property (§6.2: `text | select | multiselect | date`).
+/// `[meta]` — provenance marker. Preset-installed schemas carry
+/// `preset = "<id>"` so the UI can tell managed collections apart from
+/// user-authored custom schemas. Existing files predate this marker and
+/// are never rewritten; consumers fall back to path matching.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchemaMeta {
+    /// Preset id (`book`, `movie`, `knowledge`, …). `None` = custom.
+    #[serde(default)]
+    pub preset: Option<String>,
+}
+
+/// Editor type of one property (§6.2: `text | select | multiselect |
+/// date`, plus `bool` for checkbox-typed presets like movie `series`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PropType {
@@ -51,6 +66,7 @@ pub enum PropType {
     Select,
     Multiselect,
     Date,
+    Bool,
 }
 
 /// `[properties.<key>]`.
@@ -72,6 +88,11 @@ pub struct PropertyDef {
     /// entry fall back to a declaration-order palette.
     #[serde(default)]
     pub colors: BTreeMap<String, String>,
+    /// Metadata-provider field this property auto-fills from (e.g.
+    /// `metadata = "author"`). Declared by collection presets; the
+    /// stamp flow fills only mapped fields (ratings never map).
+    #[serde(default)]
+    pub metadata: Option<String>,
 }
 
 /// The default knowledge folder's vault-relative path — a system folder
@@ -132,7 +153,6 @@ pub struct TransitionRule {
     #[serde(default)]
     pub stamp_date: Option<String>,
 }
-
 /// `[review]` — declares the folder's review queue. The queue UI exists
 /// iff this block is present; nothing else (no folder-name or kind
 /// marker) may turn it on.
@@ -148,6 +168,23 @@ pub struct ReviewDef {
     pub order_by: Option<String>,
     /// The value the "막힘" action transitions to (e.g. decayed).
     pub decay_to: String,
+    /// Optional promote action (spec 2026-08-23 §2.3, ideas): moves the
+    /// note into another folder and stamps it — the queue then renders
+    /// "승격" instead of the default reassert pair.
+    #[serde(default)]
+    pub promote: Option<PromoteDef>,
+}
+
+/// `[review.promote]` — where a promoted note lands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PromoteDef {
+    /// Destination folder (vault-relative, e.g. `knowledge`).
+    pub into: String,
+    /// `kind` value stamped on arrival (e.g. `knowledge`).
+    pub kind: String,
+    /// Starting value for the destination folder's status ladder.
+    pub start_status: Option<String>,
 }
 
 // ---- Parsing ----------------------------------------------------------------
@@ -265,6 +302,14 @@ pub fn validate(schema: &FolderSchema, props: &Props) -> Vec<Violation> {
                             reason: format!("{m:?} is not a YYYY-MM-DD date"),
                         });
                     }
+                }
+            }
+            PropType::Bool => {
+                if !matches!(value, PropValue::Bool(_)) {
+                    out.push(Violation {
+                        key: key.clone(),
+                        reason: "bool property must be true/false".into(),
+                    });
                 }
             }
         }
@@ -390,12 +435,15 @@ pub const KNOWLEDGE_TEMPLATE_MD: &str = "---\nkind: knowledge\nstatus: stub\n---
 /// The knowledge preset's `SCHEMA.toml`: status lifecycle, domains
 /// (required 7 + optional 3 as a commented line), TECH subdomain codes,
 /// peak-preserving transitions, and the review queue.
-pub const KNOWLEDGE_SCHEMA_TOML: &str = r#"[workspace]
+pub const KNOWLEDGE_SCHEMA_TOML: &str = r#"[meta]
+preset = "knowledge"
+
+[workspace]
 name = "지식"
 
 [properties.kind]
 type = "select"
-options = ["note", "knowledge", "daily"]
+options = ["note", "knowledge", "daily", "book", "movie", "blog", "novel", "idea"]
 
 [properties.status]
 type = "select"
@@ -464,12 +512,15 @@ pub const DAILY_TEMPLATE_MD: &str = "---\nkind: daily\n---\n# {{date}}\n";
 /// mood (badge → calendar dot colors) and energy, both optional so
 /// pre-preset notes never warn. Applied to the *configured* daily
 /// folder (`[daily] folder`), not a hardcoded path.
-pub const DAILY_SCHEMA_TOML: &str = r#"[workspace]
+pub const DAILY_SCHEMA_TOML: &str = r#"[meta]
+preset = "daily"
+
+[workspace]
 name = "데일리"
 
 [properties.kind]
 type = "select"
-options = ["note", "knowledge", "daily"]
+options = ["note", "knowledge", "daily", "book", "movie", "blog", "novel", "idea"]
 
 [properties.mood]
 type = "select"
@@ -486,6 +537,186 @@ bad = "error"
 type = "select"
 options = ["high", "medium", "low"]
 "#;
+
+// ---- Installable collection presets (spec 2026-08-23 §2.2) -------------------
+//
+// Knowledge/daily ship with every vault (system folders); these five
+// install on demand (`install_collection`). Every SCHEMA carries the
+// `[meta] preset` marker so settings can tell managed collections
+// apart from user-authored custom schemas.
+
+/// Books: reading lifecycle + highlight review. `author` auto-fills
+/// from the metadata providers (`metadata = "author"`).
+pub const BOOK_TEMPLATE_MD: &str = "---\nkind: book\nstatus: reading\n---\n\n# \n";
+
+pub const BOOK_SCHEMA_TOML: &str = r#"[meta]
+preset = "book"
+
+[workspace]
+name = "책"
+
+[properties.kind]
+type = "select"
+options = ["note", "knowledge", "daily", "book", "movie", "blog", "novel", "idea"]
+
+[properties.status]
+type = "select"
+options = ["reading", "done", "paused", "abandoned"]
+badge = true
+[properties.status.colors]
+reading = "info"
+done = "success"
+paused = "neutral"
+abandoned = "muted"
+
+[properties.rating]
+type = "select"
+options = ["1", "2", "3", "4", "5"]
+
+[properties.author]
+type = "text"
+metadata = "author"
+
+[review]
+property = "status"
+due_values = ["done"]
+decay_to = "reading"
+"#;
+
+/// Movies/series: watched-date log. `series` is a real checkbox
+/// (`type = "bool"` → toggle editor, Bool envelope).
+pub const MOVIE_TEMPLATE_MD: &str = "---\nkind: movie\nwatched_at: {{date}}\n---\n\n# \n";
+
+pub const MOVIE_SCHEMA_TOML: &str = r#"[meta]
+preset = "movie"
+
+[workspace]
+name = "영화"
+
+[properties.kind]
+type = "select"
+options = ["note", "knowledge", "daily", "book", "movie", "blog", "novel", "idea"]
+
+[properties.watched_at]
+type = "date"
+
+[properties.rating]
+type = "select"
+options = ["1", "2", "3", "4", "5"]
+
+[properties.series]
+type = "bool"
+"#;
+
+/// Blog: a writing pipeline (초고 → 수정 → 예약 → 발행).
+pub const BLOG_TEMPLATE_MD: &str = "---\nkind: blog\nstatus: draft\n---\n\n# \n";
+
+pub const BLOG_SCHEMA_TOML: &str = r#"[meta]
+preset = "blog"
+
+[workspace]
+name = "블로그"
+
+[properties.kind]
+type = "select"
+options = ["note", "knowledge", "daily", "book", "movie", "blog", "novel", "idea"]
+
+[properties.status]
+type = "select"
+options = ["draft", "revising", "scheduled", "published"]
+badge = true
+[properties.status.colors]
+draft = "neutral"
+revising = "warning"
+scheduled = "info"
+published = "success"
+
+[properties.platform]
+type = "text"
+
+[properties.published_at]
+type = "date"
+"#;
+
+/// Novel (light): project folder, chapters as notes, chapter status.
+/// Long-form dedicated views stay out of scope (spec §7).
+pub const NOVEL_TEMPLATE_MD: &str = "---\nkind: novel\nstatus: outline\n---\n\n# \n";
+
+pub const NOVEL_SCHEMA_TOML: &str = r#"[meta]
+preset = "novel"
+
+[workspace]
+name = "소설"
+
+[properties.kind]
+type = "select"
+options = ["note", "knowledge", "daily", "book", "movie", "blog", "novel", "idea"]
+
+[properties.status]
+type = "select"
+options = ["outline", "draft", "rev1", "done"]
+badge = true
+[properties.status.colors]
+outline = "neutral"
+draft = "info"
+rev1 = "warning"
+done = "success"
+"#;
+
+/// Ideas: a fleeting-note inbox into the knowledge ladder (spec §2.3,
+/// Zettelkasten/GTD/evergreen research). Capture is frictionless; the
+/// review queue forces processing — 승격 moves to `knowledge`, 보관
+/// archives. Promotion is the folder move itself, so no "promoted"
+/// status exists here.
+pub const IDEA_TEMPLATE_MD: &str = "---\nkind: idea\nstatus: fleeting\n---\n\n# \n";
+
+pub const IDEA_SCHEMA_TOML: &str = r#"[meta]
+preset = "idea"
+
+[workspace]
+name = "아이디어"
+
+[properties.kind]
+type = "select"
+options = ["note", "knowledge", "daily", "book", "movie", "blog", "novel", "idea"]
+
+[properties.status]
+type = "select"
+options = ["fleeting", "archived"]
+badge = true
+[properties.status.colors]
+fleeting = "info"
+archived = "neutral"
+
+[properties.source]
+type = "text"
+
+[review]
+property = "status"
+due_values = ["fleeting"]
+decay_to = "archived"
+
+[review.promote]
+into = "knowledge"
+kind = "knowledge"
+start_status = "stub"
+"#;
+
+/// Preset id → (TEMPLATE.md, SCHEMA.toml) for every managed preset —
+/// the default-shipped pair included, so `install_collection` is the
+/// single entry point and the settings catalog has one source of ids.
+pub fn collection_preset(id: &str) -> Option<(&'static str, &'static str)> {
+    match id {
+        "knowledge" => Some((KNOWLEDGE_TEMPLATE_MD, KNOWLEDGE_SCHEMA_TOML)),
+        "daily" => Some((DAILY_TEMPLATE_MD, DAILY_SCHEMA_TOML)),
+        "book" => Some((BOOK_TEMPLATE_MD, BOOK_SCHEMA_TOML)),
+        "movie" => Some((MOVIE_TEMPLATE_MD, MOVIE_SCHEMA_TOML)),
+        "blog" => Some((BLOG_TEMPLATE_MD, BLOG_SCHEMA_TOML)),
+        "novel" => Some((NOVEL_TEMPLATE_MD, NOVEL_SCHEMA_TOML)),
+        "idea" => Some((IDEA_TEMPLATE_MD, IDEA_SCHEMA_TOML)),
+        _ => None,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -512,6 +743,45 @@ mod tests {
         let review = s.review.as_ref().unwrap();
         assert_eq!(review.property, "status");
         assert_eq!(review.decay_to, "decayed");
+    }
+
+    #[test]
+    fn collection_presets_parse_with_marker() {
+        for (id, (_, schema_toml)) in [
+            ("knowledge", (KNOWLEDGE_TEMPLATE_MD, KNOWLEDGE_SCHEMA_TOML)),
+            ("daily", (DAILY_TEMPLATE_MD, DAILY_SCHEMA_TOML)),
+            ("book", (BOOK_TEMPLATE_MD, BOOK_SCHEMA_TOML)),
+            ("movie", (MOVIE_TEMPLATE_MD, MOVIE_SCHEMA_TOML)),
+            ("blog", (BLOG_TEMPLATE_MD, BLOG_SCHEMA_TOML)),
+            ("novel", (NOVEL_TEMPLATE_MD, NOVEL_SCHEMA_TOML)),
+            ("idea", (IDEA_TEMPLATE_MD, IDEA_SCHEMA_TOML)),
+        ] {
+            let s = parse_schema(schema_toml)
+                .unwrap_or_else(|e| panic!("{id} preset must parse: {e}"));
+            assert_eq!(s.meta.preset.as_deref(), Some(id), "{id} carries the marker");
+            let kind = &s.properties["kind"];
+            assert!(kind.options.contains(&"note".to_string()));
+            assert!(kind.options.contains(&id.to_string()));
+            assert_eq!(collection_preset(id).map(|(_, sc)| sc), Some(schema_toml));
+        }
+        assert!(collection_preset("nope").is_none());
+    }
+
+    #[test]
+    fn idea_preset_declares_promote_and_metadata_maps() {
+        let s = parse_schema(IDEA_SCHEMA_TOML).unwrap();
+        let review = s.review.as_ref().unwrap();
+        let promote = review.promote.as_ref().expect("ideas declare promote");
+        assert_eq!(promote.into, "knowledge");
+        assert_eq!(promote.kind, "knowledge");
+        assert_eq!(promote.start_status.as_deref(), Some("stub"));
+
+        let book = parse_schema(BOOK_SCHEMA_TOML).unwrap();
+        assert_eq!(book.properties["author"].metadata.as_deref(), Some("author"));
+        assert!(book.properties["rating"].metadata.is_none(), "ratings never map");
+
+        let movie = parse_schema(MOVIE_SCHEMA_TOML).unwrap();
+        assert_eq!(movie.properties["series"].prop_type, PropType::Bool);
     }
 
     #[test]

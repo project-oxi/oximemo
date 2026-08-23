@@ -207,6 +207,18 @@ impl Vault {
         )
     }
 
+    /// Install a collection preset (spec 2026-08-23 §2) by id into
+    /// `folder`: creates the folder and applies TEMPLATE.md/SCHEMA.toml
+    /// with skip-if-exists semantics. Unlike the default folders,
+    /// installed collections are user-owned — deleting them is
+    /// permanent (no recreate-on-migrate).
+    pub fn install_collection(&self, preset_id: &str, folder: &str) -> Result<()> {
+        let (template, schema) = crate::schema::collection_preset(preset_id).ok_or_else(
+            || CoreError::other(format!("unknown collection preset: {preset_id}")),
+        )?;
+        self.apply_preset(folder, template, schema)
+    }
+
     /// Install a folder preset: `TEMPLATE.md` (initial properties) and
     /// `SCHEMA.toml` (rules). Plain files the user may edit or delete
     /// freely; existing files are never overwritten (system-folder
@@ -4228,6 +4240,38 @@ watcher_retry_interval_ms = 200
             out.props.get("peak_status"),
             Some(&crate::props::PropValue::Str("understood".into()))
         );
+    }
+
+    /// `install_collection` (spec 2026-08-23 §2): ships TEMPLATE/SCHEMA
+    /// with the `[meta] preset` marker, never overwrites existing
+    /// files, and rejects unknown preset ids.
+    #[test]
+    fn install_collection_ships_and_preserves() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+
+        v.install_collection("book", "책").unwrap();
+        let root = v.paths().vault.join("책");
+        let tmpl = std::fs::read_to_string(root.join("TEMPLATE.md")).unwrap();
+        assert!(tmpl.starts_with("---\nkind: book\nstatus: reading\n"));
+        let schema = v.folder_schema("책").unwrap().unwrap();
+        assert_eq!(schema.meta.preset.as_deref(), Some("book"));
+        assert!(schema.properties.contains_key("author"));
+
+        // skip-if-exists: a user-edited schema survives reinstall.
+        std::fs::write(root.join("SCHEMA.toml"), "[workspace]\nname = \"내 책\"\n").unwrap();
+        v.install_collection("book", "책").unwrap();
+        assert!(std::fs::read_to_string(root.join("SCHEMA.toml"))
+            .unwrap()
+            .contains("내 책"));
+
+        // Deleting an installed collection is permanent: migrate does
+        // not resurrect it (unlike knowledge/daily system folders).
+        v.delete_folder("책").unwrap();
+        v.migrate().unwrap();
+        assert!(!v.paths().vault.join("책/SCHEMA.toml").exists());
+
+        assert!(v.install_collection("nope", "x").is_err());
     }
     #[test]
     fn aliases_and_prop_links_resolve_in_graph_and_backlinks() {
