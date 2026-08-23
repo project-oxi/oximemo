@@ -63,6 +63,7 @@ import {
   setIndexConfig,
   setGeneralConfig,
   setDailyConfig,
+  setGitConfig,
   vaultPath,
 } from "../lib/api";
 
@@ -1362,6 +1363,24 @@ export function SettingsMenu() {
                     <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text-muted">
                       <span>{t.memo_count.replace("{n}", String(stats.data?.memos ?? 0))}</span>
                       <span>{t.favorites_count.replace("{n}", String(stats.data?.favorites ?? 0))}</span>
+                    </div>
+                    <div>
+                      <ToggleRow
+                        label={t.git_autocommit}
+                        checked={config.data?.git?.auto_commit ?? true}
+                        onChange={(v) =>
+                          setGitConfig({
+                            auto_commit: v,
+                            adopt_foreign_repo:
+                              config.data?.git?.adopt_foreign_repo ?? false,
+                          })
+                            .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+                            .catch((e) => setError(String(e).split("\n")[0]))
+                        }
+                      />
+                      <p className="mt-1 px-3 text-[11px] leading-relaxed text-text-subtle">
+                        {t.git_autocommit_hint}
+                      </p>
                     </div>
                     <div className="flex gap-2 pt-0.5">
                       <button

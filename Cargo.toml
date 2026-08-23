@@ -50,6 +50,7 @@ objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSApplication", "NSWi
 # Errors
 objc2-foundation = { version = "0.3", features = ["NSString", "NSProcessInfo", "NSThread", "NSRunLoop"] }
 thiserror = "2"
+oxi-vault-git = "0.1"
 anyhow = "1"
 
 # Internal crates

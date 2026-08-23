@@ -4039,6 +4039,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxi-vault-git"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d274b3b2632287c5f46652e71f20388a6ac8c968fe4909657c01641d3c2d51cd"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "gix",
+ "parking_lot",
+ "serde",
+ "similar",
+ "tempfile",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "oxibrain-client"
 version = "0.6.0"
 source = "git+https://github.com/a7garden/oxibrain?tag=v0.6.0#18950374e2195c54e9e382e15fd451b86c69cc6e"
@@ -4112,6 +4129,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "libc",
+ "oxi-vault-git 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "oxibrain-client",
  "oximemo-capture",
  "oximemo-core",
@@ -4126,6 +4144,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-process",
  "tauri-plugin-updater",
+ "tempfile",
  "time",
  "tokio",
  "tracing",

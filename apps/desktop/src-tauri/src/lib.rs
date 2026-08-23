@@ -36,10 +36,24 @@ pub struct AppState {
     /// Process-group id of the copilot turn currently in flight, if any
     /// (spec §8 — cancellation kills the whole tree via this pgid).
     pub copilot_active: Mutex<Option<i32>>,
+    /// Local git versioning layer (oxi-vault-git) — the mechanical
+    /// safety net. Constructed once at boot from `[git]` config; a
+    /// foreign/corrupt repo degrades to a disabled layer, never blocks
+    /// startup.
+    pub git: Arc<oxi_vault_git::GitLayer>,
+    /// Feed for the git commit consumer. The watcher's debounce thread
+    /// sends settled paths here (non-blocking); a dedicated consumer
+    /// thread performs the gix commits so no write path ever waits on
+    /// git (the ≤16 ms capture budget stays untouched).
+    pub git_tx: tokio::sync::mpsc::UnboundedSender<PathBuf>,
 }
 
 impl AppState {
-    fn new(vault: oximemo_core::Vault) -> Self {
+    fn new(
+        vault: oximemo_core::Vault,
+        git: Arc<oxi_vault_git::GitLayer>,
+        git_tx: tokio::sync::mpsc::UnboundedSender<PathBuf>,
+    ) -> Self {
         Self {
             vault: Arc::new(vault),
             capture_monitor: Mutex::new(None),
@@ -48,6 +62,8 @@ impl AppState {
             capture_focused: AtomicBool::new(false),
             menu_locale: Mutex::new(default_locale()),
             tray: Mutex::new(None),
+            git,
+            git_tx,
         }
     }
 }
@@ -115,7 +131,19 @@ pub fn run() {
             if let Err(e) = vault.migrate() {
                 tracing::warn!(error = %e, "index preview migration failed");
             }
-            app.manage(AppState::new(vault));
+            // Local git versioning layer (oxi-vault-git): the mechanical
+            // safety net. Foreign/corrupt repos degrade to a disabled
+            // layer with a loud warn — never blocks boot (mirrors oxios).
+            let (git_auto, git_adopt) =
+                vault.with_config(|c| (c.git.auto_commit, c.git.adopt_foreign_repo));
+            let git = Arc::new(oxi_vault_git::GitLayer::new_for_vault(
+                vault.paths().vault.clone(),
+                git_auto,
+                git_adopt,
+            )?);
+            let (git_tx, git_rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
+            spawn_git_consumer(git.clone(), vault.paths().vault.clone(), git_rx);
+            app.manage(AppState::new(vault, git, git_tx));
             let wstate = app.state::<AppState>();
             spawn_watcher(&wstate, app.handle());
 
@@ -254,6 +282,7 @@ pub fn run() {
             commands::set_index_config,
             commands::set_appearance_config,
             commands::set_daily_config,
+            commands::set_git_config,
             commands::stamp_metadata,
             commands::set_menu_locale,
             commands::get_backlinks,
@@ -308,19 +337,26 @@ fn default_shortcut() -> Shortcut {
 }
 
 /// Start the vault file watcher (§5.5, §7.4). On each settled change it
-/// re-indexes the file and broadcasts `memos:changed` so every window can
-/// refresh its query cache. The handle lives in `AppState` for the app
-/// lifetime — dropping it would stop watching.
+/// re-indexes the file, broadcasts `memos:changed` so every window can
+/// refresh its query cache, and queues a git auto-commit (non-blocking —
+/// the commit itself runs on the consumer thread, never here). The handle
+/// lives in `AppState` for the app lifetime — dropping it would stop watching.
 fn spawn_watcher(state: &AppState, handle: &AppHandle) {
     let vault_path = state.vault.paths().vault.clone();
     let debounce =
         Duration::from_millis(state.vault.with_config(|c| c.index.watcher_debounce_ms) as u64);
     let emit_handle = handle.clone();
+    let git_tx = state.git_tx.clone();
     let on_change: oximemo_core::watcher::OnChange = Arc::new(move |path| {
         if let Ok(v) = oximemo_core::Vault::open(Some(&vault_path)) {
             v.reindex_path(&path);
         }
         let _ = emit_handle.emit("memos:changed", ());
+        // Mechanical safety net: hand the settled path to the git consumer.
+        // try_send semantics — a full channel drops, and the next settle
+        // (or the next boot's reconcile pass) re-commits. Non-blocking by
+        // construction so the capture path budget is untouched.
+        let _ = git_tx.send(path);
     });
     match oximemo_core::watcher::MemoWatcher::spawn(
         vec![
@@ -333,6 +369,56 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
         Ok(w) => *state.watcher.lock() = Some(w),
         Err(e) => tracing::warn!(error = %e, "vault watcher failed to start"),
     }
+}
+
+/// Background consumer for vault git auto-commits. Receives settled paths
+/// from the watcher thread and performs the gix commit/remove off every
+/// interactive path. Coalesces bursts: after a message arrives, drain any
+/// queued siblings for 250 ms so a save-burst produces one commit per file
+/// state, not per event. `commit_file`'s content dedup makes unchanged
+/// re-commits no-ops.
+fn spawn_git_consumer(
+    git: Arc<oxi_vault_git::GitLayer>,
+    vault_root: PathBuf,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<PathBuf>,
+) {
+    std::thread::spawn(move || {
+        while let Some(path) = rx.blocking_recv() {
+            if !git.is_enabled() {
+                continue;
+            }
+            // Coalesce the burst behind this event.
+            std::thread::sleep(Duration::from_millis(250));
+            let mut batch = vec![path];
+            while let Ok(next) = rx.try_recv() {
+                batch.push(next);
+            }
+            for path in batch {
+                let Some(rel) = path.strip_prefix(&vault_root).ok().map(|p| {
+                    p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
+                }) else {
+                    continue;
+                };
+                if rel.is_empty() {
+                    continue;
+                }
+                let exists = path.exists();
+                let msg = if exists {
+                    format!("vault: update {rel}")
+                } else {
+                    format!("vault: delete {rel}")
+                };
+                let result = if exists {
+                    git.commit_file(&rel, &msg)
+                } else {
+                    git.remove_file(&rel, &msg)
+                };
+                if let Err(e) = result {
+                    tracing::warn!(error = %e, %rel, "vault git commit failed");
+                }
+            }
+        }
+    });
 }
 fn show_capture(handle: &AppHandle) {
     use tauri::{LogicalPosition, LogicalSize};
@@ -1182,6 +1268,17 @@ mod commands {
     }
 
     #[tauri::command]
+    pub fn set_git_config(
+        state: State<'_, AppState>,
+        git: oximemo_core::config::GitConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_git_config(git)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
     pub fn set_capture_config(
         state: State<'_, AppState>,
         capture: oximemo_core::config::CaptureConfig,
@@ -1654,5 +1751,64 @@ mod tests {
         assert_eq!(arr[0]["note_count"], serde_json::json!(3));
         assert_eq!(arr[1]["path"], serde_json::Value::String("novel".into()));
         assert_eq!(arr[1]["note_count"], serde_json::json!(2));
+    }
+
+    /// The git auto-commit consumer: a settled path under the vault must
+    /// land as a commit; a deleted path must land as a removal. Drives the
+    /// REAL `spawn_git_consumer` against a REAL `GitLayer` on disk.
+    #[test]
+    fn git_consumer_commits_and_removes() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = dir.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        let git = std::sync::Arc::new(
+            oxi_vault_git::GitLayer::new_for_vault(vault.clone(), true, false).unwrap(),
+        );
+        assert!(git.is_enabled(), "fresh vault repo must be enabled");
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<std::path::PathBuf>();
+        super::spawn_git_consumer(git.clone(), vault.clone(), rx);
+
+        // Create → settled path → commit lands.
+        let note = vault.join("notes/hello.md");
+        std::fs::create_dir_all(note.parent().unwrap()).unwrap();
+        std::fs::write(&note, "# hello\n").unwrap();
+        tx.send(note.clone()).unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let log = git.log_for_file("notes/hello.md", 10).unwrap();
+            if !log.is_empty() {
+                assert!(
+                    log[0].message.contains("update notes/hello.md"),
+                    "unexpected commit message: {}",
+                    log[0].message
+                );
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "commit never landed");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        // Delete → removal commit. NOTE: `log_for_file` only lists commits
+        // where the path EXISTS in the tree, so the removal is asserted on
+        // the full repo log (`log`), not the per-path log.
+        std::fs::remove_file(&note).unwrap();
+        tx.send(note.clone()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let log = git.log(5).unwrap();
+            let removed = log
+                .first()
+                .is_some_and(|e| e.message.contains("delete notes/hello.md"));
+            if removed {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "removal commit never landed; log: {log:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
 }

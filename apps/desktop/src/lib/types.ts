@@ -231,6 +231,13 @@ export interface Config {
   folders?: FolderDef[];
   brain?: { enabled?: boolean; socket?: string; space?: string };
   daily?: { enabled?: boolean; folder?: string };
+  git?: { auto_commit?: boolean; adopt_foreign_repo?: boolean };
+  copilot?: {
+    enabled?: boolean;
+    agent?: string;
+    executable?: string;
+    timeout_secs?: number;
+  };
   metadata?: {
     enabled?: boolean;
     region?: string;

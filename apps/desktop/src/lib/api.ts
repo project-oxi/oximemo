@@ -118,6 +118,12 @@ export async function setDailyConfig(daily: {
   return invoke("set_daily_config", { daily });
 }
 
+export type GitSection = NonNullable<Config["git"]>;
+
+export async function setGitConfig(git: GitSection): Promise<void> {
+  return invoke("set_git_config", { git });
+}
+
 export interface MetadataConfig {
   enabled: boolean;
   region: string;
@@ -195,6 +201,87 @@ export interface BrainSpaces {
 /** Daemon-exposed spaces for the settings picker. Offline is normal (C1). */
 export async function brainListSpaces(): Promise<BrainSpaces> {
   return invoke<BrainSpaces>("brain_list_spaces");
+}
+
+// --- copilot (spec 2026-08-23) ----------------------------------------------
+
+export interface CopilotStatus {
+  enabled: boolean;
+  activated: boolean;
+  agent: string;
+  busy: boolean;
+}
+
+export interface AgentCandidate {
+  id: string;
+  display_name: string;
+  executable: string;
+  version: string | null;
+  supported: boolean;
+}
+
+export interface Disclosure {
+  agent: string;
+  model: string | null;
+  provider: string | null;
+}
+
+export interface ChangedNote {
+  id: string;
+  kind: "created" | "changed" | "deleted";
+}
+
+export interface TurnResult {
+  response: string;
+  session_id: string | null;
+  exit_code: number | null;
+  stderr: string;
+  timed_out: boolean;
+  changed: ChangedNote[];
+  duration_ms: number;
+}
+
+export interface ActiveMemoRef {
+  id: string;
+  title: string;
+  path: string;
+}
+
+export function copilotStatus(): Promise<CopilotStatus> {
+  return invoke<CopilotStatus>("copilot_status");
+}
+
+export function copilotProbeAgents(): Promise<AgentCandidate[]> {
+  return invoke<AgentCandidate[]>("copilot_probe_agents");
+}
+
+export function copilotDisclosure(agent: string): Promise<Disclosure> {
+  return invoke<Disclosure>("copilot_disclosure", { agent });
+}
+
+export function setCopilotConfig(copilot: {
+  enabled: boolean;
+  agent: string;
+  executable: string;
+  timeout_secs: number;
+}): Promise<void> {
+  return invoke<void>("set_copilot_config", { copilot });
+}
+
+export function copilotActivate(agent: string, executable: string): Promise<Disclosure> {
+  return invoke<Disclosure>("copilot_activate", { agent, executable });
+}
+
+export function copilotSend(
+  message: string,
+  activeMemo: ActiveMemoRef | null,
+  session: string | null,
+): Promise<TurnResult> {
+  return invoke<TurnResult>("copilot_send", { message, activeMemo, session });
+}
+
+export function copilotCancel(): Promise<boolean> {
+  return invoke<boolean>("copilot_cancel");
 }
 
 export async function listFacets() {

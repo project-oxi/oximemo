@@ -24,6 +24,9 @@ pub struct VaultConfig {
     /// Metadata providers (book/movie search; spec 2026-08-23 §3). Keys
     /// live here per-provider; empty = provider hidden from the search.
     pub metadata: MetadataConfig,
+    /// Local git versioning of the vault (`oxi-vault-git`). The mechanical
+    /// safety net — always local, never depends on the brain daemon.
+    pub git: GitConfig,
     /// Copilot delegation (spec 2026-08-23). `agent`/`executable` are
     /// empty until the user explicitly activates a detected agent CLI.
     pub copilot: CopilotConfig,
@@ -42,6 +45,7 @@ impl Default for VaultConfig {
             brain: BrainConfig::default(),
             daily: DailyConfig::default(),
             metadata: MetadataConfig::default(),
+            git: GitConfig::default(),
             copilot: CopilotConfig::default(),
             schema_version: 3,
         }
@@ -67,6 +71,31 @@ impl Default for BrainConfig {
             enabled: true,
             socket: String::new(),
             space: "personal".to_string(),
+        }
+    }
+}
+
+/// Local git versioning of the vault (`oxi-vault-git` shared layer).
+/// The mechanical safety net: synchronous local commits, works with the
+/// brain daemon stopped or uninstalled (ECOSYSTEM C1). Mirrors the
+/// ecosystem `[git]` shape oxios uses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GitConfig {
+    /// Auto-commit note changes (create/update/delete) to the vault repo.
+    pub auto_commit: bool,
+    /// Adopt an existing foreign git repo at the vault root by writing
+    /// the `.oxi-vault-git` ownership marker. Default `false` — a foreign
+    /// repo disables auto-commit with a loud warning so the operator opts
+    /// in explicitly.
+    pub adopt_foreign_repo: bool,
+}
+
+impl Default for GitConfig {
+    fn default() -> Self {
+        Self {
+            auto_commit: true,
+            adopt_foreign_repo: false,
         }
     }
 }

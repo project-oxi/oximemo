@@ -1767,6 +1767,12 @@ impl Vault {
         self.replace_section(|c, v| c.daily = v, v)
     }
 
+    /// `[git]` — local vault versioning via the shared `oxi-vault-git`
+    /// layer. Section setter mirrors the others.
+    pub fn set_git_config(&self, v: crate::config::GitConfig) -> Result<()> {
+        self.replace_section(|c, v| c.git = v, v)
+    }
+
 
     /// `[metadata]` — provider keys and region preference (spec 2026-
     /// 08-23 §3.4). Mirrors `set_brain_config`'s section-setter pattern.
