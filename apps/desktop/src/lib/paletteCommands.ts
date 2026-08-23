@@ -23,7 +23,7 @@ export type PaletteIcon =
   | "layers" | "star" | "images" | "archive" | "calendar" | "folder"
   | "hash" | "grid" | "list" | "timeline" | "graph" | "sidebar"
   | "note-md" | "note-html" | "folder-plus" | "zap" | "settings"
-  | "sun" | "moon" | "monitor";
+  | "sun" | "moon" | "monitor" | "library";
 
 export interface PaletteCommand {
   /** Stable identity for the recency log (e.g. "folder:work/2026"). */
@@ -66,8 +66,8 @@ export interface CommandCallbacks {
   openReviewQueue?: (folder: string) => void;
   /** New folder preloaded with the knowledge preset (§6.3). */
   newKnowledgeFolder?: () => void;
-  /** Open the collection catalog picker (spec §2.1). */
-  openCollectionPicker?: () => void;
+  /** Open settings on the collections pane (⌘K 컬렉션 관리). */
+  openCollectionsSettings: () => void;
   openSettings: () => void;
   setTheme: (t: Theme) => void;
 }
@@ -188,9 +188,9 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
     const k = pair(locale, "palette_knowledge_folder");
     add("action.new_knowledge_folder", "folder-plus", k.title, k.alias, "action", callbacks.newKnowledgeFolder);
   }
-  if (callbacks.openCollectionPicker) {
-    const c = pair(locale, "palette_add_collection");
-    add("action.add_collection", "folder-plus", c.title, c.alias, "action", callbacks.openCollectionPicker);
+  if (callbacks.openCollectionsSettings) {
+    const c = pair(locale, "palette_manage_collections");
+    add("action.manage_collections", "library", c.title, c.alias, "action", callbacks.openCollectionsSettings);
   }
 
   // View-mode switches exclude the active mode (no-op noise).

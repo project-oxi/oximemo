@@ -176,23 +176,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surface subsumes it. The browser fallback exercises the same registry
   with in-memory schema storage.
 
-- **Collection catalog picker + ⌘K entry** — a centered Base UI dialog
-  lists the uninstalled presets with localized descriptions; selecting
-  one reveals a folder-name input (defaulted to the localized name)
-  and an install button that invalidates folders/schemas queries. The
-  picker is reachable from ⌘K (`action.add_collection`) and from the
-  settings rail's `+ 컬렉션 추가` row. The settings rail's
-  "설치된 컬렉션" group lists each installed collection (system pair
-  always present; installed ones derived from folder list + schema
-  `[meta].preset`).
-
-- **Per-collection settings pane (intentionally thin)** — folder path,
-  go-to-folder, and a 2-click armed remove. System folders
-  (knowledge/daily) label the destructive action 초기화 and explain
-  the recreate-on-migrate semantics; daily also surfaces the
-  previously TOML-only `[daily].enabled` toggle. Book and movie
-  panes link to Integrations → Metadata for provider keys; everything
-  else points at Folders for rename/pin. No invented settings.
+- **Single collections management pane (3rd pass, user request)** —
+  the per-collection rail tabs, the `+ 컬렉션 추가` row, and the
+  catalog-picker dialog are gone: a fixed preset set manages in
+  place. One 볼트 → 컬렉션 tab lists all seven presets (지식 ·
+  데일리 system pair + 책 · 영화 · 블로그 · 소설 · 아이디어), each
+  row with icon, name, installed-folder chip (or one-line pitch when
+  absent), go-to-folder, and a switch. On = install through
+  `install_collection` (existing path reused, fresh installs use the
+  localized default folder name); off = the app-wide two-click arm —
+  first click arms the row red with the consequence spelled out
+  (폴더와 노트가 함께 삭제돼요, system folders get the
+  recreate-on-next-launch note), second click deletes. Detection is
+  `[meta].preset` first with the system-path fallback, same as the
+  old rail. ⌘K's "컬렉션 추가" became "컬렉션 관리" and opens
+  settings focused on the pane via a one-shot `settingsTab` store
+  request. The fallback's delete_folder now also drops the cached
+  SCHEMA.toml so a deleted folder can't keep reporting its marker.
+  `CollectionCatalogPicker.tsx`, the `collectionPickerOpen` store
+  flag, and the picker-only i18n keys were removed outright.
 
 - **Ideas = fleeting-note inbox into the knowledge ladder** — instead of
   inventing a separate taxonomy, ideas inherit the existing knowledge

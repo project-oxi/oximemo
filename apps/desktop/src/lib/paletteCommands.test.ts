@@ -22,6 +22,7 @@ const cbs = (): CommandCallbacks => ({
   newFolder: () => {},
   quickCapture: () => {},
   openSettings: () => {},
+  openCollectionsSettings: () => {},
   setTheme: () => {},
 });
 

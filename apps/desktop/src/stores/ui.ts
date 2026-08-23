@@ -94,9 +94,11 @@ interface UIState {
    * area. CardGrid consumes it; query mode first falls back to the
    * vault root (creation never lands in an ambiguous location). */
   requestNewFolder: boolean;
-  /** Collection catalog picker open state (spec 2026-08-23 §2.1). */
-  collectionPickerOpen: boolean;
-  setCollectionPickerOpen: (b: boolean) => void;
+  /** One-shot tab request: opens settings focused on a pane (⌘K
+   *  "컬렉션 관리" lands on the collections pane). SettingsMenu
+   *  consumes it on open and clears it. */
+  settingsTab: string | null;
+  setSettingsTab: (tab: string | null) => void;
   requestFolderCreate: () => void;
   consumeFolderCreate: () => void;
 }
@@ -210,11 +212,11 @@ export const useUI = create<UIState>((set) => ({
   setCmdPaletteOpen: (b) => set({ cmdPaletteOpen: b }),
   settingsOpen: false,
   setSettingsOpen: (b) => set({ settingsOpen: b }),
+  /** One-shot settings tab request — consumed by SettingsMenu on open
+   *  (⌘K 컬렉션 관리 → collections pane). */
+  settingsTab: null,
+  setSettingsTab: (tab) => set({ settingsTab: tab }),
   requestNewFolder: false,
   requestFolderCreate: () => set({ requestNewFolder: true }),
-  /** Collection catalog picker (⌘K "컬렉션 추가" and the settings rail
-   *  "+ 컬렉션 추가" row both open it; CardGrid hosts the dialog). */
-  collectionPickerOpen: false,
-  setCollectionPickerOpen: (b) => set({ collectionPickerOpen: b }),
   consumeFolderCreate: () => set({ requestNewFolder: false }),
 }));

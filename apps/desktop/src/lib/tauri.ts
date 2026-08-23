@@ -775,6 +775,11 @@ async function browserFallback(
         }
       }
       saveStore(store);
+      // Drop the folder's cached SCHEMA.toml too — a leftover entry
+      // would keep reporting the preset marker for a deleted folder.
+      const schemas = loadSchemas();
+      delete schemas[path];
+      localStorage.setItem("oximemo:schemas", JSON.stringify(schemas));
       saveFolders(loadFolders().filter((p) => p !== path && !p.startsWith(prefix)));
       // Mirror the backend's FolderDef prune: drop the pin row + any
       // descendant pins for the deleted folder so the sidebar's pinned

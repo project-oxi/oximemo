@@ -26,6 +26,7 @@ import {
   Hash,
   Images,
   Layers,
+  Library,
   LayoutGrid,
   List,
   Monitor,
@@ -83,6 +84,7 @@ const ICONS: Record<PaletteIcon, typeof Layers> = {
   sun: Sun,
   moon: Moon,
   monitor: Monitor,
+  library: Library,
 };
 
 interface Props {
