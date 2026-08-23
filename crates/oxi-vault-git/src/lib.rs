@@ -27,21 +27,39 @@ api-keys.json
 .oxios-git
 "#;
 
-/// Marker file oxios writes at the vault git root to claim ownership of the
-/// repo. Used by [`GitLayer::new_for_vault`] to distinguish an oxios-initialized
-/// repo from a foreign one (Obsidian git-sync, hand-managed dotfile repo, etc.).
-/// Without this marker, auto-commit + S-4 reconcile would sweep the user's
-/// uncommitted edits one-commit-per-file, bypassing `.gitignore`. Foreign
-/// repos are opened read-only-equivalent (the layer reports `enabled=false`)
-/// so the user gets a loud warning and can opt in explicitly via config.
-pub(crate) const GIT_OWNERSHIP_MARKER: &str = ".oxios-git";
+/// Marker file the oxi ecosystem writes at the vault git root to claim
+/// shared ownership of the repo (oximemo + oxios auto-commit into the same
+/// `~/.oxi/vault` repo). Used by [`GitLayer::new_for_vault`] to distinguish
+/// an oxi-initialized repo from a foreign one (Obsidian git-sync,
+/// hand-managed dotfile repo, etc.). Without this marker, auto-commit +
+/// post-crash reconcile would sweep the user's uncommitted edits
+/// one-commit-per-file, bypassing `.gitignore`. Foreign repos are opened
+/// read-only-equivalent (the layer reports `enabled=false`) so the user
+/// gets a loud warning and can opt in explicitly via config.
+pub const VAULT_GIT_MARKER: &str = ".oxi-vault-git";
+
+/// Marker names written by older binaries. A repo carrying any of these is
+/// recognized as oxi-owned exactly like [`VAULT_GIT_MARKER`] — existing
+/// installations (e.g. oxios users with a live `.oxios-git` in their vault)
+/// must not regress to "foreign repo" mode when they upgrade. Legacy
+/// markers are never rewritten; both files may coexist harmlessly.
+pub const LEGACY_VAULT_GIT_MARKERS: &[&str] = &[".oxios-git"];
+
+/// True when the vault git root carries the shared marker or any legacy one.
+fn vault_marker_present(root: &Path) -> bool {
+    root.join(VAULT_GIT_MARKER).exists()
+        || LEGACY_VAULT_GIT_MARKERS
+            .iter()
+            .any(|m| root.join(m).exists())
+}
 
 /// Body of the ownership marker. Plain text so users can recognize the
 /// claim even if they poke around with `ls` or `cat`.
-pub(crate) const GIT_OWNERSHIP_MARKER_BODY: &str = "oxios vault git ownership marker
+pub(crate) const VAULT_GIT_MARKER_BODY: &str = "oxi vault git ownership marker
 
-This file tells oxios that the surrounding repo is owned by it.
-Deleting it returns the repo to foreign mode (auto-commit disabled).
+This file tells oxi apps (oximemo, oxios) that the surrounding repo is
+owned by them. Deleting it returns the repo to foreign mode (auto-commit
+disabled).
 
 Do not commit secrets or filenames here.";
 
@@ -297,7 +315,7 @@ impl GitLayer {
     /// - Marker absent on a fresh dir → we initialise the repo, write the
     ///   marker, and enable the layer.
     pub fn new_with_ownership(root: PathBuf, enabled: bool) -> Result<Self> {
-        let owned_marker_present = root.join(GIT_OWNERSHIP_MARKER).exists();
+        let owned_marker_present = vault_marker_present(&root);
         let repo_existed = root.join(".git").exists();
 
         if repo_existed && !owned_marker_present {
@@ -310,7 +328,7 @@ impl GitLayer {
             tracing::warn!(
                 root = %root.display(),
                 "vault contains a foreign git repo (no {marker} ownership marker);                  auto-commit + S-4 reconcile DISABLED.                  Delete the repo or set `[git] adopt_foreign_repo = true` in                  config.toml to opt in.",
-                marker = GIT_OWNERSHIP_MARKER,
+                marker = VAULT_GIT_MARKER,
             );
             return Ok(layer);
         }
@@ -319,11 +337,11 @@ impl GitLayer {
         if !owned_marker_present {
             // Fresh init — claim ownership so the next boot sees us as the
             // owner and the S-4 reconcile sweeper can run.
-            let marker_path = root.join(GIT_OWNERSHIP_MARKER);
-            std::fs::write(&marker_path, GIT_OWNERSHIP_MARKER_BODY)?;
+            let marker_path = root.join(VAULT_GIT_MARKER);
+            std::fs::write(&marker_path, VAULT_GIT_MARKER_BODY)?;
             // Commit the marker (so the S-4 sweeper knows the repo is
             // tracked and does not re-create it under the same path).
-            let _ = layer.commit_file(GIT_OWNERSHIP_MARKER, "oxios: claim vault git ownership");
+            let _ = layer.commit_file(VAULT_GIT_MARKER, "oxi: claim vault git ownership");
         }
         Ok(layer)
     }
@@ -337,7 +355,7 @@ impl GitLayer {
     /// [`Self::new`].
     ///
     /// `adopt_foreign_repo` is the explicit opt-in for repos that exist
-    /// at the vault path but lack the `.oxios-git` ownership marker
+    /// at the vault path but lack an oxi ownership marker
     /// (Obsidian git-sync, hand-managed dotfile repo, etc.). When `true`,
     /// the marker is written into the foreign repo and the layer is
     /// enabled. When `false` (default), the layer is opened disabled
@@ -345,7 +363,7 @@ impl GitLayer {
     /// so callers can introspect.
     pub fn new_for_vault(root: PathBuf, enabled: bool, adopt_foreign_repo: bool) -> Result<Self> {
         let repo_existed = root.join(".git").exists();
-        let marker_present = root.join(GIT_OWNERSHIP_MARKER).exists();
+        let marker_present = vault_marker_present(&root);
         let is_foreign = repo_existed && !marker_present;
 
         if is_foreign && !adopt_foreign_repo {
@@ -356,11 +374,11 @@ impl GitLayer {
             tracing::warn!(
                 root = %root.display(),
                 "vault contains a foreign git repo (no {} ownership marker);                  auto-commit + S-4 reconcile DISABLED. Set `[git]                  adopt_foreign_repo = true` in config.toml to opt in,                  or write the marker file manually.",
-                GIT_OWNERSHIP_MARKER,
+                VAULT_GIT_MARKER,
             );
             return Self::open_or_disabled_with_reason(
                 root,
-                "foreign git repo at vault root; auto-commit DISABLED.                  Set `[git] adopt_foreign_repo = true` or write the                  `.oxios-git` marker to opt in.",
+                "foreign git repo at vault root; auto-commit DISABLED.                  Set `[git] adopt_foreign_repo = true` or write the                  `.oxi-vault-git` marker to opt in.",
             );
         }
 
@@ -379,15 +397,15 @@ impl GitLayer {
             tracing::info!(
                 root = %root.display(),
                 "adopting foreign git repo at vault root (adopt_foreign_repo=true);                  writing {} marker and enabling layer",
-                GIT_OWNERSHIP_MARKER,
+                VAULT_GIT_MARKER,
             );
             let adopt_result = (|| -> Result<Self> {
                 let layer = Self::new(root.clone(), enabled)?;
-                let marker_path = root.join(GIT_OWNERSHIP_MARKER);
-                std::fs::write(&marker_path, GIT_OWNERSHIP_MARKER_BODY)?;
+                let marker_path = root.join(VAULT_GIT_MARKER);
+                std::fs::write(&marker_path, VAULT_GIT_MARKER_BODY)?;
                 let _ = layer.commit_file(
-                    GIT_OWNERSHIP_MARKER,
-                    "oxios: claim vault git ownership (adopted via config)",
+                    VAULT_GIT_MARKER,
+                    "oxi: claim vault git ownership (adopted via config)",
                 );
                 Ok(layer)
             })();
@@ -1372,7 +1390,7 @@ mod tests {
         let (dir, _) = setup();
         assert!(dir.path().join(".gitignore").exists());
         let content = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-        assert!(content.contains("Oxios"));
+        assert!(content.contains("Oxi vault"));
     }
 
     // ── B1: Signature timestamps ──────────────────────────────────────────
@@ -1797,7 +1815,7 @@ fn p1_closure_no_knowledge_prefix_under_default_config() {
 
 // ── T16 round 1: foreign-repo adoption (P2) ──────────────────────────
 
-/// An existing vault repo that LACKS the `.oxios-git` ownership marker
+/// An existing vault repo that LACKS any oxi ownership marker
 /// is treated as foreign (Obsidian git-sync, hand-managed repo, etc.).
 /// The returned layer MUST be disabled (`enabled=false`) so the auto-
 /// commit consumer and S-4 reconcile skip it entirely — never sweep
@@ -1816,7 +1834,7 @@ fn foreign_repo_without_marker_is_disabled() {
         .unwrap();
 
     // Strip the marker so the next layer treats it as foreign.
-    let marker = vault.join(GIT_OWNERSHIP_MARKER);
+    let marker = vault.join(VAULT_GIT_MARKER);
     let _ = std::fs::remove_file(&marker);
 
     // Open with ownership awareness.
@@ -1844,9 +1862,33 @@ fn owned_repo_with_marker_is_enabled() {
     assert!(layer.is_enabled(), "owned repo must be enabled");
 
     // The marker must be present and contain the adoption info.
-    let marker = std::fs::read_to_string(vault.join(GIT_OWNERSHIP_MARKER)).unwrap();
+    let marker = std::fs::read_to_string(vault.join(VAULT_GIT_MARKER)).unwrap();
     assert!(marker.contains("oxios"));
     assert!(marker.contains("vault"));
+}
+
+/// A vault repo carrying ONLY the legacy `.oxios-git` marker (written by
+/// pre-extraction oxios binaries) is oxi-owned — upgrading must not regress
+/// an existing installation to foreign-repo mode.
+#[test]
+fn legacy_oxios_marker_is_recognized_as_owned() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    // Fresh init writes the new shared marker; simulate the legacy state by
+    // removing it and writing the old name instead.
+    {
+        let setup = GitLayer::new_for_vault(root.clone(), true, false).unwrap();
+        assert!(setup.is_enabled());
+    }
+    std::fs::remove_file(root.join(VAULT_GIT_MARKER)).unwrap();
+    std::fs::write(root.join(".oxios-git"), "legacy marker").unwrap();
+
+    let layer = GitLayer::new_for_vault(root, true, false).unwrap();
+    assert!(
+        layer.is_enabled(),
+        "legacy .oxios-git marker must be recognized as ownership proof"
+    );
+    assert!(layer.disabled_reason().is_none());
 }
 
 /// A corrupt `.git` at the vault root (foreign, partially-overwritten,
@@ -1951,7 +1993,7 @@ fn foreign_repo_default_config_is_disabled_with_reason() {
     let setup = GitLayer::new(vault.clone(), true).unwrap();
     std::fs::write(vault.join("alien.md"), b"x").unwrap();
     setup.commit_file("alien.md", "foreign seed").unwrap();
-    let _ = std::fs::remove_file(vault.join(GIT_OWNERSHIP_MARKER));
+    let _ = std::fs::remove_file(vault.join(VAULT_GIT_MARKER));
 
     // Default config: do NOT adopt.
     let layer = GitLayer::new_for_vault(vault.clone(), true, false).unwrap();
@@ -1966,7 +2008,7 @@ fn foreign_repo_default_config_is_disabled_with_reason() {
     );
     let reason_str = reason.unwrap();
     assert!(
-        reason_str.contains("foreign") || reason_str.contains(GIT_OWNERSHIP_MARKER),
+        reason_str.contains("foreign") || reason_str.contains(VAULT_GIT_MARKER),
         "disabled_reason must mention the cause: {reason_str}"
     );
 }
@@ -1980,7 +2022,7 @@ fn foreign_repo_with_adopt_flag_is_enabled() {
     let setup = GitLayer::new(vault.clone(), true).unwrap();
     std::fs::write(vault.join("alien.md"), b"x").unwrap();
     setup.commit_file("alien.md", "foreign seed").unwrap();
-    let _ = std::fs::remove_file(vault.join(GIT_OWNERSHIP_MARKER));
+    let _ = std::fs::remove_file(vault.join(VAULT_GIT_MARKER));
 
     let layer = GitLayer::new_for_vault(vault.clone(), true, true).unwrap();
     assert!(
@@ -1988,7 +2030,7 @@ fn foreign_repo_with_adopt_flag_is_enabled() {
         "foreign repo + adopt flag must enable the layer"
     );
     assert!(
-        vault.join(GIT_OWNERSHIP_MARKER).exists(),
+        vault.join(VAULT_GIT_MARKER).exists(),
         "marker must be written"
     );
     assert!(
@@ -2007,13 +2049,13 @@ fn owned_repo_unaffected_by_adopt_flag() {
     // First init WITHOUT adopt flag → marker is written, layer enabled.
     let layer_default = GitLayer::new_for_vault(vault.clone(), true, false).unwrap();
     assert!(layer_default.is_enabled());
-    let marker_bytes_first = std::fs::read(vault.join(GIT_OWNERSHIP_MARKER)).unwrap();
+    let marker_bytes_first = std::fs::read(vault.join(VAULT_GIT_MARKER)).unwrap();
 
     // Second init WITH adopt flag → marker should be identical (no
     // rewrite churn) and layer still enabled.
     let layer_adopt = GitLayer::new_for_vault(vault.clone(), true, true).unwrap();
     assert!(layer_adopt.is_enabled());
-    let marker_bytes_second = std::fs::read(vault.join(GIT_OWNERSHIP_MARKER)).unwrap();
+    let marker_bytes_second = std::fs::read(vault.join(VAULT_GIT_MARKER)).unwrap();
     assert_eq!(
         marker_bytes_first, marker_bytes_second,
         "marker must not be re-written when already present"
@@ -2032,12 +2074,12 @@ fn corrupt_foreign_repo_with_adopt_flag_degrades_to_disabled() {
     std::fs::create_dir_all(&vault).unwrap();
 
     // Construct a corrupt foreign repo: a `.git` dir that gix::open
-    // cannot parse, and no `.oxios-git` marker (so it counts as foreign).
+    // cannot parse, and no oxi ownership marker (so it counts as foreign).
     std::fs::create_dir_all(vault.join(".git")).unwrap();
     std::fs::write(vault.join(".git").join("HEAD"), b"not a valid ref\n").unwrap();
     std::fs::write(vault.join(".git").join("config"), b"not a valid config").unwrap();
     assert!(
-        !vault.join(GIT_OWNERSHIP_MARKER).exists(),
+        !vault.join(VAULT_GIT_MARKER).exists(),
         "sanity: marker must be absent for foreign detection"
     );
 
