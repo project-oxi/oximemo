@@ -322,6 +322,8 @@ export const dict = {
   section_collections: "컬렉션",
   collection_not_installed: "설치 안 함",
   collection_uninstall_note: "끄면 폴더와 노트가 함께 삭제돼요",
+  collection_settings: "컬렉션 설정",
+  collection_metadata_keys: "메타데이터 키 설정",
 
   settings_group_collections: "설치된 컬렉션",
   collection_name_knowledge: "지식",

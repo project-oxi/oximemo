@@ -230,8 +230,9 @@ export function CardGrid() {
       .filter(([, d]) => d.badge)
       .map(([key, d]) => ({ key, colors: d.colors ?? {} }));
   }, [schema]);
-  const [reviewMode, setReviewMode] = useState(false);
-  useEffect(() => setReviewMode(false), [folderFilter]);
+  const reviewMode = useUI((s) => s.reviewMode);
+  const setReviewMode = useUI((s) => s.setReviewMode);
+  useEffect(() => setReviewMode(false), [folderFilter, setReviewMode]);
   const propChips = useMemo(() => {
     if (!schema?.properties) return [];
     return Object.entries(schema.properties)
@@ -1394,7 +1395,7 @@ export function CardGrid() {
             {schema.review && (
               <button
                 type="button"
-                onClick={() => setReviewMode((v) => !v)}
+                onClick={() => setReviewMode(!reviewMode)}
                 className={`inline-flex items-center gap-1 rounded-[var(--button-radius)] px-2 py-1 text-[11px] font-medium transition-colors duration-150 ${
                   reviewMode
                     ? "bg-interactive-primary text-interactive-primary-foreground"

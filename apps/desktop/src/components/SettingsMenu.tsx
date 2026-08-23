@@ -19,12 +19,14 @@ import type { LucideIcon } from "lucide-react";
 import {
   Brain,
   Check,
+  ChevronDown,
   Copy,
   Database,
   DownloadCloud,
   Folder,
   FolderTree,
   Library,
+  ListChecks,
   HardDrive,
   Pin,
   PinOff,
@@ -561,12 +563,13 @@ function FoldersSection() {
   );
 }
 /**
- * The single collections pane (user prompt 2026-08-23): every preset
- * — system pair + the five installables — listed in one place with a
- * switch each. On = installed (fresh installs use the localized
- * default folder name); off = uninstall via the app-wide two-click
- * arm (system folders recreate on next launch, installables are gone
- * for good). No catalog dialog — the fixed set manages in-place.
+ * The single collections pane: every preset — system pair + the five
+ * installables — in one place. Each row is install/uninstall by
+ * switch; an installed row expands into that collection's own
+ * settings (path + goto always; 데일리 노트 표시 for daily, 복습 큐
+ * for knowledge, provider keys for book/movie). Collections accrue
+ * settings independently — the expand area is the per-collection
+ * home, so the pane scales without new rail tabs.
  */
 function CollectionsSection() {
   const { t, locale } = useI18n();
@@ -574,12 +577,15 @@ function CollectionsSection() {
   const setError = useUI((s) => s.setError);
   const setFolderFilter = useUI((s) => s.setFolderFilter);
   const setSettingsOpen = useUI((s) => s.setSettingsOpen);
+  const setSettingsTab = useUI((s) => s.setSettingsTab);
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
+  const setReviewMode = useUI((s) => s.setReviewMode);
   const config = useQuery({ queryKey: ["config"], queryFn: getConfig });
   const folders = useQuery({ queryKey: ["folders"], queryFn: listFolders });
   const schemaInfo = useSchemaInfo((folders.data ?? []).map((f) => f.path));
   const dailyFolder = config.data?.daily?.folder ?? "daily";
   const [armed, setArmed] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   interface Row {
     id: string;
@@ -629,7 +635,10 @@ function CollectionsSection() {
           : "knowledge"
         : COLLECTION_CATALOG.find((c) => c.id === row.id)!.defaultFolder[locale]);
     void installCollection(row.id, folder)
-      .then(invalidate)
+      .then(() => {
+        invalidate();
+        setExpanded(row.id);
+      })
       .catch((e) => setError(String(e).split("\n")[0]));
   };
 
@@ -639,9 +648,16 @@ function CollectionsSection() {
       return;
     }
     setArmed(null);
+    setExpanded((e) => (e === row.id ? null : e));
     void deleteFolder(folder)
       .then(invalidate)
       .catch((e) => setError(String(e).split("\n")[0]));
+  };
+
+  const gotoFolder = (folder: string) => {
+    setSettingsOpen(false);
+    setFavoritesOnly(false);
+    setFolderFilter(folder);
   };
 
   return (
@@ -652,6 +668,7 @@ function CollectionsSection() {
           const folder = installedFolder(row.id);
           const Icon = row.icon;
           const isArmed = armed === row.id;
+          const isOpen = expanded === row.id && !!folder;
           return (
             <div
               key={row.id}
@@ -664,26 +681,24 @@ function CollectionsSection() {
                 <Icon size={15} className="shrink-0 text-text-subtle" aria-hidden />
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-medium text-text">{t[row.nameKey]}</p>
-                  <p className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-text-subtle">
-                    {folder ? (
-                      <code className="font-mono">{folder}</code>
-                    ) : (
-                      (row.descKey && t[row.descKey]) || t.collection_not_installed
-                    )}
-                  </p>
+                  {!folder && (
+                    <p className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-text-subtle">
+                      {(row.descKey && t[row.descKey]) || t.collection_not_installed}
+                    </p>
+                  )}
                 </div>
                 {folder && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setSettingsOpen(false);
-                      setFavoritesOnly(false);
-                      setFolderFilter(folder);
-                    }}
-                    title={t.collection_goto_folder}
-                    className="shrink-0 rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
+                    onClick={() => setExpanded((e) => (e === row.id ? null : row.id))}
+                    aria-expanded={isOpen}
+                    aria-label={t.collection_settings}
+                    className="shrink-0 rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
                   >
-                    <FolderTree size={13} />
+                    <ChevronDown
+                      size={13}
+                      className={"transition-transform duration-150 " + (isOpen ? "" : "rotate-180")}
+                    />
                   </button>
                 )}
                 <button
@@ -712,12 +727,63 @@ function CollectionsSection() {
                   {t.collection_remove_confirm}
                 </p>
               )}
+              {isOpen && (
+                <div className="mt-2 space-y-1.5 border-t border-line pt-2">
+                  <div className="flex items-center gap-1.5">
+                    <code className="min-w-0 flex-1 truncate rounded-md bg-surface px-2 py-1 font-mono text-[10px] text-text-muted">
+                      {folder}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => gotoFolder(folder)}
+                      className="flex shrink-0 items-center gap-1 rounded-md border border-line px-2 py-1 text-[10px] font-medium text-text-muted transition-colors hover:bg-surface-muted"
+                    >
+                      <FolderTree size={11} />
+                      {t.collection_goto_folder}
+                    </button>
+                  </div>
+                  {row.id === "daily" && (
+                    <ToggleRow
+                      label={t.collection_daily_enabled}
+                      checked={config.data?.daily?.enabled ?? true}
+                      onChange={(v) =>
+                        setDailyConfig({ enabled: v, folder: dailyFolder })
+                          .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+                          .catch((e) => setError(String(e).split("\n")[0]))
+                      }
+                    />
+                  )}
+                  {row.id === "knowledge" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        gotoFolder(folder);
+                        setReviewMode(true);
+                      }}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-1.5 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-muted"
+                    >
+                      <ListChecks size={12} />
+                      {t.palette_review_queue}
+                    </button>
+                  )}
+                  {(row.id === "book" || row.id === "movie") && (
+                    <button
+                      type="button"
+                      onClick={() => setSettingsTab("metadata")}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-1.5 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-muted"
+                    >
+                      <Database size={12} />
+                      {t.collection_metadata_keys}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
       <p className="mt-3 text-[10px] leading-relaxed text-text-subtle">
-        {t.collection_provider_hint} · {t.collection_rename_hint}
+        {t.collection_rename_hint}
       </p>
     </section>
   );
@@ -1180,19 +1246,6 @@ export function SettingsMenu() {
                   </div>
                   <SectionLabel title={t.section_general} />
                   <GeneralSection />
-                  <SectionLabel title={t.daily_notes_label} />
-                  <ToggleRow
-                    label={t.collection_daily_enabled}
-                    checked={config.data?.daily?.enabled ?? true}
-                    onChange={(v) =>
-                      setDailyConfig({
-                        enabled: v,
-                        folder: config.data?.daily?.folder ?? "daily",
-                      })
-                        .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-                        .catch((e) => setError(String(e).split("\n")[0]))
-                    }
-                  />
                   <SectionLabel title={t.section_advanced} />
                   <AdvancedSection />
                 </section>

@@ -323,6 +323,8 @@ export const dict: Record<keyof typeof ko, string> = {
   section_collections: "Collections",
   collection_not_installed: "Not installed",
   collection_uninstall_note: "Turning off deletes the folder and its notes",
+  collection_settings: "Collection settings",
+  collection_metadata_keys: "Metadata key settings",
   settings_group_collections: "Installed collections",
   collection_name_knowledge: "Knowledge",
   collection_name_daily: "Daily",

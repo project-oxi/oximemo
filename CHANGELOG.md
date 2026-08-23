@@ -194,7 +194,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request. The fallback's delete_folder now also drops the cached
   SCHEMA.toml so a deleted folder can't keep reporting its marker.
   `CollectionCatalogPicker.tsx`, the `collectionPickerOpen` store
-  flag, and the picker-only i18n keys were removed outright.
+  flag, and the picker-only i18n keys were removed outright. The 4th
+  pass gave each installed row an expand chevron — the per-collection
+  settings home, so collections accrue settings without new rail
+  tabs: common path+goto, 데일리 노트 표시 for daily (moved home
+  from 일반), 복습 대기열 열기 for knowledge (reviewMode promoted
+  from CardGrid local state to the ui store so settings can enter
+  it), and 메타데이터 키 설정 for book/movie (in-dialog tab jump).
+  Installing auto-expands the new row; uninstall collapses it.
 
 - **Ideas = fleeting-note inbox into the knowledge ladder** — instead of
   inventing a separate taxonomy, ideas inherit the existing knowledge

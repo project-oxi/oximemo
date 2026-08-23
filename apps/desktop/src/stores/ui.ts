@@ -99,6 +99,11 @@ interface UIState {
    *  consumes it on open and clears it. */
   settingsTab: string | null;
   setSettingsTab: (tab: string | null) => void;
+  /** Review-queue mode for the current folder (the badge bar button,
+   * ⌘K, and the collections pane all toggle it). Folder changes
+   * reset it in CardGrid. */
+  reviewMode: boolean;
+  setReviewMode: (b: boolean) => void;
   requestFolderCreate: () => void;
   consumeFolderCreate: () => void;
 }
@@ -212,6 +217,8 @@ export const useUI = create<UIState>((set) => ({
   setCmdPaletteOpen: (b) => set({ cmdPaletteOpen: b }),
   settingsOpen: false,
   setSettingsOpen: (b) => set({ settingsOpen: b }),
+  reviewMode: false,
+  setReviewMode: (b) => set({ reviewMode: b }),
   /** One-shot settings tab request — consumed by SettingsMenu on open
    *  (⌘K 컬렉션 관리 → collections pane). */
   settingsTab: null,
