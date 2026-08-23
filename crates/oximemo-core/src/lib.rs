@@ -22,6 +22,7 @@ pub mod migrate_vault;
 pub mod paths;
 pub mod props;
 pub mod schema;
+pub mod metadata;
 pub mod tags;
 pub mod template;
 pub mod wiki;
