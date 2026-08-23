@@ -19,7 +19,7 @@ Where a human hits `Option` twice and a coding agent reads the same vault over a
 
 ---
 
-> **oximemo** is optimized for the *speed of catching a thought*. Every memo is a **card**; cards live on a **grid**. There is no AI summary, no auto-tagging, no chatbot — those trade away the capture speed and reliability this project exists to protect.
+> **oximemo** is optimized for the *speed of catching a thought*. Every memo is a **card**; cards live on a **grid**. The **capture path** has no AI summary, no auto-tagging, no chatbot — those trade away the capture speed and reliability this project exists to protect. Agentic help exists only as an optional, closable panel that delegates to a terminal-agent CLI you explicitly activate (see **Copilot panel** below); it can never touch the overlay.
 
 Two core scenarios, one vault:
 
@@ -37,6 +37,7 @@ Two core scenarios, one vault:
 - **Hardened against external writes.** The file watcher debounces, retries partial writes (editors, iCloud), and never crashes the indexer.
 - **HTML notes (`.html`).** `.html` files are first-class notes alongside `.md` — frontmatter lives in a leading HTML comment, the title is derived from the first `<h1>`/`<title>`, and the same TEMPLATE rule applies (`TEMPLATE.html` for HTML notes, `TEMPLATE.md` for markdown). The CLI creates HTML notes with `oximemo new --html`.
 - **oxibrain context panel.** A read-only panel in `MemoDetail` gathers recall layers from the local oxibrain daemon over its Unix socket (no cloud); `[brain]` in `oximemo.toml` controls `enabled`/`socket`/`space`.
+- **Copilot panel.** An optional side panel (`⌘⇧C`) that delegates vault work — write a note, tidy up, suggest tags — to a terminal-agent CLI you explicitly activate (v1: `oxios`). oximemo contains no model, no prompt, no embedding: it hands the agent a declarative context block and the bundled `oximemo` CLI + `SKILL.md` contract, one subprocess per turn. Approvals, sandboxing, and providers stay with the agent; the panel header always discloses the active agent and provider, and vault changes observed during a turn are linked without claiming causality. Hidden entirely when no agent is activated.
 
 ## Table of contents
 
