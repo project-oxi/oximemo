@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { folderSchema, updateMemo } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { propKeyLabel, propValueLabel } from "../lib/propDisplay";
 import type {
   FolderSchema,
   Memo,
@@ -63,6 +64,8 @@ function violationsOf(
 }
 
 interface RowProps {
+  /** Physical property key — drives value localization. */
+  propKey: string;
   label: string;
   def: SchemaPropertyDef | undefined;
   values: string[];
@@ -70,7 +73,7 @@ interface RowProps {
   onCommit: (next: string[] | null) => void;
 }
 
-function PropertyRow({ label, def, values, violation, onCommit }: RowProps) {
+function PropertyRow({ propKey, label, def, values, violation, onCommit }: RowProps) {
   const { t } = useI18n();
   const type = def?.prop_type ?? "text";
   const options = def?.options ?? [];
@@ -85,11 +88,11 @@ function PropertyRow({ label, def, values, violation, onCommit }: RowProps) {
       <option value="">—</option>
       {options.map((o) => (
         <option key={o} value={o}>
-          {o}
+          {propValueLabel(propKey, o, t)}
         </option>
       ))}
       {values[0] && !options.includes(values[0]) && (
-        <option value={values[0]}>{values[0]}</option>
+        <option value={values[0]}>{propValueLabel(propKey, values[0], t)}</option>
       )}
     </select>
   );
@@ -126,7 +129,7 @@ function PropertyRow({ label, def, values, violation, onCommit }: RowProps) {
                 key={v}
                 className="inline-flex items-center gap-0.5 rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-[11px] text-text"
               >
-                {v}
+                {propValueLabel(propKey, v, t)}
                 <button
                   type="button"
                   aria-label={`${t.prop_remove}: ${v}`}
@@ -145,7 +148,12 @@ function PropertyRow({ label, def, values, violation, onCommit }: RowProps) {
       </div>
       {violation && (
         <span className="pl-1 text-[10px] text-hue-red">
-          {label}: {violation}
+          {label}:{" "}
+          {violation === "required"
+            ? t.prop_violation_required
+ : violation.startsWith("not allowed: ")
+              ? t.prop_violation_not_allowed.replace("{v}", violation.slice("not allowed: ".length))
+              : violation}
         </span>
       )}
       {type === "multiselect" && options.length > 0 && values.length > 0 && (
@@ -159,7 +167,7 @@ function PropertyRow({ label, def, values, violation, onCommit }: RowProps) {
             .filter((o) => !values.includes(o))
             .map((o) => (
               <option key={o} value={o}>
-                {o}
+                {propValueLabel(propKey, o, t)}
               </option>
             ))}
         </select>
@@ -212,7 +220,8 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
   const rows = keys.map((key) => (
     <PropertyRow
       key={key}
-      label={key}
+      propKey={key}
+      label={propKeyLabel(key, t)}
       def={defs?.[key]}
       values={members(props[key])}
       violation={violationOf(key)}

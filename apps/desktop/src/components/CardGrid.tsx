@@ -24,6 +24,7 @@ import {
   PanelLeftClose,
   Plus,
   Search,
+  GraduationCap,
 } from "lucide-react";
 
 import {
@@ -56,7 +57,8 @@ import { useI18n } from "../lib/i18n";
 import { applyTheme, type Theme } from "../lib/theme";
 import { listen } from "../lib/tauri";
 import { todayLocalISO } from "../lib/dates";
-import { useFolderNames } from "../lib/folders";
+import { useFolderNames, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
+import { propKeyLabel, propValueLabel, badgeTone } from "../lib/propDisplay";
 import { useUI, loadQueryView } from "../stores/ui";
 import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
 
@@ -205,6 +207,15 @@ export function CardGrid() {
     staleTime: 30_000,
   });
   const schema = folderFilter !== null ? schemaQ.data ?? null : null;
+  // First-party vocabulary: the default knowledge folder's display name
+  // follows the locale; custom schema folders use their declared
+  // workspace name (the author's language).
+  const schemaName = schema
+    ? folderFilter === DEFAULT_KNOWLEDGE_FOLDER
+      ? t.sysfolder_knowledge
+      : (schema.workspace?.name || (folderFilter ?? "").split("/").at(-1) || "")
+    : "";
+  const schemaAddLabel = schema ? t.schema_add.replace("{name}", schemaName) : "";
   const badgeDefs = useMemo(() => {
     if (!schema?.properties) return [];
     return Object.entries(schema.properties)
@@ -223,6 +234,38 @@ export function CardGrid() {
       )
       .map(([key, d]) => ({ key, options: d.options ?? [] }));
   }, [schema]);
+  // Status distribution (design 2026-08-23 §7.2, refined): one count per
+  // badge value across the WHOLE folder — drives the distribution bar
+  // segments and the review button's queue count. 500 covers real vaults;
+  // beyond that the bar is an approximation, never wrong data (counts
+  // come from what the query returned).
+  const badgeKeys = badgeDefs.map((b) => b.key);
+  const distQ = useQuery({
+    queryKey: ["prop-dist", folderFilter],
+    queryFn: () =>
+      queryNotes({ folder: folderFilter ?? "", offset: 0, limit: 500 }),
+    enabled: folderFilter !== null && schema !== null && badgeKeys.length > 0,
+    staleTime: 30_000,
+  });
+  const distCounts = useMemo(() => {
+    const out: Record<string, Record<string, number>> = {};
+    for (const k of badgeKeys) out[k] = {};
+    for (const n of distQ.data?.items ?? []) {
+      const v = n.props?.[badgeKeys[0]];
+      const value = v && "Str" in v ? v.Str : v && "List" in v ? v.List[0] : undefined;
+      if (value != null && badgeKeys[0]) {
+        out[badgeKeys[0]][value] = (out[badgeKeys[0]][value] ?? 0) + 1;
+      }
+    }
+    return out;
+  }, [distQ.data, badgeKeys]);
+  const reviewCount =
+    schema?.review && badgeKeys[0]
+      ? (schema.review.due_values ?? []).reduce(
+          (sum, v) => sum + (distCounts[badgeKeys[0]]?.[v] ?? 0),
+          0,
+        )
+      : 0;
   const [propFilter, setPropFilter] = useState<Record<string, string>>({});
   const [propSort, setPropSort] = useState<"default" | "oldest" | string>("default");
   useEffect(() => {
@@ -407,6 +450,9 @@ export function CardGrid() {
       qc.invalidateQueries({ queryKey: ["folders"] });
       qc.invalidateQueries({ queryKey: ["config"] });
       qc.invalidateQueries({ queryKey: ["folderChildren"] });
+      qc.invalidateQueries({ queryKey: ["prop-query"] });
+      qc.invalidateQueries({ queryKey: ["prop-dist"] });
+      qc.invalidateQueries({ queryKey: ["review"] });
     }).then((u) => {
       un = u;
     });
@@ -1190,64 +1236,131 @@ export function CardGrid() {
             <button
               type="button"
               onClick={() => onNewNote()}
-              aria-label={t.new_memo}
-              title={t.new_note_md}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-l-[var(--button-radius)] bg-interactive-primary text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+              aria-label={schema ? schemaAddLabel : t.new_memo}
+              title={schema ? schemaAddLabel : t.new_note_md}
+              className={`inline-flex h-7 items-center justify-center bg-interactive-primary text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90 ${
+                schema ? "rounded-[var(--button-radius)] px-2 text-[11px] font-semibold" : "w-7 rounded-l-[var(--button-radius)]"
+              }`}
             >
-              <Plus size={15} strokeWidth={2.5} />
+              {schema ? (
+                <>
+                  <Plus size={15} strokeWidth={2.5} /> {schemaAddLabel}
+                </>
+              ) : (
+                <Plus size={15} strokeWidth={2.5} />
+              )}
             </button>
-            <button
-              type="button"
-              onClick={onNewHtmlNote}
-              aria-label={t.new_note_html}
-              title={t.new_note_html}
-              className="ml-px inline-flex h-7 items-center justify-center rounded-r-[var(--button-radius)] border-l border-interactive-primary/40 bg-interactive-primary px-1.5 font-mono text-[10px] font-semibold tracking-wider text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-            >
-              HTML
-            </button>
+            {!schema && (
+              <button
+                type="button"
+                onClick={onNewHtmlNote}
+                aria-label={t.new_note_html}
+                title={t.new_note_html}
+                className="ml-px inline-flex h-7 items-center justify-center rounded-r-[var(--button-radius)] border-l border-interactive-primary/40 bg-interactive-primary px-1.5 font-mono text-[10px] font-semibold tracking-wider text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+              >
+                HTML
+              </button>
+            )}
           </div>
           <SettingsMenu />
         </header>
         {schema && (propChips.length > 0 || schema.review) && (
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-4 pb-1.5 pt-1">
-            {propChips.map((p) => (
-              <label
-                key={p.key}
-                className="inline-flex items-center gap-1 text-[11px] text-text-subtle"
-              >
-                <span className="font-medium">{p.key}</span>
-                <select
-                  value={propFilter[p.key] ?? ""}
-                  onChange={(e) =>
-                    setPropFilter((m) => {
-                      const next = { ...m };
-                      if (e.target.value) next[p.key] = e.target.value;
-                      else delete next[p.key];
-                      return next;
-                    })
-                  }
-                  className="rounded-[var(--tag-radius)] border border-line bg-surface px-1 py-0.5 text-[11px]"
+          <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 pb-1.5 pt-1">
+            {/* Badge selects become a status distribution bar: one segment
+                per option with its folder-wide count; a click filters,
+                clicking the active segment clears. Non-badge selects stay
+                compact dropdowns. */}
+            {badgeDefs.map((b) => {
+              const def = schema.properties?.[b.key];
+              const options = def?.options ?? [];
+              if (options.length === 0) return null;
+              const counts = distCounts[b.key] ?? {};
+              return (
+                <div
+                  key={b.key}
+                  role="group"
+                  aria-label={propKeyLabel(b.key, t)}
+                  className="inline-flex items-center rounded-full border border-line bg-surface p-0.5"
                 >
-                  <option value="">all</option>
-                  {p.options.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
+                  {options.map((o) => {
+                    const active = propFilter[b.key] === o;
+                    const count = counts[o] ?? 0;
+                    return (
+                      <button
+                        key={o}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() =>
+                          setPropFilter((m) => {
+                            const next = { ...m };
+                            if (active) delete next[b.key];
+                            else next[b.key] = o;
+                            return next;
+                          })
+                        }
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-150 ${
+                          active
+                            ? `${badgeTone(b.colors[o])} shadow-[inset_0_0_0_1px_var(--color-line-strong)]`
+                            : count > 0
+                              ? "text-text-muted hover:bg-surface-muted hover:text-text"
+                              : "text-text-subtle/60 hover:bg-surface-muted hover:text-text"
+                        }`}
+                      >
+                        {propValueLabel(b.key, o, t)}
+                        <span
+                          className={`text-[10px] tabular-nums ${active ? "" : "text-text-subtle"}`}
+                        >
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            {propChips
+              .filter((p) => !badgeKeys.includes(p.key))
+              .map((p) => (
+                <label
+                  key={p.key}
+                  className="inline-flex items-center gap-1 text-[11px] text-text-subtle"
+                >
+                  <span className="font-medium">{propKeyLabel(p.key, t)}</span>
+                  <select
+                    value={propFilter[p.key] ?? ""}
+                    onChange={(e) =>
+                      setPropFilter((m) => {
+                        const next = { ...m };
+                        if (e.target.value) next[p.key] = e.target.value;
+                        else delete next[p.key];
+                        return next;
+                      })
+                    }
+                    className="rounded-[var(--tag-radius)] border border-line bg-surface px-1 py-0.5 text-[11px]"
+                  >
+                    <option value="">{t.prop_all}</option>
+                    {p.options.map((o) => (
+                      <option key={o} value={o}>
+                        {propValueLabel(p.key, o, t)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
             <select
               value={propSort}
               onChange={(e) => setPropSort(e.target.value)}
               className="ml-auto rounded-[var(--tag-radius)] border border-line bg-surface px-1 py-0.5 text-[11px] text-text-subtle"
-              aria-label="sort"
+              aria-label={t.badge_sort_oldest}
             >
               <option value="default">{t.badge_sort_newest}</option>
               <option value="oldest">{t.badge_sort_oldest}</option>
               {schema.review?.order_by && (
                 <option value={schema.review.order_by}>
-                  {t.badge_sort_prop.replace("{key}", schema.review.order_by)}
+                  {t.badge_sort_prop.replace(
+                    "{key}",
+                    propKeyLabel(schema.review.order_by, t),
+                  )}
                 </option>
               )}
             </select>
@@ -1255,13 +1368,22 @@ export function CardGrid() {
               <button
                 type="button"
                 onClick={() => setReviewMode((v) => !v)}
-                className={`rounded-[var(--button-radius)] px-2 py-1 text-[11px] font-medium transition-colors duration-150 ${
+                className={`inline-flex items-center gap-1 rounded-[var(--button-radius)] px-2 py-1 text-[11px] font-medium transition-colors duration-150 ${
                   reviewMode
                     ? "bg-interactive-primary text-interactive-primary-foreground"
                     : "bg-surface-muted text-text-subtle hover:text-text"
                 }`}
               >
                 {t.review_tab}
+                {reviewCount > 0 && (
+                  <span
+                    className={`rounded-full px-1 text-[10px] tabular-nums ${
+                      reviewMode ? "bg-black/20 text-interactive-primary-foreground" : "bg-line text-text"
+                    }`}
+                  >
+                    {reviewCount}
+                  </span>
+                )}
               </button>
             )}
           </div>
@@ -1313,16 +1435,33 @@ export function CardGrid() {
                   // a filter that matched nothing. The "no match / clear
                   // filters" treatment is for query mode only.
                   <>
-                    <p className="text-sm text-text-subtle">
-                      {hasMemos ? t.empty_folder_browse : t.empty_hint}
-                    </p>
+                    {schema ? (
+                      // Schema folder (knowledge): first-party empty state —
+                      // named collection, stamped-state promise, named add.
+                      <>
+                        <div className="grid size-12 place-items-center rounded-full bg-surface-muted text-text-subtle">
+                          <GraduationCap size={22} aria-hidden="true" />
+                        </div>
+                        <p className="text-sm font-semibold text-text">
+                          {t.schema_empty_headline.replace("{name}", schemaName)}
+                        </p>
+                        <p className="-mt-2 text-xs text-text-subtle">
+                          {t.schema_empty_sub}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-text-subtle">
+                        {hasMemos ? t.empty_folder_browse : t.empty_hint}
+                      </p>
+                    )}
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => onNewNote()}
                         className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
                       >
-                        <Plus size={15} strokeWidth={2.5} /> {t.new_note_md}
+                        <Plus size={15} strokeWidth={2.5} />{" "}
+                        {schema ? schemaAddLabel : t.new_note_md}
                       </button>
                       <button
                         type="button"
@@ -1403,8 +1542,12 @@ export function CardGrid() {
               />
             )}
               <CtxMenu>
-                <CtxItem icon={FilePlus2} label={t.new_note_md} onClick={() => onNewNote()} />
-                <CtxItem icon={CodeXml} label={t.new_note_html} onClick={onNewHtmlNote} />
+                <CtxItem
+                  icon={FilePlus2}
+                  label={schema ? schemaAddLabel : t.new_note_md}
+                  onClick={() => onNewNote()}
+                />
+                {!schema && <CtxItem icon={CodeXml} label={t.new_note_html} onClick={onNewHtmlNote} />}
                 {folderFilter !== null && (
                   <>
                     <CtxSeparator />

@@ -13,6 +13,7 @@ import { Check, X } from "lucide-react";
 
 import { queryNotes, updateMemo } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { propValueLabel } from "../lib/propDisplay";
 import { relativeTime } from "../lib/time";
 import type { PropValue, SchemaReviewDef } from "../lib/types";
 
@@ -72,7 +73,8 @@ export function ReviewQueue({ folder, review }: { folder: string; review: Schema
               key={v}
               className="rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-[11px] text-text-subtle"
             >
-              {v}: {items.filter((n) => first(n.props?.[review.property]) === v).length}
+              {propValueLabel(review.property, v, t)}:{" "}
+              {items.filter((n) => first(n.props?.[review.property]) === v).length}
             </span>
           ))}
         </div>
@@ -93,7 +95,7 @@ export function ReviewQueue({ folder, review }: { folder: string; review: Schema
                 {n.title ?? n.path}
               </div>
               <div className="text-[11px] text-text-subtle">
-                {first(n.props?.[review.property])} ·{" "}
+                {propValueLabel(review.property, first(n.props?.[review.property]) ?? "", t)} ·{" "}
                 {first(n.props?.[review.order_by ?? ""]) ??
                   relativeTime(n.updated_at, locale)}
               </div>

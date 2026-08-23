@@ -50,6 +50,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   breadcrumbs, folder tiles/rows, chips, palette (physical path stays
   searchable as an alias), move/delete menus, capture form, settings,
   and the note detail; rename inputs still edit the physical name.
+
+- **First-party knowledge surface** — schema folders stop reading like a
+  generic folder with raw keys glued on. Property keys and the status
+  vocabulary get localized display names (상태/분야/별칭… and
+  입문→막연→이해→숙달/퇴행) across the toolbar, cards, review queue, and
+  the property panel (violations included: "분야: 필수 항목") — custom
+  schemas keep their own keys/values verbatim (macOS known-kind
+  convention). Badge selects become a **status distribution bar**: one
+  segment per state with its folder-wide count; a click filters, the
+  active segment clears, empty states dim. The review button carries
+  the live queue count. The new-note affordances turn first-party in
+  schema folders: the header button, empty state (headline + stamped-
+  state promise + **"지식 추가"**), and context menu all use the
+  collection's name; the HTML note affordance is hidden there. The
+  default folder's name follows the locale ("지식"/"Knowledge") rather
+  than the preset file's baked string.
 - **Command palette (⌘K)** — a global intent surface: navigation
   (전체 메모 · 즐겨찾기 · 갤러리 · 볼트 루트 · 오늘의 노트 · every folder ·
   #tags), view switches (grid/list/timeline/graph, sidebar), and actions

@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useFolderNames } from "../lib/folders";
+import { propValueLabel, badgeTone } from "../lib/propDisplay";
 import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
 
 
@@ -94,22 +95,13 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
             : undefined;
           if (!value) return null;
           const token = b.colors[value];
-          const tone =
-            token === "success"
-              ? "bg-hue-green/15 text-hue-green"
-              : token === "warning"
-                ? "bg-hue-amber/15 text-hue-amber"
-                : token === "info"
-                  ? "bg-hue-blue/15 text-hue-blue"
-                  : token === "muted"
-                    ? "bg-surface-muted text-text-subtle"
-                    : "bg-surface-muted text-text-subtle";
+          const tone = badgeTone(token);
           return (
             <span
               key={b.key}
               className={`rounded-[var(--tag-radius)] px-1.5 py-px text-[9px] font-semibold tracking-wide ${tone}`}
             >
-              {value}
+              {propValueLabel(b.key, value, t)}
             </span>
           );
         })}
