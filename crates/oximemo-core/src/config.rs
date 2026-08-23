@@ -114,6 +114,10 @@ pub struct CopilotConfig {
     pub executable: String,
     /// Per-turn subprocess timeout in seconds.
     pub timeout_secs: u64,
+    /// Modification time of the executable at activation, seconds since
+    /// the epoch. A mismatch at turn start means the binary was swapped
+    /// (upgrade/replacement) — spec §6.4: re-activate, never auto-run.
+    pub exe_mtime_secs: u64,
 }
 
 impl Default for CopilotConfig {
@@ -123,9 +127,11 @@ impl Default for CopilotConfig {
             agent: String::new(),
             executable: String::new(),
             timeout_secs: 300,
+            exe_mtime_secs: 0,
         }
     }
 }
+
 /// Daily notes (spec 2026-08-21 §1). `folder` is vault-relative; the
 /// folder is auto-created by the first note's write.
 #[derive(Debug, Clone, Serialize, Deserialize)]

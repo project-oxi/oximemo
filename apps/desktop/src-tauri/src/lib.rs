@@ -319,6 +319,18 @@ pub fn run() {
             } if !has_visible_windows => {
                 show_main_window(handle);
             }
+            // Quitting mid-turn must not leave the agent's process group
+            // running with vault access: kill the whole stored group.
+            tauri::RunEvent::ExitRequested { .. } => {
+                if let Some(pgid) = handle
+                    .state::<AppState>()
+                    .copilot_active
+                    .lock()
+                    .take()
+                {
+                    crate::copilot::kill_turn(pgid);
+                }
+            }
             _ => {}
         });
 }
@@ -611,7 +623,9 @@ async fn brain_connect(
 
 mod commands {
     use crate::metadata;
+    use std::sync::Arc;
     use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
+    use oximemo_core::Vault;
     use oximemo_core::sync::ManifestRecord;
     use tauri::Manager;
     use tauri::{AppHandle, Emitter, State};
@@ -1595,6 +1609,12 @@ mod commands {
         let mut cfg = state.vault.with_config(|c| c.copilot.clone());
         cfg.agent = agent;
         cfg.executable = exe.display().to_string();
+        cfg.exe_mtime_secs = std::fs::metadata(&exe)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         state
             .vault
             .set_copilot_config(cfg)
@@ -1616,22 +1636,27 @@ mod commands {
         pub response: String,
         pub session_id: Option<String>,
         pub exit_code: Option<i32>,
+        /// Signal that terminated the agent (user cancel / external kill).
+        pub signal: Option<i32>,
         pub stderr: String,
         pub timed_out: bool,
         pub changed: Vec<crate::copilot::ChangedNote>,
         pub duration_ms: u64,
     }
 
-    fn manifest_snapshot(state: &State<'_, AppState>) -> Vec<(String, String, bool)> {
-        state
-            .vault
+    /// Full-vault manifest walk; heavy (redb + per-file read/hash), so
+    /// callers run it via `spawn_blocking` to keep the async runtime free.
+    fn manifest_snapshot(
+        vault: Arc<Vault>,
+    ) -> Result<Vec<(String, String, bool)>, String> {
+        vault
             .export_manifest(None)
             .map(|recs| {
                 recs.into_iter()
                     .map(|r| (r.id.0.to_string(), r.hash.0, r.deleted))
                     .collect()
             })
-            .unwrap_or_default()
+            .map_err(|e| format!("manifest snapshot failed: {e}"))
     }
 
     #[tauri::command]
@@ -1651,6 +1676,22 @@ mod commands {
             return Err(
                 "activated agent executable is missing — re-activate it in Settings".to_string(),
             );
+        }
+        // Binary drift (spec §6.4): a replaced/upgraded executable must be
+        // re-activated, never silently executed on the old stamp.
+        if cfg.exe_mtime_secs != 0 {
+            let now = std::fs::metadata(&exe)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            if now != 0 && now != cfg.exe_mtime_secs {
+                return Err(
+                    "agent executable changed since activation — re-activate it in Settings"
+                        .to_string(),
+                );
+            }
         }
         // Atomically claim the busy slot BEFORE any prep work: the old
         // check-then-spawn window let two concurrent sends both pass.
@@ -1688,7 +1729,12 @@ mod commands {
         });
         let ctx = crate::copilot::build_context(&vault_root, &cli, &skill, active.as_ref());
         let args = crate::copilot::oxios_args(session.as_deref(), &message);
-        let before = manifest_snapshot(&state);
+        let before = {
+            let v = state.vault.clone();
+            tokio::task::spawn_blocking(move || manifest_snapshot(v))
+                .await
+                .map_err(|e| format!("snapshot join: {e}"))??
+        };
         let started = std::time::Instant::now();
         let outcome = {
             let busy = &state.copilot_active;
@@ -1705,7 +1751,19 @@ mod commands {
             out?
         };
         let duration_ms = started.elapsed().as_millis() as u64;
-        let after = manifest_snapshot(&state);
+        // Raw file writes from the agent land in the index only after the
+        // watcher's 300 ms debounce settles — wait it out or creations
+        // made moments before exit would be silently omitted.
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        let after = {
+            let v = state.vault.clone();
+            tokio::task::spawn_blocking(move || manifest_snapshot(v))
+                .await
+                .map_err(|e| format!("snapshot join: {e}"))?
+                // An after-snapshot failure must NOT report the whole
+                // vault as deleted: degrade to "no observable changes".
+                .unwrap_or_else(|_| before.clone())
+        };
         let changed = crate::copilot::diff_manifests(&before, &after);
         if !changed.is_empty() {
             // Refresh the grid: the watcher also reacts, but the panel
@@ -1721,6 +1779,7 @@ mod commands {
             response,
             session_id,
             exit_code: outcome.exit_code,
+            signal: outcome.signal,
             stderr: outcome.stderr,
             timed_out: outcome.timed_out,
             changed,
@@ -1733,6 +1792,12 @@ mod commands {
     pub fn copilot_cancel(state: State<'_, AppState>) -> Result<bool, String> {
         let pgid = state.copilot_active.lock().take();
         match pgid {
+            // Sentinel: claimed but not yet spawned — nothing to kill,
+            // so report "not cancellable" rather than a false success.
+            Some(0) => {
+                *state.copilot_active.lock() = Some(0);
+                Ok(false)
+            }
             Some(p) => {
                 crate::copilot::kill_turn(p);
                 Ok(true)

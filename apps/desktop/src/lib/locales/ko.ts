@@ -103,6 +103,7 @@ export const dict = {
   copilot_changed_changed: "수정",
   copilot_changed_deleted: "삭제",
   copilot_timed_out: "타임아웃 — 턴이 중단되었습니다",
+  copilot_killed: "중단되었습니다 (signal {signal})",
   copilot_exit_code: "종료 코드",
   copilot_stderr: "stderr",
   copilot_details: "상세",

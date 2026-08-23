@@ -52,12 +52,23 @@ fn which(name: &str) -> Option<PathBuf> {
 /// line. Discovery is never a trust boundary (§6) — this only labels the
 /// candidate list.
 pub async fn probe_version(exe: &Path) -> Option<String> {
-    let out = Command::new(exe)
-        .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await
-        .ok()?;
+    // The 3 s budget lives HERE so every caller (probe_candidates,
+    // copilot_activate) gets it — a --version that never exits must not
+    // hang the activation IPC.
+    let out = tokio::time::timeout(Duration::from_secs(3), async {
+        Command::new(exe)
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .process_group(0)
+            .kill_on_drop(true)
+            .output()
+            .await
+            .ok()
+    })
+    .await
+    .ok()??;
     let line = String::from_utf8_lossy(&out.stdout)
         .lines()
         .next()?
@@ -74,10 +85,7 @@ pub async fn probe_candidates() -> Vec<AgentCandidate> {
     let mut out = Vec::new();
     for (id, bin, supported) in KNOWN_AGENTS {
         let Some(exe) = which(bin) else { continue };
-        let version = tokio::time::timeout(Duration::from_secs(3), probe_version(&exe))
-            .await
-            .ok()
-            .flatten();
+        let version = probe_version(&exe).await;
         out.push(AgentCandidate {
             id: (*id).to_string(),
             display_name: (*bin).to_string(),
@@ -104,22 +112,47 @@ pub struct Disclosure {
 fn disclosure_from_config(agent: &str, text: &str) -> Disclosure {
     let mut section = String::new();
     let mut model = None;
+    let mut router_active = false;
     for line in text.lines() {
         let line = line.trim();
         if line.starts_with('[') && line.ends_with(']') {
             section = line[1..line.len() - 1].trim().to_string();
             continue;
         }
-        if section == "engine"
-            && model.is_none()
-            && let Some((key, value)) = line.split_once('=')
-            && key.trim() == "default_model"
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if section != "engine" {
+            continue;
+        }
+        if key.trim() == "router"
+            && !value.trim().is_empty()
+            && value.trim() != "[]"
+            && value.trim() != "{}"
         {
-            let v = value.trim().trim_matches('"').trim_matches('\'');
+            // A configured router may resolve a different effective model
+            // than default_model — disclose "unknown" rather than guess
+            // (spec §12: never name a provider the turn may not use).
+            router_active = true;
+        }
+        if model.is_none() && key.trim() == "default_model" {
+            // Extract the quoted span first: a trailing TOML comment
+            // (`= "model" # fast`) must not leak into the disclosed value.
+            let raw = value.trim();
+            let v = if let Some(rest) = raw.strip_prefix('"') {
+                rest.split('"').next().unwrap_or("").to_string()
+            } else if let Some(rest) = raw.strip_prefix('\'') {
+                rest.split('\'').next().unwrap_or("").to_string()
+            } else {
+                raw.split('#').next().unwrap_or("").trim().to_string()
+            };
             if !v.is_empty() {
-                model = Some(v.to_string());
+                model = Some(v);
             }
         }
+    }
+    if router_active {
+        model = None;
     }
     let provider = model.as_ref().and_then(|m| {
         m.split_once('/')
@@ -268,6 +301,9 @@ pub struct ProcessOutcome {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: Option<i32>,
+    /// Unix signal that killed the agent (user cancel, external kill);
+    /// `None` for a normal exit.
+    pub signal: Option<i32>,
     pub timed_out: bool,
     /// Process-group id, for external cancellation via `kill_turn`.
     pub pgid: i32,
@@ -314,8 +350,25 @@ pub async fn run_agent_process(
         let _ = stdin.write_all(stdin_data.as_bytes()).await;
         let _ = stdin.shutdown().await;
     }
-    let mut stdout_pipe = child.stdout.take();
-    let mut stderr_pipe = child.stderr.take();
+    // Drain both pipes CONCURRENTLY with the wait: an agent whose output
+    // exceeds the ~16 KiB pipe buffer blocks in write() until we read —
+    // draining only after wait() deadlocks the turn until the timeout.
+    let stdout_task = child.stdout.take().map(|mut p| {
+        tokio::spawn(async move {
+            let mut buf = Vec::new();
+            use tokio::io::AsyncReadExt;
+            let _ = p.read_to_end(&mut buf).await;
+            buf
+        })
+    });
+    let stderr_task = child.stderr.take().map(|mut p| {
+        tokio::spawn(async move {
+            let mut buf = Vec::new();
+            use tokio::io::AsyncReadExt;
+            let _ = p.read_to_end(&mut buf).await;
+            buf
+        })
+    });
 
     let timed_out;
     let status = tokio::select! {
@@ -331,29 +384,41 @@ pub async fn run_agent_process(
         }
     };
 
-    // Pipes hit EOF once every writer in the group is gone, so reading to
-    // end after wait() cannot block.
-    let stderr = drain(&mut stderr_pipe).await;
-    let stdout = drain(&mut stdout_pipe).await;
+    // Bounded join: a lingering grandchild that inherited stdout keeps the
+    // write end open past the direct child's exit — that must delay the
+    // turn briefly, not hang it. Dropping our read end on timeout closes
+    // the pipe under the writer (EPIPE), same as a manual cancel.
+    let join = |t: Option<tokio::task::JoinHandle<Vec<u8>>>| async {
+        match t {
+            Some(h) => tokio::time::timeout(Duration::from_secs(10), h)
+                .await
+                .map(|r| r.unwrap_or_default())
+                .unwrap_or_default(),
+            None => Vec::new(),
+        }
+    };
+    let stdout = String::from_utf8_lossy(&join(stdout_task).await).to_string();
+    let stderr = String::from_utf8_lossy(&join(stderr_task).await).to_string();
     let exit_code = status.and_then(|s| s.code());
+    let signal = status.and_then(|s| {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            s.signal()
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
+    });
     Ok(ProcessOutcome {
         stdout,
         stderr,
         exit_code,
+        signal,
         timed_out,
         pgid,
     })
-}
-
-/// Read a taken child pipe to EOF and decode lossily. `None` (inherit or
-/// null stdio) yields an empty string.
-async fn drain(pipe: &mut Option<impl tokio::io::AsyncRead + Unpin>) -> String {
-    let mut buf = Vec::new();
-    if let Some(r) = pipe.as_mut() {
-        use tokio::io::AsyncReadExt;
-        let _ = r.read_to_end(&mut buf).await;
-    }
-    String::from_utf8_lossy(&buf).to_string()
 }
 
 /// Build the oxios argv for one turn (§13). The context rides stdin via
@@ -369,6 +434,9 @@ pub fn oxios_args(session: Option<&str>, prompt: &str) -> Vec<String> {
         args.push("--session".to_string());
         args.push(sid.to_string());
     }
+    // Terminator: a user message starting with '-' must reach the agent
+    // as the positional prompt, never as an oxios flag (--config etc.).
+    args.push("--".to_string());
     args.push(prompt.to_string());
     args
 }
@@ -462,10 +530,22 @@ default_model = "zai-coding-plan/glm-5-turbo"
 
 [daemon]
 pid_file = "/x"
+
 "#;
         let d = disclosure_from_config("oxios", cfg);
         assert_eq!(d.model.as_deref(), Some("zai-coding-plan/glm-5-turbo"));
         assert_eq!(d.provider.as_deref(), Some("zai-coding-plan"));
+    }
+    #[test]
+    fn disclosure_handles_trailing_comment() {
+        let cfg = "[engine]\ndefault_model = \"zai-coding-plan/glm-5-turbo\" # fast\n";
+        let d = disclosure_from_config("oxios", cfg);
+        assert_eq!(d.model.as_deref(), Some("zai-coding-plan/glm-5-turbo"));
+        assert_eq!(d.provider.as_deref(), Some("zai-coding-plan"));
+
+        // Unquoted value with a comment.
+        let d2 = disclosure_from_config("oxios", "[engine]\ndefault_model = bare/model # x\n");
+        assert_eq!(d2.model.as_deref(), Some("bare/model"));
     }
 
     #[test]
@@ -477,6 +557,18 @@ pid_file = "/x"
 
         let d2 = disclosure_from_config("claude", "");
         assert_eq!(d2.model, None);
+    }
+
+    #[test]
+    fn disclosure_router_config_degrades_to_unknown() {
+        let cfg = "[engine]\ndefault_model = \"a/b\"\nrouter = [{ to = \"c/d\" }]\n";
+        let d = disclosure_from_config("oxios", cfg);
+        assert_eq!(d.model, None, "router active: provider must be unknown");
+        assert_eq!(d.provider, None);
+
+        // An empty router table does not degrade.
+        let d2 = disclosure_from_config("oxios", "[engine]\ndefault_model = \"a/b\"\nrouter = []\n");
+        assert_eq!(d2.model.as_deref(), Some("a/b"));
     }
 
     #[test]
@@ -520,9 +612,53 @@ pid_file = "/x"
     }
 
     #[tokio::test]
+    async fn agent_process_timeout_kills_tree() {
+        // A shell that backgrounds a child and waits — the direct child
+        // has a grandchild. Tree-kill must reap BOTH: the grandchild
+        // writes its pid to a file, and the test asserts that pid is no
+        // longer signalable after the timeout kill.
+        let dir = std::env::temp_dir().join(format!("copilot-tree-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pidfile = dir.join("grandchild.pid");
+        let script = format!(
+            "sleep 30 & echo $! > {}; wait",
+            pidfile.display()
+        );
+        let args = vec!["-c".to_string(), script];
+        let t0 = std::time::Instant::now();
+        let out = run_agent_process(Path::new("/bin/sh"), &args, "", 1, |_| {})
+            .await
+            .unwrap();
+        assert!(out.timed_out);
+        assert!(t0.elapsed().as_secs() < 10, "timeout must not run to 30s");
+        // Wait for the pidfile (the shell writes it before `wait`).
+        let mut grandchild: Option<i32> = None;
+        for _ in 0..50 {
+            if let Ok(txt) = std::fs::read_to_string(&pidfile) {
+                grandchild = txt.trim().parse().ok();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let pid = grandchild.expect("grandchild pid must be recorded");
+        // kill(pid, 0) fails with ESRCH once the grandchild is gone.
+        // Poll briefly: SIGKILL delivery is asynchronous.
+        let mut gone = false;
+        for _ in 0..100 {
+            let rc = unsafe { libc::kill(pid, 0) };
+            if rc == -1 && *std::io::Error::last_os_error().raw_os_error().as_ref().unwrap_or(&0) == libc::ESRCH {
+                gone = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(gone, "grandchild {pid} survived the tree kill");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn agent_process_roundtrip_echo() {
-        // /bin/echo ignores stdin and prints its args — exercises spawn,
-        // stdin write, wait, and output capture without any agent.
         let args = vec!["hello".to_string(), "agent".to_string()];
         let out = run_agent_process(Path::new("/bin/echo"), &args, "ctx", 10, |_| {})
             .await
@@ -531,23 +667,6 @@ pid_file = "/x"
         assert!(!out.timed_out);
         assert_eq!(out.stdout.trim(), "hello agent");
         assert!(out.stderr.is_empty());
-    }
-
-    #[tokio::test]
-    async fn agent_process_timeout_kills_tree() {
-        // A shell that backgrounds a child and waits — the direct child
-        // has a grandchild. Tree-kill must reap both.
-        let args = vec!["-c".to_string(), "sleep 30 & wait".to_string()];
-        let t0 = std::time::Instant::now();
-        let out = run_agent_process(Path::new("/bin/sh"), &args, "", 1, |_| {})
-            .await
-            .unwrap();
-        assert!(out.timed_out);
-        assert!(t0.elapsed().as_secs() < 10, "timeout must not run to 30s");
-        // The whole group must be gone: signaling it again is ESRCH, so
-        // kill(0) on the group errors — assert via kill_turn's null effect
-        // and process absence through the reaped child.
-        kill_turn(out.pgid);
     }
 
     #[test]
@@ -562,11 +681,15 @@ pid_file = "/x"
                 "-",
                 "--session",
                 "s1",
+                "--",
                 "do it"
             ]
         );
-        let b = oxios_args(None, "q");
-        assert_eq!(b, vec!["run", "--json", "--context-file", "-", "q"]);
+        let b = oxios_args(None, "-dashed message");
+        assert_eq!(
+            b,
+            vec!["run", "--json", "--context-file", "-", "--", "-dashed message"]
+        );
     }
 
     #[test]

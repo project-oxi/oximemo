@@ -104,6 +104,7 @@ export const dict: Record<keyof typeof ko, string> = {
   copilot_changed_changed: "changed",
   copilot_changed_deleted: "deleted",
   copilot_timed_out: "Timed out — the turn was aborted",
+  copilot_killed: "Aborted (signal {signal})",
   copilot_exit_code: "exit code",
   copilot_stderr: "stderr",
   copilot_details: "Details",

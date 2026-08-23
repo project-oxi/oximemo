@@ -233,6 +233,10 @@ function AgentMessage({ result }: { result: TurnResult }) {
     <div className="mr-4 space-y-1.5 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text">
       {result.timed_out ? (
         <p className="text-text-subtle">{t.copilot_timed_out}</p>
+      ) : result.signal != null && !result.response ? (
+        <p className="text-text-subtle">
+          {t.copilot_killed.replace("{signal}", String(result.signal))}
+        </p>
       ) : (
         <p className="whitespace-pre-wrap">{result.response}</p>
       )}

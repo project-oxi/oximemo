@@ -252,6 +252,8 @@ export interface TurnResult {
   response: string;
   session_id: string | null;
   exit_code: number | null;
+  /** Signal that killed the agent (user cancel / external kill). */
+  signal: number | null;
   stderr: string;
   timed_out: boolean;
   changed: ChangedNote[];

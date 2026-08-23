@@ -162,8 +162,11 @@ The capture overlay must appear in under one frame.
   (`[a, b]`) and block sequences, `|` block scalars. **Forbidden**: tabs,
   comments (`#` must be quoted inside values), anchors/aliases, tags,
   multi-document, duplicate keys, BOM. CRLF accepted on read; LF on write.
-- A file whose leading block is missing or unparsable is **body-only**:
-  readable on disk but invisible to the index and search.
+- A file whose leading block is **missing** is body-only: readable on
+  disk but invisible to the index and search. A **malformed** block
+  (tab, BOM, duplicate key, unclosed fence) is a hard parse error —
+  same practical outcome (not indexed), but `oximemo doctor` reports it
+  as a parse error, not body-only.
 
 The index/watcher picks up changes within the debounce window and
 re-indexes automatically. After bulk external edits, run
@@ -219,8 +222,9 @@ the file.
   oximemo get <ID> | jq -r .body | oximemo new --folder knowledge
   oximemo delete <ID>
   ```
-  (Prefer the GUI/`move_note` path when available; this recipe is the
-  pure-CLI equivalent.)
+  (Prefer the GUI/`move_note` path when available; this recipe is
+  body-only — the new note gets a fresh id and its properties are
+  re-derived from the target folder's TEMPLATE, unlike a real move.)
 - **List stubs in a knowledge folder:**
   ```bash
   oximemo list --folder knowledge --where status=stub --format ndjson
