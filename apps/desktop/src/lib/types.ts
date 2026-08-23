@@ -214,7 +214,7 @@ export interface FolderCard {
   recent: FolderRecent[];
 }
 
-export type ViewMode = "grid" | "list" | "timeline" | "graph";
+export type ViewMode = "grid" | "list" | "timeline" | "graph" | "shelf";
 
 export interface FolderDef {
   path: string;

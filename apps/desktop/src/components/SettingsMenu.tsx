@@ -58,10 +58,11 @@ import {
   setFolderPinned,
   setBrainConfig,
   setCaptureConfig,
-  setGeneralConfig,
-  setIndexConfig,
-  setDailyConfig,
+  setFolderView,
   installCollection,
+  setIndexConfig,
+  setGeneralConfig,
+  setDailyConfig,
   vaultPath,
 } from "../lib/api";
 
@@ -775,6 +776,23 @@ function CollectionsSection() {
                       <Database size={12} />
                       {t.collection_metadata_keys}
                     </button>
+                  )}
+                  {(row.id === "book" || row.id === "movie") && (
+                    <div>
+                      <p className="mb-1 text-[11px] text-text-subtle">{t.collection_default_view}</p>
+                      <Segmented
+                        value={config.data?.folders?.find((f) => f.path === folder)?.view ?? "grid"}
+                        onChange={(v) => {
+                          void setFolderView(folder, v === "grid" ? null : v)
+                            .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+                            .catch((e) => setError(String(e).split("\n")[0]));
+                        }}
+                        options={[
+                          { value: "grid", label: t.view_label_grid },
+                          { value: "shelf", label: t.view_label_shelf },
+                        ]}
+                      />
+                    </div>
                   )}
                 </div>
               )}

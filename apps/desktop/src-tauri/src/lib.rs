@@ -1142,6 +1142,11 @@ mod commands {
                 sets.push(("source_url".into(), oximemo_core::PropValue::Str(url.clone())));
             }
         }
+        if let (Some(cover), false) = (&hit.cover_url, memo.props.contains_key("cover_url")) {
+            if schema.properties.contains_key("cover_url") {
+                sets.push(("cover_url".into(), oximemo_core::PropValue::Str(cover.clone())));
+            }
+        }
         if sets.is_empty() {
             return Ok(dto);
         }

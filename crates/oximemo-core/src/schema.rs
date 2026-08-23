@@ -592,6 +592,9 @@ metadata = "page_count"
 [properties.source_url]
 type = "text"
 
+[properties.cover_url]
+type = "text"
+
 [review]
 property = "status"
 due_values = ["done"]
@@ -639,6 +642,9 @@ type = "text"
 metadata = "original_title"
 
 [properties.source_url]
+type = "text"
+
+[properties.cover_url]
 type = "text"
 "#;
 

@@ -297,6 +297,7 @@ export const dict = {
   palette_view_list: "리스트 보기",
   palette_view_timeline: "타임라인 보기",
   palette_view_graph: "그래프 보기",
+  palette_view_shelf: "셸프 보기",
   palette_sidebar_toggle: "사이드바 전환",
   palette_quick_capture: "빠른 캡처",
   palette_footer_hint: "↑↓ 선택 · ⏎ 실행 · esc 닫기",
@@ -324,6 +325,9 @@ export const dict = {
   collection_uninstall_note: "끄면 폴더와 노트가 함께 삭제돼요",
   collection_settings: "컬렉션 설정",
   collection_metadata_keys: "메타데이터 키 설정",
+  collection_default_view: "기본 보기",
+  view_label_grid: "그리드",
+  view_label_shelf: "셸프",
 
   settings_group_collections: "설치된 컬렉션",
   collection_name_knowledge: "지식",

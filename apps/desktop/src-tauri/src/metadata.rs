@@ -230,6 +230,7 @@ pub fn map_ol_hits(payload: &OlPayload) -> Vec<MetaHit> {
         title: d.title.clone().unwrap_or_default(),
         subtitle: d.first_publish_year.map(|y| y.to_string()),
         url: d.key.as_ref().map(|k| format!("https://openlibrary.org{k}")),
+        cover_url: d.cover_i.map(|c| format!("https://covers.openlibrary.org/b/id/{c}-M.jpg")),
         fields: ol_fields(d),
     }).collect()
 }
@@ -288,6 +289,11 @@ pub fn map_google_books(payload: &GbPayload) -> Vec<MetaHit> {
             title: vi.title.clone().unwrap_or_default(),
             subtitle: vi.published_date.clone(),
             url: vi.info_link.clone(),
+            cover_url: vi
+                .image_links
+                .as_ref()
+                .and_then(|l| l.thumbnail.clone())
+                .map(|t| t.replace("http://", "https://")),
             fields: gb_fields(vi),
         }
     }).collect()
@@ -319,6 +325,7 @@ pub fn map_aladin(payload: &AladinPayload) -> Vec<MetaHit> {
         title: it.title.clone().unwrap_or_default(),
         subtitle: it.pub_date.clone(),
         url: it.link.clone(),
+        cover_url: it.cover.clone(),
         fields: {
             let mut m = BTreeMap::new();
             if let Some(a) = it.author.clone() { m.insert(MetaField::Author, a); }
@@ -335,6 +342,7 @@ pub fn map_tmdb(payload: &TmdbPayload) -> Vec<MetaHit> {
         title: r.title.clone().unwrap_or_default(),
         subtitle: r.release_date.clone(),
         url: None,
+        cover_url: r.poster_path.as_ref().map(|p| format!("https://image.tmdb.org/t/p/w342{p}")),
         fields: {
             let mut m = BTreeMap::new();
             if let Some(d) = r.release_date.clone() { m.insert(MetaField::ReleaseDate, d); }
@@ -350,6 +358,7 @@ pub fn map_omdb(payload: &OmdbPayload) -> Vec<MetaHit> {
         title: s.title.clone().unwrap_or_default(),
         subtitle: s.year.clone(),
         url: s.imdb_id.as_ref().map(|i| format!("https://www.imdb.com/title/{i}/")),
+        cover_url: s.poster.clone().filter(|p| p != "N/A"),
         fields: {
             let mut m = BTreeMap::new();
             if let Some(y) = s.year.clone() { m.insert(MetaField::ReleaseDate, format!("{y}-01-01")); }
@@ -374,6 +383,8 @@ pub struct OlDoc {
     pub isbn: Option<Vec<String>>,
     pub number_of_pages_median: Option<i32>,
     pub key: Option<String>,
+    #[serde(default)]
+    pub cover_i: Option<i64>,
 }
 #[derive(Debug, Deserialize)]
 pub struct GbPayload {
@@ -393,6 +404,13 @@ pub struct GbVolumeInfo {
     pub isbn_13: Option<String>,
     pub info_link: Option<String>,
     pub original_title: Option<String>,
+    #[serde(default)]
+    pub image_links: Option<GbImageLinks>,
+}
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GbImageLinks {
+    pub thumbnail: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 pub struct AladinPayload {
@@ -407,6 +425,8 @@ pub struct AladinItem {
     pub isbn13: Option<String>,
     pub pub_date: Option<String>,
     pub link: Option<String>,
+    #[serde(default)]
+    pub cover: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 pub struct TmdbPayload {
@@ -418,6 +438,8 @@ pub struct TmdbResult {
     pub title: Option<String>,
     pub original_title: Option<String>,
     pub release_date: Option<String>,
+    #[serde(default)]
+    pub poster_path: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 pub struct OmdbPayload {
@@ -429,6 +451,8 @@ pub struct OmdbItem {
     pub title: Option<String>,
     pub year: Option<String>,
     pub imdb_id: Option<String>,
+    #[serde(default)]
+    pub poster: Option<String>,
 }
 
 #[cfg(test)]

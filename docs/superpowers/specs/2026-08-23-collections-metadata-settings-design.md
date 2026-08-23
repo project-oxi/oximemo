@@ -158,10 +158,22 @@ Open Library·NDL·DNB는 키 필드 없음(NDL은 "비영리 조건" 안내만)
 - 공통: 폴더 경로 chip + 폴더로 이동.
 - 데일리: `[daily] enabled` 토글("데일리 노트 표시") — 3차에 일반에 뒀다가
   컬렉션 설정 홈이 생기며 귀향.
-- 지식: "복습 대기열 열기" — 설정을 닫고 knowledge 폴더의 복습 모드로 진입
-  (`reviewMode`를 CardGrid 로컬 state에서 ui 스토어로 승격).
-- 책·영화: "메타데이터 키 설정" — 같은 설정 창의 메타데이터 탭으로 전환.
+- 책·영화: "기본 보기" 세그먼트(그리드/셸프) — `set_folder_view` 재사용.
+  셸프(§4.4)는 oxibuilder 무비/북 카드를 옮긴 미디어 월: 포스터 비율 카드에
+  `cover_url` 프롭 이미지(없으면 제목 타이포 폴백), rating 별 5개, 상태 배지
+  색 점. 뷰 툴바의 셸프 버튼은 스키마가 `cover_url`을 선언한 폴더에서만 노출.
 - 이름 변경·고정은 폴더 관리 — pane 하단 안내 한 줄.
+
+### 4.4 셸프 뷰 — 커버 파이프라인
+
+- `MetaHit.cover_url` (신규): OL `cover_i`→covers.openlibrary, Google
+  `imageLinks.thumbnail`(https 치환), 알라딘 `cover`, TMDB `poster_path`→
+  image.tmdb w342, OMDb `Poster`(N/A 제외). `stamp_metadata`가 스키마 선언
+  시 `cover_url` 프롭에 기록(source_url과 동일 특례 — 빈 값만).
+- book/movie 프리셋 스키마에 `cover_url` text 프롭 추가(신규 설치만 — 기존
+  폴더는 파일 재작성 금지 원칙대로 그대로).
+- `ViewMode`에 `shelf` 추가(폴더별 고정/⌘K "셸프 보기" 동일 취급). ShelfView는
+  direct listing, 폴더 타일 없음, 카드 클릭 시 노트 열기.
 
 ## 5. 백엔드/프론트엔드 변경 요약
 

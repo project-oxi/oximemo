@@ -101,6 +101,7 @@ const VIEW_KEYS = {
   list: "palette_view_list",
   timeline: "palette_view_timeline",
   graph: "palette_view_graph",
+  shelf: "palette_view_shelf",
 } as const satisfies Record<ViewMode, DictKey>;
 
 const THEME_KEYS = {
@@ -194,10 +195,10 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
   }
 
   // View-mode switches exclude the active mode (no-op noise).
-  for (const mode of ["grid", "list", "timeline", "graph"] as ViewMode[]) {
+  for (const mode of ["grid", "list", "timeline", "graph", "shelf"] as ViewMode[]) {
     if (mode === noteView) continue;
     const k = pair(locale, VIEW_KEYS[mode]);
-    add(`view.${mode}`, mode === "grid" ? "grid" : mode === "list" ? "list" : mode, k.title, k.alias, "view", () => callbacks.setViewMode(mode));
+    add(`view.${mode}`, mode === "grid" ? "grid" : mode === "list" ? "list" : mode === "shelf" ? "library" : mode, k.title, k.alias, "view", () => callbacks.setViewMode(mode));
   }
   const sb = pair(locale, "palette_sidebar_toggle");
   add("view.sidebar", "sidebar", sb.title, sb.alias, "view", callbacks.toggleSidebar);

@@ -201,7 +201,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from 일반), 복습 대기열 열기 for knowledge (reviewMode promoted
   from CardGrid local state to the ui store so settings can enter
   it), and 메타데이터 키 설정 for book/movie (in-dialog tab jump).
-  Installing auto-expands the new row; uninstall collapses it.
+  Installing auto-expands the new row; uninstalling collapses it.
+
+- **Shelf view — a media wall for book/movie collections** (after
+  oxibuilder's movie/book cards): `MetaHit` gained `cover_url` and
+  every JSON adapter maps it (OL cover_i → covers.openlibrary,
+  Google Books thumbnail with an https upgrade, 알라딘 cover, TMDB
+  poster_path → image.tmdb.org w342, OMDb Poster with the N/A filter).
+  `stamp_metadata` writes it to a schema-declared `cover_url` prop
+  alongside source_url (empty-only, never overwrites); the book/movie
+  presets declare it for new installs, and the browser-fallback
+  preset schemas mirror the full mapping vocabulary. `ViewMode` grew
+  a `shelf` mode — a poster-ratio card grid (cover image or a
+  typographic fallback, the user's rating as five stars, the schema's
+  status color as a corner dot, click to open). The shelf button
+  appears only for schemas that declare `cover_url` with a book/movie
+  domain; folder-view pinning and ⌘K (셸프 보기) treat it like any
+  other mode. The collections pane's book/movie rows gain a 기본 보기
+  segment (그리드/셸프) that pins the folder's default view.
 
 - **Ideas = fleeting-note inbox into the knowledge ladder** — instead of
   inventing a separate taxonomy, ideas inherit the existing knowledge

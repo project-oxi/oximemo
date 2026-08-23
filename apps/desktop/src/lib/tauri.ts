@@ -269,6 +269,11 @@ const BOOK_PRESET_SCHEMA: FolderSchema = {
     },
     rating: { prop_type: "select", options: ["1", "2", "3", "4", "5"] },
     author: { prop_type: "text", metadata: "author" },
+    isbn: { prop_type: "text", metadata: "isbn" },
+    published_date: { prop_type: "text", metadata: "published_date" },
+    page_count: { prop_type: "text", metadata: "page_count" },
+    source_url: { prop_type: "text" },
+    cover_url: { prop_type: "text" },
   },
   review: { property: "status", due_values: ["done"], decay_to: "reading" },
 };
@@ -281,6 +286,12 @@ const MOVIE_PRESET_SCHEMA: FolderSchema = {
     watched_at: { prop_type: "date" },
     rating: { prop_type: "select", options: ["1", "2", "3", "4", "5"] },
     series: { prop_type: "bool" },
+    director: { prop_type: "text", metadata: "director" },
+    release_date: { prop_type: "text", metadata: "release_date" },
+    runtime_min: { prop_type: "text", metadata: "runtime_min" },
+    original_title: { prop_type: "text", metadata: "original_title" },
+    source_url: { prop_type: "text" },
+    cover_url: { prop_type: "text" },
   },
 };
 

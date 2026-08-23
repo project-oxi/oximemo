@@ -16,6 +16,7 @@ import {
   FilePlus2,
   FolderPlus,
   LayoutGrid,
+  Library,
   List,
   Lock,
   LockOpen,
@@ -71,12 +72,14 @@ import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
 import { GalleryView } from "./GalleryView";
 import { SettingsMenu } from "./SettingsMenu";
-import { BreadcrumbBar } from "./BreadcrumbBar";
+import { ShelfView } from "./views/ShelfView";
 import { GridView, type Cell } from "./views/GridView";
-import { ReviewQueue } from "./ReviewQueue";
+import { metadataDomainOf } from "../lib/metadataRegion";
 import { ListView } from "./views/ListView";
 import { TimelineView } from "./views/TimelineView";
 import { GraphView } from "./views/GraphView";
+import { BreadcrumbBar } from "./BreadcrumbBar";
+import { ReviewQueue } from "./ReviewQueue";
 const PAGE_SIZE = 50;
 const MIN_COL_W = 240;
 const CARD_H = 176;
@@ -178,11 +181,12 @@ export function CardGrid() {
         match_all: matchAll,
         folder: folderFilter,
         favorites_only: favoritesOnly,
-        // Per-view listing scope (T8): grid/list are direct-only
+        // Per-view listing scope (T8): grid/list/shelf are direct-only
         // (`immediate: folderFilter !== null`); timeline/graph are recursive
         // — show the folder's full subtree so the source chips make sense.
         immediate:
-          folderFilter !== null && (noteView === "grid" || noteView === "list"),
+          folderFilter !== null &&
+          (noteView === "grid" || noteView === "list" || noteView === "shelf"),
       }),
     initialPageParam: null as string | null,
     refetchOnWindowFocus: true,
@@ -1090,6 +1094,9 @@ export function CardGrid() {
     folderFilter !== null &&
     !!folders.find((f) => f.path === folderFilter)?.view;
 
+  // Shelf (media wall) only exists for cover-bearing collections —
+  // the schema must declare cover_url and map to a book/movie domain.
+  const shelfAvailable = !!schema?.properties?.cover_url && metadataDomainOf(schema) !== null;
   const viewSwitcher = (
     <div
       role="group"
@@ -1103,7 +1110,6 @@ export function CardGrid() {
         { v: "graph", Icon: Network },
       ] as const).map(({ v, Icon }) => (
         <button
-          key={v}
           type="button"
           onClick={() => setNoteViewLocked(v)}
           title={v}
@@ -1118,6 +1124,22 @@ export function CardGrid() {
           <Icon size={13} strokeWidth={2} />
         </button>
       ))}
+      {shelfAvailable && (
+        <button
+          type="button"
+          onClick={() => setNoteViewLocked("shelf")}
+          title="shelf"
+          aria-label="shelf"
+          className={`inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
+            noteView === "shelf"
+              ? "bg-surface-muted text-text"
+              : "text-text-subtle hover:bg-surface-muted hover:text-text"
+          }`}
+          aria-pressed={noteView === "shelf"}
+        >
+          <Library size={13} strokeWidth={2} />
+        </button>
+      )}
       {folderFilter !== null && (
         <button
           type="button"
@@ -1530,6 +1552,8 @@ export function CardGrid() {
                   </>
                 )}
               </div>
+            ) : noteView === "shelf" && shelfAvailable ? (
+              <ShelfView items={items} badges={badgeDefs} onSelect={select} />
             ) : noteView === "grid" ? (
               <GridView
                 cells={visibleCells}

@@ -40,6 +40,10 @@ pub struct MetaHit {
     pub title: String,
     pub subtitle: Option<String>,
     pub url: Option<String>,
+    /// Poster/cover image URL — descriptive like `url`, never mapped
+    /// through `fields`; the stamp flow writes it to a schema-declared
+    /// `cover_url` prop (same special case as source_url).
+    pub cover_url: Option<String>,
     pub fields: BTreeMap<MetaField, String>,
 }
 
