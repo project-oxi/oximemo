@@ -76,6 +76,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of "MD 노트"). The remaining filter/sort controls leave the native
   `<select>` for a designed popover menu (checkmark list, compact
   caption chip showing the active value, e.g. "분야 · TECH").
+
+  The property panel itself was rebuilt as an **Obsidian-style
+  two-column table**: name column + value column with no row chrome,
+  hover-revealed row delete, and per-type editors — select opens an
+  option popover (with a clear-value entry), multiselect is chips plus
+  an always-visible inline input autocompleting the remaining options
+  (Enter adds the suggestion or the typed value, Backspace on empty
+  removes the last chip), date and text are borderless inputs. A
+  "+ 속성 추가" row opens a searchable key menu (unused schema keys +
+  custom keys); the old two-input add form is gone. Header shows the
+  property count.
 - **Command palette (⌘K)** — a global intent surface: navigation
   (전체 메모 · 즐겨찾기 · 갤러리 · 볼트 루트 · 오늘의 노트 · every folder ·
   #tags), view switches (grid/list/timeline/graph, sidebar), and actions
