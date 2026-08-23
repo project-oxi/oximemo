@@ -144,8 +144,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reset width / copy URL) and graph nodes get 노트 열기 · 즐겨찾기 ·
   삭제.
 
+- **Settings window redesign — drawer → centered rail+content modal** —
+  the 380px slide-in drawer with ten stacked sections couldn't carry
+  collections × metadata providers × per-folder settings, so it became
+  a centered modal (~880×640) with a left category rail (groups:
+  일반 · 연동 · 설치된 컬렉션 · 시스템) and one active content pane.
+  Every section body carries over verbatim — the Section icon+title
+  wrapper is gone because the rail already labels each item. The
+  gear trigger, `settingsOpen` store flag, and ESC/backdrop close are
+  unchanged.
 
-### Changed
+- **Installable collection library** — every preset is now pure data
+  (`TEMPLATE.md` + `SCHEMA.toml`) and installs through one IPC,
+  `install_collection(preset_id, folder)`. Five new installable
+  presets (`book`/`movie`/`blog`/`novel`/`idea`) join the default-shipped
+  `knowledge` and `daily` pair. New folders carry `[meta] preset =
+  "<id>"`; existing folders predate the marker and are matched by
+  path. The `kind` vocabulary extends to `note|knowledge|daily|book|
+  movie|blog|novel|idea` so files classify themselves on disk rather
+  than by folder path. `apply_knowledge_preset` is gone — the new
+  surface subsumes it. The browser fallback exercises the same registry
+  with in-memory schema storage.
+
+- **Collection catalog picker + ⌘K entry** — a centered Base UI dialog
+  lists the uninstalled presets with localized descriptions; selecting
+  one reveals a folder-name input (defaulted to the localized name)
+  and an install button that invalidates folders/schemas queries. The
+  picker is reachable from ⌘K (`action.add_collection`) and from the
+  settings rail's `+ 컬렉션 추가` row. The settings rail's
+  "설치된 컬렉션" group lists each installed collection (system pair
+  always present; installed ones derived from folder list + schema
+  `[meta].preset`).
+
+- **Per-collection settings pane (intentionally thin)** — folder path,
+  go-to-folder, and a 2-click armed remove. System folders
+  (knowledge/daily) label the destructive action 초기화 and explain
+  the recreate-on-migrate semantics; daily also surfaces the
+  previously TOML-only `[daily].enabled` toggle. Book and movie
+  panes link to Integrations → Metadata for provider keys; everything
+  else points at Folders for rename/pin. No invented settings.
+
+- **Ideas = fleeting-note inbox into the knowledge ladder** — instead of
+  inventing a separate taxonomy, ideas inherit the existing knowledge
+  status ladder. `status` has two values (fleeting/archived), the
+  `[review]` queue catches fleeting notes, and the actions are
+  승격 (move + kind stamp + status=stub on the knowledge side) /
+  보관 (transition to archived). The schema declares `promote` as a
+  declarative `{ into, kind, start_status }` table so future presets
+  can do the same without a new backend primitive.
+
+- **Metadata provider layer (multi-country)** — the core (`metadata.rs`)
+  holds the pure, network-free contracts: `MetaField` canonical
+  vocabulary, `MetaHit` envelope, `ProviderInfo` catalog with the eight
+  v1 providers (`open_library` / `dnb_sru` keyless, `ndl_search`
+  conditional keyless, `google_books` / `aladin` / `tmdb` / `omdb`
+  keyed, `kmdb` approval-gated), and a declarative stamp walker
+  (`[properties.X] metadata = "author"` → maps `MetaField::Author` to
+  that property). `provider_order` resolves regional priority
+  (`kr` → aladin/google/open, `jp` → ndl/google/open, `de` →
+  dnb/google/open, otherwise google/open; movie ko → tmdb/kmdb/omdb,
+  otherwise tmdb/omdb). Ratings never map. `src-tauri/metadata.rs`
+  hosts the HTTP adapters and IPC; the search command runs only
+  providers whose key is set (or keyless), in region order. The
+  browser fallback has the same registry as pure data.
+
+- **Metadata settings pane** — Integrations → Metadata: enabled toggle,
+  region select (auto-detect default + KR/JP/DE/Other), and the eight
+  providers grouped by domain with key inputs and badges (keyless /
+  conditional / keyed / approval-pending). Region selects re-rank
+  recommended providers first within each group; save commits the
+  whole `[metadata]` config in one shot.
+
 
 - **Custom context menus everywhere + DnD completion** — the native
   webview right-click menu is blocked app-wide (dev: Alt+right-click
