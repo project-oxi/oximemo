@@ -14,6 +14,7 @@
 import { dict as en } from "./locales/en";
 import { dict as ko, type DictKey } from "./locales/ko";
 import type { Theme } from "./theme";
+import { folderDisplayName } from "./folders";
 import type { FolderEntry, ViewMode } from "./types";
 
 /** Icon name — resolved to a lucide component by CommandPalette.tsx. */
@@ -75,6 +76,8 @@ export interface CommandDeps {
   folders: FolderEntry[];
   tags: [string, number][];
   dailyEnabled: boolean;
+  /** The daily folder's physical path (config `[daily] folder`). */
+  dailyFolder?: string;
   /** Folders whose SCHEMA.toml declares [review] — drives the review
    *  command's existence (design §7.3: the catalog is state-driven). */
   reviewFolders?: string[];
@@ -135,16 +138,19 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
     const d = pair(locale, "today_note");
     add("nav.today", "calendar", d.title, d.alias, "nav", callbacks.openToday);
   }
-  // Folders — full path as the title (nested match via substring, "a/b"),
-  // exactly like the FolderPalette this palette replaces. Root ("") is
-  // never listed: nav.vault_root covers it.
+  // Folders — localized display title for the system folders (macOS
+  // ~/Desktop → "데스크톱" convention), physical path in the alias so
+  // both spellings match. Root ("") is never listed: nav.vault_root
+  // covers it.
+  const dict = locale === "ko" ? ko : en;
   for (const folder of folders) {
     if (folder.path === "") continue;
+    const display = folderDisplayName(folder.path, dict, deps.dailyFolder);
     add(
       `folder:${folder.path}`,
       "folder",
-      folder.path,
-      folder.path,
+      display,
+      `${display} ${folder.path}`,
       "nav",
       () => callbacks.jumpToFolder(folder.path),
       folder.note_count > 0 ? { count: folder.note_count } : undefined,

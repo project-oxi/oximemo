@@ -45,9 +45,9 @@ pub use memo::{
     timestamp_filename,
 };
 pub use schema::{
-    FolderSchema, KNOWLEDGE_SCHEMA_TOML, KNOWLEDGE_TEMPLATE_MD, MergeKind, OnKind, PropertyDef,
-    PropType, ReviewDef, TransitionRule, Violation, WorkspaceDef, apply_transitions, parse_schema,
-    read_schema, validate,
+    DEFAULT_KNOWLEDGE_FOLDER, FolderSchema, KNOWLEDGE_SCHEMA_TOML, KNOWLEDGE_TEMPLATE_MD, MergeKind,
+    OnKind, PropertyDef, PropType, ReviewDef, TransitionRule, Violation, WorkspaceDef,
+    apply_transitions, parse_schema, read_schema, validate,
 };
 pub use migrate_vault::MigrationStatus;
 pub use paths::Paths;

@@ -33,6 +33,7 @@ import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { useFolderDrop } from "../lib/dropTarget";
+import { useFolderNames } from "../lib/folders";
 import type { FolderDef, FolderEntry } from "../lib/types";
 
 export interface BreadcrumbBarProps {
@@ -101,8 +102,8 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
   const wrapRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(0);
   // Mirror `collapsed` into a ref so the rAF measure loop sees fresh
-  // values without the closure-staleness trap.
   const collapsedRef = useRef(0);
+  const { displayName: displayFolder } = useFolderNames();
   // Hide in gallery mode — it has its own header.
   if (view === "gallery") return null;
 
@@ -115,7 +116,6 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
       : Object.keys(tagFilter).some((k) => tagFilter[k] !== "off")
         ? t.query_tags
         : t.query_all_notes;
-
   const segs = query || folderFilter === "" ? [] : folderFilter.split("/");
   const paths: string[] = [];
   for (let i = 0; i < segs.length; i++) paths.push(segs.slice(0, i + 1).join("/"));
@@ -256,14 +256,14 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
           <MoreHorizontal size={12} aria-hidden="true" />
         </button>
       )}
-      {segs.slice(collapsed).map((name, i) => {
+      {segs.slice(collapsed).map((_name, i) => {
         const idx = collapsed + i;
         const path = paths[idx];
         const last = idx === segs.length - 1;
         return (
           <SegmentButton
             key={path}
-            label={name}
+            label={displayFolder(path)}
             path={path}
             folders={folders}
             folderDefs={folderDefs}
@@ -382,6 +382,7 @@ function SegmentPopover({
   disabled: boolean;
 }) {
   const setFolderFilter = useUI((s) => s.setFolderFilter);
+  const { leafName: leafFolder } = useFolderNames();
   const [open, setOpen] = useState(false);
   if (disabled) {
     return (
@@ -438,7 +439,7 @@ function SegmentPopover({
                           style={{ background: color || "var(--color-text-subtle)" }}
                         />
                         <span className="min-w-0 flex-1 truncate">
-                          {f.path === "" ? rootLabel : f.path.split("/").pop()}
+                          {f.path === "" ? rootLabel : leafFolder(f.path)}
                         </span>
                         {f.note_count > 0 && (
                           <span className="ml-auto text-[11px] text-text-subtle">{f.note_count}</span>

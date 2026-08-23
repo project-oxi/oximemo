@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { colorForFolder } from "../lib/color";
 import { useFolderDrop } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
+import { useFolderNames } from "../lib/folders";
 import { useUI } from "../stores/ui";
 import { relativeTime } from "../lib/time";
 
@@ -77,7 +78,7 @@ export function FolderMenu({
     }
   };
   useEffect(() => () => disarm(), []);
-  const name = path.split("/").at(-1) ?? path;
+  const name = useFolderNames().leafName(path);
   return (
     <CtxRoot onOpenChange={(open) => { if (!open) disarm(); }}>
       <CtxTrigger render={render}>
@@ -172,6 +173,7 @@ export function FolderTile({
     onMoveFolderTree ? (p) => onMoveFolderTree(p, card.path) : undefined,
   );
   const setDraggingFolder = useUI((s) => s.setDraggingFolder);
+  const name = useFolderNames().leafName(card.path);
   return (
     <FolderMenu
       path={card.path}
@@ -236,7 +238,7 @@ export function FolderTile({
           />
         ) : (
           <span className="truncate text-sm font-semibold text-text">
-            {card.path.split("/").at(-1)}
+            {name}
           </span>
         )}
         <span className="ml-auto shrink-0 text-[11px] tabular-nums text-text-subtle">

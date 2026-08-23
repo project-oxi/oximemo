@@ -14,6 +14,7 @@ import { colorForFolder } from "../lib/color";
 import { dayLabel, todayLocalISO } from "../lib/dates";
 import { useFolderDrop, parentOf } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
+import { folderDisplayName, useFolderNames } from "../lib/folders";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import { Calendar } from "./Calendar";
 import { TextCtxMenu } from "./TextCtxMenu";
@@ -251,7 +252,7 @@ export function Sidebar({
           onMoveNote={onMoveNote}
           onMoveFolderTree={onMoveFolderTree}
           icon={<CalendarDays size={14} />}
-          label={dailyFolder}
+          label={folderDisplayName(dailyFolder, t, dailyFolder)}
         />
       )}
       {pins.map((f) => (
@@ -507,6 +508,7 @@ function SidebarFolderRow({
     (id) => onMoveNote(id, path),
     onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
   );
+  const { displayName: displayFolder } = useFolderNames();
   const base = path.split("/").at(-1) ?? path;
   return (
     <CtxRoot onOpenChange={(open) => !open && disarm()}>
@@ -567,7 +569,7 @@ function SidebarFolderRow({
               size={12}
               style={{ color: colorForFolder(path, folders) }}
             />
-            <span className="truncate">{path}</span>
+            <span className="truncate">{displayFolder(path)}</span>
           </button>
         )}
         {naming && (

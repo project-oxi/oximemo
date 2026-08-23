@@ -74,6 +74,14 @@ pub struct PropertyDef {
     pub colors: BTreeMap<String, String>,
 }
 
+/// The default knowledge folder's vault-relative path — a system folder
+/// that ships with every vault (created by `Vault::migrate`, design
+/// 2026-08-23 + user prompt: "지식 폴더도 초기부터 있게, 데일리 폴더처럼").
+/// The physical name stays stable for grep/CLI parity; the UI displays a
+/// localized name (macOS `~/Desktop` → "데스크톱" convention).
+pub const DEFAULT_KNOWLEDGE_FOLDER: &str = "knowledge";
+
+
 /// When a transition rule fires.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

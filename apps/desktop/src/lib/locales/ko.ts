@@ -183,6 +183,8 @@ export const dict = {
   dock_saved: "저장됨",
   dock_saving: "저장 중…",
   folder_root: "볼트",
+  sysfolder_daily: "데일리",
+  sysfolder_knowledge: "지식",
   folder_new: "새 폴더",
   folder_unpin: "고정 해제",
   folder_open: "열기",

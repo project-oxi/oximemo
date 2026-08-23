@@ -7,6 +7,7 @@ import { useMemo } from "react";
 
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
+import { useFolderNames } from "../lib/folders";
 import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
 
 
@@ -36,6 +37,7 @@ interface Props {
 
 export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip, badges }: Props) {
   const { t, locale } = useI18n();
+  const { displayName: displayFolder } = useFolderNames();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const folderColor = colorForFolder(memo.folder, folders);
   const previewHtml = useMemo(
@@ -73,7 +75,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
               />
             )}
             <span className="truncate text-xs font-medium text-text-muted">
-              {memo.folder}
+              {displayFolder(memo.folder)}
             </span>
             <span aria-hidden className="text-text-subtle">·</span>
           </>
@@ -170,7 +172,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
               className="mt-1 flex items-center gap-1 text-[10px] text-text-subtle transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
             >
               <i className="size-1.5 shrink-0 rounded-[2px]" style={{ backgroundColor: folderColor }} />
-              <span className="truncate">{memo.folder}</span>
+              <span className="truncate">{displayFolder(memo.folder)}</span>
             </button>
           )}
         </div>

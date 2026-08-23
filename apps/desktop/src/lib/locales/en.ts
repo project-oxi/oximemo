@@ -184,6 +184,8 @@ export const dict: Record<keyof typeof ko, string> = {
   dock_saved: "Saved",
   dock_saving: "Saving…",
   folder_root: "Vault",
+  sysfolder_daily: "Daily",
+  sysfolder_knowledge: "Knowledge",
   folder_new: "New folder",
   folder_unpin: "Unpin",
   folder_open: "Open",

@@ -6,6 +6,7 @@
 import { Star, Trash2, Copy, FolderInput, ClipboardCopy } from "lucide-react";
 
 import { useI18n } from "../lib/i18n";
+import { useFolderNames } from "../lib/folders";
 import type { FolderEntry, MemoSummary } from "../lib/types";
 
 import { CtxMenu, CtxItem, CtxSeparator, CtxSubmenu } from "./ContextMenu";
@@ -29,6 +30,7 @@ export function NoteCtxMenu({
   onDelete,
 }: Props) {
   const { t } = useI18n();
+  const displayFolder = useFolderNames().displayName;
   return (
     <CtxMenu>
       <CtxItem
@@ -40,7 +42,7 @@ export function NoteCtxMenu({
         {folderEntries.map((f) => (
           <CtxItem
             key={f.path || "root"}
-            label={f.path || t.folder_root}
+            label={f.path ? displayFolder(f.path) : t.folder_root}
             disabled={memo.folder === f.path}
             onClick={() => onMoveFolder(memo.id, f.path)}
           />

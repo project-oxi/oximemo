@@ -183,10 +183,11 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
         folders,
         tags: facets.data?.tags ?? [],
         dailyEnabled,
+        dailyFolder: configQ.data?.daily?.folder,
         reviewFolders,
         callbacks,
       }),
-    [locale, noteView, theme, folders, facets.data, dailyEnabled, reviewFolders, callbacks],
+    [locale, noteView, theme, folders, facets.data, dailyEnabled, configQ.data, reviewFolders, callbacks],
   );
 
   const q = query.trim();

@@ -38,6 +38,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tantivy gains an `aliases` field and rebuilds on schema change.
   Browser fallback exercises properties, queries, schemas, and the
   review queue (transitions stay desktop-only, like backlinks).
+
+- **Default knowledge folder + localized system-folder names** — the
+  knowledge folder now ships with every vault (`Vault::migrate` creates
+  it, macOS system-folder semantics: deleting and restarting recreates
+  an empty preset; user edits to its files are never overwritten), and
+  the UI displays the vault's default folders under localized names —
+  `daily` → "데일리"/"Daily", `knowledge` → "지식"/"Knowledge" — while
+  disk paths, CLI, and wiki links keep the stable physical names
+  (`~/Desktop` → "데스크톱" convention). Applied across the sidebar,
+  breadcrumbs, folder tiles/rows, chips, palette (physical path stays
+  searchable as an alias), move/delete menus, capture form, settings,
+  and the note detail; rename inputs still edit the physical name.
 - **Command palette (⌘K)** — a global intent surface: navigation
   (전체 메모 · 즐겨찾기 · 갤러리 · 볼트 루트 · 오늘의 노트 · every folder ·
   #tags), view switches (grid/list/timeline/graph, sidebar), and actions

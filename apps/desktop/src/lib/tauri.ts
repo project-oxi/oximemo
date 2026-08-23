@@ -10,7 +10,9 @@ import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { FolderCard, FolderEntry, FolderSchema, Memo, MemoSummary } from "./types";
 import { extractTags } from "./tags";
 
-const inTauri = "__TAURI_INTERNALS__" in window;
+// `typeof window` guard keeps the module importable outside the browser
+// (bun tests): the fallback branch below never runs there.
+const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!inTauri) {
@@ -117,6 +119,27 @@ function saveFolders(paths: string[]): void {
   localStorage.setItem(FOLDERS_KEY, JSON.stringify(paths));
 }
 
+/** `Vault::migrate` parity (browser fallback): the knowledge folder
+ *  ships with the vault — macOS system-folder semantics. Recreated
+ *  when deleted; user-edited schemas are never overwritten (the
+ *  registration below only fills the absent key). */
+function ensureDefaultFolders(): void {
+  if (typeof localStorage === "undefined") return; // bun/node test env
+  try {
+    const folders = loadFolders();
+    if (!folders.includes("knowledge")) {
+      folders.push("knowledge");
+      saveFolders(folders);
+    }
+    const schemas = loadSchemas();
+    if (!schemas.knowledge) {
+      schemas.knowledge = KNOWLEDGE_PRESET_SCHEMA;
+      localStorage.setItem("oximemo:schemas", JSON.stringify(schemas));
+    }
+  } catch {
+    // Corrupt store — skip; the desktop app owns the real migration.
+  }
+}
 const PREVIEW_MAX = 280;
 
 function loadStore(): Record<string, Memo> {
@@ -197,6 +220,7 @@ const KNOWLEDGE_PRESET_SCHEMA: FolderSchema = {
     decay_to: "decayed",
   },
 };
+ensureDefaultFolders();
 
 /** Match core's `make_preview`: non-empty trimmed lines joined by newlines
  *  (so previews keep the user's line breaks), truncated on a char boundary. */

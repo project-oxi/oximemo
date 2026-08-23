@@ -1995,9 +1995,12 @@ impl Vault {
     /// lags the current `make_preview` (or the marker is absent), so existing
     /// notes' card previews pick up changes.
     ///
-    /// Idempotent: a no-op once the marker is current.
+    /// Also ensures the default folders exist (design 2026-08-23 §6.3 — the
+    /// knowledge folder ships with the vault like the daily folder, macOS
+    /// system-folder style). Idempotent: a no-op once everything is current.
     pub fn migrate(&self) -> Result<()> {
         self.ensure_initialized()?;
+        self.ensure_default_folders()?;
         let marker = self.paths.index_fmt_marker_path();
         let wants = INDEX_FORMAT_VERSION.to_string();
         if std::fs::read_to_string(&marker)
@@ -2011,6 +2014,16 @@ impl Vault {
         self.reindex()?;
         std::fs::write(&marker, &wants)?;
         Ok(())
+    }
+
+    /// The vault's default folders. `daily` is created on first use by
+    /// [`Self::open_daily`]; the knowledge folder ships from the start
+    /// (user prompt 2026-08-23: "지식 폴더도 초기부터, 데일리 폴더처럼").
+    /// Deleting the folder and restarting recreates an empty preset —
+    /// system-folder semantics; user edits to the preset files are never
+    /// overwritten (`apply_knowledge_preset` skips existing files).
+    fn ensure_default_folders(&self) -> Result<()> {
+        self.apply_knowledge_preset(crate::schema::DEFAULT_KNOWLEDGE_FOLDER)
     }
 
     /// Re-index a single changed file. Called by the watcher (debounced). Handles
@@ -4010,6 +4023,39 @@ watcher_retry_interval_ms = 200
         assert_eq!(page2.items[0].title.as_deref(), Some("Gamma"));
         // `a` is still the first item — stub filtered out.
         assert_eq!(page.items[0].id, a.id);
+    }
+
+    /// The knowledge folder ships with every vault (system-folder
+    /// semantics, design + user prompt 2026-08-23): `migrate` creates it,
+    /// recreation after deletion is empty-preset-only, and user edits to
+    /// the preset files survive.
+    #[test]
+    fn migrate_ships_knowledge_folder_and_preserves_edits() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        let root = v.paths().vault.join("knowledge");
+        assert!(root.join("TEMPLATE.md").exists());
+        assert!(root.join("SCHEMA.toml").exists());
+        assert!(
+            v.folder_schema("knowledge")
+                .unwrap()
+                .is_some(),
+            "the shipped folder must carry its schema"
+        );
+
+        // User edit survives a later migrate (apply skips existing files).
+        let schema_path = root.join("SCHEMA.toml");
+        let edited = std::fs::read_to_string(&schema_path)
+            .unwrap()
+            .replace("required = true", "required = false");
+        std::fs::write(&schema_path, edited).unwrap();
+        v.migrate().unwrap();
+        assert!(
+            !std::fs::read_to_string(&schema_path)
+                .unwrap()
+                .contains("required = true"),
+            "migrate must never overwrite user edits to the preset"
+        );
     }
 
     /// Design §6.1/§6.3 end-to-end: the knowledge preset stamps

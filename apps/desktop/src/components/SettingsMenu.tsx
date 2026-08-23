@@ -62,6 +62,7 @@ import {
 
 import { applyTheme, type Theme } from "../lib/theme";
 import { useI18n } from "../lib/i18n";
+import { useFolderNames } from "../lib/folders";
 import { useUI } from "../stores/ui";
 import type { FolderEntry } from "../lib/types";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -422,7 +423,7 @@ function FoldersSection() {
 
   const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
   const configQ = useQuery({ queryKey: ["config"], queryFn: getConfig });
-  // Manage real folders only; the vault root (`path: ""`) is not a folder
+  const { displayName: displayFolder } = useFolderNames();
   // and can neither be deleted nor filtered meaningfully.
   const list = (foldersQ.data ?? []).filter((f) => f.path !== "");
 
@@ -505,7 +506,7 @@ function FoldersSection() {
               onClick={() => setFolderFilter(f.path)}
               className="min-w-0 flex-1 truncate text-left text-xs text-text-muted hover:text-text"
             >
-              {f.path}
+              {displayFolder(f.path)}
             </button>
             <span className="text-[10px] text-text-subtle">{f.note_count}</span>
             <button

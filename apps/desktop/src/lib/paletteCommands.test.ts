@@ -68,6 +68,28 @@ describe("matchScore ladder", () => {
   });
 });
 
+describe("system-folder display names", () => {
+  test("default folders get localized titles; physical paths stay matchable", () => {
+    const sysFolders: FolderEntry[] = [
+      { path: "knowledge", note_count: 4 },
+      { path: "daily", note_count: 2 },
+      { path: "knowledge/ai", note_count: 1 },
+    ];
+    const cmds = buildCommands(
+      deps({ folders: sysFolders, dailyFolder: "daily" }),
+    );
+    const byTitle = (t: string) => cmds.find((c) => c.title === t);
+    expect(byTitle("지식")).toBeDefined();
+    expect(byTitle("데일리")).toBeDefined();
+    // Nested system folders localize the leading segment: "knowledge/ai"
+    // → "지식/ai" (palette titles are full paths).
+    expect(byTitle("지식/ai")).toBeDefined();
+    // matches even though the title is localized.
+    const k = byTitle("지식")!;
+    expect(k.alias).toContain("knowledge");
+  });
+});
+
 describe("rankCommands", () => {
   const cmds = buildCommands(deps());
 

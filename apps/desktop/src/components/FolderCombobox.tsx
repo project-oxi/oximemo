@@ -7,6 +7,7 @@ import { Popover } from "@base-ui-components/react";
 import { Folder, FolderPlus } from "lucide-react";
 
 import { useI18n } from "../lib/i18n";
+import { useFolderNames } from "../lib/folders";
 import type { FolderEntry } from "../lib/types";
 import { TextCtxMenu } from "./TextCtxMenu";
 export interface FolderComboboxHandle {
@@ -32,6 +33,7 @@ export const FolderCombobox = forwardRef<
   ref,
 ) {
   const { t } = useI18n();
+  const displayFolder = useFolderNames().displayName;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -39,16 +41,17 @@ export const FolderCombobox = forwardRef<
     open: () => setOpen(true),
   }));
 
-  const selected = value === "" ? t.folder_root : value;
+  const selected = value === "" ? t.folder_root : displayFolder(value);
   // The root entry (`path: ""`) is rendered as the fixed first row below;
   // drop it from the filterable list to avoid showing it twice.
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const real = folders.filter((f) => f.path !== "");
     if (!q) return real;
-    return real.filter((f) => f.path.toLowerCase().includes(q));
-  }, [folders, query]);
-
+    return real.filter(
+      (f) => f.path.toLowerCase().includes(q) || displayFolder(f.path).toLowerCase().includes(q),
+    );
+  }, [folders, query, displayFolder]);
   const trimmed = query.trim();
   const showCreate = trimmed.length > 0 && !folders.some((f) => f.path === trimmed) && !!onCreate;
   const totalRows = filtered.length + (showCreate ? 1 : 0);
@@ -121,7 +124,7 @@ export const FolderCombobox = forwardRef<
                       setOpen(false);
                     }}
                   >
-                    <span>{f.path}</span>
+                    <span>{displayFolder(f.path)}</span>
                     <span className="text-text-subtle">{f.note_count}</span>
                   </button>
                 </li>

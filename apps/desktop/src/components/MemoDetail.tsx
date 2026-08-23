@@ -11,6 +11,7 @@ import { Folder, Star } from "lucide-react";
 
 import { deleteMemo, getMemo, moveNote, updateMemo, listFolders } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { useFolderNames } from "../lib/folders";
 import { useUI } from "../stores/ui";
 import { ContextDock } from "./ContextDock";
 import { PropertyPanel } from "./PropertyPanel";
@@ -22,6 +23,7 @@ import type { FolderEntry, Memo } from "../lib/types";
 
 export function MemoDetail() {
   const { t } = useI18n();
+  const displayFolder = useFolderNames().displayName;
   const selectedId = useUI((s) => s.selectedId);
   const select = useUI((s) => s.select);
   const setError = useUI((s) => s.setError);
@@ -163,10 +165,10 @@ export function MemoDetail() {
                 type="button"
                 onClick={() => folderPickerRef.current?.open()}
                 className="inline-flex items-center gap-1 rounded-[var(--tag-radius)] bg-surface-muted px-2 py-1 text-xs text-text-subtle transition-colors duration-150 hover:bg-surface hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                title={folder || t.folder_root}
+                title={folder ? displayFolder(folder) : t.folder_root}
               >
                 <Folder size={12} />
-                {folder || t.folder_root}
+                {folder ? displayFolder(folder) : t.folder_root}
               </button>
               <button
                 type="button"

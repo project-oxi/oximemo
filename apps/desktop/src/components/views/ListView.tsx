@@ -15,6 +15,7 @@ import { Folder, Star } from "lucide-react";
 
 import { colorForFolder } from "../../lib/color";
 import { useI18n } from "../../lib/i18n";
+import { useFolderNames } from "../../lib/folders";
 import { useFolderDrop } from "../../lib/dropTarget";
 import { relativeTime } from "../../lib/time";
 import { useUI } from "../../stores/ui";
@@ -189,6 +190,7 @@ function FolderRow({
   onNameCommit: (value: string | null) => void;
 }) {
   const { t } = useI18n();
+  const name = useFolderNames().leafName(f.path);
   const setDraggingFolder = useUI((s) => s.setDraggingFolder);
   // M16: the row is inert while the dragged note already lives here.
   // Folder drags land here too (cycles/parent no-ops suppressed in the hook).
@@ -246,7 +248,7 @@ function FolderRow({
           />
         ) : (
           <span className="text-sm font-semibold text-text">
-            {f.path.split("/").at(-1)}
+            {name}
           </span>
         )}
         <span className="text-xs text-text-subtle">

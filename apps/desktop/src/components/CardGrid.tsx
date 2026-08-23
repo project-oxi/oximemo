@@ -54,8 +54,9 @@ import {
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { applyTheme, type Theme } from "../lib/theme";
-import { todayLocalISO } from "../lib/dates";
 import { listen } from "../lib/tauri";
+import { todayLocalISO } from "../lib/dates";
+import { useFolderNames } from "../lib/folders";
 import { useUI, loadQueryView } from "../stores/ui";
 import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
 
@@ -81,6 +82,7 @@ const ROW_H = CARD_H + ROW_GAP;
 
 export function CardGrid() {
   const { t } = useI18n();
+  const displayFolder = useFolderNames().displayName;
   const search = useUI((s) => s.search);
   const setSearch = useUI((s) => s.setSearch);
   const select = useUI((s) => s.select);
@@ -529,7 +531,7 @@ export function CardGrid() {
         qc.invalidateQueries({ queryKey: ["search"] });
         qc.invalidateQueries({ queryKey: ["facets"] });
         qc.invalidateQueries({ queryKey: ["folders"] });
-        setToast(`→ ${folder || t.folder_root}`);
+        setToast(`→ ${displayFolder(folder) || t.folder_root}`);
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   };

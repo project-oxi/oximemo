@@ -14,6 +14,7 @@ import {
 import { TextCtxMenu } from "./TextCtxMenu";
 
 import { useI18n } from "../lib/i18n";
+import { useFolderNames } from "../lib/folders";
 import { Folder, FolderPlus, X } from "lucide-react";
 
 import { colorForFolder } from "../lib/color";
@@ -55,6 +56,7 @@ function SlashFolderMenu({
   onCreate: (path: string) => void;
 }) {
   const { t } = useI18n();
+  const displayFolder = useFolderNames().displayName;
   return (
     <div className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-32 overflow-y-auto rounded-xl bg-surface-raised/80 px-1 py-1 shadow-lg ring-1 ring-line backdrop-blur-xl">
       {filtered.map((f, i) => (
@@ -64,7 +66,7 @@ function SlashFolderMenu({
           onClick={() => onSelect(f.path)}
         >
           <Folder size={14} className="shrink-0 text-text-subtle" />
-          <span className="truncate">{f.path || t.folder_root}</span>
+          <span className="truncate">{f.path ? displayFolder(f.path) : t.folder_root}</span>
           <span className="ml-auto text-[10px] text-text-subtle">{f.note_count}</span>
         </button>
       ))}
@@ -89,6 +91,7 @@ function FolderChip({
   onDismiss: () => void;
 }) {
   const color = colorForFolder(path);
+  const label = useFolderNames().displayName(path);
   return (
     <span className="inline-flex items-center gap-1 rounded-[var(--tag-radius)] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text">
       {color && (
@@ -98,7 +101,7 @@ function FolderChip({
           style={{ backgroundColor: color }}
         />
       )}
-      {path}
+      {label}
       <button
         type="button"
         onClick={(e) => {

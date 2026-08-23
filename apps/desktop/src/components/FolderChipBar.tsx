@@ -13,6 +13,7 @@ import { Folder, Plus } from "lucide-react";
 import { useUI } from "../stores/ui";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
+import { useFolderNames } from "../lib/folders";
 import { useFolderDrop } from "../lib/dropTarget";
 import type { FolderCard, FolderDef } from "../lib/types";
 
@@ -77,7 +78,7 @@ function FolderChip({
   onMoveFolderTree?: (path: string, dest: string) => void;
 }) {
   const color = colorForFolder(card.path, folderDefs);
-  const name = card.path.split("/").at(-1) ?? card.path;
+  const name = useFolderNames().leafName(card.path);
   const setDraggingFolder = useUI((s) => s.setDraggingFolder);
   // M16: the chip is inert while the dragged note already lives here.
   // Folder drags land here too (cycles/parent no-ops suppressed in the hook).
