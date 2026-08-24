@@ -263,10 +263,13 @@ export interface TurnResult {
   changed: ChangedNote[];
   duration_ms: number;
   /** Model/provider actually used this turn, when the agent's output
-   * discloses it (omp's JSONL stream does). */
+   * discloses it (omp's JSONL stream and claude's modelUsage do). */
   model: string | null;
   provider: string | null;
-}
+  /** Tool requests the agent's OWN permission policy denied this turn
+   * (claude's result JSON discloses them). null = not measurable. */
+  denials: string[] | null;
+ }
 
 export interface ActiveMemoRef {
   id: string;

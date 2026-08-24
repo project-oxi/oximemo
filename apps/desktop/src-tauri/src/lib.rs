@@ -1739,10 +1739,15 @@ mod commands {
         pub changed: Vec<crate::copilot::ChangedNote>,
         pub duration_ms: u64,
         /// Model/provider ACTUALLY used this turn, when the agent's output
-        /// discloses it (omp's JSONL stream does; oxios's does not).
+        /// discloses it (omp's JSONL stream and claude's modelUsage do;
+        /// oxios's does not).
         pub model: Option<String>,
         pub provider: Option<String>,
-    }
+        /// Tool requests the agent's OWN permission policy denied this
+        /// turn (claude's result JSON discloses them). None = not
+        /// measurable for this agent.
+        pub denials: Option<Vec<String>>,
+ }
 
     /// Full-vault manifest walk; heavy (redb + per-file read/hash), so
     /// callers run it via `spawn_blocking` to keep the async runtime free.
@@ -1865,9 +1870,11 @@ mod commands {
             &refs,
         );
         // Adapter dispatch (spec §5): argv shape, cwd, and stdout dialect
-        // are per-agent facts. oxios context rides stdin (`--context-file -`);
-        // omp appends stdin to the prompt as context. omp turns run with
-        // the vault as cwd so its file tools land in the right tree.
+        // are per-agent facts. oxios/omp/claude/codex get the context on
+        // stdin; oxicode does not read stdin as context (verified
+        // 0.76.0) so its prompt embeds the block. Everything except
+        // oxios runs with the vault as cwd so file tools land in the
+        // right tree. Spec §11: no permission/sandbox flags anywhere.
         let (args, cwd): (Vec<String>, Option<&std::path::Path>) = match cfg.agent.as_str() {
             "oxios" => (
                 crate::copilot::oxios_args(session.as_deref(), &message),
@@ -1877,8 +1884,25 @@ mod commands {
                 crate::copilot::omp_args(session.as_deref(), model.as_deref(), &message),
                 Some(vault_root.as_path()),
             ),
+            "claude" => (
+                crate::copilot::claude_args(session.as_deref(), model.as_deref(), &message),
+                Some(vault_root.as_path()),
+            ),
+            "codex" => (
+                crate::copilot::codex_args(session.as_deref(), model.as_deref(), &message),
+                Some(vault_root.as_path()),
+            ),
+            "oxicode" => {
+                let prompt = crate::copilot::oxicode_prompt(&ctx, &message);
+                (
+                    crate::copilot::oxicode_args(model.as_deref(), &prompt),
+                    Some(vault_root.as_path()),
+                )
+            }
             other => return Err(format!("no copilot adapter for '{other}'")),
         };
+        // oxicode ignores stdin; skip the pipe write entirely.
+        let stdin_for_agent = if cfg.agent == "oxicode" { "" } else { ctx.as_str() };
         let before = {
             let v = state.vault.clone();
             tokio::task::spawn_blocking(move || manifest_snapshot(v))
@@ -1891,7 +1915,7 @@ mod commands {
             let out = crate::copilot::run_agent_process(
                 &exe,
                 &args,
-                &ctx,
+                &stdin_for_agent,
                 cwd,
                 cfg.timeout_secs,
                 move |pgid| {
@@ -1922,16 +1946,39 @@ mod commands {
             let _ = app.emit("memos:changed", ());
         }
         // Response parsing is adapter-dialect work: oxios prints one JSON
-        // object, omp a JSONL event stream that also discloses the model
-        // and provider ACTUALLY used this turn (spec §12).
-        let (response, session_id, model, provider) = if outcome.timed_out {
-            (String::new(), None, None, None)
-        } else if cfg.agent == "omp" {
-            let t = crate::copilot::parse_omp_jsonl(&outcome.stdout);
-            (t.response, t.session_id, t.model, t.provider)
+        // object, omp/claude/codex/oxicode print event streams. omp and
+        // claude also disclose the model/provider ACTUALLY used this
+        // turn (spec §12 — measured, not configured); claude additionally
+        // discloses permission_denials (its own policy blocking writes).
+        let (response, session_id, model, provider, denials) = if outcome.timed_out {
+            (String::new(), None, None, None, None)
         } else {
-            let (r, s) = crate::copilot::parse_agent_json(&outcome.stdout);
-            (r, s, None, None)
+            match cfg.agent.as_str() {
+                "omp" => {
+                    let t = crate::copilot::parse_omp_jsonl(&outcome.stdout);
+                    (t.response, t.session_id, t.model, t.provider, None)
+                }
+                "claude" => {
+                    let t = crate::copilot::parse_claude_result(&outcome.stdout);
+                    let denials = if t.denied.is_empty() { None } else { Some(t.denied) };
+                    (t.response, t.session_id, t.model, t.provider, denials)
+                }
+                "codex" => {
+                    let t = crate::copilot::parse_codex_jsonl(&outcome.stdout);
+                    (t.response, t.session_id, None, None, None)
+                }
+                "oxicode" => (
+                    crate::copilot::parse_oxicode_jsonl(&outcome.stdout),
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                _ => {
+                    let (r, s) = crate::copilot::parse_agent_json(&outcome.stdout);
+                    (r, s, None, None, None)
+                }
+            }
         };
         Ok(TurnResult {
             response,
@@ -1944,6 +1991,7 @@ mod commands {
             duration_ms,
             model,
             provider,
+            denials,
         })
     }
 
