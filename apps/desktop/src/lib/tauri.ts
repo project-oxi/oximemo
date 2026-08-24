@@ -501,11 +501,21 @@ async function browserFallback(
     case "copilot_cancel":
       return true;
     case "copilot_send": {
+      // 1.5s delay so the busy state (Send↔Stop toggle, elapsed timer) is
+      // exercisable in browser smoke. Browser-only; no subprocess runs.
+      const { promise: smokeDelay, resolve: smokeDone } = Promise.withResolvers<void>();
+      setTimeout(smokeDone, 1500);
+      await smokeDelay;
       const msg = (args?.message as string) ?? "";
       const memo = args?.activeMemo as { selection?: string | null } | null;
+      const refs = (args?.referenced as { title: string }[] | undefined) ?? [];
       const changed = liveSorted(loadStore())[0];
       return {
-        response: `(browser fallback) received: ${msg}${memo?.selection ? " +selection" : ""}`,
+        response:
+          `(browser fallback) received: ${msg}${memo?.selection ? " +selection" : ""}\n\n` +
+          `**첨부**: ${refs.length ? refs.map((r) => r.title).join(", ") : "없음"}\n\n` +
+          "- 목록 항목 A\n- 목록 항목 B\n\n" +
+          "```rust\nlet answer = 42;\n```",
         session_id: "browser-session",
         exit_code: 0,
         signal: null,

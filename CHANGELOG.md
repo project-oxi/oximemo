@@ -56,6 +56,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hides (C1-style degrade). Core gains a `[copilot]` config section
   (`enabled`/`agent`/`executable`/`timeout_secs`); browser-fallback
   mirrors the activated state for UI smoke.
+- **Copilot composer UX (spec revision 2026-08-24)** — the composer is
+  no longer a bare textarea: `@` opens a note-reference picker
+  (`searchMemos`, chips with one-click removal, re-attach via the @
+  menu) whose picks ride the turn as a declarative
+  `referenced_memos` context section (deduped against the active memo,
+  capped at 8, single-line injection-safe); `/` opens a real-time
+  filtered command menu (요약/태그 제안/정리/찾기/새 노트) that expands
+  to a localized prompt template the user can edit before sending.
+  Agent responses render as sanitized markdown (marked+DOMPurify)
+  with a language bar and per-block copy button plus whole-response
+  copy; changed notes resolve their titles instead of raw ids; the
+  busy state gets an elapsed timer and a Send↔Stop toggle in the
+  composer footer; the empty state teaches the commands (Linear-style
+  suggestion cards + provider disclosure line); errors offer retry;
+  the conversation lives in the ui store so closing the panel no
+  longer loses it (in-memory only — never localStorage). Trigger
+  parsing is value-based (draft + caret) and Enter respects
+  `isComposing`, so Korean IME input can never half-fire a trigger or
+  submit mid-composition. Model picker gains a filter when the agent
+  lists more than 8 models.
 - **SKILL.md v4 rewrite** — the agent contract now matches RFC-050
   reality: `~/.oxi/vault` default path, `---` YAML-subset frontmatter
   (was `+++` TOML), core keys `id/created/updated/favorite/deleted`,

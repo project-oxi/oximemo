@@ -276,6 +276,15 @@ export interface ActiveMemoRef {
   selection?: string | null;
 }
 
+/** A memo the user @-referenced in the composer. Facts for the turn's
+ * `referenced_memos` context section (deduped against the active memo and
+ * capped at 8 on the Rust side). */
+export interface MemoRef {
+  id: string;
+  title: string;
+  path: string;
+}
+
 export interface ModelInfo {
   id: string;
   name: string;
@@ -321,10 +330,11 @@ export function copilotSetModel(model: string): Promise<Disclosure> {
 export function copilotSend(
   message: string,
   activeMemo: ActiveMemoRef | null,
+  referenced: MemoRef[] | null,
   session: string | null,
   model: string | null,
 ): Promise<TurnResult> {
-  return invoke<TurnResult>("copilot_send", { message, activeMemo, session, model });
+  return invoke<TurnResult>("copilot_send", { message, activeMemo, referenced, session, model });
 }
 
 export function copilotCancel(): Promise<boolean> {

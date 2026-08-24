@@ -1681,6 +1681,15 @@ mod commands {
         pub selection: Option<String>,
     }
 
+    /// A memo the user @-referenced in the composer (revision 2026-08-24).
+    /// Facts for the context block's `referenced_memos` section.
+    #[derive(serde::Deserialize)]
+    pub struct MemoRefArg {
+        pub id: String,
+        pub title: String,
+        pub path: String,
+    }
+
     /// One selectable model for the panel picker.
     #[tauri::command]
     pub async fn copilot_models(
@@ -1752,6 +1761,7 @@ mod commands {
         state: State<'_, AppState>,
         message: String,
         active_memo: Option<ActiveMemoArg>,
+        referenced: Option<Vec<MemoRefArg>>,
         session: Option<String>,
         model: Option<String>,
     ) -> Result<TurnResult, String> {
@@ -1823,7 +1833,19 @@ mod commands {
             path: m.path.clone(),
             selection: m.selection.clone(),
         });
-        let ctx = crate::copilot::build_context(&vault_root, &cli, &skill, active.as_ref());
+        let refs: Vec<crate::copilot::RefMemo> = referenced
+            .unwrap_or_default()
+            .iter()
+            .map(|r| crate::copilot::RefMemo {
+                id: r.id.clone(),
+                title: r.title.clone(),
+                path: r.path.clone(),
+            })
+            .collect();
+        // The active memo is authoritative for itself; dedupe + cap happen
+        // in one place (unit-tested in copilot::tests).
+        let refs = crate::copilot::dedupe_references(active.as_ref(), &refs);
+        let ctx = crate::copilot::build_context(&vault_root, &cli, &skill, active.as_ref(), &refs);
         // Adapter dispatch (spec §5): argv shape, cwd, and stdout dialect
         // are per-agent facts. oxios context rides stdin (`--context-file -`);
         // omp appends stdin to the prompt as context. omp turns run with

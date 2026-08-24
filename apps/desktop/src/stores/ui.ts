@@ -1,8 +1,30 @@
 /** UI state store (Zustand). Server data lives in TanStack Query; this
- *  holds only ephemeral UI state per §7.4. */
+ * holds only ephemeral UI state per §7.4. */
 import { create } from "zustand";
+import type { ActiveMemoRef, MemoRef, TurnResult } from "../lib/api";
 import { loadTheme, type Theme } from "../lib/theme";
 import type { MemoSummary, ViewMode } from "../lib/types";
+
+/** Exact payload of a sent turn — kept on error entries so "retry"
+ * resends the identical message+context. */
+export type CopilotRetryPayload = {
+  message: string;
+  memo: ActiveMemoRef | null;
+  referenced: MemoRef[];
+};
+
+/** One conversation row. `attached` mirrors the composer's context tray at
+ * send time so the history explains itself (spec rev 2026-08-24 §3.2). */
+export type CopilotEntry =
+  | {
+      role: "user";
+      text: string;
+      at: number;
+      attached: { active: MemoRef | null; selection: string | null; memos: MemoRef[] };
+    }
+  | { role: "agent"; result: TurnResult; at: number }
+  | { role: "error"; text: string; at: number; retry: CopilotRetryPayload | null };
+
 
 export type TagState = "off" | "in" | "out";
 
@@ -90,6 +112,34 @@ interface UIState {
    * share one source of truth. */
   settingsOpen: boolean;
   setSettingsOpen: (b: boolean) => void;
+  /** Copilot floating window open (⌘⇧C / FAB). Transient. */
+  copilotOpen: boolean;
+  setCopilotOpen: (b: boolean) => void;
+  /** Text currently selected in the note editor, paired with the memo it
+   * belongs to. Synced by the editor's CM6 update listener; the copilot
+   * panel folds it into the turn context (Claude-desktop style). */
+  copilotSelection: { memoId: string; text: string } | null;
+  setCopilotSelection: (s: { memoId: string; text: string } | null) => void;
+  /** Conversation survives panel close/reopen (in-memory only — responses
+   * can carry vault text; never persisted to localStorage). Reset by
+   * agent change and "new chat". */
+  /** Agent the current conversation belongs to (spec §15 — session ids
+   * are not portable across agents). Compare-on-change, not mount-time. */
+  copilotAgent: string;
+  copilotEntries: CopilotEntry[];
+  setCopilotEntries: (es: CopilotEntry[] | ((prev: CopilotEntry[]) => CopilotEntry[])) => void;
+  copilotSession: string | null;
+  setCopilotSession: (s: string | null) => void;
+  /** Per-turn model override (omp); null = agent default. */
+  copilotModel: string | null;
+  setCopilotModel: (m: string | null) => void;
+  copilotBusy: boolean;
+  setCopilotBusy: (b: boolean) => void;
+  /** Turn start epoch ms; drives the elapsed timer across remounts. */
+  copilotStartedAt: number | null;
+  setCopilotStartedAt: (t: number | null) => void;
+  resetCopilotChat: () => void;
+  requestFolderCreate: () => void;
   /** One-shot request from the palette: create a folder in the main
    * area. CardGrid consumes it; query mode first falls back to the
    * vault root (creation never lands in an ambiguous location). */
@@ -104,15 +154,6 @@ interface UIState {
    * reset it in CardGrid. */
   reviewMode: boolean;
   setReviewMode: (b: boolean) => void;
-  /** Copilot floating window open (⌘⇧C / FAB). Transient. */
-  copilotOpen: boolean;
-  setCopilotOpen: (b: boolean) => void;
-  /** Text currently selected in the note editor, paired with the memo it
-   * belongs to. Synced by the editor's CM6 update listener; the copilot
-   * panel folds it into the turn context (Claude-desktop style). */
-  copilotSelection: { memoId: string; text: string } | null;
-  setCopilotSelection: (s: { memoId: string; text: string } | null) => void;
-  requestFolderCreate: () => void;
   consumeFolderCreate: () => void;
 }
 
@@ -213,6 +254,26 @@ export const useUI = create<UIState>((set) => ({
   draftPristine: null,
   setDraftId: (id, pristine) =>
     set({ draftId: id, draftPristine: id === null ? null : pristine ?? "" }),
+  copilotEntries: [],
+  setCopilotEntries: (es) =>
+    set((s) => ({ copilotEntries: typeof es === "function" ? es(s.copilotEntries) : es })),
+  copilotSession: null,
+  setCopilotSession: (s) => set({ copilotSession: s }),
+  copilotModel: null,
+  setCopilotModel: (m) => set({ copilotModel: m }),
+  copilotBusy: false,
+  setCopilotBusy: (b) => set({ copilotBusy: b }),
+  copilotAgent: "",
+  copilotStartedAt: null,
+  setCopilotStartedAt: (t) => set({ copilotStartedAt: t }),
+  resetCopilotChat: () =>
+    set({
+      copilotEntries: [],
+      copilotSession: null,
+      copilotModel: null,
+      copilotBusy: false,
+      copilotStartedAt: null,
+    }),
   draggingNote: null,
   setDraggingNote: (m) => set({ draggingNote: m }),
   draggingFolder: null,

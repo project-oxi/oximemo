@@ -2,7 +2,7 @@
 
 - 날짜: 2026-08-23
 - 상태 갱신 (2026-08-24): **개정 시행 — omp(Oh My Pi) 어댑터 2호, 모델 전환, FAB/플로팅 윈도우 계층, 선택 컨텍스트.** §13의 "v1 어댑터 1개" 제한은 omp의 비대화형 계약 실측(`-p --mode=json`, stdin 컨텍스트, `-r` 재개, `--model`, JSONL의 턴별 provider/model 폭로)으로 해제됐다. §15의 헤더 버튼+사이드패널은 폐기되고 우하단 FAB(z-70) + 플로팅 윈도우(z-60, 노트 다이얼로그 z-50 위)로 대체 — 노트 열림 상태 사용성이 요구사항이 됐다. §7에 `active_memo.selection`(재들여쓰기 block scalar, 8,000자 상한) 추가. 탐지(§6)는 GUI 실행의 최소 PATH를 보강한다. `doc/DESIGN.md` §10.4 참조.
-- 선행 문서: `2026-08-18-brain-knowledge-integration-design.md`, `2026-08-23-collections-metadata-settings-design.md`
+- 상태 갱신 (2026-08-24 개정 2): **컴포저 UX 시행 — @ 노트 참조, / 슬래시 명령, 마크다운 턴 렌더, Send↔Stop, 경과 타이머, 대화 지속(ui 스토어), IME-safe Enter.** 규범 후계 문서: `2026-08-24-copilot-composer-ux-design.md`. §7 컨텍스트 블록에 `referenced_memos:`(@ 참조 사실, active 중복 제거·상한 8·single_line) 추가. §17의 스트리밍 제외는 유지.
 - 외부 캐노니컬: `oxibrain/doc/ECOSYSTEM.md` v1.1 §3.1·C1·C5, `oxios/docs/rfc-050-vault-unification.md`
 - 트리거: "앱에 코파일럿을 내장하는 건 어떤가 — 생태계 전체로 봤을 때" 논의. 3차에 걸친 아키텍처 개정(oxios HTTP 종속 → oxios CLI 종속 → 범용 터미널 에이전트 위임)의 최종안.
 

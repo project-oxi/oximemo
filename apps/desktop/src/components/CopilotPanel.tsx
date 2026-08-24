@@ -9,21 +9,24 @@
  * so the copilot stays usable WHILE a note is open, exactly like the
  * selection-context flow it serves (§7 selection block). The entry points
  * are the bottom-right FAB and ⌘⇧C, both above every dialog layer.
+ *
+ * Revision 2026-08-24 (composer UX): conversation state lives in the ui
+ * store (survives close/reopen, in-memory only); the composer
+ * (@references, /commands, context tray, send↔stop) is CopilotComposer;
+ * agent responses render as sanitized markdown with per-block copy
+ * (chatMarkdown.ts); busy shows an elapsed timer; changed notes resolve
+ * titles; errors offer retry.
  */
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useQueries } from "@tanstack/react-query";
+import { Bot, Check, ChevronDown, Copy, Loader2, MessageSquarePlus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import {
-  Bot,
-  ChevronDown,
-  Loader2,
-  MessageSquarePlus,
-  Send,
-  Square,
-  TextSelect,
-  X,
-} from "lucide-react";
+
 import { useI18n } from "../lib/i18n";
-import { useUI } from "../stores/ui";
+import { useUI, type CopilotEntry, type CopilotRetryPayload } from "../stores/ui";
+import { clipboardWriteText } from "../lib/clipboard";
+import { renderChatMarkdown } from "../lib/chatMarkdown";
+import { expandCommand, type CopilotCommandId } from "../lib/copilotCommands";
+import { COMMAND_ICONS, CopilotComposer, type ComposerSendPayload } from "./CopilotComposer";
 import {
   copilotCancel,
   copilotStatus,
@@ -37,10 +40,19 @@ import {
   type ActiveMemoRef,
 } from "../lib/api";
 
-type Entry =
-  | { role: "user"; text: string }
-  | { role: "agent"; result: TurnResult }
-  | { role: "error"; text: string };
+/** "42.3s" under a minute, "2m 13s" above. */
+function fmtDuration(ms: number): string {
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.round((ms % 60_000) / 1000);
+  return `${m}m ${s}s`;
+}
+
+/** "0:07" / "12:41" — live elapsed while a turn runs. */
+function fmtElapsed(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
 
 export function CopilotPanel() {
   const { t } = useI18n();
@@ -50,15 +62,23 @@ export function CopilotPanel() {
   const selection = useUI((s) => s.copilotSelection);
   const setCopilotSelection = useUI((s) => s.setCopilotSelection);
   const setError = useUI((s) => s.setError);
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [session, setSession] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const entries = useUI((s) => s.copilotEntries);
+  const setCopilotEntries = useUI((s) => s.setCopilotEntries);
+  const setCopilotSession = useUI((s) => s.setCopilotSession);
+  const model = useUI((s) => s.copilotModel);
+  const setCopilotModel = useUI((s) => s.setCopilotModel);
+  const busy = useUI((s) => s.copilotBusy);
+  const startedAt = useUI((s) => s.copilotStartedAt);
+  const resetCopilotChat = useUI((s) => s.resetCopilotChat);
   const [draft, setDraft] = useState("");
   const [activeMemo, setActiveMemo] = useState<ActiveMemoRef | null>(null);
-  const [model, setModel] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [modelFilter, setModelFilter] = useState("");
   const [switchingModel, setSwitchingModel] = useState(false);
+  const [focusSignal, setFocusSignal] = useState(0);
+  const [, setTick] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+
   const status = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
   const agentId = status.data?.agent ?? "";
   const agentName = status.data?.agent_name ?? agentId;
@@ -84,11 +104,7 @@ export function CopilotPanel() {
     getMemo(selectedId)
       .then((m) => {
         if (cancelled) return;
-        setActiveMemo({
-          id: m.id,
-          title: m.title ?? "",
-          path: m.path,
-        });
+        setActiveMemo({ id: m.id, title: m.title ?? "", path: m.path });
       })
       .catch(() => setActiveMemo(null));
     return () => {
@@ -98,38 +114,65 @@ export function CopilotPanel() {
 
   // Agent identity change = new conversation (spec §15): session ids are
   // not portable across activations, let alone adapters. Neither is a
-  // per-conversation model choice.
+  // per-conversation model choice. The conversation's agent lives in the
+  // STORE (not a mount-time ref) so reopening the panel never resets it.
   useEffect(() => {
-    setEntries([]);
-    setSession(null);
-    setModel(null);
-  }, [agentId]);
+    if (agentId === "") return;
+    if (useUI.getState().copilotAgent !== agentId) {
+      useUI.setState({ copilotAgent: agentId });
+      resetCopilotChat();
+      setDraft("");
+    }
+  }, [agentId, resetCopilotChat]);
 
   // The selection belongs to the memo it was made in; never attach a
   // stale selection from a previously open note.
   const attachedSelection =
     selection && activeMemo && selection.memoId === activeMemo.id ? selection.text : null;
 
-  const send = async () => {
-    const message = draft.trim();
-    if (!message || busy) return;
-    setDraft("");
-    setEntries((es) => [...es, { role: "user", text: message }]);
-    setBusy(true);
+  const sendTurn = async (payload: ComposerSendPayload | CopilotRetryPayload) => {
+    if (busy) return;
+    const retry = "memo" in payload && "referenced" in payload;
+    const { message, memo, referenced } = payload;
+    setCopilotEntries((es) => [
+      ...es,
+      {
+        role: "user",
+        text: message,
+        at: Date.now(),
+        attached: {
+          active: memo ? { id: memo.id, title: memo.title, path: memo.path } : null,
+          selection: memo?.selection ?? null,
+          memos: referenced,
+        },
+      },
+    ]);
+    useUI.getState().setCopilotBusy(true);
+    useUI.getState().setCopilotStartedAt(Date.now());
     try {
-      const memo: ActiveMemoRef | null = activeMemo
-        ? { ...activeMemo, selection: attachedSelection }
-        : null;
-      const result = await copilotSend(message, memo, session, model);
-      if (result.session_id) setSession(result.session_id);
-      setEntries((es) => [...es, { role: "agent", result }]);
+      const result = await copilotSend(
+        message,
+        memo,
+        referenced.length > 0 ? referenced : null,
+        useUI.getState().copilotSession,
+        useUI.getState().copilotModel,
+      );
+      if (result.session_id) setCopilotSession(result.session_id);
+      setCopilotEntries((es) => [...es, { role: "agent", result, at: Date.now() }]);
       if (result.changed.length > 0) {
         void qc.invalidateQueries({ queryKey: ["memos"] });
       }
     } catch (e) {
-      setEntries((es) => [...es, { role: "error", text: String(e).split("\n")[0] }]);
+      const retryPayload: CopilotRetryPayload = retry
+        ? (payload as CopilotRetryPayload)
+        : { message, memo, referenced };
+      setCopilotEntries((es) => [
+        ...es,
+        { role: "error", text: String(e).split("\n")[0], at: Date.now(), retry: retryPayload },
+      ]);
     } finally {
-      setBusy(false);
+      useUI.getState().setCopilotBusy(false);
+      useUI.getState().setCopilotStartedAt(null);
     }
   };
 
@@ -155,22 +198,43 @@ export function CopilotPanel() {
         .catch((e) => setError(String(e).split("\n")[0]))
         .finally(() => setSwitchingModel(false));
     } else {
-      setModel(m.id);
+      setCopilotModel(m.id);
       setPickerOpen(false);
     }
   };
 
-  const provider =
-    disclosure.data?.provider ?? t.copilot_consent_unknown_provider;
+  // Elapsed timer tick while busy.
+  useEffect(() => {
+    if (!busy) return;
+    const id = setInterval(() => setTick((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, [busy]);
+  // Autoscroll on new entries / busy transitions.
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+  }, [entries.length, busy]);
+
+  const provider = disclosure.data?.provider ?? t.copilot_consent_unknown_provider;
   const currentModelLabel =
     agentId === "oxios"
       ? disclosure.data?.model ?? t.copilot_model_auto
       : model ?? t.copilot_model_auto;
+  const modelList = (models.data ?? []).filter((m) =>
+    `${m.name} ${m.id} ${m.provider}`.toLowerCase().includes(modelFilter.trim().toLowerCase()),
+  );
+  const emptyCards: CopilotCommandId[] = ["summary", "tags", "find", "new", "tidy"];
 
   return (
     <aside
       aria-label={t.copilot_panel_title}
-      className="fixed bottom-6 right-6 z-[60] flex h-[min(72vh,580px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-2xl"
+      onKeyDown={(e) => {
+        // Esc outside the textarea (focus on a link/button) closes the
+        // panel; the composer runs its own menu → stop → close chain.
+        if (e.key === "Escape" && !(e.target instanceof HTMLTextAreaElement)) {
+          setCopilotOpen(false);
+        }
+      }}
+      className="fixed bottom-6 right-6 z-[60] flex h-[min(72vh,580px)] w-[min(92vw,400px)] flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-2xl"
     >
       {/* Header: agent + provider are always visible (§12) — the user
           should never have to wonder where their data is going. */}
@@ -188,9 +252,8 @@ export function CopilotPanel() {
           <button
             type="button"
             aria-label={t.copilot_model}
-            title={
-              agentId === "oxios" ? t.copilot_model_global_hint : t.copilot_model
-            }
+            aria-expanded={pickerOpen}
+            title={agentId === "oxios" ? t.copilot_model_global_hint : t.copilot_model}
             disabled={switchingModel}
             onClick={() => setPickerOpen((v) => !v)}
             className="flex max-w-[140px] items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-text-muted transition-colors hover:bg-surface-muted hover:text-text disabled:opacity-50"
@@ -209,6 +272,15 @@ export function CopilotPanel() {
                   {t.copilot_model_global_hint}
                 </p>
               )}
+              {(models.data?.length ?? 0) > 8 && (
+                <input
+                  type="text"
+                  value={modelFilter}
+                  onChange={(e) => setModelFilter(e.target.value)}
+                  placeholder={t.copilot_model_filter}
+                  className="mb-1 w-full rounded-md bg-surface-sunken px-2 py-1.5 text-[11px] text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
+                />
+              )}
               {models.isLoading && (
                 <p className="flex items-center gap-2 px-2 py-2 text-[11px] text-text-subtle">
                   <Loader2 size={11} className="animate-spin" />
@@ -216,11 +288,9 @@ export function CopilotPanel() {
                 </p>
               )}
               {models.isError && (
-                <p className="px-2 py-2 text-[11px] text-red-500">
-                  {t.copilot_model_none}
-                </p>
+                <p className="px-2 py-2 text-[11px] text-red-500">{t.copilot_model_none}</p>
               )}
-              {models.data?.map((m) => (
+              {modelList.map((m) => (
                 <button
                   key={m.id}
                   type="button"
@@ -240,7 +310,7 @@ export function CopilotPanel() {
                 <button
                   type="button"
                   onClick={() => {
-                    setModel(null);
+                    setCopilotModel(null);
                     setPickerOpen(false);
                   }}
                   className="w-full rounded-md px-2 py-1.5 text-left text-[11px] text-text-muted transition-colors hover:bg-surface-muted"
@@ -256,9 +326,8 @@ export function CopilotPanel() {
           aria-label={t.copilot_new_chat}
           title={t.copilot_new_chat}
           onClick={() => {
-            setEntries([]);
-            setSession(null);
-            setModel(null);
+            resetCopilotChat();
+            setDraft("");
           }}
           className="rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
         >
@@ -274,105 +343,211 @@ export function CopilotPanel() {
         </button>
       </div>
 
-      {activeMemo && (
-        <p className="border-b border-line bg-surface-sunken px-3 py-1.5 text-[10px] text-text-subtle">
-          {activeMemo.title || activeMemo.path}
-        </p>
-      )}
-      {attachedSelection && (
-        <div className="flex items-start gap-1.5 border-b border-line bg-surface-sunken px-3 py-1.5">
-          <TextSelect size={11} className="mt-0.5 shrink-0 text-text-subtle" />
-          <p className="min-w-0 flex-1 truncate text-[10px] text-text-muted" title={attachedSelection}>
-            {t.copilot_selection_chip}: {attachedSelection.split("\n")[0].slice(0, 80)}
-          </p>
-          <button
-            type="button"
-            aria-label={t.copilot_selection_detach}
-            title={t.copilot_selection_detach}
-            onClick={() => setCopilotSelection(null)}
-            className="shrink-0 rounded p-0.5 text-text-subtle transition-colors hover:text-text"
-          >
-            <X size={11} />
-          </button>
-        </div>
-      )}
-
-      <div ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+      <div
+        ref={listRef}
+        role="log"
+        aria-live="polite"
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3"
+      >
         {entries.length === 0 && !busy && (
-          <p className="mt-4 text-center text-[11px] text-text-subtle">
-            {t.copilot_placeholder}
-          </p>
-        )}
-        {entries.map((e, i) =>
-          e.role === "user" ? (
-            <div key={i} className="ml-8 rounded-lg bg-interactive-primary/10 px-3 py-2 text-xs text-text">
-              {e.text}
+          <div className="mt-4 space-y-3">
+            <p className="text-center text-xs font-medium text-text">
+              {t.copilot_empty_greeting}
+            </p>
+            <p className="text-center text-[10px] leading-snug text-text-subtle">
+              {t.copilot_disclosure_short.replace("{provider}", provider)}
+            </p>
+            <div className="space-y-1">
+              {emptyCards.map((id) => {
+                const Icon = COMMAND_ICONS[id];
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
+                      setDraft(expandCommand(id, { hasActiveMemo: Boolean(activeMemo), t }));
+                      setFocusSignal((n) => n + 1);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface-sunken px-2.5 py-2 text-left transition-colors hover:bg-surface-muted"
+                  >
+                    <Icon size={13} className="shrink-0 text-text-subtle" />
+                    <span className="text-[11px] font-medium text-text">
+                      {t[`copilot_cmd_${id}_label`]}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[10px] text-text-subtle">
+                      {t[`copilot_cmd_${id}_desc`]}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          ) : e.role === "error" ? (
-            <div key={i} className="rounded-lg bg-surface-sunken px-3 py-2 text-xs text-red-500">
-              {t.copilot_details}: {e.text}
-            </div>
-          ) : (
-            <AgentMessage key={i} result={e.result} />
-          ),
+          </div>
         )}
+        {entries.map((e, i) => (
+          <ConversationEntry
+            key={i}
+            entry={e}
+            onRetry={busy ? undefined : () => e.role === "error" && e.retry && void sendTurn(e.retry)}
+          />
+        ))}
         {busy && (
           <div className="flex items-center gap-2 px-1 py-2 text-[11px] text-text-subtle">
             <Loader2 size={12} className="animate-spin" />
             {t.copilot_running}
-            <button
-              type="button"
-              onClick={cancel}
-              className="ml-auto flex items-center gap-1 rounded-md bg-surface-muted px-2 py-1 text-[10px] text-text-muted transition-colors hover:text-text"
-            >
-              <Square size={9} />
-              {t.copilot_cancel_turn}
-            </button>
+            <span className="font-mono text-[10px]">
+              {fmtElapsed((startedAt ? Date.now() - startedAt : 0))}
+            </span>
           </div>
         )}
       </div>
 
-      <div className="border-t border-line p-2">
-        <div className="flex items-end gap-2">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            placeholder={t.copilot_placeholder}
-            rows={2}
-            className="min-h-0 flex-1 resize-none rounded-lg bg-surface-sunken px-2.5 py-2 text-xs text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
-          />
-          <button
-            type="button"
-            aria-label={t.copilot_send}
-            disabled={!draft.trim() || busy}
-            onClick={() => void send()}
-            className="rounded-lg bg-interactive-primary p-2 text-interactive-primary-foreground transition-colors hover:bg-interactive-primary/90 disabled:opacity-40"
-          >
-            <Send size={13} />
-          </button>
-        </div>
-      </div>
+      <CopilotComposer
+        draft={draft}
+        setDraft={setDraft}
+        busy={busy}
+        onSend={(p) => void sendTurn(p)}
+        onStop={() => void cancel()}
+        activeMemo={activeMemo}
+        attachedSelection={attachedSelection}
+        onClearSelection={() => setCopilotSelection(null)}
+        focusSignal={focusSignal}
+        onEscPanel={() => setCopilotOpen(false)}
+      />
     </aside>
   );
 }
 
-/** One finished agent turn: response, observed changes, and diagnostics. */
+/** One row: user turn (with its attached-context chips), agent turn, or
+ * error (with retry). */
+function ConversationEntry({
+  entry,
+  onRetry,
+}: {
+  entry: CopilotEntry;
+  onRetry?: () => void;
+}) {
+  const { t } = useI18n();
+  if (entry.role === "user") {
+    return (
+      <div className="ml-8">
+        <div className="rounded-lg bg-interactive-primary/10 px-3 py-2 text-xs text-text">
+          {entry.text}
+        </div>
+        {(entry.attached.active || entry.attached.selection || entry.attached.memos.length > 0) && (
+          <div className="mt-1 flex flex-wrap gap-1 px-1">
+            {entry.attached.active && (
+              <span className="max-w-full truncate rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[9px] text-text-subtle">
+                {t.copilot_at_active}: {entry.attached.active.title || entry.attached.active.path}
+              </span>
+            )}
+            {entry.attached.selection && (
+              <span className="max-w-full truncate rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[9px] text-text-subtle">
+                {t.copilot_at_selection}
+              </span>
+            )}
+            {entry.attached.memos.map((m) => (
+              <span
+                key={m.id}
+                className="max-w-full truncate rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[9px] text-text-subtle"
+              >
+                {m.title || m.path}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (entry.role === "error") {
+    return (
+      <div className="mr-4 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-red-500">
+        <p>{entry.text}</p>
+        {entry.retry && onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-1 rounded-md bg-surface-muted px-2 py-1 text-[10px] text-text-muted transition-colors hover:text-text"
+          >
+            {t.copilot_retry}
+          </button>
+        )}
+      </div>
+    );
+  }
+  return <AgentMessage result={entry.result} />;
+}
+
+/** One finished agent turn: markdown response, observed changes, and
+ * diagnostics. */
 function AgentMessage({ result }: { result: TurnResult }) {
   const { t } = useI18n();
   const setDraftId = useUI((s) => s.setDraftId);
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState<string | null>(null);
+  const mdRef = useRef<HTMLDivElement>(null);
+
+  // Resolve titles for created/changed notes (deleted ones are gone from
+  // the index — fall back to the id).
+  const lookups = useQueries({
+    queries: result.changed
+      .filter((c) => c.kind !== "deleted")
+      .map((c) => ({
+        queryKey: ["copilot-changed", c.id],
+        queryFn: () => getMemo(c.id),
+        staleTime: 30_000,
+        retry: false,
+      })),
+  });
+  const titleFor = (id: string): string => {
+    const hit = lookups.find((q) => q.data?.id === id)?.data;
+    return hit?.title || hit?.path || id.slice(0, 8);
+  };
+
   const kindLabel = (k: string) =>
     k === "created"
       ? t.copilot_changed_created
       : k === "deleted"
         ? t.copilot_changed_deleted
         : t.copilot_changed_changed;
+  const kindDot = (k: string) =>
+    k === "created"
+      ? "bg-status-success"
+      : k === "deleted"
+        ? "bg-status-error"
+        : "bg-status-info";
+
+  const copyResponse = async () => {
+    await clipboardWriteText(result.response);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  // Code-copy buttons live inside dangerouslySetInnerHTML — non-fiber DOM.
+  // React 19's root delegation does not dispatch this container's onClick
+  // for such targets (verified in browser smoke), so the container gets a
+  // NATIVE delegated listener instead.
+  useEffect(() => {
+    const el = mdRef.current;
+    if (!el) return;
+    const onClick = async (e: MouseEvent) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".chat-code-copy");
+      if (!btn) return;
+      const code = btn.closest(".chat-code")?.querySelector("code")?.textContent ?? "";
+      const lang = (btn.closest(".chat-code") as HTMLElement | null)?.dataset.lang ?? "";
+      try {
+        await clipboardWriteText(code);
+      } catch {
+        // Headless/no-permission env — still show the click landed.
+      }
+      setCodeCopied(lang);
+      setTimeout(() => setCodeCopied((cur) => (cur === lang ? null : cur)), 1500);
+    };
+    el.addEventListener("click", onClick);
+    return () => el.removeEventListener("click", onClick);
+  }, [result.response]);
+
+  const html = renderChatMarkdown(result.response, t.copilot_copy);
 
   return (
     <div className="mr-4 space-y-1.5 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text">
@@ -383,22 +558,37 @@ function AgentMessage({ result }: { result: TurnResult }) {
           {t.copilot_killed.replace("{signal}", String(result.signal))}
         </p>
       ) : (
-        <p className="whitespace-pre-wrap">{result.response}</p>
+        <>
+          <div className="flex items-start justify-end gap-1">
+            <button
+              type="button"
+              aria-label={t.copilot_copy}
+              title={t.copilot_copy}
+              onClick={() => void copyResponse()}
+              className="rounded p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
+            >
+              {copied ? <Check size={11} /> : <Copy size={11} />}
+            </button>
+          </div>
+          <div ref={mdRef} className="chat-md">
+            <div dangerouslySetInnerHTML={{ __html: html }} />
+          </div>
+        </>
       )}
-      {result.model && (
+      {(result.model || result.duration_ms > 0) && (
         <p className="font-mono text-[9px] text-text-subtle">
-          {result.provider}/{result.model}
+          {result.model ? `${result.provider}/${result.model} · ` : ""}
+          {fmtDuration(result.duration_ms)}
         </p>
       )}
 
       {result.changed.length > 0 && (
         <div>
-          <p className="text-[10px] font-medium text-text-subtle">
-            {t.copilot_changed_notes}
-          </p>
+          <p className="text-[10px] font-medium text-text-subtle">{t.copilot_changed_notes}</p>
           <ul className="mt-0.5 space-y-0.5">
             {result.changed.map((c) => (
-              <li key={c.id}>
+              <li key={c.id} className="flex items-center gap-1.5">
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${kindDot(c.kind)}`} />
                 <button
                   type="button"
                   onClick={() => {
@@ -409,9 +599,9 @@ function AgentMessage({ result }: { result: TurnResult }) {
                     setDraftId(useUI.getState().draftId === c.id ? null : useUI.getState().draftId);
                     useUI.setState({ selectedId: c.id });
                   }}
-                  className="font-mono text-[10px] text-text-muted underline decoration-line underline-offset-2 hover:text-text"
+                  className="min-w-0 truncate text-left text-[10px] text-text-muted underline decoration-line underline-offset-2 hover:text-text"
                 >
-                  {c.id.slice(0, 8)}… · {kindLabel(c.kind)}
+                  {titleFor(c.id)} · {kindLabel(c.kind)}
                 </button>
               </li>
             ))}
@@ -434,11 +624,12 @@ function AgentMessage({ result }: { result: TurnResult }) {
             {t.copilot_exit_code}: {result.exit_code ?? "—"}
           </p>
           {result.stderr.trim() !== "" && (
-            <pre className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap">
-              {result.stderr}
-            </pre>
+            <pre className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap">{result.stderr}</pre>
           )}
         </div>
+      )}
+      {codeCopied !== null && (
+        <p className="text-[9px] text-text-subtle">{t.copilot_copied}</p>
       )}
     </div>
   );
