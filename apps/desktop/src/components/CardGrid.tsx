@@ -221,6 +221,9 @@ export function CardGrid() {
     staleTime: 30_000,
   });
   const schema = folderFilter !== null ? schemaQ.data ?? null : null;
+  // Preset marker for the first-party value vocabulary: `status` words
+  // differ per collection (완독 vs 완결), so label lookups below carry it.
+  const preset = schema?.meta?.preset ?? undefined;
   // First-party vocabulary: the default knowledge folder's display name
   const schemaName = schema
     ? schemaDisplayName(folderFilter ?? "", schema, t)
@@ -1388,7 +1391,7 @@ export function CardGrid() {
                               : "text-text-subtle/60 hover:bg-surface-muted hover:text-text"
                         }`}
                       >
-                        {propValueLabel(b.key, o, t)}
+                        {propValueLabel(b.key, o, t, preset)}
                         <span
                           className={`text-[10px] tabular-nums ${active ? "" : "text-text-subtle"}`}
                         >
@@ -1411,7 +1414,7 @@ export function CardGrid() {
                     { value: "", label: t.prop_all },
                     ...p.options.map((o) => ({
                       value: o,
-                      label: propValueLabel(p.key, o, t),
+                      label: propValueLabel(p.key, o, t, preset),
                     })),
                   ]}
                   onChange={(v) =>
@@ -1496,7 +1499,7 @@ export function CardGrid() {
           <CtxRoot>
             <CtxTrigger className="min-h-full">
             {reviewMode && schema?.review && folderFilter !== null ? (
-              <ReviewQueue folder={folderFilter} review={schema.review} />
+              <ReviewQueue folder={folderFilter} review={schema.review} preset={preset} />
             ) : listing.isError ? (
               <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
                 <p className="text-sm font-medium text-status-error">{t.load_error}</p>
@@ -1591,7 +1594,7 @@ export function CardGrid() {
                 )}
               </div>
             ) : noteView === "shelf" && shelfAvailable ? (
-              <ShelfView items={items} badges={badgeDefs} onSelect={select} />
+              <ShelfView items={items} badges={badgeDefs} preset={preset} onSelect={select} />
             ) : noteView === "grid" ? (
               <GridView
                 cells={visibleCells}
@@ -1600,6 +1603,7 @@ export function CardGrid() {
                 showFolderChip={folderFilter === null}
                 folders={folders}
                 badges={badgeDefs}
+                preset={preset}
                 folderEntries={folderEntries}
                 onOpenFolder={setFolderFilter}
                 onSelect={select}

@@ -33,10 +33,13 @@ interface Props {
   /** Badge declarations from the folder schema: badge = true select
    *  properties, mapped to value → token color (design §7.2). */
   badges?: { key: string; colors: Record<string, string> }[];
+  /** Folder preset id for the first-party value vocabulary (§7.2):
+   *  `status` words are per-collection (완독 vs 완결). */
+  preset?: string;
 }
 
 
-export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip, badges }: Props) {
+export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip, badges, preset }: Props) {
   const { t, locale } = useI18n();
   const { displayName: displayFolder } = useFolderNames();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
@@ -101,7 +104,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
               key={b.key}
               className={`rounded-[var(--tag-radius)] px-1.5 py-px text-[9px] font-semibold tracking-wide ${tone}`}
             >
-              {propValueLabel(b.key, value, t)}
+              {propValueLabel(b.key, value, t, preset)}
             </span>
           );
         })}

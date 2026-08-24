@@ -46,6 +46,8 @@ interface Props {
   showFolderChip?: boolean;
   /** Schema badge declarations passed through to note cards (§7.2). */
   badges?: { key: string; colors: Record<string, string> }[];
+  /** Folder preset id passed through to note cards (§7.2). */
+  preset?: string;
   /** T15: expand the collapsed folder layer for this browse location. */
   onExpandFolders: () => void;
   /** Per-folder add-button labels for schema (property-classified)
@@ -77,6 +79,7 @@ export function GridView({
   onDeleteFolder,
   showFolderChip,
   badges,
+  preset,
   onExpandFolders,
   folderAddLabels,
 }: Props) {
@@ -151,6 +154,7 @@ export function GridView({
                     onDelete={onDelete}
                     showFolderChip={showFolderChip}
                     badges={badges}
+                    preset={preset}
                   />
                 ),
               )}

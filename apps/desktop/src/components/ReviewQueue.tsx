@@ -28,7 +28,17 @@ function first(v: PropValue | undefined): string | undefined {
   return String((v as { Bool: boolean }).Bool);
 }
 
-export function ReviewQueue({ folder, review }: { folder: string; review: SchemaReviewDef }) {
+export function ReviewQueue({
+  folder,
+  review,
+  preset,
+}: {
+  folder: string;
+  review: SchemaReviewDef;
+  /** Folder preset id — the review property's values are per-collection
+   *  vocabulary (idea 미처리/보관, book 완독…). */
+  preset?: string;
+}) {
   const { t, locale } = useI18n();
   const qc = useQueryClient();
   const list = useInfiniteQuery({
@@ -103,7 +113,7 @@ export function ReviewQueue({ folder, review }: { folder: string; review: Schema
               key={v}
               className="rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-[11px] text-text-subtle"
             >
-              {propValueLabel(review.property, v, t)}:{" "}
+              {propValueLabel(review.property, v, t, preset)}:{" "}
               {items.filter((n) => first(n.props?.[review.property]) === v).length}
             </span>
           ))}
@@ -125,7 +135,7 @@ export function ReviewQueue({ folder, review }: { folder: string; review: Schema
                 {n.title ?? n.path}
               </div>
               <div className="text-[11px] text-text-subtle">
-                {propValueLabel(review.property, first(n.props?.[review.property]) ?? "", t)} ·{" "}
+                {propValueLabel(review.property, first(n.props?.[review.property]) ?? "", t, preset)} ·{" "}
                 {first(n.props?.[review.order_by ?? ""]) ??
                   relativeTime(n.updated_at, locale)}
               </div>

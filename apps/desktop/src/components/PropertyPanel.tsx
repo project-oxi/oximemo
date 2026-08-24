@@ -96,11 +96,13 @@ function SelectEditor({
   propKey,
   value,
   options,
+  preset,
   onChange,
 }: {
   propKey: string;
   value: string;
   options: string[];
+  preset?: string;
   onChange: (next: string | null) => void;
 }) {
   const { t } = useI18n();
@@ -115,7 +117,7 @@ function SelectEditor({
               value ? "text-text" : "text-text-subtle"
             }`}
           >
-            {value ? propValueLabel(propKey, value, t) : "—"}
+            {value ? propValueLabel(propKey, value, t, preset) : "—"}
             <ChevronDown size={10} aria-hidden className="text-text-subtle" />
           </button>
         }
@@ -163,7 +165,7 @@ function SelectEditor({
                         aria-hidden
                         className={`shrink-0 ${selected ? "text-text" : "text-transparent"}`}
                       />
-                      {propValueLabel(propKey, o, t)}
+                      {propValueLabel(propKey, o, t, preset)}
                     </button>
                   </li>
                 );
@@ -184,11 +186,13 @@ function ChipsEditor({
   propKey,
   values,
   options,
+  preset,
   onChange,
 }: {
   propKey: string;
   values: string[];
   options: string[];
+  preset?: string;
   onChange: (next: string[] | null) => void;
 }) {
   const { t } = useI18n();
@@ -221,7 +225,7 @@ function ChipsEditor({
           key={v}
           className="inline-flex items-center gap-0.5 rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-[11px] text-text"
         >
-          {propValueLabel(propKey, v, t)}
+          {propValueLabel(propKey, v, t, preset)}
           <button
             type="button"
             aria-label={`${t.prop_remove}: ${v}`}
@@ -278,7 +282,7 @@ function ChipsEditor({
                         }`}
                       >
                         <Check size={11} aria-hidden className={i === 0 ? "shrink-0 text-text" : "shrink-0 text-transparent"} />
-                        {propValueLabel(propKey, o, t)}
+                        {propValueLabel(propKey, o, t, preset)}
                       </button>
                     </li>
                   ))}
@@ -305,13 +309,12 @@ function ChipsEditor({
   );
 }
 
-// --- One table row -----------------------------------------------------------
-
 function PropertyRow({
   propKey,
   def,
   stored,
   violation,
+  preset,
   onCommit,
   onBool,
   onRename,
@@ -320,6 +323,8 @@ function PropertyRow({
   def: SchemaPropertyDef | undefined;
   stored: PropValue | undefined;
   violation?: string;
+  /** Folder preset id for the first-party value vocabulary. */
+  preset?: string;
   onCommit: (next: string[] | null) => void;
   /** Bool-typed commits (toggle) — distinct envelope from string lists. */
   onBool?: (b: boolean) => void;
@@ -345,13 +350,14 @@ function PropertyRow({
           propKey={propKey}
           value={values[0] ?? ""}
           options={options}
+          preset={preset}
           onChange={(v) => onCommit(v === null ? null : [v])}
         />
       );
     }
     if (type === "multiselect") {
       return (
-        <ChipsEditor propKey={propKey} values={values} options={options} onChange={onCommit} />
+        <ChipsEditor propKey={propKey} values={values} options={options} preset={preset} onChange={onCommit} />
       );
     }
     if (type === "date") {
@@ -796,6 +802,7 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
   };
 
   const defs = schema.data?.properties ?? null;
+  const preset = schema.data?.meta?.preset ?? undefined;
   const violations = useMemo(() => violationsOf(schema.data ?? null, props), [schema.data, props]);
   const violationOf = (key: string) => violations.find((v) => v.key === key)?.reason;
   const keys = useMemo(() => {
@@ -811,6 +818,7 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
       def={defs?.[key]}
       stored={props[key]}
       violation={violationOf(key)}
+      preset={preset}
       onCommit={(next) =>
         commit(
           next === null

@@ -997,7 +997,7 @@ function CollectionsSection() {
                       }
                     />
                   )}
-                  {row.id === "knowledge" && (
+                  {schemaInfo[folder]?.review != null && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1016,23 +1016,28 @@ function CollectionsSection() {
                   {(row.id === "book" || row.id === "movie") && (
                     <ProviderKeys domain={row.id} />
                   )}
-                  {(row.id === "book" || row.id === "movie") && (
-                    <div>
-                      <p className="mb-1 text-[11px] text-text-subtle">{t.collection_default_view}</p>
-                      <Segmented
-                        value={config.data?.folders?.find((f) => f.path === folder)?.view ?? "grid"}
-                        onChange={(v) => {
-                          void setFolderView(folder, v === "grid" ? null : v)
-                            .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
-                            .catch((e) => setError(String(e).split("\n")[0]));
-                        }}
-                        options={[
-                          { value: "grid", label: t.view_label_grid },
-                          { value: "shelf", label: t.view_label_shelf },
-                        ]}
-                      />
-                    </div>
-                  )}
+                  <div>
+                    <p className="mb-1 text-[11px] text-text-subtle">{t.collection_default_view}</p>
+                    <Segmented
+                      value={config.data?.folders?.find((f) => f.path === folder)?.view ?? "grid"}
+                      onChange={(v) => {
+                        void setFolderView(folder, v === "grid" ? null : v)
+                          .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+                          .catch((e) => setError(String(e).split("\n")[0]));
+                      }}
+                      options={
+                        row.id === "book" || row.id === "movie"
+                          ? [
+                              { value: "grid", label: t.view_label_grid },
+                              { value: "shelf", label: t.view_label_shelf },
+                            ]
+                          : [
+                              { value: "grid", label: t.view_label_grid },
+                              { value: "list", label: t.view_label_list },
+                            ]
+                      }
+                    />
+                  </div>
                 </div>
               )}
             </div>

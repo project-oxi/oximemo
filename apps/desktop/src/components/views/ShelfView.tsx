@@ -11,11 +11,13 @@ import { Star } from "lucide-react";
 
 import { useI18n } from "../../lib/i18n";
 import type { MemoSummary } from "../../lib/types";
+import { propValueLabel } from "../../lib/propDisplay";
 
 interface Props {
   items: MemoSummary[];
-  /** Badge declarations from the folder schema (key → option colors). */
   badges?: { key: string; colors: Record<string, string> }[];
+  /** Folder preset id for the first-party value vocabulary. */
+  preset?: string;
   onSelect: (id: string) => void;
 }
 
@@ -28,7 +30,7 @@ function propStr(props: Record<string, unknown> | undefined, key: string): strin
   return null;
 }
 
-export function ShelfView({ items, badges, onSelect }: Props) {
+export function ShelfView({ items, badges, preset, onSelect }: Props) {
   const { t } = useI18n();
   const badgeDefs = badges ?? [];
   if (items.length === 0) {
@@ -75,7 +77,9 @@ export function ShelfView({ items, badges, onSelect }: Props) {
                 {statusColor && (
                   <span
                     className={`absolute left-1.5 top-1.5 inline-block size-2 rounded-full bg-${statusColor} ring-2 ring-surface`}
-                    aria-label={status ?? undefined}
+                    aria-label={
+                      status ? propValueLabel("status", status, t, preset) : undefined
+                    }
                   />
                 )}
               </div>
