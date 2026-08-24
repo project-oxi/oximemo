@@ -131,6 +131,13 @@ export const dict = {
   copilot_memo_untitled: "제목 없음",
   copilot_copied: "복사됨",
   copilot_model_filter: "모델 검색…",
+  copilot_model_unlisted: "이 에이전트는 모델 목록을 제공하지 않습니다",
+  copilot_denied_tools:
+    "{n}건의 도구 요청이 {agent} 정책에 의해 차단되었습니다 — 쓰기 위임은 해당 에이전트 설정에서 허용하세요",
+  copilot_activated_toast: "{agent} 활성화됨",
+  copilot_open_panel: "코파일럿 열기",
+  copilot_policy_readonly:
+    "기본 정책이 읽기 전용입니다 — 쓰기 위임은 이 에이전트의 설정에서 허용하세요",
   copilot_cmd_summary_label: "요약",
   copilot_cmd_summary_desc: "열린 노트나 최근 노트를 요약",
   copilot_cmd_summary_active: "지금 열린 노트를 요약해줘",

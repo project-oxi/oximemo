@@ -133,6 +133,13 @@ export const dict: Record<keyof typeof ko, string> = {
   copilot_memo_untitled: "Untitled",
   copilot_copied: "Copied",
   copilot_model_filter: "Filter models…",
+  copilot_model_unlisted: "This agent does not publish a model list",
+  copilot_denied_tools:
+    "{n} tool request(s) were blocked by {agent}'s own policy — allow writes in that agent's settings to delegate vault edits",
+  copilot_activated_toast: "{agent} activated",
+  copilot_open_panel: "Open copilot",
+  copilot_policy_readonly:
+    "Its default policy is read-only — allow writes in this agent's own settings to delegate vault edits",
   copilot_cmd_summary_label: "Summarize",
   copilot_cmd_summary_desc: "Summarize the open or recent notes",
   copilot_cmd_summary_active: "Summarize the note I have open",

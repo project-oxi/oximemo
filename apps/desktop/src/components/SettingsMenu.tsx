@@ -42,6 +42,7 @@ import {
 import {
   brainListSpaces,
   cliStatus,
+  copilotStatus,
   copilotProbeAgents,
   copilotActivate,
   copilotDisclosure,
@@ -360,6 +361,9 @@ function CopilotSection() {
   const qc = useQueryClient();
   const setError = useUI((s) => s.setError);
   const { config, save } = useConfigSection();
+  const setToast = useUI((s) => s.setToast);
+  const setCopilotOpen = useUI((s) => s.setCopilotOpen);
+  const status = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
   const copilot = config.data?.copilot;
   const [candidates, setCandidates] = useState<AgentCandidate[] | null>(null);
   const [detecting, setDetecting] = useState(false);
@@ -388,6 +392,12 @@ function CopilotSection() {
         qc.invalidateQueries({ queryKey: ["config"] });
         qc.invalidateQueries({ queryKey: ["copilot-status"] });
         qc.invalidateQueries({ queryKey: ["copilot-disclosure"] });
+        // Activation must VISIBLY do something: name the agent and offer
+        // the one action that proves it (the FAB sits behind this modal).
+        setToast(t.copilot_activated_toast.replace("{agent}", c.display_name), {
+          label: t.copilot_open_panel,
+          onClick: () => setCopilotOpen(true),
+        });
       })
       .catch((e) => setError(String(e).split("\n")[0]))
       .finally(() => {
@@ -439,13 +449,26 @@ function CopilotSection() {
               {t.copilot_deactivate}
             </button>
           </div>
-          <p className="mt-0.5 font-mono text-xs text-text">{activeAgent}</p>
+          <p className="mt-0.5 text-xs font-medium text-text">
+            {status.data?.agent_name ?? activeAgent}
+          </p>
           <p className="truncate font-mono text-[10px] text-text-subtle">
-            {copilot?.executable}
+            {activeAgent} · {copilot?.executable}
           </p>
           <p className="mt-1 text-[10px] text-text-subtle">
-            {disclosure.data?.model ?? t.copilot_consent_unknown_provider}
+            {disclosure.data?.provider
+              ? `${disclosure.data.provider}${disclosure.data.model ? ` · ${disclosure.data.model}` : ""}`
+              : t.copilot_consent_unknown_provider}
           </p>
+          {/* Verified read-only defaults (claude -p denies writes, codex
+              exec sandbox is read-only unless the user configured
+              otherwise): say so — the fix lives in the agent's own
+              settings (spec §11), not here. */}
+          {(activeAgent === "claude" || activeAgent === "codex") && (
+            <p className="mt-1 text-[10px] leading-snug text-text-subtle">
+              {t.copilot_policy_readonly}
+            </p>
+          )}
         </div>
       ) : (
         <button

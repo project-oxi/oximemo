@@ -290,6 +290,11 @@ export function CopilotPanel() {
               {models.isError && (
                 <p className="px-2 py-2 text-[11px] text-red-500">{t.copilot_model_none}</p>
               )}
+              {!models.isLoading && !models.isError && (models.data?.length ?? 0) === 0 && (
+                <p className="px-2 py-2 text-[11px] leading-snug text-text-subtle">
+                  {t.copilot_model_unlisted}
+                </p>
+              )}
               {modelList.map((m) => (
                 <button
                   key={m.id}
@@ -383,10 +388,12 @@ export function CopilotPanel() {
             </div>
           </div>
         )}
+
         {entries.map((e, i) => (
           <ConversationEntry
             key={i}
             entry={e}
+            agentName={agentName}
             onRetry={busy ? undefined : () => e.role === "error" && e.retry && void sendTurn(e.retry)}
           />
         ))}
@@ -416,14 +423,15 @@ export function CopilotPanel() {
     </aside>
   );
 }
-
 /** One row: user turn (with its attached-context chips), agent turn, or
  * error (with retry). */
 function ConversationEntry({
   entry,
+  agentName,
   onRetry,
 }: {
   entry: CopilotEntry;
+  agentName: string;
   onRetry?: () => void;
 }) {
   const { t } = useI18n();
@@ -474,12 +482,12 @@ function ConversationEntry({
       </div>
     );
   }
-  return <AgentMessage result={entry.result} />;
+  return <AgentMessage result={entry.result} agentName={agentName} />;
 }
 
 /** One finished agent turn: markdown response, observed changes, and
  * diagnostics. */
-function AgentMessage({ result }: { result: TurnResult }) {
+function AgentMessage({ result, agentName }: { result: TurnResult; agentName: string }) {
   const { t } = useI18n();
   const setDraftId = useUI((s) => s.setDraftId);
   const [open, setOpen] = useState(false);
@@ -574,6 +582,17 @@ function AgentMessage({ result }: { result: TurnResult }) {
             <div dangerouslySetInnerHTML={{ __html: html }} />
           </div>
         </>
+      )}
+
+      {/* claude discloses tool requests its own policy denied — surface
+          that fact so "why didn't it write?" is never a mystery (§11:
+          the policy is the agent's, and so is the fix). */}
+      {result.denials && result.denials.length > 0 && (
+        <p className="text-[10px] leading-snug text-text-subtle">
+          {t.copilot_denied_tools
+            .replace("{n}", String(result.denials.length))
+            .replace("{agent}", agentName)}
+        </p>
       )}
       {(result.model || result.duration_ms > 0) && (
         <p className="font-mono text-[9px] text-text-subtle">
