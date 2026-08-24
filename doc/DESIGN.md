@@ -635,14 +635,14 @@ skills/oximemo/
 
 CLI 셸아웃은 가장 이식성이 높은 통합 방식이라 MVP 기본값으로 유지하되, 여러 에이전트가 실시간으로 동일 볼트를 폴링해야 하는 상황이 잦아지면 `oximemo-core`를 감싸는 MCP 서버( `oximemo mcp serve`)를 추가해 `list_memos`/ `get_memo`/ `search_memos`/ `create_memo`를 MCP 툴로 노출할 수 있습니다. 코어 로직을 이미 크레이트로 분리해 두었으므로(§4) 이 확장은 새 얇은 어댑터 하나를 추가하는 작업에 가깝습니다.
 
-### 10.4 코파일럿 — 터미널 에이전트 CLI 위임 (2026-08-23 시행, 2026-08-24 어댑터 2호·모델 전환·선택 컨텍스트)
+### 10.4 코파일럿 — 터미널 에이전트 CLI 위임 (2026-08-23 시행, 2026-08-24 어댑터 2호·모델 전환·선택 컨텍스트, 2026-08-24 개정 3 어댑터 3~5호)
 
 에이전트가 `oximemo` CLI를 호출하던 기존 방향(§10)을 역방향으로 확장한다: oximemo가 **사용자 PC에 설치된 터미널 에이전트 CLI**를 호출해 노트 작성·정리·태그 제안을 위임한다. 전체 설계는 `docs/superpowers/specs/2026-08-23-copilot-panel-design.md`가 규범이다. 핵심 계약:
 
 - **oximemo는 에이전트 런타임이 아니다.** 모델·프롬프트·임베딩·툴콜링을 갖지 않는다(§3.1 캐노니컬 가드레일). 에이전트에게 전달하는 것은 **선언적 컨텍스트 블록**(`vault_root`, `cli`, `skill`, `active_memo` + 편집기 선택 영역)과 사용자 원문뿐이며, 행동 규칙은 번들된 `SKILL.md`를 경로로 가리킨다(`bundle.resources`로 앱에 동봉).
 - **턴 = subprocess 1회.** 상주 프로세스·PTY 없음. 타임아웃·취소는 **프로세스 그룹 전체 kill**로 자식 잔존을 방지한다.
-- **어댑터 2종 (검증된 비대화형 계약만 활성화).** oxios: `run --json [--session]`, 컨텍스트는 stdin(`--context-file -`). omp(Oh My Pi): `-p --mode=json [-r 세션] [--model 셀렉터]`, 컨텍스트는 stdin으로 프롬프트에 첨부되며 cwd는 vault 루트. omp의 JSONL 스트림은 **턴에 실제 사용된 모델·provider**를 폭로한다 — 패널은 턴별로 이를 표시한다(§12: 설정이 아닌 실측 고지).
-- **모델 전환은 에이전트의 계약을 따른다.** omp는 턴별 `--model`(셀렉터는 `omp models --json`에서). oxios는 `run`에 턴별 플래그가 없으므로 oxios 자체의 `config set engine.default_model`(주석 보존)로 전환하고 UI에 전역 변경임을 고지한다. 모델 id는 화이트리스트 문자 검증을 통과해야 argv에 들어간다.
+- **어댑터 5종 (검증된 비대화형 계약만 활성화).** oxios: `run --json [--session]`, 컨텍스트는 stdin(`--context-file -`). omp(Oh My Pi): `-p --mode=json [-r 세션] [--model 셀렉터]`, 컨텍스트는 stdin으로 프롬프트에 첨부되며 cwd는 vault 루트. omp의 JSONL 스트림은 **턴에 실제 사용된 모델·provider**를 폭로한다 — 패널은 턴별로 이를 표시한다(§12: 설정이 아닌 실측 고지). claude(Claude Code): `-p --output-format=json [-r 세션] [--model]`, 컨텍스트는 stdin, 턴별 `modelUsage`·`permission_denials` 폭로. codex(Codex CLI): `exec --json [exec resume] [-m]`(`--skip-git-repo-check`), 컨텍스트는 stdin의 `<stdin>` 블록. oxicode(OxiCode): `--print --mode=json` — 컨텍스트가 프롬프트에 탑재되어 stdin을 읽지 않고 세션 id 재개가 없어 싱글턴 어댑터다. Gemini CLI는 탐지 목록에 올라오되 미검증이라 활성화 불가.
+- **모델 전환은 에이전트의 계약을 따른다.** omp는 턴별 `--model`(셀렉터는 `omp models --json`에서). oxios는 `run`에 턴별 플래그가 없으므로 oxios 자체의 `config set engine.default_model`(주석 보존)로 전환하고 UI에 전역 변경임을 고지한다. claude는 턴별 `--model`, codex는 `-m`(모델 목록은 codex 자체 `models_cache.json`에서 — 필터로만 사용)을 받는다; claude·oxicode는 모델 목록을 제공하지 않으므로 패널이 그 상태를 정직하게 고지한다. 모델 id는 화이트리스트 문자 검증을 통과해야 argv에 들어간다.
 - **탐지는 신뢰 경계가 아니다.** PATH + 표준 사용자 설치 루트(`~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin`, `~/bin`, Homebrew)에서 probe — GUI 실행(Finder/Dock)은 launchd의 최소 PATH를 물려받으므로 보강 탐색이 필요하다. probe는 설정 pane 진입/패널 최초 오픈 시에만 실행(앱 시작·캡처 경로에서 금지). 활성화는 사용자 명시 + probe 재검증 + provider 고지·동의.
 - **승인·샌드박스는 전량 에이전트 정책에 위임.** oximemo는 권한 우회 플래그를 자동 부착하지 않는다.
 - **쓰기 경로**: 권장 경로는 네이티브 판단 → `oximemo update --body-stdin` 커밋(§ SKILL.md). raw write는 `updated` bump·원자성·미지 키 보존을 잃는다는 한계를 문서로 고지.
