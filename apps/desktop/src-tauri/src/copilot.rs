@@ -32,15 +32,27 @@ pub struct AgentCandidate {
 }
 
 /// Known agent binaries. (id, executable name, display name, adapter
-/// support). `omp` is verified: `-p --mode=json` runs a full turn
-/// non-interactively, stdin carries context, `-r <id>` resumes, and the
-/// JSONL stream discloses the actual provider/model per turn.
+/// support). Support requires a LIVE-VERIFIED non-interactive contract
+/// (spec §13 — no speculative adapters):
+/// - `oxios` — `run --json --context-file -` (README "Programmatic Usage").
+/// - `omp` — `-p --mode=json`, stdin context, `-r <id>`, `--model`.
+/// - `claude` — `-p --output-format=json`, stdin context, `-r <id>`,
+///   `--model`, per-turn `modelUsage` + `permission_denials` (verified
+///   2.1.229).
+/// - `codex` — `exec --json [--skip-git-repo-check]`, stdin appended as a
+///   `<stdin>` block, `exec resume <id>`, `-m` (verified 0.147.0).
+/// - `oxicode` — `--print --mode=json` NDJSON, `-m`/`-p`; stdin is NOT
+///   read as context (verified 0.76.0 — context rides the prompt) and
+///   there is no by-id resume (`-c` is cwd-latest, racy) → single-turn.
+/// - `gemini` — listed when installed, but no verified contract on this
+///   machine yet (spec §13: found ≠ supported).
 pub(crate) const KNOWN_AGENTS: &[(&str, &str, &str, bool)] = &[
     ("oxios", "oxios", "Oxios", true),
     ("omp", "omp", "Oh My Pi", true),
-    ("oxicode", "oxicode", "OxiCode", false),
-    ("claude", "claude", "Claude Code", false),
-    ("codex", "codex", "Codex", false),
+    ("claude", "claude", "Claude Code", true),
+    ("codex", "codex", "Codex CLI", true),
+    ("oxicode", "oxicode", "OxiCode", true),
+    ("gemini", "gemini", "Gemini CLI", false),
 ];
 
 pub(crate) fn display_name(id: &str) -> &str {
@@ -146,6 +158,17 @@ pub struct Disclosure {
     pub provider: Option<String>,
 }
 
+impl Disclosure {
+    /// The honest "cannot be looked up" disclosure (spec §18-3).
+    fn unknown(agent: &str) -> Self {
+        Disclosure {
+            agent: agent.to_string(),
+            model: None,
+            provider: None,
+        }
+    }
+}
+
 /// Parse `[engine] default_model = "..."` out of an oxios config body.
 /// Section-scoped: a `default_model` under any other table is ignored.
 fn disclosure_from_config(agent: &str, text: &str) -> Disclosure {
@@ -205,27 +228,118 @@ fn disclosure_from_config(agent: &str, text: &str) -> Disclosure {
     }
 }
 
-/// Provider disclosure for the activated agent. Only oxios has a known
-/// config location in v1; other ids return an honest "unknown" disclosure
-/// (spec §18-3: if it cannot be looked up, say so).
+/// Parse `~/.claude/settings.json` for the configured default model.
+/// Provider: Claude Code is first-party Anthropic unless a gateway env
+/// overrides it — the env check lives in [`disclosure`], which knows the
+/// process environment; this pure half only reads the file body.
+fn disclosure_from_claude_settings(text: &str) -> Disclosure {
+    let v: serde_json::Value = match serde_json::from_str(text.trim()) {
+        Ok(v) => v,
+        Err(_) => return Disclosure::unknown("claude"),
+    };
+    let model = v
+        .get("model")
+        .and_then(|m| m.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    Disclosure {
+        agent: "claude".into(),
+        model,
+        provider: Some("anthropic".into()),
+    }
+}
+
+/// Parse top-level `model` / `model_provider` out of `~/.codex/config.toml`.
+/// Section-scoped like the oxios reader: a `model` under `[projects.x]` is
+/// not the default. Absent `model_provider` ⇒ Codex's own default, OpenAI.
+fn disclosure_from_codex_config(text: &str) -> Disclosure {
+    let mut section = String::new();
+    let mut model = None;
+    let mut provider = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            section = line[1..line.len() - 1].trim().to_string();
+            continue;
+        }
+        if !section.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let raw = value.trim();
+        let quoted = raw.strip_prefix('"').and_then(|r| r.split('"').next());
+        if key.trim() == "model" && model.is_none() {
+            if let Some(m) = quoted.filter(|m| !m.is_empty()) {
+                model = Some(m.to_string());
+            }
+        } else if key.trim() == "model_provider" && provider.is_none() {
+            if let Some(p) = quoted.filter(|p| !p.is_empty()) {
+                provider = Some(p.to_string());
+            }
+        }
+    }
+    if provider.is_none() && model.is_some() {
+        provider = Some("openai".into());
+    }
+    Disclosure {
+        agent: "codex".into(),
+        model,
+        provider,
+    }
+}
+
+/// Parse `~/.oxicode/settings.json` — oxicode's own record of the model
+/// and provider it last ran with (its only durable model fact).
+fn disclosure_from_oxicode_settings(text: &str) -> Disclosure {
+    let v: serde_json::Value = match serde_json::from_str(text.trim()) {
+        Ok(v) => v,
+        Err(_) => return Disclosure::unknown("oxicode"),
+    };
+    let model = v
+        .get("last_used_model")
+        .and_then(|m| m.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let provider = v
+        .get("last_used_provider")
+        .and_then(|p| p.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    Disclosure {
+        agent: "oxicode".into(),
+        model,
+        provider,
+    }
+}
+
+/// Provider disclosure for the activated agent (spec §12): whatever the
+/// agent's own config discloses, else an honest "unknown" (§18-3).
 pub fn disclosure(agent: &str) -> Disclosure {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let path = Path::new(&home).join(".oxios").join("config.toml");
-    if agent == "oxios" {
-        match std::fs::read_to_string(&path) {
-            Ok(text) => disclosure_from_config(agent, &text),
-            Err(_) => Disclosure {
-                agent: agent.to_string(),
-                model: None,
-                provider: None,
-            },
-        }
-    } else {
-        Disclosure {
-            agent: agent.to_string(),
-            model: None,
-            provider: None,
-        }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let unknown = || Disclosure::unknown(agent);
+    match agent {
+        "oxios" => std::fs::read_to_string(home.join(".oxios").join("config.toml"))
+            .map(|t| disclosure_from_config(agent, &t))
+            .unwrap_or_else(|_| unknown()),
+        "claude" => std::fs::read_to_string(home.join(".claude").join("settings.json"))
+            .map(|t| {
+                let d = disclosure_from_claude_settings(&t);
+                // A gateway env reroutes traffic away from first-party
+                // Anthropic — the honest disclosure then names no one.
+                if std::env::var_os("ANTHROPIC_BASE_URL").is_some() {
+                    Disclosure::unknown(agent)
+                } else {
+                    d
+                }
+            })
+            .unwrap_or_else(|_| unknown()),
+        "codex" => std::fs::read_to_string(home.join(".codex").join("config.toml"))
+            .map(|t| disclosure_from_codex_config(&t))
+            .unwrap_or_else(|_| unknown()),
+        "oxicode" => std::fs::read_to_string(home.join(".oxicode").join("settings.json"))
+            .map(|t| disclosure_from_oxicode_settings(&t))
+            .unwrap_or_else(|_| unknown()),
+        _ => unknown(),
     }
 }
 
@@ -782,6 +896,245 @@ pub fn parse_omp_jsonl(stdout: &str) -> OmpTurn {
     turn
 }
 
+// ---- Claude Code (verified 2.1.229) --------------------------------------
+
+/// Build the Claude Code argv for one turn. Verified contract: `-p` is
+/// non-interactive, `--output-format=json` emits one result object,
+/// piped stdin is appended as context, `-r <id>` resumes, `--model`
+/// takes an alias or full name. `--` guards dash-leading prompts.
+/// Spec §11: NO permission flags — claude's own settings own the policy.
+pub fn claude_args(session: Option<&str>, model: Option<&str>, prompt: &str) -> Vec<String> {
+    let mut args = vec!["-p".to_string(), "--output-format=json".to_string()];
+    if let Some(m) = model {
+        args.push("--model".to_string());
+        args.push(m.to_string());
+    }
+    if let Some(sid) = session {
+        args.push("-r".to_string());
+        args.push(sid.to_string());
+    }
+    args.push("--".to_string());
+    args.push(prompt.to_string());
+    args
+}
+
+/// What one finished claude turn disclosed: the result text, the session
+/// id, the model/provider ACTUALLY used (`modelUsage`, spec §12), and
+/// the tool requests its own permission policy denied — a fact the
+/// panel surfaces so "why didn't it write?" is never a mystery.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClaudeTurn {
+    pub response: String,
+    pub session_id: Option<String>,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+    /// Tool names whose requests claude's policy denied this turn.
+    pub denied: Vec<String>,
+}
+
+/// Parse the claude `-p --output-format=json` stdout (single JSON
+/// object). Non-JSON stdout degrades to the raw text (the user still
+/// sees exactly what the agent said).
+pub fn parse_claude_result(stdout: &str) -> ClaudeTurn {
+    let trimmed = stdout.trim();
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        return ClaudeTurn {
+            response: trimmed.to_string(),
+            ..Default::default()
+        };
+    };
+    let mut turn = ClaudeTurn {
+        response: v
+            .get("result")
+            .and_then(|r| r.as_str())
+            .unwrap_or(trimmed)
+            .to_string(),
+        session_id: v
+            .get("session_id")
+            .and_then(|s| s.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        ..Default::default()
+    };
+    // modelUsage: { "<model-id>": { canonicalModel, provider, … } }.
+    // The first key is the model that served the turn; canonicalModel
+    // strips the date suffix, provider "firstParty" means Anthropic.
+    if let Some((_, first)) = v
+        .get("modelUsage")
+        .and_then(|m| m.as_object())
+        .and_then(|o| o.iter().next())
+    {
+        turn.model = first
+            .get("canonicalModel")
+            .and_then(|c| c.as_str())
+            .filter(|c| !c.is_empty())
+            .map(str::to_string);
+        turn.provider = first.get("provider").and_then(|p| p.as_str()).map(|p| {
+            if p == "firstParty" {
+                "anthropic".to_string()
+            } else {
+                p.to_string()
+            }
+        });
+    }
+    turn.denied = v
+        .get("permission_denials")
+        .and_then(|d| d.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|i| {
+                    i.get("tool_name")
+                        .and_then(|t| t.as_str())
+                        .filter(|t| !t.is_empty())
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    turn
+}
+
+// ---- Codex CLI (verified 0.147.0) ----------------------------------------
+
+/// Build the Codex argv for one turn. Verified contract: `exec` is
+/// non-interactive, `--json` emits a JSONL event stream, piped stdin is
+/// appended to the prompt as a `<stdin>` block, `-m` selects the model,
+/// and `exec resume <id>` continues a thread. `--skip-git-repo-check`
+/// is a preflight check bypass (the vault is a git repo only when the
+/// optional git layer is enabled), NOT a permission. Spec §11: no
+/// sandbox flags — codex's own config owns the policy.
+pub fn codex_args(session: Option<&str>, model: Option<&str>, prompt: &str) -> Vec<String> {
+    let mut args = vec!["exec".to_string()];
+    if session.is_some() {
+        args.push("resume".to_string());
+    }
+    args.push("--json".to_string());
+    args.push("--skip-git-repo-check".to_string());
+    if let Some(m) = model {
+        args.push("-m".to_string());
+        args.push(m.to_string());
+    }
+    if let Some(sid) = session {
+        args.push(sid.to_string());
+    }
+    args.push("--".to_string());
+    args.push(prompt.to_string());
+    args
+}
+
+/// What one finished codex turn disclosed. Codex's event stream names
+/// neither model nor provider — those stay honestly `None` (§12).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CodexTurn {
+    pub response: String,
+    pub session_id: Option<String>,
+}
+
+/// Parse the codex `exec --json` JSONL stdout. Response = the
+/// `agent_message` items joined with a blank line; session id comes
+/// from the leading `thread.started`; `error` events surface as the
+/// response when no agent message answered. Non-JSON lines are skipped;
+/// an empty parse falls back to the raw stdout.
+pub fn parse_codex_jsonl(stdout: &str) -> CodexTurn {
+    let mut turn = CodexTurn::default();
+    let mut parts: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if !line.starts_with('{') {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("thread.started") => {
+                if turn.session_id.is_none() {
+                    turn.session_id = v
+                        .get("thread_id")
+                        .and_then(|i| i.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                }
+            }
+            Some("item.completed") => {
+                let item = v.get("item");
+                if item.and_then(|i| i.get("type")).and_then(|t| t.as_str()) == Some("agent_message")
+                {
+                    if let Some(text) = item
+                        .and_then(|i| i.get("text"))
+                        .and_then(|t| t.as_str())
+                        .filter(|t| !t.trim().is_empty())
+                    {
+                        parts.push(text.to_string());
+                    }
+                }
+            }
+            Some("error") => {
+                if let Some(msg) = v.get("message").and_then(|m| m.as_str()) {
+                    errors.push(msg.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    turn.response = if !parts.is_empty() {
+        parts.join("\n\n")
+    } else if !errors.is_empty() {
+        errors.join("\n")
+    } else {
+        stdout.trim().to_string()
+    };
+    turn
+}
+
+// ---- OxiCode (verified 0.76.0) -------------------------------------------
+
+/// Build the oxicode argv for one turn. Verified contract: `--print` is
+/// single-shot non-interactive, `--mode=json` emits NDJSON events,
+/// `-m`/`-p` select model/provider. Two verified gaps shape this
+/// adapter: stdin is NOT read as context (context rides the prompt,
+/// appended by the dispatcher) and there is no by-id session resume
+/// (`-c` continues the cwd's latest session — racy, rejected) — this
+/// is a single-turn adapter. Spec §11: no permission flags.
+pub fn oxicode_args(model: Option<&str>, prompt_with_context: &str) -> Vec<String> {
+    let mut args = vec!["--print".to_string(), "--mode=json".to_string()];
+    if let Some(m) = model {
+        args.push("-m".to_string());
+        args.push(m.to_string());
+    }
+    args.push("--".to_string());
+    args.push(prompt_with_context.to_string());
+    args
+}
+
+/// Parse the oxicode `--print --mode=json` NDJSON stdout. Response =
+/// the LAST `message_end` text (mirrors omp's last-assistant-message
+/// rule); anything unparseable degrades to the raw stdout.
+pub fn parse_oxicode_jsonl(stdout: &str) -> String {
+    let mut last: Option<String> = None;
+    for line in stdout.lines() {
+        let line = line.trim();
+        if !line.starts_with('{') {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if v.get("type").and_then(|t| t.as_str()) == Some("message_end") {
+            if let Some(text) = v
+                .get("text")
+                .and_then(|t| t.as_str())
+                .filter(|t| !t.trim().is_empty())
+            {
+                last = Some(text.to_string());
+            }
+        }
+    }
+    last.unwrap_or_else(|| stdout.trim().to_string())
+}
+
 /// One selectable model in the panel's model picker.
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelInfo {
@@ -896,13 +1249,58 @@ pub fn parse_omp_models(text: &str) -> Result<Vec<ModelInfo>, String> {
         .collect())
 }
 
+/// Parse `~/.codex/models_cache.json` — codex's own model catalog cache
+/// (`{"models":[{slug,display_name,visibility,…}]}`, verified 0.147.0).
+/// Only `visibility == "list"` models belong in a picker (codex marks
+/// internal models `hide`). A missing/stale cache is not an error: the
+/// picker simply offers nothing (honest empty, spec §12).
+pub fn parse_codex_models_cache(text: &str) -> Vec<ModelInfo> {
+    let v: serde_json::Value = match serde_json::from_str(text.trim()) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    v.get("models")
+        .and_then(|m| m.as_array())
+        .map(|list| {
+            list.iter()
+                .filter(|m| m.get("visibility").and_then(|v| v.as_str()) == Some("list"))
+                .filter_map(|m| {
+                    let slug = m.get("slug").and_then(|s| s.as_str())?;
+                    Some(ModelInfo {
+                        id: slug.to_string(),
+                        name: m
+                            .get("display_name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or(slug)
+                            .to_string(),
+                        provider: "openai".to_string(),
+                        context_window: None,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// List the activated agent's selectable models (lazy — picker-only).
+/// Agents with no machine-readable listing get an honest EMPTY list —
+/// the picker then shows "does not publish a model list" instead of an
+/// error (spec §12: never guess a catalog).
 pub async fn list_models(agent: &str, exe: &Path) -> Result<Vec<ModelInfo>, String> {
     match agent {
         "oxios" => Ok(parse_oxios_models(
             &capture_stdout(exe, &["models"], 30).await?,
         )),
         "omp" => parse_omp_models(&capture_stdout(exe, &["models", "--json"], 30).await?),
+        // claude has no `models` subcommand; oxicode's catalog is the
+        // full models.dev dump (7288 entries) — neither is picker-grade.
+        "claude" | "oxicode" => Ok(Vec::new()),
+        "codex" => {
+            let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+            Ok(std::fs::read_to_string(home.join(".codex").join("models_cache.json"))
+                .map(|t| parse_codex_models_cache(&t))
+                .unwrap_or_default())
+        }
         other => Err(format!("model listing is not implemented for {other}")),
     }
 }
@@ -1701,5 +2099,206 @@ pid_file = "/x"
                 note.props
             );
         }
+    }
+
+    // ---- adapters 3–5: Claude Code / Codex CLI / OxiCode ------------------
+    // Contracts live-verified 2026-08-24 (claude 2.1.229, codex-cli
+    // 0.147.0, oxicode 0.76.0); fixtures below are captured real output.
+
+    #[test]
+    fn claude_args_shape() {
+        assert_eq!(
+            claude_args(None, None, "-dash"),
+            vec!["-p", "--output-format=json", "--", "-dash"]
+        );
+        assert_eq!(
+            claude_args(None, Some("opus"), "hi"),
+            vec!["-p", "--output-format=json", "--model", "opus", "--", "hi"]
+        );
+        assert_eq!(
+            claude_args(Some("sid"), None, "hi"),
+            vec!["-p", "--output-format=json", "-r", "sid", "--", "hi"]
+        );
+    }
+
+    #[test]
+    fn claude_result_parses_live_shape() {
+        let stdout = concat!(
+            r#"{"is_error":false,"session_id":"3f381dff-f436-482b-bd52-f249cfc4c9ea","#,
+            r#""subtype":"success","result":"OK","modelUsage":"#,
+            r#"{"claude-haiku-4-5-20251001":{"canonicalModel":"claude-haiku-4-5","#,
+            r#""provider":"firstParty"}},"permission_denials":[]}"#
+        );
+        let t = parse_claude_result(stdout);
+        assert_eq!(t.response, "OK");
+        assert_eq!(
+            t.session_id.as_deref(),
+            Some("3f381dff-f436-482b-bd52-f249cfc4c9ea")
+        );
+        assert_eq!(t.model.as_deref(), Some("claude-haiku-4-5"));
+        assert_eq!(t.provider.as_deref(), Some("anthropic"));
+        assert!(t.denied.is_empty());
+    }
+
+    #[test]
+    fn claude_result_reports_denials_and_fallback() {
+        let stdout = concat!(
+            r#"{"is_error":true,"session_id":"x","result":"write blocked","#,
+            r#""modelUsage":{},"permission_denials":[{"tool_name":"Write"}]}"#
+        );
+        let t = parse_claude_result(stdout);
+        assert_eq!(t.denied, vec!["Write".to_string()]);
+        assert_eq!(t.model, None);
+        // A claude that prints non-JSON degrades to the raw stdout —
+        // the user still sees exactly what the agent said.
+        assert_eq!(parse_claude_result("plain text").response, "plain text");
+    }
+
+    #[test]
+    fn codex_args_shape() {
+        assert_eq!(
+            codex_args(None, None, "-dash"),
+            vec!["exec", "--json", "--skip-git-repo-check", "--", "-dash"]
+        );
+        assert_eq!(
+            codex_args(None, Some("gpt-5.6-sol"), "hi"),
+            vec![
+                "exec",
+                "--json",
+                "--skip-git-repo-check",
+                "-m",
+                "gpt-5.6-sol",
+                "--",
+                "hi"
+            ]
+        );
+        assert_eq!(
+            codex_args(Some("tid"), None, "hi"),
+            vec![
+                "exec",
+                "resume",
+                "--json",
+                "--skip-git-repo-check",
+                "tid",
+                "--",
+                "hi"
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_jsonl_parses_live_shape() {
+        let stdout = concat!(
+            r#"{"type":"thread.started","thread_id":"01a033dc-bf33-7aa0-84cd-bf2ad5c63f66"}"#,
+            "\n",
+            r#"{"type":"turn.started"}"#,
+            "\n",
+            r#"{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"part one"}}"#,
+            "\n",
+            r#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"part two"}}"#,
+            "\n",
+            r#"{"type":"turn.completed","usage":{}}"#,
+            "\n",
+        );
+        let t = parse_codex_jsonl(stdout);
+        assert_eq!(
+            t.session_id.as_deref(),
+            Some("01a033dc-bf33-7aa0-84cd-bf2ad5c63f66")
+        );
+        assert_eq!(t.response, "part one\n\npart two");
+    }
+
+    #[test]
+    fn codex_jsonl_error_fallback() {
+        let t = parse_codex_jsonl(r#"{"type":"error","message":"boom 400"}"#);
+        assert_eq!(t.response, "boom 400");
+        assert_eq!(parse_codex_jsonl("not json at all").response, "not json at all");
+    }
+
+    #[test]
+    fn oxicode_args_shape() {
+        assert_eq!(
+            oxicode_args(None, "ctx\nuser_request: hi\n"),
+            vec!["--print", "--mode=json", "--", "ctx\nuser_request: hi\n"]
+        );
+        assert_eq!(
+            oxicode_args(Some("m"), "p"),
+            vec!["--print", "--mode=json", "-m", "m", "--", "p"]
+        );
+    }
+
+    #[test]
+    fn oxicode_jsonl_parses_live_shape() {
+        let stdout = concat!(
+            r#"{"type":"agent_start"}"#,
+            "\n",
+            r#"{"text":"","type":"message_start"}"#,
+            "\n",
+            r#"{"delta":"OK","text":"OK","type":"message_update"}"#,
+            "\n",
+            r#"{"text":"OK","type":"message_end"}"#,
+            "\n",
+            r#"{"type":"turn_end"}"#,
+            "\n",
+        );
+        assert_eq!(parse_oxicode_jsonl(stdout), "OK");
+        // Last message_end wins (mirrors omp's last-assistant-message rule).
+        let two = concat!(
+            r#"{"text":"first","type":"message_end"}"#,
+            "\n",
+            r#"{"text":"second","type":"message_end"}"#,
+            "\n",
+        );
+        assert_eq!(parse_oxicode_jsonl(two), "second");
+        assert_eq!(parse_oxicode_jsonl("raw"), "raw");
+    }
+
+    #[test]
+    fn codex_models_cache_filters_hidden() {
+        let json = concat!(
+            r#"{"fetched_at":"2026","models":["#,
+            r#"{"slug":"gpt-5.6-sol","display_name":"GPT-5.6-Sol","visibility":"list"},"#,
+            r#"{"slug":"gpt-5.6-terra","display_name":"GPT-5.6-Terra","visibility":"list"},"#,
+            r#"{"slug":"codex-auto-review","display_name":"Codex Auto Review","visibility":"hide"}"#,
+            r#"]}"#
+        );
+        let ms = parse_codex_models_cache(json);
+        assert_eq!(ms.len(), 2);
+        assert_eq!(ms[0].id, "gpt-5.6-sol");
+        assert_eq!(ms[0].name, "GPT-5.6-Sol");
+        assert_eq!(ms[0].provider, "openai");
+        assert!(parse_codex_models_cache("not json").is_empty());
+    }
+
+    #[test]
+    fn claude_disclosure_reads_settings() {
+        let d = disclosure_from_claude_settings(r#"{"model":"opus"}"#);
+        assert_eq!(d.model.as_deref(), Some("opus"));
+        assert_eq!(d.provider.as_deref(), Some("anthropic"));
+        assert_eq!(disclosure_from_claude_settings("{}").model, None);
+    }
+
+    #[test]
+    fn codex_disclosure_reads_config() {
+        let d = disclosure_from_codex_config("model = \"gpt-5.6-terra\"\nmodel_reasoning_effort = \"medium\"\n");
+        assert_eq!(d.model.as_deref(), Some("gpt-5.6-terra"));
+        assert_eq!(d.provider.as_deref(), Some("openai"));
+        let routed = "model = \"m\"\nmodel_provider = \"oss\"\n[model_providers.oss]\nname = \"Local\"\n";
+        assert_eq!(
+            disclosure_from_codex_config(routed).provider.as_deref(),
+            Some("oss")
+        );
+        // A model key under a nested table is NOT the default model.
+        let nested = "[projects.x]\nmodel = \"nested\"\n";
+        assert_eq!(disclosure_from_codex_config(nested).model, None);
+    }
+
+    #[test]
+    fn oxicode_disclosure_reads_settings() {
+        let d = disclosure_from_oxicode_settings(
+            r#"{"last_used_model":"deepseek-v4-flash","last_used_provider":"deepseek"}"#,
+        );
+        assert_eq!(d.model.as_deref(), Some("deepseek-v4-flash"));
+        assert_eq!(d.provider.as_deref(), Some("deepseek"));
     }
 }
