@@ -192,14 +192,37 @@ export function MemoDetail() {
     setter(v);
     setDirty(true);
   };
-  const popupSize = "h-[80vh] w-[min(640px,92vw)] p-5";
+  const popupSize = "h-[80vh] w-[min(880px,92vw)] p-5";
+
+  // The copilot window (bottom-right, z-60) is usable WHILE a note is open
+  // by design. A wider editor (880px cap) would meet it on laptop widths,
+  // so nudge the dialog left just enough to keep 12px between them — but
+  // never past a 12px left margin. On screens too narrow for both, the
+  // copilot simply overlays the dialog edge (existing z-order contract).
+  const copilotOpen = useUI((s) => s.copilotOpen);
+  const [shift, setShift] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const recompute = () => {
+      const vw = window.innerWidth;
+      const copilot = copilotOpen ? Math.min(vw * 0.92, 380) + 24 + 12 : 0;
+      const half = Math.min(vw * 0.92, 880) / 2;
+      const need = half + copilot - vw / 2;
+      const max = Math.max(vw / 2 - half - 12, 0);
+      setShift(Math.max(0, Math.min(need, max)));
+    };
+    recompute();
+    window.addEventListener("resize", recompute);
+    return () => window.removeEventListener("resize", recompute);
+  }, [open, copilotOpen]);
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <Dialog.Popup
-          className={`fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-lg transition-[opacity,translate,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 ${popupSize}`}
+          style={{ left: `calc(50% - ${shift}px)` }}
+          className={`fixed top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-lg transition-[opacity,translate,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 ${popupSize}`}
         >
           <div className="flex h-full flex-col">
             <Dialog.Title className="sr-only">{t.done}</Dialog.Title>

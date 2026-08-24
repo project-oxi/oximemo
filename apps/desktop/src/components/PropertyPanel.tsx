@@ -829,7 +829,7 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
   ));
 
   return (
-    <div className="flex flex-col gap-1.5 border-b border-line pb-2.5">
+    <div className="flex max-h-[60%] min-h-0 shrink flex-col gap-1.5 overflow-y-auto border-b border-line pb-2.5">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}

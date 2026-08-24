@@ -15,7 +15,7 @@
  * The right-clicked wrapper is captured on pointerdown(button 2) —
  * right-click does not move focus, but the menu popup may.
  */
-import { useRef, type ReactElement, type ReactNode } from "react";
+import { useRef, type ReactElement } from "react";
 import { Scissors, Copy, ClipboardPaste, TextSelect } from "lucide-react";
 
 import { useI18n } from "../lib/i18n";
@@ -33,12 +33,11 @@ function findEditable(host: HTMLElement | null): Editable | null {
 
 export function TextCtxMenu({
   render,
-  children,
 }: {
-  /** The editable's own element (input/textarea/CM6 host div). */
+  /** The editable's own element (input/textarea/CM6 host div). Layout
+   *  classes (flex sizing, scroll) must land on this element — it is the
+   *  flex item its parent sees. */
   render: ReactElement;
-  /** Extra content inside the wrapper (e.g. the CM6 sub-editor). */
-  children?: ReactNode;
 }) {
   const { t } = useI18n();
   const hostRef = useRef<HTMLElement | null>(null);
@@ -93,7 +92,6 @@ export function TextCtxMenu({
         }
       >
         {render}
-        {children}
         <CtxMenu>
           <CtxItem
             icon={Scissors}

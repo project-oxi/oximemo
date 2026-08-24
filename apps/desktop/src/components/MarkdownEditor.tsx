@@ -152,51 +152,55 @@ export function MarkdownEditor({
   }, [documentId]);
 
   return (
-    <TextCtxMenu render={<div className={className} ref={rootRef} />}>
-      <AtomicCodeMirrorEditor
-        documentId={documentId}
-        markdownSource={body}
-        onMarkdownChange={onChange}
-        editorHandleRef={handleRef}
-        onLinkClick={onLinkClick ?? defaultOpenLink}
-        extensions={[imageInsertionExtension(viewRef), ...(extensions ?? [])]}
-      />
-      {imgMenu && (
-        <PointMenu x={imgMenu.x} y={imgMenu.y} onClose={() => setImgMenu(null)}>
-          <PointItem
-            icon={Trash2}
-            label={t.img_delete}
-            danger
-            onClick={() => {
-              const view = viewRef.current?.view;
-              const doc = view?.state.doc.toString();
-              if (view && doc) {
-                const escaped = imgMenu.name.replace(/[.]/g, "\\.");
-                const re = new RegExp(`^.*oximg://localhost/${escaped}(?:#w=\\d+)?.*\\n?`, "gm");
-                view.dispatch({ changes: { from: 0, to: doc.length, insert: doc.replace(re, "") } });
-              }
-              setImgMenu(null);
-            }}
+    <TextCtxMenu
+      render={
+        <div className={className} ref={rootRef}>
+          <AtomicCodeMirrorEditor
+            documentId={documentId}
+            markdownSource={body}
+            onMarkdownChange={onChange}
+            editorHandleRef={handleRef}
+            onLinkClick={onLinkClick ?? defaultOpenLink}
+            extensions={[imageInsertionExtension(viewRef), ...(extensions ?? [])]}
           />
-          <PointItem
-            icon={RotateCcw}
-            label={t.img_reset_width}
-            onClick={() => {
-              const view = viewRef.current?.view;
-              if (view) commitWidth(view, imgMenu.name, 0);
-              setImgMenu(null);
-            }}
-          />
-          <PointItem
-            icon={Link2}
-            label={t.img_copy_url}
-            onClick={() => {
-              void navigator.clipboard.writeText(`oximg://localhost/${imgMenu.name}`);
-              setImgMenu(null);
-            }}
-          />
-        </PointMenu>
-      )}
-    </TextCtxMenu>
+          {imgMenu && (
+            <PointMenu x={imgMenu.x} y={imgMenu.y} onClose={() => setImgMenu(null)}>
+              <PointItem
+                icon={Trash2}
+                label={t.img_delete}
+                danger
+                onClick={() => {
+                  const view = viewRef.current?.view;
+                  const doc = view?.state.doc.toString();
+                  if (view && doc) {
+                    const escaped = imgMenu.name.replace(/[.]/g, "\\.");
+                    const re = new RegExp(`^.*oximg://localhost/${escaped}(?:#w=\\d+)?.*\\n?`, "gm");
+                    view.dispatch({ changes: { from: 0, to: doc.length, insert: doc.replace(re, "") } });
+                  }
+                  setImgMenu(null);
+                }}
+              />
+              <PointItem
+                icon={RotateCcw}
+                label={t.img_reset_width}
+                onClick={() => {
+                  const view = viewRef.current?.view;
+                  if (view) commitWidth(view, imgMenu.name, 0);
+                  setImgMenu(null);
+                }}
+              />
+              <PointItem
+                icon={Link2}
+                label={t.img_copy_url}
+                onClick={() => {
+                  void navigator.clipboard.writeText(`oximg://localhost/${imgMenu.name}`);
+                  setImgMenu(null);
+                }}
+              />
+            </PointMenu>
+          )}
+        </div>
+      }
+    />
   );
 }
