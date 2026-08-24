@@ -1747,7 +1747,7 @@ mod commands {
         /// turn (claude's result JSON discloses them). None = not
         /// measurable for this agent.
         pub denials: Option<Vec<String>>,
- }
+    }
 
     /// Full-vault manifest walk; heavy (redb + per-file read/hash), so
     /// callers run it via `spawn_blocking` to keep the async runtime free.
@@ -1861,14 +1861,8 @@ mod commands {
                 .await
                 .map_err(|e| format!("folder facts join: {e}"))?
         };
-        let ctx = crate::copilot::build_context(
-            &vault_root,
-            &cli,
-            &skill,
-            &map,
-            active.as_ref(),
-            &refs,
-        );
+        let ctx =
+            crate::copilot::build_context(&vault_root, &cli, &skill, &map, active.as_ref(), &refs);
         // Adapter dispatch (spec §5): argv shape, cwd, and stdout dialect
         // are per-agent facts. oxios/omp/claude/codex get the context on
         // stdin; oxicode does not read stdin as context (verified
@@ -1902,7 +1896,11 @@ mod commands {
             other => return Err(format!("no copilot adapter for '{other}'")),
         };
         // oxicode ignores stdin; skip the pipe write entirely.
-        let stdin_for_agent = if cfg.agent == "oxicode" { "" } else { ctx.as_str() };
+        let stdin_for_agent = if cfg.agent == "oxicode" {
+            ""
+        } else {
+            ctx.as_str()
+        };
         let before = {
             let v = state.vault.clone();
             tokio::task::spawn_blocking(move || manifest_snapshot(v))
@@ -1960,7 +1958,11 @@ mod commands {
                 }
                 "claude" => {
                     let t = crate::copilot::parse_claude_result(&outcome.stdout);
-                    let denials = if t.denied.is_empty() { None } else { Some(t.denied) };
+                    let denials = if t.denied.is_empty() {
+                        None
+                    } else {
+                        Some(t.denied)
+                    };
                     (t.response, t.session_id, t.model, t.provider, denials)
                 }
                 "codex" => {

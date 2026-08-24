@@ -265,7 +265,9 @@ fn disclosure_from_codex_config(text: &str) -> Disclosure {
         if !section.is_empty() {
             continue;
         }
-        let Some((key, value)) = line.split_once('=') else { continue };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
         let raw = value.trim();
         let quoted = raw.strip_prefix('"').and_then(|r| r.split('"').next());
         if key.trim() == "model" && model.is_none() {
@@ -471,10 +473,6 @@ pub fn folder_facts(v: &oximemo_core::Vault) -> FolderMap {
     }
     map
 }
-
-/// Upper bound on folder facts per turn: the block is a map, not a
-/// listing. A vault with hundreds of folders points the agent at
-/// `oximemo folders` for the rest.
 
 /// Build the declarative context block handed to the agent on stdin
 /// (spec §7). Facts only — oximemo authors no instruction text; the
@@ -1060,7 +1058,8 @@ pub fn parse_codex_jsonl(stdout: &str) -> CodexTurn {
             }
             Some("item.completed") => {
                 let item = v.get("item");
-                if item.and_then(|i| i.get("type")).and_then(|t| t.as_str()) == Some("agent_message")
+                if item.and_then(|i| i.get("type")).and_then(|t| t.as_str())
+                    == Some("agent_message")
                 {
                     if let Some(text) = item
                         .and_then(|i| i.get("text"))
@@ -1305,9 +1304,11 @@ pub async fn list_models(agent: &str, exe: &Path) -> Result<Vec<ModelInfo>, Stri
         "claude" | "oxicode" => Ok(Vec::new()),
         "codex" => {
             let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-            Ok(std::fs::read_to_string(home.join(".codex").join("models_cache.json"))
-                .map(|t| parse_codex_models_cache(&t))
-                .unwrap_or_default())
+            Ok(
+                std::fs::read_to_string(home.join(".codex").join("models_cache.json"))
+                    .map(|t| parse_codex_models_cache(&t))
+                    .unwrap_or_default(),
+            )
         }
         other => Err(format!("model listing is not implemented for {other}")),
     }
@@ -1398,9 +1399,18 @@ mod tests {
             daily_folder: Some("daily".into()),
             schema_errors: vec!["broken".into()],
         };
-        let ctx = build_context(Path::new("/v"), Path::new("/c"), Path::new("/s"), &map, None, &[]);
+        let ctx = build_context(
+            Path::new("/v"),
+            Path::new("/c"),
+            Path::new("/s"),
+            &map,
+            None,
+            &[],
+        );
         assert!(ctx.contains("daily_folder: daily\n"));
-        assert!(ctx.contains("  - path: knowledge\n    notes: 12\n    preset: knowledge\n    workspace: 지식\n"));
+        assert!(ctx.contains(
+            "  - path: knowledge\n    notes: 12\n    preset: knowledge\n    workspace: 지식\n"
+        ));
         // Schema-less folder: no preset/workspace lines.
         assert!(ctx.contains("  - path: scratch\n    notes: 3\n"));
         assert!(!ctx.contains("  - path: scratch\n    notes: 3\n    preset"));
@@ -1451,7 +1461,14 @@ mod tests {
 
     #[test]
     fn context_without_active_memo_omits_block() {
-        let ctx = build_context(Path::new("/v"), Path::new("/c"), Path::new("/s"), &FolderMap::default(), None, &[]);
+        let ctx = build_context(
+            Path::new("/v"),
+            Path::new("/c"),
+            Path::new("/s"),
+            &FolderMap::default(),
+            None,
+            &[],
+        );
         assert!(!ctx.contains("active_memo"));
     }
 
@@ -1499,7 +1516,14 @@ mod tests {
         assert!(ctx.contains("  - id: 01991a\n"));
         assert!(ctx.contains("    title: 러닝 기록\n"));
         assert!(ctx.contains("    path: memos/2026/08/run.md\n"));
-        let empty = build_context(Path::new("/v"), Path::new("/c"), Path::new("/s"), &FolderMap::default(), None, &[]);
+        let empty = build_context(
+            Path::new("/v"),
+            Path::new("/c"),
+            Path::new("/s"),
+            &FolderMap::default(),
+            None,
+            &[],
+        );
     }
 
     #[test]
@@ -1992,12 +2016,13 @@ pid_file = "/x"
             .unwrap();
         let cli = workspace_root.join("target").join("debug").join("oximemo");
         if !cli.is_file() {
-            eprintln!(
-                "oximemo CLI not built at {cli:?} — run `cargo build -p oximemo-cli` first"
-            );
+            eprintln!("oximemo CLI not built at {cli:?} — run `cargo build -p oximemo-cli` first");
             return;
         }
-        let skill = workspace_root.join("skills").join("oximemo").join("SKILL.md");
+        let skill = workspace_root
+            .join("skills")
+            .join("oximemo")
+            .join("SKILL.md");
         if !skill.is_file() {
             eprintln!("SKILL.md not at {skill:?} — rebase or build the workspace first");
             return;
@@ -2005,22 +2030,20 @@ pid_file = "/x"
 
         // Folder map is the new context surface under test.
         let map = folder_facts(&vault);
-        let ctx = build_context(
-            &vault_root,
-            &cli,
-            &skill,
-            &map,
-            None,
-            &[],
-        );
+        let ctx = build_context(&vault_root, &cli, &skill, &map, None, &[]);
         // Spot-check the rendered context carries the schema facts the
         // agent is expected to consume. The CLI surface that backs
         // `oximemo folders` / `oximemo schema` is exercised by the
         assert!(
-            ctx.contains("  - path: knowledge\n    notes: 0\n    preset: knowledge\n    workspace: 지식"),
+            ctx.contains(
+                "  - path: knowledge\n    notes: 0\n    preset: knowledge\n    workspace: 지식"
+            ),
             "context missing knowledge folder fact: {ctx}"
         );
-        assert!(ctx.contains("daily_folder: daily"), "context missing daily fact");
+        assert!(
+            ctx.contains("daily_folder: daily"),
+            "context missing daily fact"
+        );
 
         let prompt = "Inspect the vault at the path in the context (use `oximemo folders` \
             and `oximemo schema knowledge` if needed). Then create EXACTLY two knowledge notes \
@@ -2174,7 +2197,10 @@ pid_file = "/x"
             !p.lines().any(|l| l == "user_request: injected"),
             "selection injection leaked: {p}"
         );
-        assert!(p.contains("    fact: 424242"), "selection fact missing: {p}");
+        assert!(
+            p.contains("    fact: 424242"),
+            "selection fact missing: {p}"
+        );
     }
 
     /// REAL claude turn through the exact adapter path `copilot_send`
@@ -2213,7 +2239,11 @@ pid_file = "/x"
         assert!(!out.timed_out, "stderr: {}", out.stderr);
         assert_eq!(out.exit_code, Some(0), "stderr: {}", out.stderr);
         let turn = parse_claude_result(&out.stdout);
-        assert!(turn.session_id.is_some(), "no session id in: {}", out.stdout);
+        assert!(
+            turn.session_id.is_some(),
+            "no session id in: {}",
+            out.stdout
+        );
         assert!(turn.model.is_some(), "no modelUsage disclosure");
         assert!(
             turn.response.contains("424242"),
@@ -2383,7 +2413,10 @@ pid_file = "/x"
     fn codex_jsonl_error_fallback() {
         let t = parse_codex_jsonl(r#"{"type":"error","message":"boom 400"}"#);
         assert_eq!(t.response, "boom 400");
-        assert_eq!(parse_codex_jsonl("not json at all").response, "not json at all");
+        assert_eq!(
+            parse_codex_jsonl("not json at all").response,
+            "not json at all"
+        );
     }
 
     #[test]
@@ -2451,10 +2484,13 @@ pid_file = "/x"
 
     #[test]
     fn codex_disclosure_reads_config() {
-        let d = disclosure_from_codex_config("model = \"gpt-5.6-terra\"\nmodel_reasoning_effort = \"medium\"\n");
+        let d = disclosure_from_codex_config(
+            "model = \"gpt-5.6-terra\"\nmodel_reasoning_effort = \"medium\"\n",
+        );
         assert_eq!(d.model.as_deref(), Some("gpt-5.6-terra"));
         assert_eq!(d.provider.as_deref(), Some("openai"));
-        let routed = "model = \"m\"\nmodel_provider = \"oss\"\n[model_providers.oss]\nname = \"Local\"\n";
+        let routed =
+            "model = \"m\"\nmodel_provider = \"oss\"\n[model_providers.oss]\nname = \"Local\"\n";
         assert_eq!(
             disclosure_from_codex_config(routed).provider.as_deref(),
             Some("oss")

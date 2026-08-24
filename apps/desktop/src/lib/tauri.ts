@@ -61,6 +61,8 @@ const VIEW_KEY = "oximemo:folderviews:v1";
 const PINS_KEY = "oximemo:folderpins:v1";
 const FOLDERS_KEY = "oximemo:folders:v1";
 const CONFIG_KEY = "oximemo:config:v1";
+/** Browser-smoke copilot agent (mirrors the Rust [copilot] section). */
+const COPILOT_AGENT_KEY = "oximemo:copilot:agent";
 
 /** Deep-merge `patch` into `target` (plain objects recurse; arrays and
  * scalars replace). Backs the localStorage config override below. */
@@ -424,52 +426,100 @@ async function browserFallback(
   switch (cmd) {
     // --- copilot (spec 2026-08-23): browser smoke mirrors the activated
     // state so the panel/consent surfaces are exercisable without a
-    // Tauri shell. No subprocess ever runs here.
-    case "copilot_status":
+    // Tauri shell. No subprocess ever runs here. The agent set mirrors
+    // the Rust KNOWN_AGENTS registry (claude/codex/oxicode verified
+    // 2026-08-24; gemini listed-unverified).
+    case "copilot_status": {
+      const agent = localStorage.getItem(COPILOT_AGENT_KEY) ?? "oxios";
+      const names: Record<string, string> = {
+        oxios: "Oxios",
+        omp: "Oh My Pi",
+        claude: "Claude Code",
+        codex: "Codex CLI",
+        oxicode: "OxiCode",
+        gemini: "Gemini CLI",
+      };
       return {
         enabled: true,
         activated: true,
-        agent: "oxios",
-        agent_name: "Oxios",
+        agent,
+        agent_name: names[agent] ?? agent,
         busy: false,
       };
+    }
     case "copilot_probe_agents":
       return [
         {
           id: "oxios",
           display_name: "Oxios",
           executable: "/opt/homebrew/bin/oxios",
-          version: "oxios 0.66.0",
+          version: "oxios 1.43.1",
           supported: true,
         },
         {
           id: "omp",
           display_name: "Oh My Pi",
           executable: "/Users/demo/.bun/bin/omp",
-          version: "omp/18.0.1",
+          version: "omp/18.0.3",
           supported: true,
         },
         {
           id: "claude",
           display_name: "Claude Code",
-          executable: "/usr/local/bin/claude",
-          version: "1.0.0",
+          executable: "/Users/demo/.local/bin/claude",
+          version: "2.1.229 (Claude Code)",
+          supported: true,
+        },
+        {
+          id: "codex",
+          display_name: "Codex CLI",
+          executable: "/Users/demo/.local/bin/codex",
+          version: "codex-cli 0.147.0",
+          supported: true,
+        },
+        {
+          id: "oxicode",
+          display_name: "OxiCode",
+          executable: "/Users/demo/bin/oxicode",
+          version: "oxicode 0.76.0",
+          supported: true,
+        },
+        {
+          id: "gemini",
+          display_name: "Gemini CLI",
+          executable: "/Users/demo/.local/bin/gemini",
+          version: null,
           supported: false,
         },
       ];
-    case "copilot_disclosure":
-      return {
-        agent: (args?.agent as string) ?? "oxios",
-        model: "zai-coding-plan/glm-5-turbo",
-        provider: "zai-coding-plan",
+    case "copilot_disclosure": {
+      const agent = (args?.agent as string) ?? "oxios";
+      const per: Record<string, { model: string | null; provider: string | null }> = {
+        oxios: { model: "zai-coding-plan/glm-5-turbo", provider: "zai-coding-plan" },
+        omp: { model: null, provider: null },
+        claude: { model: "opus", provider: "anthropic" },
+        codex: { model: "gpt-5.6-terra", provider: "openai" },
+        oxicode: { model: "deepseek-v4-flash", provider: "deepseek" },
       };
+      return { agent, ...(per[agent] ?? { model: null, provider: null }) };
+    }
     case "copilot_activate":
+      localStorage.setItem(COPILOT_AGENT_KEY, String(args?.agent ?? "oxios"));
       return {
         agent: args?.agent ?? "oxios",
-        model: "zai-coding-plan/glm-5-turbo",
-        provider: "zai-coding-plan",
+        model: null,
+        provider: null,
       };
-    case "copilot_models":
+    case "copilot_models": {
+      const agent = localStorage.getItem(COPILOT_AGENT_KEY) ?? "oxios";
+      if (agent === "codex") {
+        return [
+          { id: "gpt-5.6-sol", name: "GPT-5.6-Sol", provider: "openai", context_window: null },
+          { id: "gpt-5.6-terra", name: "GPT-5.6-Terra", provider: "openai", context_window: null },
+          { id: "gpt-5.6-luna", name: "GPT-5.6-Luna", provider: "openai", context_window: null },
+        ];
+      }
+      if (agent === "claude" || agent === "oxicode") return [];
       return [
         {
           id: "zai-coding-plan/GLM-5-Turbo",
@@ -490,14 +540,20 @@ async function browserFallback(
           context_window: 131000,
         },
       ];
+    }
     case "copilot_set_model":
       return {
         agent: "oxios",
         model: (args?.model as string) ?? "",
         provider: "zai-coding-plan",
       };
-    case "set_copilot_config":
+    case "set_copilot_config": {
+      // Deactivation (agent: "") clears the smoke agent so the settings
+      // pane and status stay coherent in browser mode.
+      const c = args?.copilot as { agent?: string } | undefined;
+      if (c && !c.agent) localStorage.removeItem(COPILOT_AGENT_KEY);
       return null;
+    }
     case "copilot_cancel":
       return true;
     case "copilot_send": {
@@ -506,17 +562,28 @@ async function browserFallback(
       const { promise: smokeDelay, resolve: smokeDone } = Promise.withResolvers<void>();
       setTimeout(smokeDone, 1500);
       await smokeDelay;
+      const agent = localStorage.getItem(COPILOT_AGENT_KEY) ?? "oxios";
       const msg = (args?.message as string) ?? "";
       const memo = args?.activeMemo as { selection?: string | null } | null;
       const refs = (args?.referenced as { title: string }[] | undefined) ?? [];
       const changed = liveSorted(loadStore())[0];
+      // Mirrors the verified default policies: claude -p denies file
+      // writes (permission_denials), codex exec runs read-only, oxicode
+      // has no by-id session (single-turn adapter).
+      const modelPer: Record<string, [string, string] | null> = {
+        oxios: null,
+        omp: ["glm-5.2", "zai"],
+        claude: ["claude-haiku-4-5", "anthropic"],
+        codex: null,
+        oxicode: null,
+      };
       return {
         response:
           `(browser fallback) received: ${msg}${memo?.selection ? " +selection" : ""}\n\n` +
           `**첨부**: ${refs.length ? refs.map((r) => r.title).join(", ") : "없음"}\n\n` +
           "- 목록 항목 A\n- 목록 항목 B\n\n" +
           "```rust\nlet answer = 42;\n```",
-        session_id: "browser-session",
+        session_id: agent === "oxicode" ? null : "browser-session",
         exit_code: 0,
         signal: null,
         stderr: "",
@@ -525,8 +592,9 @@ async function browserFallback(
           ? [{ id: changed.id, kind: "changed" as const }]
           : [],
         duration_ms: 42,
-        model: "glm-5.2",
-        provider: "zai",
+        model: modelPer[agent]?.[0] ?? null,
+        provider: modelPer[agent]?.[1] ?? null,
+        denials: agent === "claude" ? ["Write"] : null,
       };
     }
     case "list_memos": {
@@ -979,6 +1047,15 @@ async function browserFallback(
         daily: { enabled: true, folder: "daily" },
         metadata: { enabled: true, region: "", google_books_key: "", aladin_key: "", tmdb_key: "", omdb_key: "", kmdb_key: "" },
         appearance: { theme: "system", show_dock_icon: true },
+        copilot: (() => {
+          const agent = localStorage.getItem(COPILOT_AGENT_KEY) ?? "";
+          return {
+            enabled: true,
+            agent,
+            executable: agent ? `/Users/demo/.local/bin/${agent}` : "",
+            timeout_secs: 300,
+          };
+        })(),
         folders: [
           ...Object.entries(loadViews()).map(([path, view]) => ({ path, view, color: null,
             pinned: loadPins().includes(path) ? true : null })),
