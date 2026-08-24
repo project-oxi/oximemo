@@ -363,6 +363,7 @@ function CopilotSection() {
   const { config, save } = useConfigSection();
   const setToast = useUI((s) => s.setToast);
   const setCopilotOpen = useUI((s) => s.setCopilotOpen);
+  const setSettingsOpen = useUI((s) => s.setSettingsOpen);
   const status = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
   const copilot = config.data?.copilot;
   const [candidates, setCandidates] = useState<AgentCandidate[] | null>(null);
@@ -396,7 +397,7 @@ function CopilotSection() {
         // the one action that proves it (the FAB sits behind this modal).
         setToast(t.copilot_activated_toast.replace("{agent}", c.display_name), {
           label: t.copilot_open_panel,
-          onClick: () => setCopilotOpen(true),
+          onClick: () => { setSettingsOpen(false); setCopilotOpen(true); },
         });
       })
       .catch((e) => setError(String(e).split("\n")[0]))
