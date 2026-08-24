@@ -19,6 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 oximemo-core = { workspace = true }
+oximemo-metadata = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }

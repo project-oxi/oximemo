@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { localeToRegion, metadataDomainOf } from "./metadataRegion";
+import { hasSearchProvider, localeToRegion, metadataDomainOf } from "./metadataRegion";
 import type { FolderSchema } from "./types";
 
 describe("localeToRegion", () => {
@@ -39,5 +39,22 @@ describe("metadataDomainOf", () => {
     expect(metadataDomainOf(schema("blog", []))).toBeNull();
     expect(metadataDomainOf(schema(null, []))).toBeNull();
     expect(metadataDomainOf(null)).toBeNull();
+  });
+});
+
+describe("hasSearchProvider", () => {
+  test("book is always searchable — open_library is keyless", () => {
+    expect(hasSearchProvider("book", undefined)).toBe(true);
+    expect(hasSearchProvider("book", {})).toBe(true);
+  });
+
+  test("movie needs at least one provider key (all movie providers are keyed)", () => {
+    expect(hasSearchProvider("movie", undefined)).toBe(false);
+    expect(hasSearchProvider("movie", {})).toBe(false);
+    expect(hasSearchProvider("movie", { tmdb_key: "" })).toBe(false);
+    expect(hasSearchProvider("movie", { omdb_key: "k" })).toBe(true);
+    expect(hasSearchProvider("movie", { kmdb_key: "k" })).toBe(true);
+    // Book keys never unlock the movie domain.
+    expect(hasSearchProvider("movie", { google_books_key: "k" })).toBe(false);
   });
 });

@@ -602,8 +602,12 @@ decay_to = "reading"
 "#;
 
 /// Movies/series: watched-date log. `series` is a real checkbox
-/// (`type = "bool"` → toggle editor, Bool envelope).
-pub const MOVIE_TEMPLATE_MD: &str = "---\nkind: movie\nwatched_at: {{date}}\n---\n\n# \n";
+/// (`type = "bool"` → toggle editor, Bool envelope). The `{{date}}`
+/// default is QUOTED — a bare `{{…}}` is a YAML flow-mapping start and
+/// a hard parse error in the frontmatter subset, which silently killed
+/// the whole template stamp (found via the CLI schema smoke, 2026-08-24;
+/// regression test `movie_template_stamps_kind_and_watched_at`).
+pub const MOVIE_TEMPLATE_MD: &str = "---\nkind: movie\nwatched_at: \"{{date}}\"\n---\n\n# \n";
 
 pub const MOVIE_SCHEMA_TOML: &str = r#"[meta]
 preset = "movie"

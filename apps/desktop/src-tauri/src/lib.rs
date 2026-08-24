@@ -16,7 +16,6 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 // NDL/DNB (XML) and KMDB (approval-gated) adapters stay stubs — see
 // the fetch_* bodies in metadata.rs for the follow-up notes.
 mod copilot;
-mod metadata;
 
 pub struct AppState {
     pub vault: Arc<oximemo_core::Vault>,
@@ -669,7 +668,6 @@ async fn brain_connect(
 }
 
 mod commands {
-    use crate::metadata;
     use oximemo_core::Vault;
     use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
     use oximemo_core::sync::ManifestRecord;
@@ -1283,7 +1281,9 @@ mod commands {
             Some(r) if !r.is_empty() => oximemo_core::config::MetadataConfig { region: r, ..cfg },
             _ => cfg,
         };
-        Ok(metadata::search_books(&cfg, &query).await)
+        tokio::task::spawn_blocking(move || oximemo_metadata::search_books(&cfg, &query))
+            .await
+            .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -1302,7 +1302,9 @@ mod commands {
             Some(r) if !r.is_empty() => oximemo_core::config::MetadataConfig { region: r, ..cfg },
             _ => cfg,
         };
-        Ok(metadata::search_movies(&cfg, &query).await)
+        tokio::task::spawn_blocking(move || oximemo_metadata::search_movies(&cfg, &query))
+            .await
+            .map_err(|e| e.to_string())
     }
 
     /// Stamp a chosen `MetaHit` onto a note (spec §3.5): fills only
@@ -1845,7 +1847,23 @@ mod commands {
         // The active memo is authoritative for itself; dedupe + cap happen
         // in one place (unit-tested in copilot::tests).
         let refs = crate::copilot::dedupe_references(active.as_ref(), &refs);
-        let ctx = crate::copilot::build_context(&vault_root, &cli, &skill, active.as_ref(), &refs);
+        // Folder-map facts (design 2026-08-24 §2.4): computed off the
+        // async path (disk walk + schema cache); failures degrade to
+        // omission inside folder_facts and never block the turn.
+        let map = {
+            let v = state.vault.clone();
+            tokio::task::spawn_blocking(move || crate::copilot::folder_facts(&v))
+                .await
+                .map_err(|e| format!("folder facts join: {e}"))?
+        };
+        let ctx = crate::copilot::build_context(
+            &vault_root,
+            &cli,
+            &skill,
+            &map,
+            active.as_ref(),
+            &refs,
+        );
         // Adapter dispatch (spec §5): argv shape, cwd, and stdout dialect
         // are per-agent facts. oxios context rides stdin (`--context-file -`);
         // omp appends stdin to the prompt as context. omp turns run with

@@ -19,7 +19,8 @@ pub fn cmd_new(
     tags: Vec<String>,
     folder: Option<String>,
     html: bool,
-) -> Result<()> {
+    sets: Vec<(String, oximemo_core::PropValue)>,
+) -> Result<MemoId> {
     let mut body = match text {
         Some(t) => t,
         None => {
@@ -61,8 +62,24 @@ pub fn cmd_new(
         return Err(anyhow!("refusing to create an empty note"));
     }
     let note = vault.create_note(folder.as_deref().unwrap_or(""), body, fmt)?;
-    println!("{}", note.id);
-    Ok(())
+    let id = note.id;
+    // Explicit properties ride the same write path as `update --set`:
+    // schema transitions (peak_status, status_changed, …) fire exactly
+    // as they do for a GUI property edit. The id is echoed only after
+    // the note exists in its final shape.
+    if !sets.is_empty() {
+        vault.update_note_with(
+            id,
+            None,
+            None,
+            Some(oximemo_core::PropMutation {
+                sets,
+                removes: Vec::new(),
+            }),
+        )?;
+    }
+    println!("{id}");
+    Ok(id)
 }
 
 /// `oximemo list`. Without `--where`/`--sort` this stays on the cursor
@@ -248,6 +265,266 @@ pub fn cmd_restore(vault: &Vault, id: MemoId) -> Result<()> {
 pub fn cmd_stats(vault: &Vault) -> Result<()> {
     let stats = vault.memo_stats()?;
     println!("{}", serde_json::to_string_pretty(&stats)?);
+    Ok(())
+}
+
+// --- vault self-description (copilot schema-awareness 2026-08-24) -------
+
+/// One row of `oximemo folders`: inventory facts plus the `daily` flag
+/// (the config-driven daily folder — the one folder whose path is not
+/// discoverable from disk alone).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FolderRow {
+    pub path: String,
+    pub notes: u32,
+    pub preset: Option<String>,
+    pub workspace: Option<String>,
+    /// True when this folder is the configured `[daily] folder`.
+    pub daily: bool,
+}
+
+pub fn folder_rows(vault: &Vault) -> Result<Vec<FolderRow>> {
+    let daily = vault.with_config(|c| c.daily.folder.clone());
+    Ok(vault
+        .folder_inventory()?
+        .into_iter()
+        .map(|f| FolderRow {
+            daily: !daily.is_empty() && f.path == daily,
+            path: f.path,
+            notes: f.notes,
+            preset: f.preset,
+            workspace: f.workspace,
+        })
+        .collect())
+}
+
+/// `oximemo folders` — the vault's folder map. Table for humans,
+/// json/ndjson for agents (same facts).
+pub fn cmd_folders(vault: &Vault, fmt: crate::format::Format) -> Result<()> {
+    let rows = folder_rows(vault)?;
+    match fmt {
+        crate::format::Format::Table => {
+            println!("{:<24} {:>5}  SCHEMA", "FOLDER", "NOTES");
+            for r in &rows {
+                let schema = match (&r.preset, &r.workspace) {
+                    (Some(p), Some(w)) => format!("{w} ({p})"),
+                    (Some(p), None) => p.clone(),
+                    (None, Some(w)) => w.clone(),
+                    (None, None) => "-".to_string(),
+                };
+                let daily = if r.daily { " ·daily" } else { "" };
+                println!("{:<24} {:>5}  {}{}", r.path, r.notes, schema, daily);
+            }
+        }
+        crate::format::Format::Json => println!("{}", serde_json::to_string_pretty(&rows)?),
+        crate::format::Format::Ndjson => {
+            for r in &rows {
+                println!("{}", serde_json::to_string(r)?);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `oximemo schema` report: everything an agent needs to know about
+/// what a note in this folder looks like — the parsed schema (or null
+/// for free-property mode) and the raw template a new note starts from.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SchemaReport {
+    pub folder: String,
+    pub preset: Option<String>,
+    pub workspace: Option<String>,
+    /// Parsed SCHEMA.toml, or null when the folder has none.
+    pub schema: Option<oximemo_core::FolderSchema>,
+    /// Raw TEMPLATE.md (or TEMPLATE.html) content, or null.
+    pub template: Option<String>,
+}
+
+/// Build the report for `folder` ("" = vault root). `Ok(None)` when the
+/// folder does not exist on disk — the command turns that into an error.
+pub fn schema_report(vault: &Vault, folder: &str) -> Result<Option<SchemaReport>> {
+    let folder = folder.trim_end_matches('/');
+    let dir = if folder.is_empty() {
+        vault.paths().vault.clone()
+    } else {
+        vault.paths().vault.join(folder)
+    };
+    if !dir.is_dir() {
+        return Ok(None);
+    }
+    let schema = vault.folder_schema(folder)?;
+    let preset = schema.as_ref().and_then(|s| s.meta.preset.clone());
+    let workspace = schema.as_ref().and_then(|s| s.workspace.name.clone());
+    let template = [
+        oximemo_core::paths::TEMPLATE_NAME,
+        oximemo_core::paths::TEMPLATE_HTML_NAME,
+    ]
+    .into_iter()
+    .find_map(|name| std::fs::read_to_string(dir.join(name)).ok())
+    .filter(|t| !t.trim().is_empty());
+    Ok(Some(SchemaReport {
+        folder: folder.to_string(),
+        preset,
+        workspace,
+        schema,
+        template,
+    }))
+}
+
+/// `oximemo schema [FOLDER]` — JSON only (the consumer is an agent or
+/// a script; humans read the folder's SCHEMA.toml directly).
+pub fn cmd_schema(vault: &Vault, folder: Option<String>) -> Result<()> {
+    let folder = folder.unwrap_or_default();
+    match schema_report(vault, &folder)? {
+        Some(report) => {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        None => Err(anyhow!("no such folder: {}", folder)),
+    }
+}
+
+/// Installable collection presets: `(id, workspace name)`. The names
+/// are parsed from the preset schemas themselves — one source of truth
+/// with the GUI catalog.
+pub fn collection_catalog() -> Vec<(&'static str, String)> {
+    ["knowledge", "daily", "book", "movie", "blog", "novel", "idea"]
+        .into_iter()
+        .filter_map(|id| {
+            let (_, schema_toml) = oximemo_core::schema::collection_preset(id)?;
+            let name = oximemo_core::schema::parse_schema(schema_toml)
+                .ok()
+                .and_then(|s| s.workspace.name)
+                .unwrap_or_else(|| id.to_string());
+            Some((id, name))
+        })
+        .collect()
+}
+
+/// `oximemo collection list` — the installable catalog (JSON).
+pub fn cmd_collection_list() -> Result<()> {
+    let catalog: Vec<serde_json::Value> = collection_catalog()
+        .into_iter()
+        .map(|(id, name)| serde_json::json!({ "id": id, "name": name }))
+        .collect();
+    println!("{}", serde_json::to_string_pretty(&catalog)?);
+    Ok(())
+}
+
+/// Search domain for [`metadata_search`] — mirrors the GUI's two
+/// metadata panels.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum MetadataDomain {
+    Book,
+    Movie,
+}
+
+/// `oximemo metadata search` — provider-grounded facts using the
+/// user's own `[metadata]` config (enabled + keys), exactly as the GUI
+/// 채우기 flow does. Disabled config ⇒ empty list.
+pub fn metadata_search(
+    vault: &Vault,
+    domain: MetadataDomain,
+    query: &str,
+) -> Result<Vec<oximemo_core::metadata::MetaHit>> {
+    let cfg = vault.with_config(|c| c.metadata.clone());
+    Ok(match domain {
+        MetadataDomain::Book => oximemo_metadata::search_books(&cfg, query),
+        MetadataDomain::Movie => oximemo_metadata::search_movies(&cfg, query),
+    })
+}
+
+/// `oximemo metadata search` printing — ndjson default (agents), json
+/// for eyeballing.
+pub fn cmd_metadata_search(
+    vault: &Vault,
+    domain: MetadataDomain,
+    query: &str,
+    fmt: crate::format::Format,
+) -> Result<()> {
+    let hits = metadata_search(vault, domain, query)?;
+    match fmt {
+        crate::format::Format::Json => println!("{}", serde_json::to_string_pretty(&hits)?),
+        _ => {
+            for h in &hits {
+                println!("{}", serde_json::to_string(h)?);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `oximemo stamp <ID> --hit-stdin` — stamp a chosen MetaHit onto a
+/// note. Identical contract to the GUI stamp (spec 2026-08-23 §3.5):
+/// core `stamp_targets` fills only schema-declared, still-empty mapped
+/// props; `source_url`/`cover_url` land only when the schema declares
+/// them and nothing occupies them. Ratings never map.
+pub fn cmd_stamp(
+    vault: &Vault,
+    id: MemoId,
+    hit: &oximemo_core::metadata::MetaHit,
+) -> Result<()> {
+    let memo = vault.get_memo(id)?;
+    let dto = vault.note_dto(&memo);
+    let schema = vault
+        .folder_schema(&dto.folder)?
+        .unwrap_or_default();
+    let mut sets: Vec<(String, oximemo_core::PropValue)> =
+        oximemo_core::metadata::stamp_targets(&schema, hit)
+            .into_iter()
+            .filter(|(k, _)| !memo.props.contains_key(k))
+            .collect();
+    if let (Some(url), false) = (&hit.url, memo.props.contains_key("source_url"))
+        && schema.properties.contains_key("source_url")
+    {
+        sets.push((
+            "source_url".into(),
+            oximemo_core::PropValue::Str(url.clone()),
+        ));
+    }
+    if let (Some(cover), false) = (&hit.cover_url, memo.props.contains_key("cover_url"))
+        && schema.properties.contains_key("cover_url")
+    {
+        sets.push((
+            "cover_url".into(),
+            oximemo_core::PropValue::Str(cover.clone()),
+        ));
+    }
+    if sets.is_empty() {
+        return Ok(());
+    }
+    vault.update_note_with(
+        id,
+        None,
+        None,
+        Some(oximemo_core::props::PropMutation {
+            sets,
+            removes: Vec::new(),
+        }),
+    )?;
+    Ok(())
+}
+
+/// `oximemo stamp` entry — reads one MetaHit JSON document from stdin.
+pub fn cmd_stamp_stdin(vault: &Vault, id: MemoId) -> Result<()> {
+    let raw = read_stdin()?;
+    let hit: oximemo_core::metadata::MetaHit =
+        serde_json::from_str(&raw).context("stdin is not a MetaHit JSON document")?;
+    cmd_stamp(vault, id, &hit)
+}
+
+/// `oximemo collection install <PRESET> <FOLDER>` — same skip-if-exists
+/// semantics as the GUI flow (`Vault::install_collection`).
+pub fn cmd_collection_install(vault: &Vault, id: &str, folder: &str) -> Result<()> {
+    if oximemo_core::schema::collection_preset(id).is_none() {
+        let ids: Vec<&str> = collection_catalog().iter().map(|(i, _)| *i).collect();
+        return Err(anyhow!(
+            "unknown collection preset '{id}' (valid: {})",
+            ids.join(", ")
+        ));
+    }
+    vault.install_collection(id, folder)?;
+    println!("installed {id} collection at {folder}");
     Ok(())
 }
 
@@ -439,5 +716,223 @@ mod tests {
             md.contains("deleted:"),
             "trashed file carries its tombstone: {md}"
         );
+    }
+
+    #[test]
+    fn folder_rows_mark_daily_and_presets() {
+        let t = TmpVault::new();
+        t.v().install_collection("movie", "movies").unwrap();
+        let rows = folder_rows(t.v()).unwrap();
+        let by: std::collections::HashMap<String, FolderRow> = rows
+            .into_iter()
+            .map(|r| (r.path.clone(), r))
+            .collect();
+        assert!(by["daily"].daily, "configured daily folder is flagged");
+        assert!(!by["knowledge"].daily);
+        assert_eq!(by["knowledge"].preset.as_deref(), Some("knowledge"));
+        assert_eq!(by["movies"].preset.as_deref(), Some("movie"));
+    }
+
+    #[test]
+    fn schema_report_full_null_and_missing() {
+        let t = TmpVault::new();
+        t.v().create_folder("plain").unwrap();
+
+        let full = schema_report(t.v(), "knowledge").unwrap().unwrap();
+        assert_eq!(full.preset.as_deref(), Some("knowledge"));
+        assert!(full.schema.is_some());
+        assert!(
+            full.template.as_deref().unwrap().contains("kind: knowledge"),
+            "raw TEMPLATE.md is reported"
+        );
+
+        let plain = schema_report(t.v(), "plain").unwrap().unwrap();
+        assert!(plain.schema.is_none() && plain.template.is_none());
+        assert!(plain.preset.is_none() && plain.workspace.is_none());
+
+        assert!(schema_report(t.v(), "nope").unwrap().is_none());
+
+        // The vault root is a valid target ("" folder).
+        let root = schema_report(t.v(), "").unwrap().unwrap();
+        assert!(root.schema.is_none() && root.template.is_none());
+    }
+
+    #[test]
+    fn collection_catalog_names_and_install() {
+        let ids: Vec<&str> = collection_catalog().iter().map(|(id, _)| *id).collect();
+        for expected in ["knowledge", "daily", "book", "movie", "blog", "novel", "idea"] {
+            assert!(ids.contains(&expected), "catalog carries {expected}");
+        }
+        // Names come from the presets themselves (single source of truth).
+        let movie = collection_catalog()
+            .into_iter()
+            .find(|(id, _)| *id == "movie")
+            .unwrap();
+        assert!(movie.1.contains("영화"), "movie name: {}", movie.1);
+
+        // install → visible in the inventory with its facts.
+        let t = TmpVault::new();
+        cmd_collection_install(t.v(), "movie", "movies").unwrap();
+        let inv = t.v().folder_inventory().unwrap();
+        let m = inv.iter().find(|f| f.path == "movies").unwrap();
+        assert_eq!(m.preset.as_deref(), Some("movie"));
+
+        // Unknown id: error names the valid ones.
+        let err = cmd_collection_install(t.v(), "nope", "x")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("book"), "error lists catalog ids: {err}");
+    }
+
+    /// One-command schema-valid creation: `new --folder knowledge --set
+    /// status=understood` stamps the template defaults AND fires the
+    /// folder's transitions (peak_status/status_changed) — the same
+    /// write path the GUI property editor uses.
+    #[test]
+    fn new_with_set_fires_schema_transitions() {
+        let t = TmpVault::new();
+        let id = cmd_new(
+            t.v(),
+            Some("코루틴 취소는 협력적이다".into()),
+            vec![],
+            Some("knowledge".into()),
+            false,
+            vec![(
+                "status".to_string(),
+                oximemo_core::PropValue::Str("understood".into()),
+            )],
+        )
+        .unwrap();
+        let note = t.v().get_memo(id).unwrap();
+        // Template defaults survived the explicit sets.
+        assert_eq!(
+            note.props.get("kind"),
+            Some(&oximemo_core::PropValue::Str("knowledge".into()))
+        );
+        // The explicit set landed…
+        assert_eq!(
+            note.props.get("status"),
+            Some(&oximemo_core::PropValue::Str("understood".into()))
+        );
+        // …and the schema's transition side effects fired with it.
+        assert_eq!(
+            note.props.get("peak_status"),
+            Some(&oximemo_core::PropValue::Str("understood".into()))
+        );
+        assert!(note.props.contains_key("status_changed"));
+    }
+    /// Stamp mirrors the GUI contract exactly: fill-only-empty mapped
+    /// fields, never overwrite, source_url/cover_url only when the
+    /// schema declares them.
+    #[test]
+    fn stamp_fills_only_empty_props() {
+        let t = TmpVault::new();
+        t.v().install_collection("movie", "movies").unwrap();
+        let id = t
+            .v()
+            .create_note(
+                "movies",
+                "# 듄\n본문".into(),
+                oximemo_core::memo::NoteFormat::Markdown,
+            )
+            .unwrap()
+            .id;
+        // Pre-existing judgment value — must survive the stamp.
+        t.v()
+            .update_note_with(
+                id,
+                None,
+                None,
+                Some(oximemo_core::props::PropMutation {
+                    sets: vec![(
+                        "rating".to_string(),
+                        oximemo_core::PropValue::Str("5".into()),
+                    )],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+
+        let hit = oximemo_core::metadata::MetaHit {
+            provider: "tmdb".into(),
+            title: "듄: 파트 2".into(),
+            subtitle: None,
+            url: Some("https://themoviedb.org/693134".into()),
+            cover_url: Some("https://image.tmdb.org/t/p/w342/x.jpg".into()),
+            fields: [
+                (
+                    oximemo_core::metadata::MetaField::Director,
+                    "드니 빌뇌브".into(),
+                ),
+                (
+                    oximemo_core::metadata::MetaField::ReleaseDate,
+                    "2024-02-27".into(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        cmd_stamp(t.v(), id, &hit).unwrap();
+        let note = t.v().get_memo(id).unwrap();
+        assert_eq!(
+            note.props.get("director").unwrap(),
+            &oximemo_core::PropValue::Str("드니 빌뇌브".into())
+        );
+        assert_eq!(
+            note.props.get("release_date").unwrap(),
+            &oximemo_core::PropValue::Str("2024-02-27".into())
+        );
+        assert_eq!(
+            note.props.get("source_url").unwrap(),
+            &oximemo_core::PropValue::Str("https://themoviedb.org/693134".into())
+        );
+        assert!(note.props.contains_key("cover_url"));
+        // The pre-set rating is untouched.
+        assert_eq!(
+            note.props.get("rating").unwrap(),
+            &oximemo_core::PropValue::Str("5".into())
+        );
+
+        // A second stamp fills the still-empty mapped field but never
+        // overwrites an occupied one.
+        let hit2 = oximemo_core::metadata::MetaHit {
+            provider: "tmdb".into(),
+            title: "듄: 파트 2".into(),
+            subtitle: None,
+            url: Some("https://elsewhere".into()),
+            cover_url: None,
+            fields: [(
+                oximemo_core::metadata::MetaField::RuntimeMin,
+                "166".into(),
+            )]
+            .into_iter()
+            .collect(),
+        };
+        cmd_stamp(t.v(), id, &hit2).unwrap();
+        let note = t.v().get_memo(id).unwrap();
+        // runtime_min IS a mapped field and was empty — filled.
+        assert_eq!(
+            note.props.get("runtime_min").unwrap(),
+            &oximemo_core::PropValue::Str("166".into())
+        );
+        assert_eq!(
+            note.props.get("source_url").unwrap(),
+            &oximemo_core::PropValue::Str("https://themoviedb.org/693134".into()),
+            "occupied source_url must not be overwritten"
+        );
+    }
+
+    /// Disabled metadata config → empty hit list, no network.
+    #[test]
+    fn metadata_search_disabled_returns_empty() {
+        let t = TmpVault::new();
+        t.v()
+            .set_metadata_config(oximemo_core::config::MetadataConfig {
+                enabled: false,
+                ..Default::default()
+            })
+            .unwrap();
+        let hits = metadata_search(t.v(), MetadataDomain::Movie, "듄").unwrap();
+        assert!(hits.is_empty());
     }
 }

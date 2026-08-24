@@ -34,6 +34,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     remains a config.toml field with no UI (search is always
     user-initiated; empty keys already disable keyed providers).
 
+### Added (copilot schema-awareness, spec 2026-08-24)
+
+- **Self-describing vault via CLI** — delegated agents (the copilot)
+  can now discover and drive every folder schema:
+  - `oximemo folders` — the folder map (paths, note counts, preset
+    markers, workspace names, daily-folder flag); table for humans,
+    json/ndjson for agents.
+  - `oximemo schema [FOLDER]` — parsed SCHEMA.toml (properties,
+    allowed values, metadata mappings, transitions, review queue) plus
+    the raw TEMPLATE.md; `"schema": null` for free-property folders.
+  - `oximemo collection list|install` — GUI-parity collection installs
+    (skip-if-exists).
+  - `oximemo new --set KEY=VAL` — one-command schema-valid creation;
+    folder transitions (peak_status/status_changed stamps) fire on
+    creation exactly as in the GUI.
+  - `oximemo metadata search --domain book|movie` and
+    `oximemo stamp <ID>` — provider-grounded descriptive fields using
+    the user's `[metadata]` config; stamp fills only schema-declared,
+    still-empty mapped props (ratings never map), identical to the
+    GUI 채우기 flow.
+- **Copilot context block carries a folder map** — `folders:` facts
+  (path/notes/preset/workspace, capped at 64 + `folders_omitted`),
+  `daily_folder:`, and `schema_errors:` when a custom SCHEMA.toml
+  fails to parse. Facts only — full schemas stay behind
+  `oximemo schema`, and oximemo still authors no instruction text.
+- **New crate `oximemo-metadata`** — provider adapters (ureq, sync)
+  shared by the desktop app and the CLI; core stays network-free and
+  reqwest leaves the desktop manifest. Desktop search IPC wraps the
+  shared adapters in `spawn_blocking`.
+- **SKILL.md** — new "Folders, schemas & collections" and "Metadata
+  grounding" sections; recipes for adding a movie and creating
+  knowledge notes; trigger vocabulary extended.
+
+### Fixed
+
+- **Movie preset template never stamped** — `watched_at: {{date}}` was
+  an unquoted YAML flow-mapping start, a hard parse error in the
+  frontmatter subset; `load_template` degrades parse failures to
+  "no template", so every movie note (GUI and CLI) silently missed its
+  `kind`/`watched_at` defaults. The preset now quotes the value. New
+  installs are fixed; vaults that already installed the movie
+  collection keep their (broken) TEMPLATE.md — delete
+  `<vault>/<movies>/TEMPLATE.md` and reinstall the collection to
+  repair, or quote the value by hand.
+
 - **Copilot panel — terminal-agent CLI delegation (spec
   2026-08-23)** — an optional side panel (`⌘⇧C` / header button) that
   delegates vault work (write a note, tidy up, suggest tags) to a

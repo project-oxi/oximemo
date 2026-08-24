@@ -1,17 +1,19 @@
-//! Metadata provider adapters (spec 2026-08-23 §3.1–§3.5). Each
-//! provider has a thin `search*` function that returns `Vec<MetaHit>`.
-//! HTTP plumbing is uninteresting; the field-mapping logic is the
-//! part that's worth pinning down with tests — it must produce the
-//! canonical `MetaField` vocabulary regardless of the provider's
-//! payload shape so the core's `stamp_targets` walker can match
-//! against schema declarations.
+//! Metadata provider adapters (spec 2026-08-23 §3.1–§3.5), shared by
+//! the desktop app and the `oximemo` CLI (copilot schema-awareness
+//! design 2026-08-24 §2.3). Each provider has a thin `search*` function
+//! that returns `Vec<MetaHit>`. HTTP plumbing is uninteresting; the
+//! field-mapping logic is the part that's worth pinning down with tests
+//! — it must produce the canonical `MetaField` vocabulary regardless of
+//! the provider's payload shape so the core's `stamp_targets` walker
+//! can match against schema declarations.
 //!
-//! Key gating lives in `enabled_providers` (the `MetadataConfig` decides
-//! who runs and who stays hidden); the search command returns an empty
-//! list when metadata is disabled.
+//! Everything here is **synchronous** (ureq): the CLI carries no async
+//! runtime, and the desktop app wraps the search entry points in
+//! `spawn_blocking`. Key gating lives in `enabled_providers` (the
+//! `MetadataConfig` decides who runs and who stays hidden); the search
+//! entry points return an empty list when metadata is disabled.
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -21,29 +23,18 @@ use oximemo_core::metadata::{
     MetaField, MetaHit, PROVIDER_CATALOG, ProviderDomain, ProviderInfo, provider_order,
 };
 
-/// Shared HTTP client: 8s timeout per provider call (search fans out
-/// sequentially, so three slow providers must not freeze the palette),
-/// a descriptive UA (Open Library rejects bare defaults), and rustls
-/// (no native TLS linkage surprises on macOS).
-static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
+/// GET + decode JSON into the provider DTO. 8s budget per provider call
+/// (search fans out sequentially, so three slow providers must not
+/// freeze a caller), a descriptive UA (Open Library rejects bare
+/// defaults), and rustls (no native TLS linkage surprises on macOS).
+/// Errors bubble to the adapter, which converts them to "no hits from
+/// this provider" — one dead provider never blanks the whole search.
+fn fetch_json<T: for<'de> Deserialize<'de>>(url: &str) -> anyhow::Result<T> {
+    let resp = ureq::get(url)
+        .set("User-Agent", concat!("oximemo/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(8))
-        .user_agent(concat!("oximemo/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .expect("reqwest client with rustls")
-});
-
-/// GET + decode JSON into the provider DTO. Errors bubble to the
-/// adapter, which converts them to "no hits from this provider" —
-/// one dead provider never blanks the whole search.
-async fn fetch_json<T: for<'de> Deserialize<'de>>(url: &str) -> anyhow::Result<T> {
-    Ok(HTTP
-        .get(url)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?)
+        .call()?;
+    Ok(resp.into_json()?)
 }
 
 /// Return the list of providers that should run for a given domain and
@@ -92,35 +83,36 @@ fn nonempty(s: &str) -> Option<&str> {
 
 /// Public search entry: takes a query + the config, fans out to the
 /// domain's providers, and merges hits. Per-provider HTTP calls run
-/// sequentially (reqwest async inside tokio::spawn is the
-/// production-quality path; the fallback browser uses no network).
-pub async fn search_books(cfg: &MetadataConfig, query: &str) -> Vec<MetaHit> {
+/// sequentially — a slow provider delays but never blanks the search.
+pub fn search_books(cfg: &MetadataConfig, query: &str) -> Vec<MetaHit> {
     if query.trim().is_empty() {
         return Vec::new();
     }
     let mut out = Vec::new();
     for p in enabled_providers(cfg, ProviderDomain::Book) {
         match p.id {
-            "open_library" => out.extend(open_library_search(query).await),
+            "open_library" => out.extend(open_library_search(query)),
             "google_books" => {
                 if let Some(key) = provider_key(cfg, "google_books") {
-                    out.extend(google_books_search(query, key).await);
+                    out.extend(google_books_search(query, key));
                 }
             }
             "aladin" => {
                 if let Some(key) = provider_key(cfg, "aladin") {
-                    out.extend(aladin_search(query, key).await);
+                    out.extend(aladin_search(query, key));
                 }
             }
-            "ndl_search" => out.extend(ndl_search(query).await),
-            "dnb_sru" => out.extend(dnb_search(query).await),
+            "ndl_search" => out.extend(ndl_search(query)),
+            "dnb_sru" => out.extend(dnb_search(query)),
             _ => {}
         }
     }
     out
 }
 
-pub async fn search_movies(cfg: &MetadataConfig, query: &str) -> Vec<MetaHit> {
+/// Public search entry for movies — same fan-out contract as
+/// [`search_books`].
+pub fn search_movies(cfg: &MetadataConfig, query: &str) -> Vec<MetaHit> {
     if query.trim().is_empty() {
         return Vec::new();
     }
@@ -129,17 +121,17 @@ pub async fn search_movies(cfg: &MetadataConfig, query: &str) -> Vec<MetaHit> {
         match p.id {
             "tmdb" => {
                 if let Some(key) = provider_key(cfg, "tmdb") {
-                    out.extend(tmdb_search(query, key).await);
+                    out.extend(tmdb_search(query, key));
                 }
             }
             "omdb" => {
                 if let Some(key) = provider_key(cfg, "omdb") {
-                    out.extend(omdb_search(query, key).await);
+                    out.extend(omdb_search(query, key));
                 }
             }
             "kmdb" => {
                 if let Some(key) = provider_key(cfg, "kmdb") {
-                    out.extend(kmdb_search(query, key).await);
+                    out.extend(kmdb_search(query, key));
                 }
             }
             _ => {}
@@ -157,73 +149,73 @@ pub async fn search_movies(cfg: &MetadataConfig, query: &str) -> Vec<MetaHit> {
 // normalization (the only piece that affects correctness) with canned
 // payloads so network changes don't change the contract.
 
-pub async fn open_library_search(query: &str) -> Vec<MetaHit> {
+pub fn open_library_search(query: &str) -> Vec<MetaHit> {
     let url = format!(
         "https://openlibrary.org/search.json?q={}&limit=10",
         urlencoded(query)
     );
-    fetch_open_library(&url).await.unwrap_or_default()
+    fetch_open_library(&url).unwrap_or_default()
 }
 
-pub async fn google_books_search(query: &str, key: &str) -> Vec<MetaHit> {
+pub fn google_books_search(query: &str, key: &str) -> Vec<MetaHit> {
     let url = format!(
         "https://www.googleapis.com/books/v1/volumes?q={}&key={}&maxResults=10",
         urlencoded(query),
         urlencoded(key),
     );
-    fetch_google_books(&url).await.unwrap_or_default()
+    fetch_google_books(&url).unwrap_or_default()
 }
 
-pub async fn aladin_search(query: &str, ttbkey: &str) -> Vec<MetaHit> {
+pub fn aladin_search(query: &str, ttbkey: &str) -> Vec<MetaHit> {
     let url = format!(
         "https://www.aladin.co.kr/ttb/api/ItemSearch.aspx?ttbkey={}&Query={}&QueryType=Title&MaxResults=10&start=1&SearchTarget=Book&output=js&Version=20131101",
         urlencoded(ttbkey),
         urlencoded(query),
     );
-    fetch_aladin(&url).await.unwrap_or_default()
+    fetch_aladin(&url).unwrap_or_default()
 }
 
-pub async fn ndl_search(query: &str) -> Vec<MetaHit> {
+pub fn ndl_search(query: &str) -> Vec<MetaHit> {
     let url = format!(
         "https://ndlsearch.ndl.go.jp/api/open_search?query={}&format=json",
         urlencoded(query),
     );
-    fetch_ndl(&url).await.unwrap_or_default()
+    fetch_ndl(&url).unwrap_or_default()
 }
 
-pub async fn dnb_search(query: &str) -> Vec<MetaHit> {
+pub fn dnb_search(query: &str) -> Vec<MetaHit> {
     let url = format!(
         "https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&query={}&maximumRecords=10",
         urlencoded(query),
     );
-    fetch_dnb(&url).await.unwrap_or_default()
+    fetch_dnb(&url).unwrap_or_default()
 }
 
-pub async fn tmdb_search(query: &str, api_key: &str) -> Vec<MetaHit> {
+pub fn tmdb_search(query: &str, api_key: &str) -> Vec<MetaHit> {
     let url = format!(
         "https://api.themoviedb.org/3/search/movie?api_key={}&query={}&language=ko",
         urlencoded(api_key),
         urlencoded(query),
     );
-    fetch_tmdb(&url).await.unwrap_or_default()
+    fetch_tmdb(&url).unwrap_or_default()
 }
 
-pub async fn omdb_search(query: &str, api_key: &str) -> Vec<MetaHit> {
+pub fn omdb_search(query: &str, api_key: &str) -> Vec<MetaHit> {
     let url = format!(
         "https://www.omdbapi.com/?apikey={}&s={}",
         urlencoded(api_key),
         urlencoded(query),
     );
-    fetch_omdb(&url).await.unwrap_or_default()
+    fetch_omdb(&url).unwrap_or_default()
 }
 
-pub async fn kmdb_search(query: &str, service_key: &str) -> Vec<MetaHit> {
+pub fn kmdb_search(query: &str, service_key: &str) -> Vec<MetaHit> {
     let url = format!(
         "http://api.koreafilm.or.kr/openapi-data2/wisenut/search_api/search_json.jsp?collection=kmdb_new&detailSearch=Y&query={}&ServiceKey={}",
         urlencoded(query),
         urlencoded(service_key),
     );
-    fetch_kmdb(&url).await.unwrap_or_default()
+    fetch_kmdb(&url).unwrap_or_default()
 }
 
 fn urlencoded(s: &str) -> String {
@@ -260,33 +252,33 @@ pub fn map_ol_hits(payload: &OlPayload) -> Vec<MetaHit> {
         })
         .collect()
 }
-async fn fetch_open_library(url: &str) -> anyhow::Result<Vec<MetaHit>> {
-    Ok(map_ol_hits(&fetch_json::<OlPayload>(url).await?))
+fn fetch_open_library(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_ol_hits(&fetch_json::<OlPayload>(url)?))
 }
-async fn fetch_google_books(url: &str) -> anyhow::Result<Vec<MetaHit>> {
-    Ok(map_google_books(&fetch_json::<GbPayload>(url).await?))
+fn fetch_google_books(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_google_books(&fetch_json::<GbPayload>(url)?))
 }
-async fn fetch_aladin(url: &str) -> anyhow::Result<Vec<MetaHit>> {
-    Ok(map_aladin(&fetch_json::<AladinPayload>(url).await?))
+fn fetch_aladin(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_aladin(&fetch_json::<AladinPayload>(url)?))
 }
 // NDL Search and DNB SRU answer in XML (OpenSearch / SRW). No XML
 // dependency yet — they stay silent until a quick-xml follow-up maps
 // them; keyless badge in settings keeps expectations honest.
-async fn fetch_ndl(_url: &str) -> anyhow::Result<Vec<MetaHit>> {
+fn fetch_ndl(_url: &str) -> anyhow::Result<Vec<MetaHit>> {
     Ok(Vec::new())
 }
-async fn fetch_dnb(_url: &str) -> anyhow::Result<Vec<MetaHit>> {
+fn fetch_dnb(_url: &str) -> anyhow::Result<Vec<MetaHit>> {
     Ok(Vec::new())
 }
-async fn fetch_tmdb(url: &str) -> anyhow::Result<Vec<MetaHit>> {
-    Ok(map_tmdb(&fetch_json::<TmdbPayload>(url).await?))
+fn fetch_tmdb(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_tmdb(&fetch_json::<TmdbPayload>(url)?))
 }
-async fn fetch_omdb(url: &str) -> anyhow::Result<Vec<MetaHit>> {
-    Ok(map_omdb(&fetch_json::<OmdbPayload>(url).await?))
+fn fetch_omdb(url: &str) -> anyhow::Result<Vec<MetaHit>> {
+    Ok(map_omdb(&fetch_json::<OmdbPayload>(url)?))
 }
 // KMDB wraps results in a nested Data[0].Result envelope and requires
 // an approved developer account — adapter lands with the approval.
-async fn fetch_kmdb(_url: &str) -> anyhow::Result<Vec<MetaHit>> {
+fn fetch_kmdb(_url: &str) -> anyhow::Result<Vec<MetaHit>> {
     Ok(Vec::new())
 }
 
@@ -631,5 +623,14 @@ mod tests {
             providers.is_empty(),
             "keyed providers with empty keys must not surface"
         );
+    }
+
+    #[test]
+    fn disabled_config_yields_no_hits_without_network() {
+        let mut cfg = MetadataConfig::default();
+        cfg.enabled = false;
+        cfg.tmdb_key = "k".into();
+        assert!(search_movies(&cfg, "anything").is_empty());
+        assert!(search_books(&cfg, "anything").is_empty());
     }
 }

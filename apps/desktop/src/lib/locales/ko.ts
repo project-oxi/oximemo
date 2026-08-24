@@ -447,6 +447,8 @@ export const dict = {
   metadata_add_title: "{name} 검색",
   metadata_add_manual: "직접 추가",
   metadata_add_creating: "추가하는 중…",
+  metadata_add_no_provider: "검색에 필요한 프로바이더 키가 아직 없어요. 설정 → 컬렉션에서 키를 추가하면 제목만으로 정보와 표지를 가져올 수 있어요.",
+  metadata_add_open_settings: "설정 열기",
   schema_empty_sub_search: "제목을 검색해 정보와 표지를 한 번에 가져올 수 있어요",
   collection_system_note: "시스템 폴더 — 지워도 다음 실행에 빈 프리셋으로 다시 생겨요",
   collection_rename_hint: "이름 변경 · 고정은 폴더 관리 탭에서",

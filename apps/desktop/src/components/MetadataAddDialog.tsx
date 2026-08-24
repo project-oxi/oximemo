@@ -27,7 +27,7 @@ import {
   stampMetadata,
   type MetaHit,
 } from "../lib/api";
-import { effectiveRegion, metadataDomainOf } from "../lib/metadataRegion";
+import { effectiveRegion, hasSearchProvider, metadataDomainOf } from "../lib/metadataRegion";
 import { schemaDisplayName } from "../lib/folders";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
@@ -47,12 +47,16 @@ export function MetadataAddDialog({
   onOpenChange: (open: boolean) => void;
   folder: string;
   schema: FolderSchema | null;
+  /** Blank-note fallback (the pre-dialog behavior). */
   onManual: () => void;
 }) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const select = useUI((s) => s.select);
   const setError = useUI((s) => s.setError);
+  const setView = useUI((s) => s.setView);
+  const setSettingsTab = useUI((s) => s.setSettingsTab);
+  const setSettingsOpen = useUI((s) => s.setSettingsOpen);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<MetaHit[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,10 +75,16 @@ export function MetadataAddDialog({
   const region = config.data?.metadata?.region
     ? undefined
     : effectiveRegion("") || undefined;
+  // Movie search is all-keyed (tmdb/omdb/kmdb) — with no key the
+  // search form could never return anything, so the dialog offers the
+  // key-setup path instead. Book stays searchable (open_library is
+  // keyless). Loading counts as searchable to avoid a flash of the
+  // setup state for keyed-up users.
+  const searchable =
+    domain !== null &&
+    (config.isLoading || hasSearchProvider(domain, config.data?.metadata));
 
-  const name = schema
-    ? schemaDisplayName(folder, schema, t)
-    : "";
+  const name = schema ? schemaDisplayName(folder, schema, t) : "";
   const Icon = domain ? DOMAIN_ICON[domain] : BookOpen;
 
   const reset = () => {
@@ -103,6 +113,13 @@ export function MetadataAddDialog({
     } finally {
       setBusy(false);
     }
+  };
+
+  const openKeySettings = () => {
+    close();
+    setView("memos");
+    setSettingsTab("collections");
+    setSettingsOpen(true);
   };
 
   const pick = async (hit: MetaHit) => {
@@ -144,7 +161,8 @@ export function MetadataAddDialog({
               <X size={15} />
             </Dialog.Close>
           </div>
-
+          {searchable ? (
+            <>
           {/* Search form */}
           <form
             className="flex shrink-0 gap-1.5 px-4 pt-3"
@@ -230,6 +248,25 @@ export function MetadataAddDialog({
               </ul>
             )}
           </div>
+            </>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col items-center gap-3 px-6 py-10 text-center">
+              {/* No usable provider (movie with no key): the search
+                  form could only ever return nothing — offer the
+                  key-setup path instead; 직접 추가 below keeps the
+                  offline route. */}
+              <p className="text-xs leading-relaxed text-text-subtle">
+                {t.metadata_add_no_provider}
+              </p>
+              <button
+                type="button"
+                onClick={openKeySettings}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-[var(--button-radius)] bg-interactive-primary px-3 py-1.5 text-[12px] font-medium text-interactive-primary-foreground transition-colors hover:bg-interactive-primary-hover"
+              >
+                {t.metadata_add_open_settings}
+              </button>
+            </div>
+          )}
           {/* Manual fallback */}
           <div className="shrink-0 border-t border-line px-4 py-3">
             <button
@@ -243,6 +280,7 @@ export function MetadataAddDialog({
               {t.metadata_add_manual}
             </button>
           </div>
+
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

@@ -8,7 +8,7 @@
  * consult, so the renderer owns detection and passes the effective
  * region to the search commands as an override.
  */
-import type { FolderSchema } from "./types";
+import type { Config, FolderSchema } from "./types";
 
 /** Regions with a dedicated provider-priority table in the core. */
 export const SUPPORTED_REGIONS = ["KR", "JP", "DE"] as const;
@@ -64,4 +64,20 @@ export function metadataDomainOf(schema: FolderSchema | null | undefined): "book
   if (declared.some((m) => MOVIE_FIELDS.includes(m))) return "movie";
   if (declared.some((m) => BOOK_FIELDS.includes(m))) return "book";
   return null;
+}
+
+/**
+ * Whether the backend would actually run at least one provider for
+ * the domain — mirrors core `provider_key`: keyless providers are
+ * unconditional, keyed ones need a nonempty config key. Book search
+ * always works (open_library is keyless in every region order);
+ * movie providers are all keyed, so an empty key set means search
+ * can only ever return nothing.
+ */
+export function hasSearchProvider(
+  domain: "book" | "movie",
+  cfg: Config["metadata"] | undefined,
+): boolean {
+  if (domain === "book") return true;
+  return Boolean(cfg?.tmdb_key || cfg?.omdb_key || cfg?.kmdb_key);
 }

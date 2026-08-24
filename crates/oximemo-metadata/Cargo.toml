@@ -1,0 +1,24 @@
+[package]
+name = "oximemo-metadata"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Metadata provider adapters for oximemo (shared by the desktop app and the CLI)"
+repository = "https://github.com/project-oxi/oximemo"
+homepage = "https://github.com/project-oxi/oximemo"
+readme = "../../README.md"
+categories = ["command-line-interface"]
+keywords = ["oximemo", "metadata", "books", "movies"]
+publish = true
+
+[dependencies]
+oximemo-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+# Sync HTTP on purpose: the CLI stays tokio-free; the desktop app wraps
+# these calls in spawn_blocking. rustls (tls feature) keeps the TLS story
+# identical on both ends.
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }

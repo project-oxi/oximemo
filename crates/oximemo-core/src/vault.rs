@@ -463,6 +463,43 @@ impl Vault {
         Ok(counts.into_iter().collect())
     }
 
+    /// The vault's self-description for agents and humans (copilot
+    /// schema-awareness design 2026-08-24 §2.1): every physical folder
+    /// with its note count and schema/template facts. Backs the CLI
+    /// `folders` command and the copilot context block — one truth for
+    /// both. Schema parse failures propagate (the §6.2 hard-error
+    /// contract): a silently skipped schema would misreport the vault.
+    pub fn folder_inventory(&self) -> Result<Vec<FolderInfo>> {
+        let mut out = Vec::new();
+        for (path, notes) in self.list_folders()? {
+            let schema = self.folder_schema(&path)?;
+            let has_template = crate::template::load_template(
+                self.paths(),
+                &path,
+                crate::memo::NoteFormat::Markdown,
+            )
+            .is_some()
+                || crate::template::load_template(
+                    self.paths(),
+                    &path,
+                    crate::memo::NoteFormat::Html,
+                )
+                .is_some();
+            let has_schema = schema.is_some();
+            let (preset, workspace) = schema
+                .map(|s| (s.meta.preset, s.workspace.name))
+                .unwrap_or((None, None));
+            out.push(FolderInfo {
+                path,
+                notes,
+                preset,
+                workspace,
+                has_schema,
+                has_template,
+            });
+        }
+        Ok(out)
+    }
     /// Folder cards for one browse level: deep counts (reverse-sorted
     /// prefix summation over `list_folders`), direct subfolder counts, and
     /// up to 3 recent note titles attributed to the nearest displayed
@@ -2413,6 +2450,26 @@ pub struct FolderRecent {
     pub updated_at: OffsetDateTime,
 }
 
+/// One folder in the vault's self-description
+/// ([`Vault::folder_inventory`]): path, live note count, and the
+/// schema/template facts an agent (or human) needs to decide where a
+/// note belongs and what shape it takes.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct FolderInfo {
+    /// Vault-relative folder path (`""` never appears — root is not an entry).
+    pub path: String,
+    /// Direct note count in this folder (subfolders not included).
+    pub notes: u32,
+    /// `[meta] preset` marker — `None` for custom/schema-less folders.
+    pub preset: Option<String>,
+    /// `[workspace] name` (display name, e.g. "지식").
+    pub workspace: Option<String>,
+    /// The folder carries a parseable `SCHEMA.toml`.
+    pub has_schema: bool,
+    /// The folder carries a `TEMPLATE.md` or `TEMPLATE.html`.
+    pub has_template: bool,
+}
+
 /// One folder tile: direct + recursive counts plus a sample of recent note
 /// titles attributed to the nearest displayed ancestor. Drives the folder
 /// picker in the Finder-style browser.
@@ -4294,9 +4351,87 @@ watcher_retry_interval_ms = 200
         v.delete_folder("책").unwrap();
         v.migrate().unwrap();
         assert!(!v.paths().vault.join("책/SCHEMA.toml").exists());
-
         assert!(v.install_collection("nope", "x").is_err());
     }
+    /// The inventory is the vault's self-description (copilot
+    /// schema-awareness design 2026-08-24 §2.1): every physical folder,
+    /// its note count, and its schema/template facts. Installed-but-empty
+    /// collections must appear — the agent's first question is "where do
+    /// movies live", and an empty folder is still an answer.
+    #[test]
+    fn folder_inventory_reports_schemas_templates_and_counts() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        v.install_collection("movie", "movies").unwrap();
+        v.create_note(
+            "knowledge",
+            "# 코루틴 취소\n\n본문".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+        // A plain schema-less folder with one note.
+        v.create_folder("scratch").unwrap();
+        v.create_note(
+            "scratch",
+            "# 임시\n\n본문".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+
+        let inv = v.folder_inventory().unwrap();
+        let by: std::collections::HashMap<String, FolderInfo> =
+            inv.into_iter().map(|f| (f.path.clone(), f)).collect();
+
+        let k = &by["knowledge"];
+        assert_eq!(k.notes, 1);
+        assert_eq!(k.preset.as_deref(), Some("knowledge"));
+        assert_eq!(k.workspace.as_deref(), Some("지식"));
+        assert!(k.has_schema && k.has_template);
+
+        // Installed but empty: visible, zero notes, facts intact.
+        let m = &by["movies"];
+        assert_eq!(m.notes, 0);
+        assert_eq!(m.preset.as_deref(), Some("movie"));
+        assert_eq!(m.workspace.as_deref(), Some("영화"));
+        assert!(m.has_schema && m.has_template);
+
+        let s = &by["scratch"];
+        assert_eq!(s.notes, 1);
+        assert!(s.preset.is_none() && s.workspace.is_none());
+        assert!(!s.has_schema && !s.has_template);
+
+        // The vault root itself is never an entry (list_folders rule).
+        assert!(!by.contains_key(""));
+    }
+
+    /// Movie preset template (`kind: movie`, `watched_at: {{date}}`)
+    /// must stamp new notes like every other preset — regression probe
+    /// for a capture-path bug found during CLI schema smoke (2026-08-24).
+    #[test]
+    fn movie_template_stamps_kind_and_watched_at() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        v.install_collection("movie", "movies").unwrap();
+        let note = v
+            .create_note(
+                "movies",
+                "# 타이틀\n본문".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        assert_eq!(
+            note.props.get("kind"),
+            Some(&crate::props::PropValue::Str("movie".into())),
+            "props: {:?}",
+            note.props
+        );
+        assert!(
+            note.props.contains_key("watched_at"),
+            "{{date}} must expand: {:?}",
+            note.props
+        );
+    }
+
     #[test]
     fn aliases_and_prop_links_resolve_in_graph_and_backlinks() {
         let (_t, v) = tmp_vault();

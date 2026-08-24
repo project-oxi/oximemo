@@ -448,6 +448,8 @@ export const dict: Record<keyof typeof ko, string> = {
   metadata_add_title: "Search {name}",
   metadata_add_manual: "Add manually",
   metadata_add_creating: "Adding…",
+  metadata_add_no_provider: "No provider key yet — add one under Settings → Collections to pull info and cover art by title.",
+  metadata_add_open_settings: "Open Settings",
   schema_empty_sub_search: "Search a title to pull info and cover art in one pick",
   collection_system_note: "System folder — deleting recreates an empty preset on next launch",
   collection_rename_hint: "Rename & pin live in the Folders tab",

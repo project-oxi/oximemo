@@ -614,7 +614,7 @@ function SidebarFolderRow({
               }
               dropProps.onDrop(e);
             }}
-            className={`group flex items-center gap-1 rounded-md py-0.5 pr-1 text-[13px] ${
+            className={`group mx-2 flex items-center gap-1 rounded-md pr-1 text-[13px] ${
               selected
                 ? "bg-surface-muted font-semibold text-text"
                 : "hover:bg-surface-muted text-text-muted"
@@ -632,7 +632,7 @@ function SidebarFolderRow({
           <button
             type="button"
             onClick={() => onOpen(path)}
-            className="flex flex-1 items-center gap-2 truncate px-2 py-0.5 text-left"
+            className="flex flex-1 items-center gap-2 truncate px-2 py-1.5 text-left"
           >
             {icon ?? (
               <Folder
@@ -658,7 +658,7 @@ function SidebarFolderRow({
                   else if (e.key === "Escape") onNameCommit(path, null);
                 }}
                 style={{ boxShadow: "none" }}
-                className="flex-1 min-w-0 rounded-md bg-transparent px-1 py-0 text-[13px] font-semibold text-text outline-none"
+                className="flex-1 min-w-0 rounded-md bg-transparent px-1 py-1.5 text-[13px] font-semibold text-text outline-none"
               />
             }
           />

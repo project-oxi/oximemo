@@ -6,6 +6,7 @@ members = [
     "crates/oximemo-core",
     "crates/oximemo-cli",
     "crates/oximemo-capture",
+    "crates/oximemo-metadata",
     "apps/desktop/src-tauri",
 ]
 
@@ -54,9 +55,9 @@ oxibrain-client = { version = "0.7", git = "https://github.com/a7garden/oxibrain
 anyhow = "1"
 oxi-vault-git = "0.1"
 
-# Internal crates
 oximemo-core = { path = "crates/oximemo-core", version = "0.9.3" }
 oximemo-capture = { path = "crates/oximemo-capture", version = "0.9.3" }
+oximemo-metadata = { path = "crates/oximemo-metadata", version = "0.9.3" }
 
 [profile.release]
 codegen-units = 1

@@ -53,6 +53,6 @@ pub use schema::{
 pub use migrate_vault::MigrationStatus;
 pub use paths::Paths;
 pub use vault::{
-    BacklinkInfo, DoctorReport, FolderCard, FolderRecent, GraphData, GraphEdge, GraphNode, Vault,
-    VaultStatus,
+    BacklinkInfo, DoctorReport, FolderCard, FolderInfo, FolderRecent, GraphData, GraphEdge,
+    GraphNode, Vault, VaultStatus,
 };

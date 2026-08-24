@@ -46,6 +46,10 @@ enum Cmd {
         /// Create an html note (`.html`) instead of markdown.
         #[arg(long)]
         html: bool,
+        /// Set a property `KEY=VAL` on the new note (repeatable).
+        /// Comma values = list. Fires the folder's schema transitions.
+        #[arg(long = "set", value_name = "KEY=VAL")]
+        set: Vec<String>,
     },
 
     /// List notes (newest first).
@@ -92,6 +96,21 @@ enum Cmd {
         format: String,
     },
 
+    /// List folders with schema facts (the vault's folder map).
+    Folders {
+        /// table | json | ndjson
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
+
+    /// Dump a folder's schema + template as JSON (omit FOLDER = root).
+    /// A schema-less folder reports `"schema": null` (free-property
+    /// mode) — that is a fact, not an error.
+    Schema {
+        /// Folder path, e.g. `knowledge`. Empty = vault root.
+        folder: Option<String>,
+    },
+
     /// Export notes for synchronization (§9.2). Defaults to a lightweight
     /// manifest (no bodies) as NDJSON.
     Export {
@@ -112,6 +131,12 @@ enum Cmd {
         full: bool,
         #[arg(long, default_value = "ndjson")]
         format: String,
+    },
+
+    /// Installable collection presets (books, movies, …).
+    Collection {
+        #[command(subcommand)]
+        sub: CollectionCmd,
     },
 
     /// Soft-delete a note (moves to trash).
@@ -172,10 +197,37 @@ enum Cmd {
     },
 
     /// Check for a newer release and self-update.
+    /// Check for a newer release and self-update.
     Upgrade {
         /// Report availability without installing.
         #[arg(long)]
         check: bool,
+    },
+
+    /// Search metadata providers (books/movies) with the vault's
+    /// `[metadata]` config — the grounding behind the GUI 채우기 flow.
+    Metadata {
+        #[command(subcommand)]
+        sub: MetadataCmd,
+    },
+
+    /// Stamp a metadata hit (MetaHit JSON on stdin) onto a note —
+    /// fills only schema-declared, still-empty fields.
+    Stamp { id: String },
+}
+
+#[derive(Subcommand)]
+enum MetadataCmd {
+    /// Search a domain's providers; hits print as NDJSON (json for
+    /// eyeballing). Empty when metadata is disabled or no keys match.
+    Search {
+        query: String,
+        /// book | movie.
+        #[arg(long, value_enum)]
+        domain: commands::MetadataDomain,
+        /// table | json | ndjson (ndjson default — agent-facing).
+        #[arg(long, default_value = "ndjson")]
+        format: String,
     },
 }
 
@@ -183,6 +235,20 @@ enum Cmd {
 enum VaultCmd {
     /// Print the vault root path.
     Path,
+}
+
+#[derive(Subcommand)]
+enum CollectionCmd {
+    /// List the installable preset catalog (id + name, JSON).
+    List,
+    /// Install a preset into a folder (created if missing;
+    /// skip-if-exists — existing files are never overwritten).
+    Install {
+        /// Preset id from `collection list` (book, movie, …).
+        id: String,
+        /// Target folder path.
+        folder: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -213,7 +279,24 @@ fn run() -> Result<()> {
             tags,
             folder,
             html,
-        } => commands::cmd_new(&vault, text, tags, folder, html),
+            set,
+        } => {
+            let mut sets: Vec<(String, oximemo_core::PropValue)> = Vec::new();
+            for s in &set {
+                let (k, v) = s
+                    .split_once('=')
+                    .ok_or_else(|| anyhow!("invalid --set {s:?}: expected KEY=VAL"))?;
+                let value = if v.contains(',') {
+                    oximemo_core::PropValue::List(
+                        v.split(',').map(|p| p.trim().to_string()).collect(),
+                    )
+                } else {
+                    oximemo_core::PropValue::Str(v.to_string())
+                };
+                sets.push((k.trim().to_string(), value));
+            }
+            commands::cmd_new(&vault, text, tags, folder, html, sets).map(|_| ())
+        }
         Cmd::List {
             limit,
             tag,
@@ -238,6 +321,18 @@ fn run() -> Result<()> {
                 &vault, limit, tag, folder, favorites, predicates, sort_spec, offset, fmt,
             )
         }
+        Cmd::Metadata { sub } => match sub {
+            MetadataCmd::Search {
+                query,
+                domain,
+                format,
+            } => {
+                let fmt = format::Format::from_arg(&format)
+                    .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
+                commands::cmd_metadata_search(&vault, domain, &query, fmt)
+            }
+        },
+        Cmd::Stamp { id } => commands::cmd_stamp_stdin(&vault, parse_id(&id)?),
         Cmd::Get { id, md } => commands::cmd_get(&vault, parse_id(&id)?, md),
         Cmd::Search {
             query,
@@ -248,6 +343,18 @@ fn run() -> Result<()> {
                 .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
             commands::cmd_search(&vault, query, limit, fmt)
         }
+        Cmd::Folders { format } => {
+            let fmt = format::Format::from_arg(&format)
+                .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
+            commands::cmd_folders(&vault, fmt)
+        }
+        Cmd::Collection { sub } => match sub {
+            CollectionCmd::List => commands::cmd_collection_list(),
+            CollectionCmd::Install { id, folder } => {
+                commands::cmd_collection_install(&vault, &id, &folder)
+            }
+        },
+        Cmd::Schema { folder } => commands::cmd_schema(&vault, folder),
         Cmd::Export {
             since,
             ids,

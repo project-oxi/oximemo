@@ -25,12 +25,13 @@ import {
   updateMemo,
   type MetaHit,
 } from "../lib/api";
-import { effectiveRegion, metadataDomainOf } from "../lib/metadataRegion";
+import { effectiveRegion, hasSearchProvider, metadataDomainOf } from "../lib/metadataRegion";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { isoToLocalDate, todayLocalISO } from "../lib/dates";
 import { propKeyLabel, propValueLabel } from "../lib/propDisplay";
 import type {
+  Config,
   FolderSchema,
   Memo,
   PropMutation,
@@ -616,11 +617,13 @@ function MetadataFill({
   memo,
   schema,
   region,
+  metadata,
   onApplied,
 }: {
   memo: Memo;
   schema: FolderSchema | null | undefined;
   region: string | undefined;
+  metadata: Config["metadata"] | undefined;
   onApplied: (props: Props) => void;
 }) {
   const { t } = useI18n();
@@ -665,7 +668,7 @@ function MetadataFill({
     }
   };
 
-  if (!domain) return null;
+  if (!domain || !hasSearchProvider(domain, metadata)) return null;
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -858,6 +861,7 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
             memo={memo}
             schema={schema.data}
             region={fillRegion}
+            metadata={config.data?.metadata}
             onApplied={(p) => setProps(p)}
           />
           <AddPropertyRow
