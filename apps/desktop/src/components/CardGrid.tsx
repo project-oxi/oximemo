@@ -1659,6 +1659,7 @@ export function CardGrid() {
         schema={schema}
         onManual={() => onNewNote()}
       />
+      <MemoDetail />
       {commandPalette}
     </div>
   );
