@@ -33,7 +33,6 @@ interface Props {
   dateField: string;
   folders: FolderDef[];
   onSelect: (id: string) => void;
-  onOpenFolder: (path: string) => void;
   today: string;
   locale: string;
   dailyFolder: string | null;
@@ -65,18 +64,12 @@ export function CalendarView({
   dateField,
   folders,
   onSelect,
-  onOpenFolder,
   today,
   locale,
   dailyFolder,
   dailyEnabled,
   onOpenDailyNote,
 }: Props) {
-  // `onOpenFolder` is part of the public Props contract (overflow / no-date
-  // popovers can navigate into the source folder) but this task's
-  // component is purely presentational and doesn't open folders itself.
-  void onOpenFolder;
-
   const { locale: i18nLocale } = useI18n();
   const effectiveLocale = locale || i18nLocale || "ko";
   const [ty, tm] = today.split("-").map(Number);

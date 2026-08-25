@@ -159,6 +159,7 @@ interface UIState {
 
 const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
 const QUERY_VIEW_KEY = "oximemo.queryView";
+const CALENDAR_FIELD_KEY = "oximemo.calendarField";
 
 function loadCollapsed(): boolean {
   if (typeof window === "undefined") return false;
@@ -174,6 +175,24 @@ export function loadQueryView(): ViewMode {
   return v === "list" || v === "timeline" || v === "graph" || v === "calendar"
     ? v
     : "grid";
+}
+
+/** Persisted calendar date-field override for the query-mode smart
+ * collection. Folder browse reads/writes the per-folder pin from the
+ * backend config (FolderDef.calendar_date_field) instead; this only
+ * covers the folder-less query case. Defaults to `"created_at"` — same
+ * default as the FolderDef branch — when no value has been persisted yet. */
+export function loadCalendarFieldQuery(): string {
+  if (typeof window === "undefined") return "created_at";
+  return window.localStorage.getItem(CALENDAR_FIELD_KEY) ?? "created_at";
+}
+
+/** Persist the calendar date-field override for query mode. Folder mode
+ * persists via `setFolderCalendarField` (backend config) and never
+ * touches this key. */
+export function saveCalendarFieldQuery(value: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(CALENDAR_FIELD_KEY, value);
 }
 
 export const useUI = create<UIState>((set) => ({
