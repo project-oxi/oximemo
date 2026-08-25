@@ -714,11 +714,11 @@ rev1 = "warning"
 done = "success"
 "#;
 
-/// Ideas: a fleeting-note inbox into the knowledge ladder (spec §2.3,
-/// Zettelkasten/GTD/evergreen research). Capture is frictionless; the
-/// review queue forces processing — 승격 moves to `knowledge`, 보관
-/// archives. Promotion is the folder move itself, so no "promoted"
-/// status exists here.
+/// Inbox (display name; preset id `idea` is stable data vocabulary per
+/// spec 2026-08-25): the quick-capture destination. Notes land here with
+/// `kind: idea` and `status: fleeting`; the review queue promotes
+/// keepers to `knowledge` (folder move + status stamp) and archives
+/// the rest via `[review] decay_to`.
 pub const IDEA_TEMPLATE_MD: &str = "---\nkind: idea\nstatus: fleeting\n---\n\n# \n";
 
 pub const IDEA_SCHEMA_TOML: &str = r#"[meta]
