@@ -33,7 +33,7 @@ oximemo also keeps local references (product-specific design + a pre-canonical s
 | `doc/DESIGN.md` | oximemo product · data · CLI design (v0.2, 2026-07-28). Visual tokens follow `doc/UNIFIED-DESIGN.md`. Header note now points to `project-oxi/.github/DESIGN.md`. |
 | `doc/UNIFIED-DESIGN.md` | Unified oxi ecosystem design system (v1.0, design-farmer Phase 4.5). Project-local snapshot; canonical now lives in `project-oxi/.github/DESIGN.md`. |
 | `doc/PRODUCTION_READINESS.md` | Production-readiness checklist / status for oximemo. |
-| `doc/CAPTURE_SLASH_PALETTE.md` | Capture-flow slash-palette specification. |
+
 
 ## `docs/superpowers/plans/` — implementation plans
 
