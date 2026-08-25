@@ -34,6 +34,19 @@ export interface ToastAction {
   label: string;
   onClick: () => void;
 }
+
+/** Browse location (query views spec §5). Exactly one is active; the
+ * legacy `folderFilter`/`favoritesOnly` fields are write-through mirrors
+ * kept so listing IPC and query keys keep their shape — every mutation
+ * goes through `applyLocation`, never the mirrors directly.
+ * `{ kind: "base" }` is a full-screen query collection; `inline` carries
+ * raw YAML (fenced-block 「전체 열기」, Plan E). */
+export type Location =
+  | { kind: "folder"; path: string } // "" = vault root
+  | { kind: "all" }
+  | { kind: "favorites" }
+  | { kind: "base"; source: { path: string } | { inline: string } };
+
 interface UIState {
   search: string;
   setSearch: (s: string) => void;
@@ -63,12 +76,19 @@ interface UIState {
   matchAll: boolean;
   toggleMatchAll: () => void;
   /** Active folder. `null` = query mode (smart collection, "모든 노트");
-   * `""` = vault root browse; other strings = folder browse. */
+   * `""` = vault root browse; other strings = folder browse. Derived from
+   * `location` — write through the location actions only. */
   folderFilter: string | null;
   setFolderFilter: (f: string | null) => void;
   clearFolderFilter: () => void;
   favoritesOnly: boolean;
   setFavoritesOnly: (b: boolean) => void;
+  /** The single browse location (query views spec §5). */
+  location: Location;
+  /** Previous non-base location — ⌘↑ exits a base back to it. */
+  lastNonBaseLocation: Location;
+  openBase: (source: { path: string } | { inline: string }) => void;
+  exitBase: () => void;
   /** Sidebar collapsed? Persisted to localStorage. */
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -171,12 +191,31 @@ function loadCollapsed(): boolean {
 export function loadQueryView(): ViewMode {
   if (typeof window === "undefined") return "grid";
   const v = window.localStorage.getItem(QUERY_VIEW_KEY);
-  return v === "list" || v === "timeline" || v === "graph" ? v : "grid";
+  // table is available in query mode: the vault-wide cross-schema table is
+  // the point of per-row schema selection (query views spec §4).
+  return v === "list" || v === "timeline" || v === "graph" || v === "table" ? v : "grid";
+}
+
+/** Single writer for the location trio: `location` is authoritative;
+ * `folderFilter`/`favoritesOnly` are write-through mirrors so listing
+ * IPC and query keys keep their shape (spec §5 cutover rule). */
+function applyLocation(set: (partial: Partial<UIState>) => void, loc: Location) {
+  set({
+    location: loc,
+    folderFilter: loc.kind === "folder" ? loc.path : null,
+    favoritesOnly: loc.kind === "favorites",
+  });
 }
 
 export const useUI = create<UIState>((set) => ({
   search: "",
-  setSearch: (s) => set({ search: s }),
+  setSearch: (s) => {
+    // Starting a search first exits a base (spec §5) — the base's own
+    // filter model is the query surface there.
+    if (s !== "" && useUI.getState().location.kind === "base")
+      useUI.getState().exitBase();
+    set({ search: s });
+  },
   view: "memos",
   setView: (v) => set({ view: v }),
   // Boot in grid — the per-folder view pin (backend config) and the
@@ -196,17 +235,20 @@ export const useUI = create<UIState>((set) => ({
   searchScope: "folder",
   setSearchScope: (s) => set({ searchScope: s }),
   navigateUp: () => {
-    const { folderFilter: cur, favoritesOnly } = useUI.getState();
+    const { location } = useUI.getState();
+    // A base exits to the recorded previous non-base location (spec §5).
+    if (location.kind === "base") return useUI.getState().exitBase();
     // Query mode (favorites/all-notes) steps INTO root browse so ⌘↑ is
     // always an escape hatch to top-level browsing; at root it's a no-op.
-    if (cur === null) {
-      set({ favoritesOnly: false, folderFilter: "" });
+    if (location.kind === "all" || location.kind === "favorites") {
+      applyLocation(set, { kind: "folder", path: "" });
       return;
     }
-    if (favoritesOnly) set({ favoritesOnly: false });
-    if (cur === "") return;
-    const next = cur.includes("/") ? cur.slice(0, cur.lastIndexOf("/")) : "";
-    set({ folderFilter: next });
+    if (location.path === "") return;
+    const next = location.path.includes("/")
+      ? location.path.slice(0, location.path.lastIndexOf("/"))
+      : "";
+    applyLocation(set, { kind: "folder", path: next });
   },
   theme: loadTheme(),
   setTheme: (t) => set({ theme: t }),
@@ -232,12 +274,27 @@ export const useUI = create<UIState>((set) => ({
   clearTagFilter: () => set({ tagFilter: {} }),
   matchAll: true,
   toggleMatchAll: () => set((s) => ({ matchAll: !s.matchAll })),
-  /** `null` = query mode; `""` = vault root browse; path = folder browse. */
+  /** Mirrors maintained by applyLocation — see the Location doc. */
+  location: { kind: "folder", path: "" },
+  lastNonBaseLocation: { kind: "folder", path: "" },
+  openBase: (source) => {
+    const { location } = useUI.getState();
+    if (location.kind !== "base")
+      set({ lastNonBaseLocation: location });
+    // Entering a base clears search; filtering happens in the base (§5).
+    applyLocation(set, { kind: "base", source });
+    set({ search: "" });
+  },
+  exitBase: () => {
+    const { lastNonBaseLocation } = useUI.getState();
+    applyLocation(set, lastNonBaseLocation);
+  },
   folderFilter: "" as string | null,
-  setFolderFilter: (f) => set({ folderFilter: f }),
-  clearFolderFilter: () => set({ folderFilter: null }),
+  setFolderFilter: (f) => applyLocation(set, f === null ? { kind: "all" } : { kind: "folder", path: f }),
+  clearFolderFilter: () => applyLocation(set, { kind: "all" }),
   favoritesOnly: false,
-  setFavoritesOnly: (b) => set({ favoritesOnly: b }),
+  setFavoritesOnly: (b) =>
+    applyLocation(set, b ? { kind: "favorites" } : { kind: "all" }),
   sidebarCollapsed: loadCollapsed(),
   toggleSidebar: () =>
     set((s) => {

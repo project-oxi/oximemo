@@ -23,7 +23,7 @@ export type PaletteIcon =
   | "layers" | "star" | "images" | "archive" | "calendar" | "folder"
   | "hash" | "grid" | "list" | "timeline" | "graph" | "sidebar"
   | "note-md" | "note-html" | "folder-plus" | "zap" | "settings"
-  | "sun" | "moon" | "monitor" | "library";
+  | "sun" | "moon" | "monitor" | "library" | "table";
 
 export interface PaletteCommand {
   /** Stable identity for the recency log (e.g. "folder:work/2026"). */
@@ -68,6 +68,9 @@ export interface CommandCallbacks {
   newKnowledgeFolder?: () => void;
   /** Open settings on the collections pane (⌘K 컬렉션 관리). */
   openCollectionsSettings: () => void;
+  /** Query views (spec §5): create + open a new .query; open a listed one. */
+  newQuery?: () => void;
+  openQuery?: (path: string) => void;
   openSettings: () => void;
   setTheme: (t: Theme) => void;
 }
@@ -84,6 +87,8 @@ export interface CommandDeps {
   /** Folders whose SCHEMA.toml declares [review] — drives the review
    *  command's existence (design §7.3: the catalog is state-driven). */
   reviewFolders?: string[];
+  /** Saved query collections (spec §5 쿼리 열기). */
+  bases?: { path: string; name: string }[];
   callbacks: CommandCallbacks;
 }
 
@@ -101,6 +106,7 @@ const VIEW_KEYS = {
   list: "palette_view_list",
   timeline: "palette_view_timeline",
   graph: "palette_view_graph",
+  table: "palette_view_table",
   shelf: "palette_view_shelf",
 } as const satisfies Record<ViewMode, DictKey>;
 
@@ -121,7 +127,7 @@ export const CURATED_SUGGESTION_IDS = [
 ] as const;
 
 export function buildCommands(deps: CommandDeps): PaletteCommand[] {
-  const { locale, noteView, theme, folders, tags, dailyEnabled, callbacks } = deps;
+  const { locale, noteView, theme, folders, tags, dailyEnabled, callbacks, bases } = deps;
   const out: PaletteCommand[] = [];
   let order = 0;
   const add = (
@@ -195,13 +201,28 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
   }
 
   // View-mode switches exclude the active mode (no-op noise).
-  for (const mode of ["grid", "list", "timeline", "graph", "shelf"] as ViewMode[]) {
+  for (const mode of ["grid", "list", "table", "timeline", "graph", "shelf"] as ViewMode[]) {
     if (mode === noteView) continue;
     const k = pair(locale, VIEW_KEYS[mode]);
-    add(`view.${mode}`, mode === "grid" ? "grid" : mode === "list" ? "list" : mode === "shelf" ? "library" : mode, k.title, k.alias, "view", () => callbacks.setViewMode(mode));
+    const icon =
+      mode === "grid" ? "grid" : mode === "list" ? "list" : mode === "shelf" ? "library"
+      : mode === "table" ? "table" : mode;
+    add(`view.${mode}`, icon, k.title, k.alias, "view", () => callbacks.setViewMode(mode));
   }
   const sb = pair(locale, "palette_sidebar_toggle");
   add("view.sidebar", "sidebar", sb.title, sb.alias, "view", callbacks.toggleSidebar);
+
+  // Query collections (spec §5 creation paths).
+  if (callbacks.newQuery) {
+    const nq = pair(locale, "query_new");
+    add("action.new_query", "table", nq.title, nq.alias, "action", callbacks.newQuery);
+  }
+  if (callbacks.openQuery) {
+    for (const b of bases ?? []) {
+      const alias = locale === "ko" ? b.name : b.name;
+      add(`query:${b.path}`, "table", `${b.name}`, alias, "nav", () => callbacks.openQuery?.(b.path));
+    }
+  }
 
   const md = pair(locale, "new_note_md");
   add("action.new_md", "note-md", md.title, md.alias, "action", () => callbacks.newNote("markdown"), { hint: "⌘N" });

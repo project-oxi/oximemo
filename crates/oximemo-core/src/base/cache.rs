@@ -33,7 +33,8 @@ use std::time::SystemTime;
 
 use parking_lot::Mutex;
 
-use crate::base::exec::{BaseRow, GroupCount, PropInfo, SummaryValue};
+use crate::base::exec::{BaseCell, BaseRow, GroupCount, PropInfo, SummaryValue};
+use crate::expr::value::Value;
 
 /// Maximum number of cached entries (spec §3: result LRU ≤ 16 keys).
 const RESULT_CACHE_CAP: usize = 16;
@@ -41,22 +42,87 @@ const RESULT_CACHE_CAP: usize = 16;
 /// Result-cache memory budget (spec §3: ≤ 64 MiB total).
 const RESULT_CACHE_BUDGET_BYTES: usize = 64 * 1024 * 1024;
 
-/// Estimated heap bytes per cached row. The whole-branch review probe
-/// (2026-08-25) measured ~1.7 KiB for a realistic row (summary +
-/// folder + cells); rounded up to 2 KiB for headroom.
-const EST_BYTES_PER_ROW: usize = 2048;
+/// Caller-side guard (exec.rs): a result whose estimated size exceeds
+/// half the budget must NOT be inserted — admitting it would evict
+/// everything else and the cache becomes useless. `put` itself assumes
+/// the caller has already checked (same bypass shape as
+/// `snapshot()`'s `> SNAPSHOT_CACHE_CAP`).
+pub(crate) const RESULT_CACHE_ENTRY_MAX_BYTES: usize = RESULT_CACHE_BUDGET_BYTES / 2;
 
-/// Per-entry row cap, derived from the budget so a fully warm cache
-/// stays inside spec §3's 64 MiB: BUDGET / RESULT_CACHE_CAP /
-/// EST_BYTES_PER_ROW. A run_base whose kept-row count exceeds this is
-/// still computed fresh but returned UNCACHED (same shape as
-/// `snapshot()`'s `> SNAPSHOT_CACHE_CAP` bypass). The previous flat
-/// 20_000-row cap bounded only entry count, not bytes — 16 entries ×
-/// 20k realistic rows ≈ 500+ MiB, ten times the budget. This is
-/// still a count-based approximation; true byte accounting is
-/// deferred to Plan B profiling.
-pub(crate) const RESULT_CACHE_ROW_CAP: usize =
-    RESULT_CACHE_BUDGET_BYTES / RESULT_CACHE_CAP / EST_BYTES_PER_ROW;
+fn heap_str(s: &str) -> usize {
+    std::mem::size_of::<String>() + s.len()
+}
+
+fn value_heap(v: &Value) -> usize {
+    match v {
+        Value::Str(s) => s.len(),
+        Value::List(l) => {
+            l.len() * std::mem::size_of::<Value>()
+                + l.iter().map(value_heap).sum::<usize>()
+        }
+        _ => 0,
+    }
+}
+
+/// True heap estimate for a cached result (spec §3 byte accounting):
+/// summaries/folders/previews/tags/props/cells all carry their string
+/// payloads; enum/fixed overhead uses `size_of`. This replaces the
+/// earlier derived row cap (2048 rows/entry) with what is actually
+/// resident.
+pub(crate) fn estimate_result_bytes(r: &BaseResult) -> usize {
+    use std::mem::size_of;
+    let mut b = size_of::<BaseResult>();
+    for row in &r.rows {
+        b += size_of::<BaseRow>();
+        let s = &row.summary;
+        b += size_of::<crate::memo::MemoSummary>();
+        b += s.hash.as_str().len();
+        if let Some(t) = &s.title {
+            b += heap_str(t);
+        }
+        b += heap_str(&s.path) + heap_str(&s.preview);
+        b += s.tags.capacity() * size_of::<String>()
+            + s.tags.iter().map(|t| heap_str(t)).sum::<usize>();
+        b += s.props.len()
+            * (size_of::<String>() + size_of::<crate::props::PropValue>()
+                + 2 * size_of::<usize>()); // BTreeMap node overhead
+        for (k, v) in &s.props {
+            b += heap_str(k);
+            b += match v {
+                crate::props::PropValue::Str(x) => x.len(),
+                crate::props::PropValue::List(l) => {
+                    l.capacity() * size_of::<String>() + l.iter().map(|x| x.len()).sum::<usize>()
+                }
+                crate::props::PropValue::Bool(_) => 0,
+            };
+        }
+        b += heap_str(&row.folder) + heap_str(&row.format);
+        b += row.cells.capacity() * size_of::<BaseCell>();
+        for c in &row.cells {
+            if let Some(v) = &c.value {
+                b += size_of::<Value>() + value_heap(v);
+            }
+            if let Some(e) = &c.error {
+                b += heap_str(e);
+            }
+        }
+    }
+    b += r.group_strs.capacity() * size_of::<String>()
+        + r.group_strs.iter().map(|g| heap_str(g)).sum::<usize>();
+    if let Some(gc) = &r.group_counts {
+        b += gc.len() * size_of::<GroupCount>();
+        for g in gc {
+            b += heap_str(&g.key);
+        }
+    }
+    if let Some(ss) = &r.summaries {
+        b += ss.len() * (size_of::<String>() + size_of::<SummaryValue>());
+        for (k, v) in ss {
+            b += heap_str(k) + value_heap(&v.value);
+        }
+    }
+    b
+}
 
 /// Content fingerprint for one `run_base` result.
 ///
@@ -141,6 +207,9 @@ pub struct BaseResultCache {
     /// Insertion order. `back()` is the most-recently inserted;
     /// `front()` is the next eviction candidate.
     order: VecDeque<ResultKey>,
+    /// Estimated resident bytes per entry, parallel to `order`.
+    entry_bytes: VecDeque<usize>,
+    total_bytes: usize,
 }
 
 impl Default for BaseResultCache {
@@ -155,6 +224,8 @@ impl BaseResultCache {
         Self {
             map: HashMap::with_capacity(RESULT_CACHE_CAP),
             order: VecDeque::with_capacity(RESULT_CACHE_CAP),
+            entry_bytes: VecDeque::with_capacity(RESULT_CACHE_CAP),
+            total_bytes: 0,
         }
     }
 
@@ -171,28 +242,56 @@ impl BaseResultCache {
     }
 
     /// Insert; if `key` already exists the entry is replaced and the
-    /// order list keeps the original position (no churn). When the
-    /// cap is exceeded the oldest insertion is evicted.
+    /// order list keeps the original position (no churn). Eviction is
+    /// byte-budgeted (spec §3 ≤ 64 MiB) with the 16-entry cap as the
+    /// hard ceiling: oldest insertions drop until both hold.
     pub fn put(&mut self, key: ResultKey, result: Arc<BaseResult>) {
-        if self.map.contains_key(&key) {
+        let bytes = estimate_result_bytes(&result);
+        if let Some(pos) = self.order.iter().position(|k| *k == key) {
             // Re-put under the cap: refresh the value but preserve
             // insertion order so a tight loop does not churn entries.
+            self.total_bytes += bytes - self.entry_bytes[pos];
+            self.entry_bytes[pos] = bytes;
             self.map.insert(key, result);
+            self.evict_over_budget();
             return;
         }
-        if self.map.len() >= RESULT_CACHE_CAP
+        // The guard re-evaluates each iteration; an empty deque ends the
+        // loop (a too-big entry then inserts alone rather than spinning).
+        while (self.map.len() >= RESULT_CACHE_CAP || self.total_bytes + bytes > RESULT_CACHE_BUDGET_BYTES)
             && let Some(oldest) = self.order.pop_front()
         {
+            let ob = self.entry_bytes.pop_front().unwrap_or(0);
+            self.total_bytes = self.total_bytes.saturating_sub(ob);
             self.map.remove(&oldest);
         }
         self.order.push_back(key.clone());
+        self.entry_bytes.push_back(bytes);
+        self.total_bytes += bytes;
         self.map.insert(key, result);
+    }
+
+    fn evict_over_budget(&mut self) {
+        while self.total_bytes > RESULT_CACHE_BUDGET_BYTES
+            && self.map.len() > 1
+            && let (Some(oldest), Some(ob)) = (self.order.pop_front(), self.entry_bytes.pop_front())
+        {
+            self.total_bytes = self.total_bytes.saturating_sub(ob);
+            self.map.remove(&oldest);
+        }
+    }
+
+    /// Estimated bytes currently resident.
+    pub fn bytes(&self) -> usize {
+        self.total_bytes
     }
 
     /// Drop every entry. Called from `Vault::invalidate_base_caches`.
     pub fn clear_all(&mut self) {
         self.map.clear();
         self.order.clear();
+        self.entry_bytes.clear();
+        self.total_bytes = 0;
     }
 }
 
@@ -358,6 +457,39 @@ mod tests {
         assert_eq!(c.len(), RESULT_CACHE_CAP);
         assert!(c.get(&key(0, 0)).is_some(), "re-put oldest preserved");
         assert!(c.get(&key(15, 0)).is_some(), "newest still present");
+    }
+
+
+    #[test]
+    fn bytes_budget_evicts_oldest() {
+        // Two ~3/8-budget entries fit; a third evicts the first.
+        let mut c = BaseResultCache::new();
+        let big = |pad: usize| {
+            Arc::new(BaseResult {
+                rows: vec![BaseRow {
+                    summary: MemoSummary {
+                        preview: "p".repeat(pad),
+                        ..empty_summary()
+                    },
+                    ..empty_row()
+                }],
+                group_strs: vec![String::new()],
+                total: 1,
+                group_counts: None,
+                summaries: None,
+                warnings: Vec::new(),
+                props: None,
+            })
+        };
+        let pad = RESULT_CACHE_BUDGET_BYTES * 3 / 8;
+        c.put(key(1, 0), big(pad));
+        c.put(key(2, 0), big(pad));
+        assert_eq!(c.len(), 2);
+        assert!(c.bytes() <= RESULT_CACHE_BUDGET_BYTES);
+        c.put(key(3, 0), big(pad));
+        assert!(c.len() <= 2, "three 3/8-budget entries cannot coexist");
+        assert!(c.get(&key(1, 0)).is_none(), "oldest evicted by bytes");
+        assert!(c.get(&key(3, 0)).is_some(), "newest retained");
     }
 
     #[test]

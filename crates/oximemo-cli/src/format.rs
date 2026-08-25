@@ -131,7 +131,7 @@ fn rfc3339(t: time::OffsetDateTime) -> String {
 // --- .query base rendering (spec 2026-08-25 §3) --------------------------
 
 /// Max view columns the run table renders (`file.name` + 4 more).
-const BASE_TABLE_MAX_COLUMNS: usize = 5;
+pub const BASE_TABLE_MAX_COLUMNS: usize = 5;
 
 /// Max characters of one table cell before it is ellipsized (titles
 /// and long values must not wreck the fixed-width layout).

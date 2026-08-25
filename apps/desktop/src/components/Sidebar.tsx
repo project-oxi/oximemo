@@ -6,10 +6,11 @@
  * the main area; the 볼트 row enters it at the root.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowUpDown, CalendarDays, Folder, GraduationCap, GripVertical, Images, Layers, MoreHorizontal, PenLine, Star, Trash2 } from "lucide-react";
+import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag } from "../lib/api";
+import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
+import { createQueryCollection, defaultQueryYaml } from "../lib/queryCreation";
 import { colorForFolder } from "../lib/color";
 import { dayLabel, todayLocalISO } from "../lib/dates";
 import { useFolderDrop, parentOf } from "../lib/dropTarget";
@@ -17,6 +18,7 @@ import { useI18n } from "../lib/i18n";
 import { folderDisplayName, useFolderNames, useSchemaInfo, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
 import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
 import { toneBg } from "../lib/propDisplay";
+import { listen } from "../lib/tauri";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import { Calendar } from "./Calendar";
 import { TextCtxMenu } from "./TextCtxMenu";
@@ -102,6 +104,71 @@ export function Sidebar({
     renameFolder(path, to).then(invalidateFolderData).catch((e) => {
       setError(String(e).split("\n")[0]);
     });
+  };
+
+  // --- QUERIES (query views spec §5): saved .query collections. The
+  // watcher emits bases:changed on external edits; we mirror the
+  // memos:changed pattern from CardGrid for ["bases"]. Duplicate stems
+  // stay listed with an ambiguity marker (spec §6, UI-layer contract).
+  const basesQ = useQuery({ queryKey: ["bases"], queryFn: listBases });
+  const openBase = useUI((s) => s.openBase);
+  const location = useUI((s) => s.location);
+  const [queryNaming, setQueryNaming] = useState<string | null>(null);
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    void listen("bases:changed", () => {
+      void qc.invalidateQueries({ queryKey: ["bases"] });
+    }).then((u) => {
+      un = u;
+    });
+    return () => un?.();
+  }, [qc]);
+  const bases = basesQ.data ?? [];
+  const ambiguousNames = useMemo(() => {
+    const seen = new Set<string>();
+    const dup = new Set<string>();
+    for (const b of bases) (seen.has(b.name) ? dup : seen).add(b.name);
+    return dup;
+  }, [bases]);
+  const createQuery = () => {
+    const taken = new Set(bases.map((b) => b.name));
+    let stem: string = t.query_new_default;
+    for (let n = 2; taken.has(stem); n++) stem = `${t.query_new_default} ${n}`;
+    createQueryCollection(stem, defaultQueryYaml(t.view_table))
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["bases"] });
+        setView("memos");
+        openBase({ path: `queries/${stem}.query` });
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+  const commitQueryRename = (path: string, name: string | null) => {
+    setQueryNaming(null);
+    const clean = (name ?? "").trim();
+    if (!clean) return;
+    const stem = path.split("/").at(-1)?.replace(/\.query$/, "") ?? path;
+    if (clean === stem) return;
+    const dir = parentOf(path);
+    renameBase(path, dir ? `${dir}/${clean}.query` : `${clean}.query`)
+      .then(() => void qc.invalidateQueries({ queryKey: ["bases"] }))
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+  const deleteQuery = (path: string) => {
+    trashBase(path)
+      .then((token) => {
+        void qc.invalidateQueries({ queryKey: ["bases"] });
+        if (location.kind === "base" && "path" in location.source && location.source.path === path)
+          useUI.getState().exitBase();
+        setToast(t.query_deleted, {
+          label: t.undo,
+          onClick: () => {
+            restoreBase(token)
+              .then(() => void qc.invalidateQueries({ queryKey: ["bases"] }))
+              .catch((e) => setError(String(e).split("\n")[0]));
+          },
+        });
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
   };
 
   const deletePinFolder = (path: string) => {
@@ -266,6 +333,97 @@ export function Sidebar({
       >
         <Images size={14} /> {t.gallery}
       </button>
+      {/* QUERIES — saved .query collections (query views spec §5). */}
+      <div className="mt-3 flex items-center justify-between pr-3 pl-3">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+          {t.section_queries}
+        </span>
+        <button
+          type="button"
+          aria-label={t.query_new}
+          title={t.query_new}
+          onClick={createQuery}
+          className="rounded-[var(--tag-radius)] p-0.5 text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text"
+        >
+          <Plus size={12} />
+        </button>
+      </div>
+      {basesQ.isError ? (
+        <div className="mx-2 px-2 py-1 text-[11px] text-text-subtle">{t.query_unavailable}</div>
+      ) : bases.length === 0 ? (
+        <div className="mx-2 px-2 py-1 text-[11px] text-text-subtle/70">{t.query_none}</div>
+      ) : (
+        bases.map((b) => {
+          const active = location.kind === "base" && "path" in location.source && location.source.path === b.path;
+          const warn = !b.loadable || ambiguousNames.has(b.name);
+          const renaming = queryNaming === b.path;
+          return (
+            <CtxRoot key={b.path}>
+              <div className="group/query relative mx-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView("memos");
+                    openBase({ path: b.path });
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
+                    active
+                      ? "bg-surface-muted font-semibold text-text"
+                      : "text-text-muted hover:bg-surface-muted"
+                  }`}
+                >
+                  <Database size={14} className="shrink-0" />
+                  {renaming ? (
+                    <input
+                      autoFocus
+                      defaultValue={b.name}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={(e) => commitQueryRename(b.path, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitQueryRename(b.path, e.currentTarget.value);
+                        if (e.key === "Escape") setQueryNaming(null);
+                      }}
+                      className="w-full rounded-sm border border-line bg-surface px-1 py-0 text-[12px] outline-none"
+                    />
+                  ) : (
+                    <span className="truncate">{b.name}</span>
+                  )}
+                  {warn && !renaming && (
+                    <TriangleAlert
+                      size={12}
+                      aria-label={t.query_ambiguous}
+                      className="ml-auto shrink-0 text-hue-amber"
+                    />
+                  )}
+                </button>
+                <CtxTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={t.query_more}
+                      className="absolute top-1/2 right-1 -translate-y-1/2 rounded-[var(--tag-radius)] p-0.5 text-text-subtle opacity-0 transition-opacity duration-150 group-hover/query:opacity-100 hover:bg-surface-muted hover:text-text"
+                    >
+                      <MoreHorizontal size={12} />
+                    </button>
+                  }
+                />
+                <CtxMenu>
+                  <CtxItem
+                    icon={PenLine}
+                    label={t.query_rename}
+                    onClick={() => setQueryNaming(b.path)}
+                  />
+                  <CtxItem
+                    icon={Trash2}
+                    label={t.query_delete}
+                    onClick={() => deleteQuery(b.path)}
+                  />
+                </CtxMenu>
+              </div>
+            </CtxRoot>
+          );
+        })
+      )}
       {/* LOCATIONS — the vault root browse entry (folder tiles live in the
           main area; this is how you get back to top-level browsing), the
           daily folder (a real path — the calendar block below navigates

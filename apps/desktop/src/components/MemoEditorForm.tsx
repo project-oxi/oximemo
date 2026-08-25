@@ -16,6 +16,7 @@ import { wikiLinks, type AtomicCodeMirrorEditorHandle } from "@atomic-editor/edi
 import type { FolderEntry } from "../lib/types";
 import { buildWikiLinksConfig } from "../lib/memoLinks";
 import { embedExtension } from "../lib/embeds";
+import { queryEmbedExtension } from "../lib/queryEmbeds";
 import { useUI } from "../stores/ui";
 
 const cx = (...xs: (string | false | null | undefined)[]) =>
@@ -54,6 +55,19 @@ export function MemoEditorForm({
       imagePickerKeymap(() => fileInputRef.current?.click()),
       wikiLinks(buildWikiLinksConfig({ onOpen: select, locale })),
       ...embedExtension({ onOpen: select, labels: t }),
+      // Inline query embeds (query views spec §6): ![[query:…]] markers
+      // and ```query fences resolve live in the note; thisId pins the
+      // embedding note so per-note scopes never cross.
+      ...queryEmbedExtension({
+        thisId: documentId,
+        labels: {
+          results_n: t.query_embed_results_n,
+          open_full: t.query_embed_open,
+          loading: t.query_embed_loading,
+          error: t.query_embed_error,
+          ambiguous: t.query_embed_ambiguous,
+        },
+      }),
       // Selection → copilot context (Claude-desktop style): the panel
       // folds whatever is highlighted into the next turn. Authoritative
       // CM6 state, not DOM selection — synced on every selection/doc

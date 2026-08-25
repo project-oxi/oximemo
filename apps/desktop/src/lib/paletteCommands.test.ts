@@ -123,11 +123,11 @@ describe("rankCommands", () => {
   test("ties keep curated order", () => {
     // The remaining view commands all boundary-match "보기" (300 each);
     // ties fall back to build order. ("사이드바 전환" has no "보기" and
-    // grid is excluded as the active mode; shelf joined the ladder with
-    // the shelf view and keeps its build slot after graph.)
+    // grid is excluded as the active mode; table sits between list and
+    // timeline in the mode ladder, shelf keeps its slot after graph.)
     const ranked = rankCommands(cmds, "보기", new RecencyLog());
     const ids = ranked.filter((c) => c.id.startsWith("view.")).map((c) => c.id);
-    expect(ids).toEqual(["view.list", "view.timeline", "view.graph", "view.shelf"]);
+    expect(ids).toEqual(["view.list", "view.table", "view.timeline", "view.graph", "view.shelf"]);
   });
 });
 

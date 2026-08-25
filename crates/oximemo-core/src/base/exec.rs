@@ -24,7 +24,7 @@ use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 
 use super::{BaseDef, BaseViewDef, FilterGroup, FilterSpec, validate};
-use super::formula_deps;
+use super::{formula_deps, walk_formula};
 use time::{OffsetDateTime, UtcOffset};
 use crate::expr::value::{Value, group_string, parse_date_ish, promote_num, total_order, type_name};
 use crate::expr::eval::{EvalClock, EvalCtx, RowData, compare, eval};
@@ -399,6 +399,28 @@ impl Vault {
             Some(g) => Some((parse_expr(&g.property)?, is_desc(g.direction.as_deref()))),
             None => None,
         };
+        // Spec §3: the per-row work covers only the formula closure
+        // reachable from what this run actually references. Summary keys
+        // are tolerated as parse failures here — compute_summaries
+        // surfaces them as the real error.
+        let mut roots: Vec<&Expr> = Vec::new();
+        roots.extend(filters.iter());
+        roots.extend(columns.iter());
+        roots.extend(order_specs.iter().map(|(e, _)| e));
+        if let Some((e, _)) = &group_spec {
+            roots.push(e);
+        }
+        let summary_roots: Vec<Expr> = view
+            .summaries
+            .as_ref()
+            .map(|s| s.keys().filter_map(|p| parse_expr(p).ok()).collect())
+            .unwrap_or_default();
+        roots.extend(summary_roots.iter());
+        let closure = formula_closure(&formulas, &roots);
+        let active: Vec<&(String, Expr)> = formulas
+            .iter()
+            .filter(|(n, _)| closure.contains(n))
+            .collect();
 
 
         // 5. Snapshot → filter. Soft-deleted records never enter any
@@ -450,8 +472,8 @@ impl Vault {
             // Formulas first, in dependency order, memoized per row;
             // errors are stored and re-raised as cell errors on lookup.
             let mut fmap: HashMap<String, Result<Value, CoreError>> =
-                HashMap::with_capacity(formulas.len());
-            for (name, expr) in &formulas {
+                HashMap::with_capacity(active.len());
+            for (name, expr) in &active {
                 let row = RowData::from_record(rec, &fmap, this_row.as_ref());
                 let v = eval(expr, &row, &ctx);
                 fmap.insert(name.clone(), v);
@@ -600,11 +622,13 @@ impl Vault {
             warnings: warnings.clone(),
             props: None,
         });
-        // Spec §3 row cap:
-        // RESULT_CACHE_ROW_CAP are returned uncached (same bypass as
-        // `snapshot()`'s >SNAPSHOT_CACHE_CAP) so the 64 MiB envelope
-        // is preserved.
-        if total <= crate::base::cache::RESULT_CACHE_ROW_CAP {
+        // Spec §3 byte accounting: entries whose estimated size exceeds
+        // RESULT_CACHE_ENTRY_MAX_BYTES (half the 64 MiB budget) stay
+        // uncached; everything else enters and the cache evicts by real
+        // estimated bytes. (Supersedes the previous derived row cap.)
+        if crate::base::cache::estimate_result_bytes(&cached)
+            <= crate::base::cache::RESULT_CACHE_ENTRY_MAX_BYTES
+        {
             self.base_cache_put(key.clone(), cached.clone());
         }
         //     limit are request-level paging — never part of the key.
@@ -755,6 +779,33 @@ fn topo_formulas(formulas: Option<&BTreeMap<String, String>>) -> Result<Vec<(Str
         visit_formula(name, formulas, &mut done, &mut on_stack, &mut out)?;
     }
     Ok(out)
+}
+
+/// Spec §3 closure: only formulas reachable from the active
+/// filters/columns/order/groupBy/summaries (plus formula→formula edges)
+/// are evaluated per row. Must run after `topo_formulas` so cycles are
+/// already rejected.
+fn formula_closure(formulas: &[(String, Expr)], roots: &[&Expr]) -> HashSet<String> {
+    let by_name: HashMap<&str, &Expr> = formulas
+        .iter()
+        .map(|(n, e)| (n.as_str(), e))
+        .collect();
+    fn expand(e: &Expr, by_name: &HashMap<&str, &Expr>, out: &mut HashSet<String>) {
+        let mut refs = std::collections::BTreeSet::new();
+        walk_formula(e, &mut refs);
+        for name in refs {
+            if out.insert(name.clone()) {
+                if let Some(body) = by_name.get(name.as_str()) {
+                    expand(body, by_name, out);
+                }
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    for r in roots {
+        expand(r, &by_name, &mut out);
+    }
+    out
 }
 
 fn visit_formula(
@@ -982,6 +1033,22 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let v = Vault::open(Some(dir.path())).unwrap();
         (dir, v)
+    }
+
+    #[test]
+    fn formula_closure_reaches_only_referenced() {
+        let formulas = [
+            ("age".to_string(), parse_expr("(now() - file.created).days()").unwrap()),
+            ("double_age".to_string(), parse_expr("formula.age * 2").unwrap()),
+            ("unused".to_string(), parse_expr("1 / 0").unwrap()),
+        ];
+        let root = parse_expr("formula.double_age > 10").unwrap();
+        let closure = formula_closure(&formulas, &[&root]);
+        assert!(closure.contains("age") && closure.contains("double_age"));
+        assert!(!closure.contains("unused"));
+        // No formula roots → empty closure.
+        let plain = parse_expr("note.rating > 3").unwrap();
+        assert!(formula_closure(&formulas, &[&plain]).is_empty());
     }
 
     /// Create a titled note with string props; returns its id.
@@ -1614,7 +1681,8 @@ views:
         // commit per record and would stall the suite. run_base reads
         // the snapshot only, so the index contents are all that
         // matters here.
-        let recs: Vec<IndexRecord> = (0..=crate::base::cache::RESULT_CACHE_ROW_CAP as u64)
+        // ~200 rows × 192 KiB previews ≈ 37 MiB > half the budget.
+        let recs: Vec<IndexRecord> = (0..200u64)
             .map(|i| IndexRecord {
                 id: MemoId(uuid::Uuid::from_u64_pair(i, 0)),
                 created_at: OffsetDateTime::UNIX_EPOCH,
@@ -1627,7 +1695,7 @@ views:
                 props: Default::default(),
                 deleted: false,
                 deleted_at: None,
-                preview: String::new(),
+                preview: "x".repeat(192 * 1024),
             })
             .collect();
         v.with_redb(|idx| idx.upsert_bulk(&recs)).unwrap();
@@ -1636,11 +1704,7 @@ views:
         r.local_offset_seconds = Some(0);
         let page = run(&v, "views:\n  - type: table\n", &r);
         assert!(!page.rows.is_empty());
-        assert_eq!(
-            page.total,
-            crate::base::cache::RESULT_CACHE_ROW_CAP + 1,
-            "full oversize dataset is still computed and returned"
-        );
+        assert_eq!(page.total, 200, "full oversize dataset is still computed and returned");
         assert_eq!(
             v.base_cache_len(),
             0,

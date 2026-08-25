@@ -609,6 +609,13 @@ pub fn cmd_base_run(
     for w in &page.warnings {
         eprintln!("warning: {w}");
     }
+    if columns.len() > format::BASE_TABLE_MAX_COLUMNS {
+        eprintln!(
+            "note: showing first {} of {} columns",
+            format::BASE_TABLE_MAX_COLUMNS,
+            columns.len()
+        );
+    }
     print!("{}", format::format_base_table(path, &view_name, &columns, &page));
     Ok(())
 }

@@ -159,3 +159,30 @@
   font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
   background: none; padding: 0;
 }
+/* --- Query embeds (query views spec §6) — compact inline result block. */
+.ox-query-embed {
+  margin: 0.35rem 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--tag-radius);
+  background: var(--color-surface);
+  padding: 0.35rem 0.5rem;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.ox-query-embed-hdr { font-weight: 600; color: var(--color-text-subtle); }
+.ox-query-embed-rows { display: flex; flex-direction: column; gap: 0.15rem; margin: 0.25rem 0; }
+.ox-query-embed-row {
+  display: flex; gap: 0.75rem; align-items: baseline; width: 100%;
+  text-align: left; background: none; border: 0; padding: 0.1rem 0.2rem;
+  border-radius: var(--tag-radius); cursor: pointer;
+  color: var(--color-text-muted);
+}
+.ox-query-embed-row:hover { background: var(--color-surface-muted); color: var(--color-text); }
+.ox-query-embed-name { flex: 1 1 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text); }
+.ox-query-embed-cell { flex: 0 1 20%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ox-query-embed-open {
+  background: none; border: 0; padding: 0; cursor: pointer; font-size: 10px;
+  color: var(--color-text-subtle); text-decoration: underline;
+}
+.ox-query-embed-open:hover { color: var(--color-text); }
+.ox-query-embed-error .ox-query-embed-hdr { color: var(--color-status-error); }

@@ -246,6 +246,9 @@ pub enum ViewMode {
     List,
     Timeline,
     Graph,
+    /// Spreadsheet-style property table (query views spec §4). Shared by
+    /// folder browse and query collections.
+    Table,
 }
 
 /// A user-configured folder: path, optional locked view, optional color.

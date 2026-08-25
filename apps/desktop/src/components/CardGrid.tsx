@@ -27,6 +27,7 @@ import {
   PanelLeftClose,
   Plus,
   Search,
+  Table2,
   GraduationCap,
 } from "lucide-react";
 
@@ -60,6 +61,7 @@ import {
 import { useI18n } from "../lib/i18n";
 import { applyTheme, type Theme } from "../lib/theme";
 import { listen } from "../lib/tauri";
+import { createQueryCollection, defaultQueryYaml, tagFilterYaml } from "../lib/queryCreation";
 import { todayLocalISO } from "../lib/dates";
 import { useFolderNames, useSchemaInfo, schemaDisplayName } from "../lib/folders";
 import { propKeyLabel, propValueLabel, badgeTone } from "../lib/propDisplay";
@@ -79,6 +81,8 @@ import { ShelfView } from "./views/ShelfView";
 import { GridView, type Cell } from "./views/GridView";
 import { metadataDomainOf } from "../lib/metadataRegion";
 import { ListView } from "./views/ListView";
+import { TableView } from "./views/TableView";
+import { BaseView } from "./BaseView";
 import { TimelineView } from "./views/TimelineView";
 import { GraphView } from "./views/GraphView";
 import { BreadcrumbBar } from "./BreadcrumbBar";
@@ -101,6 +105,8 @@ export function CardGrid() {
   const searchScope = useUI((s) => s.searchScope);
   const setSearchScope = useUI((s) => s.setSearchScope);
   const folderFilter = useUI((s) => s.folderFilter);
+  const location = useUI((s) => s.location);
+  const inBase = location.kind === "base";
   const favoritesOnly = useUI((s) => s.favoritesOnly);
   const sidebarCollapsed = useUI((s) => s.sidebarCollapsed);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
@@ -195,7 +201,7 @@ export function CardGrid() {
         // — show the folder's full subtree so the source chips make sense.
         immediate:
           folderFilter !== null &&
-          (noteView === "grid" || noteView === "list" || noteView === "shelf"),
+          (noteView === "grid" || noteView === "list" || noteView === "shelf" || noteView === "table"),
       }),
     initialPageParam: null as string | null,
     refetchOnWindowFocus: true,
@@ -355,6 +361,18 @@ export function CardGrid() {
     });
   }, [inSearch, includeTags, excludeTags, folderFilter, favoritesOnly, listing.data, searching.data, searchScope, propActive, propQuery.data]);
 
+  // Per-row schema selection (spec §4): a table can cross folders whose
+  // schemas type the same key differently, so editors resolve per row.
+  // Notes-only surface — subfolder navigation stays on breadcrumb/chips.
+  const tableFolders = useMemo(() => [...new Set(items.map((n) => n.folder))], [items]);
+  const tableSchemas = useSchemaInfo(tableFolders);
+  const tablePreset = useMemo(() => {
+    const presets = new Set(
+      tableFolders.map((f) => tableSchemas[f]?.meta?.preset ?? undefined),
+    );
+    return presets.size === 1 ? [...presets][0] : undefined;
+  }, [tableFolders, tableSchemas]);
+
   // Direct-children folder tiles for the current browse level. We rely on
   // browse-by-default semantics (T5): folderFilter !== null ⇒ show this
   // folder's subfolders as content-peek tiles above its notes. In query
@@ -478,6 +496,7 @@ export function CardGrid() {
       qc.invalidateQueries({ queryKey: ["prop-query"] });
       qc.invalidateQueries({ queryKey: ["prop-dist"] });
       qc.invalidateQueries({ queryKey: ["review"] });
+      qc.invalidateQueries({ queryKey: ["base"] }); // Query-view result caches key on index generation (spec §4).
     }).then((u) => {
       un = u;
     });
@@ -1048,6 +1067,19 @@ export function CardGrid() {
       quickCapture: () => {
         void showCaptureWindow().catch((e) => setError(String(e).split("\n")[0]));
       },
+      newQuery: () => {
+        createQueryCollection(t.query_new_default, defaultQueryYaml(t.view_table))
+          .then((path) => {
+            void qc.invalidateQueries({ queryKey: ["bases"] });
+            setView("memos");
+            useUI.getState().openBase({ path });
+          })
+          .catch((e) => setError(String(e).split("\n")[0]));
+      },
+      openQuery: (path: string) => {
+        setView("memos");
+        useUI.getState().openBase({ path });
+      },
       // SettingsMenu mounts only in the memos header — from gallery the
       // drawer would ghost-open with nothing consuming settingsOpen.
       openSettings: () => {
@@ -1141,6 +1173,7 @@ export function CardGrid() {
       {([
         { v: "grid", Icon: LayoutGrid },
         { v: "list", Icon: List },
+        { v: "table", Icon: Table2 },
         { v: "timeline", Icon: Clock },
         { v: "graph", Icon: Network },
       ] as const).map(({ v, Icon }) => (
@@ -1272,9 +1305,26 @@ export function CardGrid() {
           className="flex h-12 items-center gap-3 border-b border-line pr-4"
         >
           {sidebarToggle}
-          <BreadcrumbBar folders={folderEntries} folderDefs={folders} onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />
-          {viewSwitcher}
-          {folderFilter !== null && debounced.length > 0 && (
+          <BreadcrumbBar
+            folders={folderEntries}
+            folderDefs={folders}
+            onMoveNote={onMoveFolder}
+            onMoveFolderTree={moveFolderTree}
+            saveAsQuery={
+              !inBase && (includeTags.length > 0 || excludeTags.length > 0)
+                ? () => {
+                    createQueryCollection(t.query_from_filter, tagFilterYaml(includeTags, excludeTags, matchAll))
+                      .then((path) => {
+                        void qc.invalidateQueries({ queryKey: ["bases"] });
+                        useUI.getState().openBase({ path });
+                      })
+                      .catch((e) => setError(String(e).split("\n")[0]));
+                  }
+                : undefined
+            }
+          />
+          {!inBase && viewSwitcher}
+          {!inBase && folderFilter !== null && debounced.length > 0 && (
             <button
               type="button"
               onClick={() => setSearchScope(searchScope === "folder" ? "all" : "folder")}
@@ -1284,6 +1334,7 @@ export function CardGrid() {
               {searchScope === "folder" ? t.scope_this_folder : t.scope_all} ▾
             </button>
           )}
+          {!inBase && (
           <div className="relative w-56">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-subtle" />
             <TextCtxMenu
@@ -1301,12 +1352,13 @@ export function CardGrid() {
               }
             />
           </div>
+          )}
           {/* Finder-style toolbar affordance (browser feedback): the only
               always-visible folder-create entry in browse mode — the
               context menu stays as the secondary path. Hidden in query
               mode (same rule as the empty-area menu) so "new folder"
               never lands in an ambiguous location. */}
-          {folderFilter !== null && !schema && (
+          {!inBase && folderFilter !== null && !schema && (
             <button
               type="button"
               onClick={startFolderCreate}
@@ -1498,7 +1550,13 @@ export function CardGrid() {
               the trigger covering the whole scrollable surface. */}
           <CtxRoot>
             <CtxTrigger className="min-h-full">
-            {reviewMode && schema?.review && folderFilter !== null ? (
+            {inBase && location.kind === "base" ? (
+              <BaseView
+                source={location.source}
+                scrollerRef={scrollerRef}
+                onSelect={select}
+              />
+            ) : reviewMode && schema?.review && folderFilter !== null ? (
               <ReviewQueue folder={folderFilter} review={schema.review} preset={preset} />
             ) : listing.isError ? (
               <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
@@ -1625,6 +1683,19 @@ export function CardGrid() {
               <ListView {...viewProps} />
             ) : noteView === "timeline" ? (
               <TimelineView {...viewProps} />
+            ) : noteView === "table" ? (
+              <TableView
+                items={items}
+                schemas={tableSchemas}
+                folderOrder={tableFolders}
+                preset={tablePreset}
+                scrollerRef={scrollerRef}
+                onLoadMore={() => {
+                  if (listing.hasNextPage) void listing.fetchNextPage();
+                }}
+                onSelect={select}
+                onToggleFavorite={(m) => onToggleFavorite(m.id, m.favorite)}
+              />
             ) : (
               <GraphView
                 items={items}

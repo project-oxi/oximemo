@@ -26,6 +26,7 @@ import {
   MoreHorizontal,
   Search,
   Star,
+  Plus,
 } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
@@ -45,6 +46,9 @@ export interface BreadcrumbBarProps {
   /** Move a dragged folder subtree into a segment's folder (drop target;
    *  the root segment is how a folder returns to the vault top level). */
   onMoveFolderTree?: (path: string, dest: string) => void;
+  /** 「이 필터를 쿼리로 저장」 (spec §5): present when tag filters are
+   *  active; CardGrid supplies the saver. */
+  saveAsQuery?: () => void;
 }
 
 /** Direct children of `path` ("" = root level). */
@@ -90,7 +94,7 @@ function dropdownFor(
   return out;
 }
 
-export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFolderTree }: BreadcrumbBarProps) {
+export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFolderTree, saveAsQuery }: BreadcrumbBarProps) {
   const { t } = useI18n();
   const folderFilter = useUI((s) => s.folderFilter);
   const setFolderFilter = useUI((s) => s.setFolderFilter);
@@ -222,6 +226,17 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
             <Layers size={13} aria-hidden="true" />
           )}
           {queryLabel}
+          {saveAsQuery && (
+            <button
+              type="button"
+              onClick={saveAsQuery}
+              title={t.query_save_as_collection}
+              className="ml-1 flex items-center gap-1 rounded-[var(--tag-radius)] px-1.5 py-0.5 text-[11px] text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text"
+            >
+              <Plus size={11} aria-hidden />
+              {t.query_save_as_collection}
+            </button>
+          )}
         </span>
       </nav>
     );

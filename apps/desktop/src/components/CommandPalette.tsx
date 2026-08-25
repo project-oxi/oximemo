@@ -38,10 +38,11 @@ import {
   Star,
   Sun,
   Zap,
+  Table2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { folderSchema, getConfig, listFacets, listMemos, searchMemos } from "../lib/api";
+import { folderSchema, getConfig, listBases, listFacets, listMemos, searchMemos } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
 import {
@@ -73,6 +74,7 @@ const ICONS: Record<PaletteIcon, typeof Layers> = {
   hash: Hash,
   grid: LayoutGrid,
   list: List,
+  table: Table2,
   timeline: Clock,
   graph: Network,
   sidebar: PanelLeft,
@@ -176,6 +178,8 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
         .filter((p): p is string => p !== null),
     [folderEntries, schemaQs],
   );
+  // Saved query collections (spec §5 쿼리 열기) — shared ["bases"] cache.
+  const basesQ = useQuery({ queryKey: ["bases"], queryFn: listBases });
   const commands = useMemo(
     () =>
       buildCommands({
@@ -187,9 +191,10 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
         dailyEnabled,
         dailyFolder: configQ.data?.daily?.folder,
         reviewFolders,
+        bases: basesQ.data ?? [],
         callbacks,
       }),
-    [locale, noteView, theme, folders, facets.data, dailyEnabled, configQ.data, reviewFolders, callbacks],
+    [locale, noteView, theme, folders, facets.data, dailyEnabled, configQ.data, reviewFolders, basesQ.data, callbacks],
   );
 
   const q = query.trim();

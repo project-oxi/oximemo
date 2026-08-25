@@ -4254,6 +4254,32 @@ watcher_retry_interval_ms = 200
     }
 
     #[test]
+    fn set_folder_view_table_round_trips() {
+        let (_t, v) = tmp_vault();
+        v.set_folder_view("book", Some(crate::config::ViewMode::Table))
+            .unwrap();
+        let json = v.config_json();
+        let folders = json["folders"].as_array().unwrap();
+        let entry = folders
+            .iter()
+            .find(|f| f["path"] == "book")
+            .expect("folder entry exists");
+        assert_eq!(entry["view"], "table"); // serde lowercase wire form
+        // Round-trip: config reload resolves the same variant.
+        let cfg = v.with_config(|c| c.folders.items.clone());
+        assert_eq!(
+            cfg.first().and_then(|f| f.view),
+            Some(crate::config::ViewMode::Table)
+        );
+        // Unlock drops the pin (same entry-drop semantics as List).
+        v.set_folder_view("book", None).unwrap();
+        assert!(v
+            .with_config(|c| c.folders.items.clone())
+            .iter()
+            .all(|f| f.path != "book"));
+    }
+
+    #[test]
     fn move_note_changes_folder() {
         let (_t, v) = tmp_vault();
         v.create_folder("work").unwrap();

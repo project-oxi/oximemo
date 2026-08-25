@@ -214,7 +214,7 @@ export interface FolderCard {
   recent: FolderRecent[];
 }
 
-export type ViewMode = "grid" | "list" | "timeline" | "graph" | "shelf";
+export type ViewMode = "grid" | "list" | "timeline" | "graph" | "shelf" | "table";
 
 export interface FolderDef {
   path: string;
@@ -355,6 +355,29 @@ export interface BaseInfo {
 export interface LoadBaseDto {
   yaml: string;
   mtimeMs: number;
+}
+
+/** Parsed `.query` def shapes for the frontend surfaces (spec §1).
+ *  Unknown keys are preserved on round-trip by editing raw YAML (code
+ *  mode); these interfaces describe only what the UI reads. */
+export interface BaseViewDef {
+  /** String, not a closed enum — unknown types render an errored tab
+   *  instead of failing the file (spec §1). */
+  type: string;
+  name?: string;
+  filters?: unknown;
+  order?: { property: string; direction?: string }[];
+  columns?: string[];
+  groupBy?: { property: string; direction?: string } | null;
+  summaries?: Record<string, string>;
+  limit?: number | null;
+}
+
+export interface BaseDef {
+  filters?: unknown;
+  formulas?: Record<string, string>;
+  properties?: Record<string, { displayName?: string } & Record<string, unknown>>;
+  views?: BaseViewDef[];
 }
 
 /** Observed property catalog for the filter builder (spec §3). The

@@ -14,8 +14,8 @@
  */
 import { Popover, } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, Check, ChevronDown, ChevronRight, ListChecks, Pencil, Plus, Sparkles, SquareCheck, Tags, TriangleAlert, Type, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Calendar, ChevronRight, ListChecks, Pencil, Plus, Sparkles, SquareCheck, Tags, TriangleAlert, Type, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
   folderSchema,
   getConfig,
@@ -29,7 +29,7 @@ import { effectiveRegion, hasSearchProvider, metadataDomainOf } from "../lib/met
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import { isoToLocalDate, todayLocalISO } from "../lib/dates";
-import { propKeyLabel, propValueLabel } from "../lib/propDisplay";
+import { propKeyLabel } from "../lib/propDisplay";
 import type {
   Config,
   FolderSchema,
@@ -39,6 +39,8 @@ import type {
   Props,
   SchemaPropertyDef,
 } from "../lib/types";
+import { inferredType } from "../lib/tableModel";
+import { PropCellEditor } from "./propEditors";
 
 function members(v: PropValue | undefined): string[] {
   if (!v) return [];
@@ -51,17 +53,6 @@ function toValue(items: string[]): PropValue {
   return items.length === 1 ? { Str: items[0] } : { List: items };
 }
 
-/** Editor type for a schema-less (custom) key, inferred from the stored
- *  envelope: Bool → toggle, List → chips, ISO-date Str → date input.
- *  Keeps the type the user picked at creation time stable across
- *  reloads without inventing a sidecar store. */
-function inferredType(v: PropValue | undefined): "text" | "multiselect" | "date" | "bool" {
-  if (!v) return "text";
-  if ("Bool" in v) return "bool";
-  if ("List" in v) return "multiselect";
-  if ("Str" in v && /^\d{4}-\d{2}-\d{2}$/.test(v.Str)) return "date";
-  return "text";
-}
 
 /** Client-side warning-level validation (§6.2 — never blocks a save). */
 function violationsOf(
@@ -91,223 +82,6 @@ type PropTypeChoice = "text" | "list" | "date" | "bool" | "schema";
 
 // --- Typed value editors ----------------------------------------------------
 
-/** select — borderless current-value button → option popover. */
-function SelectEditor({
-  propKey,
-  value,
-  options,
-  preset,
-  onChange,
-}: {
-  propKey: string;
-  value: string;
-  options: string[];
-  preset?: string;
-  onChange: (next: string | null) => void;
-}) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger
-        render={
-          <button
-            type="button"
-            className={`inline-flex items-center gap-1 rounded-[var(--tag-radius)] px-1 text-left text-[12px] transition-colors duration-150 hover:bg-surface-muted ${
-              value ? "text-text" : "text-text-subtle"
-            }`}
-          >
-            {value ? propValueLabel(propKey, value, t, preset) : "—"}
-            <ChevronDown size={10} aria-hidden className="text-text-subtle" />
-          </button>
-        }
-      />
-      <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-[70]">
-          <Popover.Popup className="max-h-60 min-w-36 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
-            <ul role="listbox">
-              {value && (
-                <li>
-                  <button
-                    type="button"
-                    role="option"
-                    onClick={() => {
-                      onChange(null);
-                      setOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text"
-                  >
-                    <X size={11} aria-hidden className="shrink-0" />
-                    {t.prop_clear}
-                  </button>
-                </li>
-              )}
-              {options.map((o) => {
-                const selected = o === value;
-                return (
-                  <li key={o}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => {
-                        onChange(o);
-                        setOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] transition-colors duration-150 ${
-                        selected
-                          ? "bg-surface-muted font-semibold text-text"
-                          : "text-text-muted hover:bg-surface-muted hover:text-text"
-                      }`}
-                    >
-                      <Check
-                        size={11}
-                        aria-hidden
-                        className={`shrink-0 ${selected ? "text-text" : "text-transparent"}`}
-                      />
-                      {propValueLabel(propKey, o, t, preset)}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
-  );
-}
-
-/** multiselect — chips + inline input with autocomplete of the remaining
- *  options (Obsidian list-property behavior). Enter adds the typed value
- *  (or the highlighted suggestion), Backspace on empty removes the last
- *  chip, chip × removes that member. */
-function ChipsEditor({
-  propKey,
-  values,
-  options,
-  preset,
-  onChange,
-}: {
-  propKey: string;
-  values: string[];
-  options: string[];
-  preset?: string;
-  onChange: (next: string[] | null) => void;
-}) {
-  const { t } = useI18n();
-  const [draft, setDraft] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const remaining = options.filter((o) => !values.includes(o));
-  const matches = useMemo(() => {
-    const q = draft.trim().toLowerCase();
-    const pool = options.length ? remaining : values.concat([]); // free keys: no suggestions
-    return options.length && q
-      ? pool.filter((o) => o.toLowerCase().includes(q))
-      : options.length
-        ? pool
-        : [];
-  }, [draft, options.length, remaining, values]);
-  const top = matches[0];
-
-  const add = (v: string) => {
-    const clean = v.trim();
-    if (!clean || values.includes(clean)) return;
-    onChange([...values, clean]);
-    setDraft("");
-  };
-
-  return (
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-      {values.map((v) => (
-        <span
-          key={v}
-          className="inline-flex items-center gap-0.5 rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-[11px] text-text"
-        >
-          {propValueLabel(propKey, v, t, preset)}
-          <button
-            type="button"
-            aria-label={`${t.prop_remove}: ${v}`}
-            onClick={() => {
-              const next = values.filter((x) => x !== v);
-              onChange(next.length ? next : null);
-            }}
-            className="text-text-subtle transition-colors duration-150 hover:text-text"
-          >
-            <X size={10} />
-          </button>
-        </span>
-      ))}
-      <Popover.Root open={menuOpen && (matches.length > 0 || draft.trim().length > 0)} onOpenChange={setMenuOpen}>
-        <Popover.Trigger
-          render={
-            <input
-              ref={inputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onFocus={() => setMenuOpen(true)}
-              onBlur={() => window.setTimeout(() => setMenuOpen(false), 120)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  add(top && !options.includes(draft.trim()) ? top : draft || top || "");
-                } else if (e.key === "Backspace" && draft === "" && values.length > 0) {
-                  const next = values.slice(0, -1);
-                  onChange(next.length ? next : null);
-                }
-              }}
-              placeholder={t.prop_value_placeholder}
-              className="min-w-14 flex-1 bg-transparent px-0.5 py-0 text-[12px] text-text outline-none placeholder:text-text-subtle/70"
-            />
-          }
-        />
-        {(matches.length > 0 || draft.trim().length > 0) && (
-          <Popover.Portal>
-            <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-[70]">
-              <Popover.Popup className="max-h-48 min-w-32 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
-                <ul role="listbox">
-                  {matches.slice(0, 8).map((o, i) => (
-                    <li key={o}>
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={i === 0}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => add(o)}
-                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] transition-colors duration-150 ${
-                          i === 0
-                            ? "bg-surface-muted font-semibold text-text"
-                            : "text-text-muted hover:bg-surface-muted hover:text-text"
-                        }`}
-                      >
-                        <Check size={11} aria-hidden className={i === 0 ? "shrink-0 text-text" : "shrink-0 text-transparent"} />
-                        {propValueLabel(propKey, o, t, preset)}
-                      </button>
-                    </li>
-                  ))}
-                  {matches.length === 0 && draft.trim() && (
-                    <li>
-                      <button
-                        type="button"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => add(draft)}
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-interactive-primary transition-colors duration-150 hover:bg-surface-muted"
-                      >
-                        <Plus size={11} aria-hidden className="shrink-0" />
-                        {draft.trim()}
-                      </button>
-                    </li>
-                  )}
-                </ul>
-              </Popover.Popup>
-            </Popover.Positioner>
-          </Popover.Portal>
-        )}
-      </Popover.Root>
-    </div>
-  );
-}
 
 function PropertyRow({
   propKey,
@@ -333,74 +107,21 @@ function PropertyRow({
 }) {
   const { t } = useI18n();
   const type = def?.prop_type ?? inferredType(stored);
-  const options = def?.options ?? [];
   const label = propKeyLabel(propKey, t);
   const values = members(stored);
   const [naming, setNaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(propKey);
-  const onCommitBool = (b: boolean) => {
-    // Bool commits bypass the string[] contract via a dedicated setter.
-    onBool?.(b);
-  };
-
-  const valueEditor = () => {
-    if (type === "select") {
-      return (
-        <SelectEditor
-          propKey={propKey}
-          value={values[0] ?? ""}
-          options={options}
-          preset={preset}
-          onChange={(v) => onCommit(v === null ? null : [v])}
-        />
-      );
-    }
-    if (type === "multiselect") {
-      return (
-        <ChipsEditor propKey={propKey} values={values} options={options} preset={preset} onChange={onCommit} />
-      );
-    }
-    if (type === "date") {
-      return (
-        <input
-          type="date"
-          value={values[0] ?? ""}
-          onChange={(e) => onCommit(e.target.value ? [e.target.value] : null)}
-          className="bg-transparent px-1 py-0 text-[12px] text-text outline-none"
-        />
-      );
-    }
-    if (type === "bool") {
-      return (
-        <button
-          type="button"
-          role="switch"
-          aria-checked={stored && "Bool" in stored ? stored.Bool : false}
-          onClick={() => onCommitBool(!(stored && "Bool" in stored ? stored.Bool : false))}
-          className="relative inline-flex h-4 w-7 items-center rounded-full bg-surface-muted transition-colors duration-150 aria-checked:bg-hue-blue/70"
-        >
-          <span
-            aria-hidden
-            className={`inline-block size-3 rounded-full bg-surface-raised shadow-sm transition-transform duration-150 ${
-              stored && "Bool" in stored && stored.Bool ? "translate-x-3.5" : "translate-x-0.5"
-            }`}
-          />
-        </button>
-      );
-    }
-    return (
-      <input
-        value={values[0] ?? ""}
-        list={options.length ? `prop-${propKey}-list` : undefined}
-        placeholder="—"
-        onChange={(e) => {
-          const v = e.target.value;
-          onCommit(v.trim() ? [v] : null);
-        }}
-        className="min-w-0 flex-1 bg-transparent px-1 py-0 text-[12px] text-text outline-none placeholder:text-text-subtle/70"
-      />
-    );
-  };
+  const valueEditor = () => (
+    <PropCellEditor
+      propKey={propKey}
+      def={def}
+      stored={stored}
+      preset={preset}
+      onCommit={onCommit}
+      // Bool commits bypass the string[] contract via a dedicated setter.
+      onBool={(b) => onBool?.(b)}
+    />
+  );
 
   const TypeIcon =
     type === "text"
@@ -491,13 +212,6 @@ function PropertyRow({
         </button>
       ) : (
         <span aria-hidden />
-      )}
-      {options.length > 0 && type === "text" && (
-        <datalist id={`prop-${propKey}-list`}>
-          {options.map((o) => (
-            <option key={o} value={o} />
-          ))}
-        </datalist>
       )}
     </div>
   );
@@ -791,6 +505,9 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
       const n = await updateMemo(memo.id, null, null, mutation);
       qc.setQueryData(["memo", memo.id], n);
       setProps(n.props ?? {});
+      // Query-view result caches key on the index generation; a prop write
+      // bumps it. Forward-compat for run_base queries (spec §4).
+      void qc.invalidateQueries({ queryKey: ["base"] });
       // A property write means the user touched this note: a session
       // draft (fresh daily note, blank capture) must no longer be
       // discarded on close — only body-pristine drafts are (user prompt

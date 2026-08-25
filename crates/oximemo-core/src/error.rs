@@ -60,7 +60,9 @@ pub enum CoreError {
     #[error("uuid error: {0}")]
     Uuid(#[from] uuid::Error),
 
-    #[error("memo not found: {0}")]
+    /// Generic missing-target error shared by memos, folders, and
+    /// `.query` files — the payload names what was sought.
+    #[error("not found: {0}")]
     NotFound(String),
 
     #[error("invalid memo id: {0}")]

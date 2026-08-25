@@ -45,7 +45,7 @@ export function previewText(body: string, maxLen = 200): string {
   const trimmed = body.trim();
   if (!trimmed) return "";
   const html = DOMPurify.sanitize(
-    marked.parse(collapseWikiLinks(trimmed), { async: false }) as string,
+    marked.parse(collapseWikiLinks(collapseQueryBlocks(trimmed)), { async: false }) as string,
     {
       FORBID_TAGS: ["script", "iframe", "object", "embed", "style"],
       FORBID_ATTR: ["onerror", "onclick", "onload", "onmouseover", "onfocus"],
@@ -60,6 +60,11 @@ export function previewText(body: string, maxLen = 200): string {
   const chars = [...text];
   if (chars.length <= maxLen) return text;
   return chars.slice(0, maxLen - 1).join("").trimEnd() + "\u2026";
+}
+
+/** Collapse ```query fenced blocks to a compact placeholder (spec §6). */
+function collapseQueryBlocks(text: string): string {
+  return text.replace(/```query[\s\S]*?```/g, "[쿼리]").replace(/```query[\s\S]*$/g, "[쿼리]");
 }
 
 /** Collapse wiki-link / embed syntax so a preview never shows raw memo
