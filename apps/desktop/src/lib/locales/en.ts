@@ -421,6 +421,7 @@ export const dict: Record<keyof typeof ko, string> = {
   palette_view_timeline: "Timeline view",
   palette_view_graph: "Graph view",
   palette_view_shelf: "Shelf view",
+  palette_view_calendar: "Calendar view",
   palette_sidebar_toggle: "Toggle sidebar",
   palette_quick_capture: "Quick Capture",
   palette_footer_hint: "↑↓ navigate · ⏎ run · esc close",

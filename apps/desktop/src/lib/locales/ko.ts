@@ -419,6 +419,7 @@ export const dict = {
   palette_view_timeline: "타임라인 보기",
   palette_view_graph: "그래프 보기",
   palette_view_shelf: "셸프 보기",
+  palette_view_calendar: "캘린더 보기",
   palette_sidebar_toggle: "사이드바 전환",
   palette_quick_capture: "빠른 캡처",
   palette_footer_hint: "↑↓ 선택 · ⏎ 실행 · esc 닫기",
