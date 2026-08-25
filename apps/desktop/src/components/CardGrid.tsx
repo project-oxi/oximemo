@@ -1216,8 +1216,8 @@ export function CardGrid() {
           label=""
           value={currentQueryCalendarField}
           options={[
-            { value: "created_at", label: "생성일" },
-            { value: "updated_at", label: "수정일" },
+            { value: "created_at", label: t.calendar_field_created },
+            { value: "updated_at", label: t.calendar_field_updated },
             ...(folderFilter !== null && schema?.properties
               ? Object.entries(schema.properties)
                   .filter(([, d]) => d.prop_type === "date")

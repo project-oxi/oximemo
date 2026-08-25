@@ -450,6 +450,12 @@ export const dict = {
   view_label_grid: "그리드",
   view_label_shelf: "셸프",
   view_label_list: "리스트",
+  view_calendar: "캘린더",
+  calendar_field_created: "생성일",
+  calendar_field_updated: "수정일",
+  calendar_today: "오늘로",
+  calendar_more: "+{n}더",
+  calendar_no_date: "날짜 없음 ({n})",
 
   settings_group_collections: "설치된 컬렉션",
   collection_name_knowledge: "지식",
