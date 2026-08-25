@@ -1,53 +1,52 @@
-# redb 3.x upgrade — evaluation and deferral
+# redb 3.x upgrade — evaluation, deferral, then execution
 
-**Verdict:** DEFER.
+**Verdict (superseded 2026-08-26):** EXECUTED. See the addendum.
+
+## Original evaluation (2026-08-26 morning): DEFER
 
 **Scope:** the query-views result cache invalidation goal (Plan B
 review + Plan A ledger) targeted redb 3.x's `ReadOnlyDatabase` so the
-warm-read code path stops bumping the on-disk header per `snapshot_with_gen`
-open. The current crate (redb 2.6.3) lacks it.
+warm-read code path stops bumping the on-disk header per
+`snapshot_with_gen` open. The then-current crate (redb 2.6.3) lacked it.
 
-**Findings (vendored sources, 2026-08-26):**
-- redb 3.1.3 added `Database::open_readonly` (db.rs:1216) and a free
-  `Database::open(path)` returning `ReadOnlyDatabase` (db.rs:414).
-- 3.x requires `FILE_FORMAT_VERSION3` on disk; 2.x wrote `FILE_FORMAT_VERSION2`.
-  redb surfaces a hard "Manual upgrade required" error and aborts the
-  open — confirmed in `redb-3.1.3/src/error.rs:1` and `:247`.
-- No automatic upgrade callback is shipped in 3.1.3. The upstream note
-  (redb-3.1.3/src/db.rs:609) explicitly says "Once https://github.com/cberner/redb/issues/829
-  is fixed, we should upgrade this to use quick-repair". The issue is
-  open as of 2026-08-26.
+**Findings (vendored sources):**
+- redb 3.1.3 added `Database::open_readonly` and a free `Database::open`
+  returning `ReadOnlyDatabase`.
+- 3.x requires `FILE_FORMAT_VERSION3` on disk; 2.x wrote v2 by default.
+  redb 3 surfaces `UpgradeRequired` ("Manual upgrade required") and
+  aborts the open.
+- No automatic upgrade ships *in 3.x* (upstream cberner/redb#829 about
+  quick-repair was open).
 
-**Risk of upgrading now:**
-- Vaults written by the current 2.6.3 binary cannot be opened by a
-  post-upgrade binary without manual migration. Conversely, vaults
-  written by 3.x cannot be opened by an older 2.6.3 binary. Either
-  direction is a silent data-loss cliff for users on the other side of
-  the cut-over.
-- This app ships a desktop client that users download and update on
-  their own schedule. A single on-disk format bump without migration
-  = vault lock-in on whichever binary touched it last.
+## Addendum (2026-08-26): the deferral's premise was wrong
 
-**Mitigation cost (the thing we'd have to build to ship):**
-- A side-by-side migration tool that reads FILE_FORMAT_VERSION2 and
-  emits a FILE_FORMAT_VERSION3 copy (must run before first launch).
-- A guarded upgrade gate that refuses to open a v2 vault without the
-  migration tool, and a guarded downgrade gate that refuses to open a
-  v3 vault on an older binary.
-- Backups and rollback rehearsal — the vault's primary index.
+Re-inspection of the vendored sources found the migration path the
+deferral said didn't exist — not in redb 3, but in **redb 2.6 itself**:
 
-**Why defer is acceptable:** the warm-read concern is real but is
-already bounded. The 64 MiB result cache + per-source fingerprint means
-the same `(source_hash, generation)` key short-circuits within a single
-session; only the very first `snapshot_with_gen` per process pays the
-header-write cost, and redb 2.x's header write is cheap (an mtime
-flush). Benchmarking on a 50k-record vault lands well under 1 ms.
-The optimization benefit (eliminating that flush) does not justify the
-ecosystem risk right now.
+- `redb 2.6.3 Database::upgrade()` (db.rs:455) performs an in-place
+  v2 → v3 format bump using redb's own two-phase-commit machinery.
+  Crash-safe; a re-run after an interrupted upgrade finishes it.
+- redb 2.6.3 fully reads **and writes** v3 files (header accepts ≤ v3,
+  `Builder::create_with_file_format_v3`, `file_format_v3()` branches
+  throughout transactions.rs). The "old binary can't open new vault"
+  cliff only exists for redb < 2.6 — no shipped oximemo used those.
 
-**When to revisit:** after redb 3.x ships quick-repair / automatic
-upgrade (issue cberner/redb#829 closed) AND after we cut a side-by-side
-migration release. Track in `.superpowers/sdd/2026-08-25-query-views-plan-a/progress.md`
-under deferred items.
+So the upgrade is: pin redb 3, keep redb 2.6 linked solely for the
+one-shot hop, and on `DatabaseError::UpgradeRequired(2)` call
+`redb2::Database::open(path)?.upgrade()` then retry. No side-by-side
+copy, no backup dance, no format cliff.
 
-**No code change:** workspace redb pin stays at 2.
+**Landed** (crates/oximemo-core/src/store/index.rs):
+- `RedbIndex::open` catches `redb::DatabaseError::UpgradeRequired` and
+  hops through `redb2` transparently; every oximemo-released vault
+  opens unchanged.
+- Workspace: `redb = "3"` + `redb2 = { package = "redb", version = "2.6" }`
+  (the dual dep is the entire "migration tool").
+- Test `opens_v2_file_by_upgrading_in_place`: seeds a genuine v2 file
+  via redb 2.6, opens through `RedbIndex`, asserts data survival and
+  idempotent re-open.
+
+**Not pursued:** the original warm-read motivation
+(`ReadOnlyDatabase` for snapshot opens). The header-mtime bump is
+bounded (first open per process) and the snapshot cache already keys on
+the post-open stat; revisit only if profiling demands it.

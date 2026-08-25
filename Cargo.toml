@@ -32,7 +32,10 @@ blake3 = "1"
 time = { version = "0.3", features = ["serde", "serde-human-readable", "serde-well-known", "parsing", "formatting", "macros", "local-offset"] }
 
 # Storage
-redb = "2"
+redb = "3"
+# Linked ONLY for the one-shot v2→v3 file-format hop (see store/index.rs);
+# redb 3 hard-rejects v2 files and 2.6.x is the last line that can upgrade them.
+redb2 = { package = "redb", version = "2.6" }
 tantivy = "0.22"
 notify = "7"
 fs2 = "0.4"

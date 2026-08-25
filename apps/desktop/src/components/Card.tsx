@@ -3,7 +3,7 @@
  * full tinted surface, preserving ink-on-paper readability in both themes.
  */
 import { Star } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
@@ -14,6 +14,7 @@ import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
 
 import { relativeTime } from "../lib/time";
 import { renderPreviewMarkdown } from "../lib/markdownPreview";
+import { queryCountVersion, subscribeQueryCounts } from "../lib/queryPreviewCounts";
 import { useUI } from "../stores/ui";
 import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { NoteCtxMenu } from "./NoteCtxMenu";
@@ -44,9 +45,16 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
   const { displayName: displayFolder } = useFolderNames();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const folderColor = colorForFolder(memo.folder, folders);
+  const queryCountVer = useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const previewHtml = useMemo(
-    () => (memo.preview ? renderPreviewMarkdown(memo.preview) : ""),
-    [memo.preview],
+    () =>
+      memo.preview
+        ? renderPreviewMarkdown(memo.preview, 200, {
+            thisId: memo.id,
+            resultsN: t.query_embed_results_n,
+          })
+        : "",
+    [memo.preview, memo.id, t.query_embed_results_n, queryCountVer],
   );
   return (
     <CtxRoot>

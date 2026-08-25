@@ -11,7 +11,8 @@
 //! cursor" is simply `range((Excluded(cursor_key), Unbounded))`. This needs no
 //! reverse iteration and bounds pagination work to the page size.
 
-use redb::{ReadableTable, ReadableTableMetadata};
+use redb::{ReadableDatabase, ReadableTable, ReadableTableMetadata};
+use crate::error::CoreError;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -103,25 +104,35 @@ impl RedbIndex {
     /// commit`, which bumped `meta.redb`'s mtime on every open even
     /// when no user-visible write had happened.
     ///
-    /// Note that redb 2.6.3's `Database::new` (called by both
-    /// `Database::create` and `Database::open`) unconditionally writes
-    /// the file header on every open, so the file's mtime bumps on
-    /// every call regardless. [`crate::vault::Vault::snapshot`] keys
-    /// its cache on the *post-open* stat so the cache stays
+    /// redb's `Database` constructor writes the file header on open, so
+    /// the file's mtime bumps regardless. [`crate::vault::Vault::snapshot`]
+    /// keys its cache on the *post-open* stat so the cache stays
     /// self-consistent across back-to-back reads (see the doc on
     /// `snapshot` for the rationale).
+    ///
+    /// v2 → v3 file format: redb 3 hard-rejects a v2 file
+    /// (`DatabaseError::UpgradeRequired`) and ships no upgrade path of
+    /// its own, so on that error we hop through redb 2.6's
+    /// `Database::upgrade()` — an in-place, two-phase-commit format bump
+    /// that moves no data pages — and retry. Vaults written by redb ≥2.6
+    /// (every oximemo release to date) and v3 vaults both open here;
+    /// older-than-2.6 vaults were never shipped.
     pub fn open(path: &std::path::Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let db = redb::Database::create(path)?;
+        let db = match redb::Database::create(path) {
+            Ok(db) => db,
+            Err(redb::DatabaseError::UpgradeRequired(version)) => {
+                upgrade_file_format(path, version)?;
+                redb::Database::create(path)?
+            }
+            Err(e) => return Err(e.into()),
+        };
         // Probe both tables in a read transaction. If both already
         // exist (the steady state for every open after the first), we
         // skip the legacy `begin_write + open_table + commit` creation
-        // path so we never commit an empty transaction. The Database
-        // constructor itself still writes the header — see the doc note
-        // above — but at least we don't compound the problem with an
-        // extra empty commit.
+        // path so we never commit an empty transaction.
         {
             let tx = db.begin_read()?;
             let has_by_id = tx.open_table(BY_ID).is_ok();
@@ -138,6 +149,18 @@ impl RedbIndex {
         let _ = tx.open_table(BY_SORT)?;
         tx.commit()?;
         Ok(Self { db })
+    }
+
+    fn upgrade_via_redb2(path: &std::path::Path) -> Result<()> {
+        // redb2's error types are distinct from the redb 3 ones CoreError
+        // knows; stringify — this is a one-shot compatibility hop, and
+        // the message carries everything a bug report needs.
+        let mut legacy = redb2::Database::open(path)
+            .map_err(|e| CoreError::Other(format!("redb2 open for upgrade: {e}")))?;
+        legacy
+            .upgrade()
+            .map_err(|e| CoreError::Other(format!("redb2 file-format upgrade: {e}")))?;
+        Ok(())
     }
 
     /// Insert many records in ONE transaction. Bulk fixture helper:
@@ -166,6 +189,19 @@ impl RedbIndex {
         Ok(())
     }
 }
+
+/// Free function so the migration reads at the call site without the
+/// `RedbIndex` receiver (the index doesn't exist yet when it runs).
+fn upgrade_file_format(path: &std::path::Path, from_version: u8) -> Result<()> {
+    if from_version != 2 {
+        // v1 predates any shipped oximemo; anything else is corruption.
+        return Err(CoreError::Other(format!(
+            "unsupported redb file format version {from_version}"
+        )));
+    }
+    RedbIndex::upgrade_via_redb2(path)
+}
+
 
 impl MemoIndex for RedbIndex {
     fn upsert(&self, rec: &IndexRecord) -> Result<()> {
@@ -356,6 +392,37 @@ mod tests {
         assert_eq!(idx.get(id).unwrap().unwrap().id, id);
         idx.remove(id).unwrap();
         assert!(idx.get(id).unwrap().is_none());
+    }
+
+    #[test]
+    fn opens_v2_file_by_upgrading_in_place() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("meta.redb");
+        // Seed a v2-format file the way every oximemo release to date
+        // wrote it: redb 2.6, which defaults new databases to v2.
+        {
+            const BY_ID2: redb2::TableDefinition<&[u8], &[u8]> =
+                redb2::TableDefinition::new("by_id");
+            let db = redb2::Database::create(&path).unwrap();
+            let tx = db.begin_write().unwrap();
+            {
+                let mut t = tx.open_table(BY_ID2).unwrap();
+                t.insert(b"k1".as_slice(), b"v1".as_slice()).unwrap();
+            }
+            tx.commit().unwrap();
+        }
+        // redb 3 alone would hard-reject this file; RedbIndex::open hops
+        // it to v3 transparently and the data survives.
+        let idx = RedbIndex::open(&path).unwrap();
+        let tx = idx.db.begin_read().unwrap();
+        let t = tx.open_table(BY_ID).unwrap();
+        assert_eq!(t.get(b"k1".as_slice()).unwrap().unwrap().value(), b"v1");
+        // Idempotent: a second open finds v3 and skips the hop. The
+        // first handle must be dropped first — redb locks the file.
+        drop(t);
+        drop(tx);
+        drop(idx);
+        let _again = RedbIndex::open(&path).unwrap();
     }
     #[test]
     fn list_is_newest_first_with_pagination() {

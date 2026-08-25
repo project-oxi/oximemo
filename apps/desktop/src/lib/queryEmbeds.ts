@@ -136,10 +136,9 @@ class QueryEmbedWidget extends WidgetType {
       wrap.append(hdr);
       return wrap;
     } else {
-      hdr.textContent =
-        (this.entry?.title ?? "query") +
-        " · " +
-        this.labels.results_n.replace("{n}", String(this.entry?.total ?? 0));
+      // Spec §6: the title lives in the header, the count + open action
+      // share the footer row — 「N개 결과 · 전체 열기」.
+      hdr.textContent = this.entry?.title ?? "query";
     }
     wrap.append(hdr);
 
@@ -167,7 +166,10 @@ class QueryEmbedWidget extends WidgetType {
     const footer = document.createElement("button");
     footer.type = "button";
     footer.className = "ox-query-embed-open";
-    footer.textContent = this.labels.open_full;
+    footer.textContent =
+      this.labels.results_n.replace("{n}", String(this.entry?.total ?? 0)) +
+      " · " +
+      this.labels.open_full;
     footer.addEventListener("click", () => {
       const src = this.source;
       if (src.kind === "marker") {

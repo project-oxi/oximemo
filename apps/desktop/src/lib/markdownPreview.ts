@@ -12,6 +12,7 @@
  *    list/timeline/backlink rows rendered as text nodes.
  */
 import DOMPurify from "dompurify";
+import { queryPreviewCount } from "./queryPreviewCounts";
 import { marked } from "marked";
 
 marked.setOptions({
@@ -21,8 +22,22 @@ marked.setOptions({
   gfm: true,
 });
 
+/** Options for the query-fence count form (spec §6: `[쿼리: N개 결과]`).
+ * `thisId` scopes `this.*` references to the containing note; `resultsN`
+ * is the localized `"{n}개 결과"` template. When omitted (or while the
+ * count is still resolving / failed) fences collapse to the bare
+ * `[쿼리]` placeholder. */
+export interface QueryPreviewOpts {
+  thisId: string | null;
+  resultsN: string;
+}
+
 /** Card preview HTML. First block only; truncated at `maxLen` chars. */
-export function renderPreviewMarkdown(body: string, maxLen = 200): string {
+export function renderPreviewMarkdown(
+  body: string,
+  maxLen = 200,
+  query?: QueryPreviewOpts,
+): string {
   const trimmed = body.trim();
   if (!trimmed) return "";
   // First block: everything up to the first blank line.
@@ -31,21 +46,26 @@ export function renderPreviewMarkdown(body: string, maxLen = 200): string {
     firstBlock.length <= maxLen
       ? firstBlock
       : firstBlock.slice(0, maxLen).trimEnd() + "\u2026";
-  return DOMPurify.sanitize(marked.parse(collapseWikiLinks(raw), { async: false }) as string, {
-    FORBID_TAGS: ["script", "iframe", "object", "embed", "style"],
-    FORBID_ATTR: ["onerror", "onclick", "onload", "onmouseover", "onfocus"],
-  });
+  return DOMPurify.sanitize(
+    marked.parse(collapseWikiLinks(collapseQueryBlocks(raw, query)), { async: false }) as string,
+    {
+      FORBID_TAGS: ["script", "iframe", "object", "embed", "style"],
+      FORBID_ATTR: ["onerror", "onclick", "onload", "onmouseover", "onfocus"],
+    },
+  );
 }
 
-/** Plain-text preview for list/timeline/backlink rows: markdown markers
- *  resolved away (headings, emphasis, code spans, list bullets) while the
- *  line breaks the user typed survive as real "\n" — rendered by the caller
- *  with `whitespace-pre-line`. */
-export function previewText(body: string, maxLen = 200): string {
+export function previewText(
+  body: string,
+  maxLen = 200,
+  query?: QueryPreviewOpts,
+): string {
   const trimmed = body.trim();
   if (!trimmed) return "";
   const html = DOMPurify.sanitize(
-    marked.parse(collapseWikiLinks(collapseQueryBlocks(trimmed)), { async: false }) as string,
+    marked.parse(collapseWikiLinks(collapseQueryBlocks(trimmed, query)), {
+      async: false,
+    }) as string,
     {
       FORBID_TAGS: ["script", "iframe", "object", "embed", "style"],
       FORBID_ATTR: ["onerror", "onclick", "onload", "onmouseover", "onfocus"],
@@ -62,9 +82,20 @@ export function previewText(body: string, maxLen = 200): string {
   return chars.slice(0, maxLen - 1).join("").trimEnd() + "\u2026";
 }
 
-/** Collapse ```query fenced blocks to a compact placeholder (spec §6). */
-function collapseQueryBlocks(text: string): string {
-  return text.replace(/```query[\s\S]*?```/g, "[쿼리]").replace(/```query[\s\S]*$/g, "[쿼리]");
+/** Collapse ```query fenced blocks to a compact placeholder (spec §6).
+ * Closed fences render the count form when `query` opts are supplied
+ * and the count has resolved; unclosed fences (still being typed) and
+ * unresolved/failed counts keep the bare placeholder. */
+const QUERY_FENCE_RE = /```query\s*\n([\s\S]*?)```/g;
+
+function collapseQueryBlocks(text: string, query?: QueryPreviewOpts): string {
+  const collapsed = query
+    ? text.replace(QUERY_FENCE_RE, (_m, yaml: string) => {
+        const n = queryPreviewCount(query.thisId, yaml);
+        return n === null ? "[쿼리]" : `[쿼리: ${query.resultsN.replace("{n}", String(n))}]`;
+      })
+    : text.replace(QUERY_FENCE_RE, "[쿼리]");
+  return collapsed.replace(/```query[\s\S]*$/g, "[쿼리]");
 }
 
 /** Collapse wiki-link / embed syntax so a preview never shows raw memo

@@ -12,7 +12,7 @@
  * M20: every note row is a NoteCtxMenu trigger (same menu as the grid
  * Card) and carries a favorite star like the List view.
  */
-import { useMemo } from "react";
+import {useMemo,useSyncExternalStore} from "react";
 import { Star } from "lucide-react";
 
 import { FolderChipBar } from "../FolderChipBar";
@@ -22,6 +22,7 @@ import { colorForFolder } from "../../lib/color";
 import { relativeTime } from "../../lib/time";
 import { useI18n } from "../../lib/i18n";
 import { previewText } from "../../lib/markdownPreview";
+import { queryCountVersion, subscribeQueryCounts } from "../../lib/queryPreviewCounts";
 import { useUI } from "../../stores/ui";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
@@ -59,6 +60,7 @@ export function TimelineView({
   onNewFolder,
 }: Props) {
   const { t, locale } = useI18n();
+  useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const groups = useMemo(() => {
     const m = new Map<string, MemoSummary[]>();
@@ -135,7 +137,7 @@ export function TimelineView({
                       </span>
                     </div>
                     <div className="mt-1 line-clamp-2 whitespace-pre-line text-xs text-text-subtle">
-                      {previewText(n.preview) || ""}
+                      {previewText(n.preview, 200, { thisId: n.id, resultsN: t.query_embed_results_n }) || ""}
                     </div>
                     {n.tags.length > 0 && (
                       <div className="mt-1.5 flex gap-1">

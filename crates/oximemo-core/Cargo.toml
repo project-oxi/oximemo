@@ -25,6 +25,7 @@ uuid = { workspace = true }
 blake3 = { workspace = true }
 time = { workspace = true }
 redb = { workspace = true }
+redb2 = { workspace = true }
 tantivy = { workspace = true }
 notify = { workspace = true }
 fs2 = { workspace = true }

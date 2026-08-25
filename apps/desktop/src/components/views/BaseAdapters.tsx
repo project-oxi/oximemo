@@ -7,9 +7,11 @@
  * columns/summaries, and offer no cell editing.
  */
 import { Card } from "../Card";
+import { useSyncExternalStore } from "react";
 import { useI18n } from "../../lib/i18n";
 import { useFolderNames } from "../../lib/folders";
 import { previewText } from "../../lib/markdownPreview";
+import { queryCountVersion, subscribeQueryCounts } from "../../lib/queryPreviewCounts";
 import { relativeTime } from "../../lib/time";
 import type { BaseRow, FolderDef, FolderEntry } from "../../lib/types";
 
@@ -49,6 +51,7 @@ export function BaseListAdapter({
   onSelect: (id: string) => void;
 }) {
   const { t, locale } = useI18n();
+  useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const { displayName } = useFolderNames();
   return (
     <div className="flex flex-col">
@@ -63,7 +66,7 @@ export function BaseListAdapter({
           >
             <span className="min-w-0 flex-1 truncate text-[13px] text-text">{title}</span>
             <span className="w-40 shrink-0 truncate text-[11px] text-text-subtle">
-              {previewText(r.summary.preview, 90)}
+              {previewText(r.summary.preview, 90, { thisId: r.summary.id, resultsN: t.query_embed_results_n })}
             </span>
             <span className="w-24 shrink-0 truncate text-right text-[11px] text-text-subtle">
               {displayName(r.summary.folder) || t.vault_root}

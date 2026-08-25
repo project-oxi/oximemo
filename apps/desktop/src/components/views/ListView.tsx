@@ -12,6 +12,7 @@
  * (open / rename / pin / armed delete + inline rename input).
  */
 import { Folder, Star } from "lucide-react";
+import { useSyncExternalStore } from "react";
 
 import { colorForFolder } from "../../lib/color";
 import { useI18n } from "../../lib/i18n";
@@ -20,6 +21,7 @@ import { useFolderDrop } from "../../lib/dropTarget";
 import { relativeTime } from "../../lib/time";
 import { useUI } from "../../stores/ui";
 import { previewText } from "../../lib/markdownPreview";
+import { queryCountVersion, subscribeQueryCounts } from "../../lib/queryPreviewCounts";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
 import { CtxRoot, CtxTrigger } from "../ContextMenu";
@@ -66,6 +68,7 @@ export function ListView({
   onNameCommit,
 }: Props) {
   const { t, locale } = useI18n();
+  useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   return (
     <ul className="divide-y divide-line">
@@ -134,7 +137,7 @@ export function ListView({
                   )}
                 </div>
                 <div className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs text-text-subtle">
-                  {previewText(n.preview) || ""}
+                  {previewText(n.preview, 200, { thisId: n.id, resultsN: t.query_embed_results_n }) || ""}
                 </div>
               </div>
               <div className="flex shrink-0 items-baseline gap-2 text-[11px] text-text-subtle">

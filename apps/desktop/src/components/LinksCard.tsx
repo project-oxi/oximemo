@@ -4,9 +4,11 @@
  * Renders inside a Popover.Popup, sized per the spec: 320px wide, 360px max height.
  */
 import { FileText, Link2 } from "lucide-react";
+import { useSyncExternalStore } from "react";
 
 import { useI18n } from "../lib/i18n";
 import { previewText } from "../lib/markdownPreview";
+import { queryCountVersion, subscribeQueryCounts } from "../lib/queryPreviewCounts";
 import type { BacklinkInfo } from "../lib/types";
 
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
@@ -19,6 +21,7 @@ export interface LinksCardProps {
 
 export function LinksCard({ backlinks, isLoading, onNavigate }: LinksCardProps) {
   const { t } = useI18n();
+  useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
 
   return (
     <div className="flex max-h-[360px] w-80 flex-col overflow-hidden">
@@ -46,7 +49,7 @@ export function LinksCard({ backlinks, isLoading, onNavigate }: LinksCardProps) 
                   >
                     <span className="block truncate font-medium text-text">{bl.title}</span>
                     <span className="mt-0.5 line-clamp-2 whitespace-pre-line text-text-subtle">
-                      {previewText(bl.preview) || ""}
+                      {previewText(bl.preview, 200, { thisId: bl.id, resultsN: t.query_embed_results_n }) || ""}
                     </span>
                     <CtxMenu>
                       <CtxItem
