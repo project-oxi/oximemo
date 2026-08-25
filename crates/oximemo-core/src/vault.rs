@@ -1679,6 +1679,7 @@ impl Vault {
                         path: path.to_string(),
                         view: Some(v),
                         color: None,
+                        calendar_date_field: None,
                         pinned: None,
                     });
                 }
@@ -1708,6 +1709,7 @@ impl Vault {
                     path: path.to_string(),
                     view: None,
                     color: None,
+                    calendar_date_field: None,
                     pinned: Some(true),
                 });
             }
@@ -3710,6 +3712,25 @@ watcher_retry_interval_ms = 200
         assert_eq!(novel["view"], "list");
 
         // Unlock: view removed.
+        v.set_folder_view("novel", None).unwrap();
+        let json2 = v.config_json();
+        let folders2 = json2["folders"].as_array().unwrap();
+        assert!(folders2.iter().all(|f| f["path"] != "novel"));
+    }
+
+    #[test]
+    fn set_folder_view_persists_calendar() {
+        let (_t, v) = tmp_vault();
+        v.set_folder_view("novel", Some(crate::config::ViewMode::Calendar))
+            .unwrap();
+        let json = v.config_json();
+        let folders = json["folders"].as_array().unwrap();
+        let entry = folders.iter().find(|f| f["path"] == "novel").unwrap();
+        assert_eq!(
+            entry["view"], "calendar",
+            "Calendar view must persist as 'calendar' in JSON"
+        );
+
         v.set_folder_view("novel", None).unwrap();
         let json2 = v.config_json();
         let folders2 = json2["folders"].as_array().unwrap();
