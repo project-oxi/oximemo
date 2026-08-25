@@ -758,6 +758,21 @@ mod commands {
         Ok(state.vault.note_dto(&memo))
     }
 
+    /// Quick-capture entry — writes into the Inbox (`idea` preset)
+    /// folder with root fallback. Identical shape to `create_memo`
+    /// but with no `folder`/`format` params: the backend resolves
+    /// the destination.
+    #[tauri::command]
+    pub fn create_capture(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        body: String,
+    ) -> Result<oximemo_core::memo::NoteDto, String> {
+        let memo = state.vault.create_capture(body).map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(state.vault.note_dto(&memo))
+    }
+
     /// Payload of `open_daily_note`: the note plus whether THIS call
     /// minted it. The frontend discards a freshly created daily note on
     /// close-untouched; adopted/visited notes must never be.
