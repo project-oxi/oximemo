@@ -8,11 +8,10 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { createMemo, listFolders } from "../lib/api";
+import { createCapture } from "../lib/api";
 import { listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import { closeCurrentWindow, showCurrentWindow } from "../lib/window";
-import type { FolderEntry } from "../lib/types";
 import { useUI } from "../stores/ui";
 import { QuickCaptureForm } from "./QuickCaptureForm";
 import { ErrorToast } from "./ErrorBoundary";
@@ -20,22 +19,13 @@ import { ErrorToast } from "./ErrorBoundary";
 export function CaptureOverlay() {
   const { t } = useI18n();
   const [value, setValue] = useState("");
-  const [folder, setFolder] = useState("");
-  const [folders, setFolders] = useState<FolderEntry[]>([]);
   const ref = useRef<HTMLTextAreaElement>(null);
   const setError = useUI((s) => s.setError);
   const savingRef = useRef(false);
 
   useEffect(() => {
-    void listFolders()
-      .then(setFolders)
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
     void listen("capture:show", () => {
       setValue("");
-      setFolder("");
       // Focus the textarea after the window is brought forward.
       window.setTimeout(() => ref.current?.focus(), 30);
     });
@@ -57,7 +47,7 @@ export function CaptureOverlay() {
     savingRef.current = true;
     try {
       await closeCurrentWindow();
-      await createMemo(body, folder || null);
+      await createCapture(body);
     } catch (e) {
       setError(String(e).split("\n")[0]);
       await showCurrentWindow();
@@ -76,9 +66,6 @@ export function CaptureOverlay() {
           placeholder: t.capture_placeholder,
           onKeyDown: onKey,
         }}
-        folder={folder}
-        onFolderChange={setFolder}
-        folders={folders}
         hint={`↵ ${t.capture_save} · esc ${t.close}`}
       />
       <ErrorToast />

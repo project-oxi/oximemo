@@ -70,6 +70,11 @@ export async function createMemo(
   return invoke<Memo>("create_memo", { body, folder, format: format ?? null });
 }
 
+/** Quick-capture: writes to the Inbox (`idea` preset) folder.
+ *  Backend resolves the destination — no `folder`/`format` args. */
+export async function createCapture(body: string): Promise<Memo> {
+  return invoke<Memo>("create_capture", { body });
+}
 /** Open (create if missing) the daily note for an ISO date (YYYY-MM-DD).
  *  `created` is true only when this call minted the note. */
 export async function openDailyNote(date: string) {
