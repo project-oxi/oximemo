@@ -20,14 +20,6 @@ import type { FolderDef, MemoSummary } from "../../lib/types";
 
 const MAX_VISIBLE_PER_DAY = 3;
 
-// i18n placeholder strategy: `t.calendar_more`, `t.calendar_no_date`, and
-// `t.calendar_today` are added in Task 6. Until then, fall back to inline
-// strings so the component still renders and tsc stays clean (the locale
-// dict is `Record<string, string>` — no functions on `t`).
-const calendarMore = (n: number) => `+${n}더`;
-const calendarNoDate = (n: number) => `날짜 없음 (${n})`;
-const calendarToday = "오늘로";
-
 interface Props {
   memos: MemoSummary[];
   dateField: string;
@@ -70,8 +62,12 @@ export function CalendarView({
   dailyEnabled,
   onOpenDailyNote,
 }: Props) {
-  const { locale: i18nLocale } = useI18n();
+  const { t, locale: i18nLocale } = useI18n();
   const effectiveLocale = locale || i18nLocale || "ko";
+  const todayLabel = t.calendar_today;
+  const moreLabel = (n: number) => t.calendar_more.replace("{n}", String(n));
+  const noDateLabel = (n: number) => t.calendar_no_date.replace("{n}", String(n));
+
   const [ty, tm] = today.split("-").map(Number);
   const todayMonth = { year: ty, month: tm };
   const [viewed, setViewed] = useState(todayMonth);
@@ -125,7 +121,7 @@ export function CalendarView({
         {!atToday && (
           <button type="button" onClick={handleJumpToday}
             className="text-xs text-text-subtle hover:text-text">
-            {calendarToday}
+            {todayLabel}
           </button>
         )}
       </header>
@@ -176,7 +172,7 @@ export function CalendarView({
                   memos={day.slice(MAX_VISIBLE_PER_DAY)}
                   folders={folders}
                   onSelect={onSelect}
-                  label={calendarMore(overflow)}
+                  label={moreLabel(overflow)}
                 />
               )}
             </div>
@@ -189,7 +185,7 @@ export function CalendarView({
           memos={noDate}
           folders={folders}
           onSelect={onSelect}
-          label={calendarNoDate(noDate.length)}
+          label={noDateLabel(noDate.length)}
         />
       )}
     </div>
