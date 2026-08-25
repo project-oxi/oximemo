@@ -133,6 +133,14 @@ impl Paths {
         self.index_dir.join("index-fmt")
     }
 
+    /// Marker file recording whether the one-time Inbox (`idea` preset)
+    /// seed has run. Idempotent across migrations; absent = seed on next
+    /// `ensure_default_folders()`. Lives under the index dir (not the
+    /// vault) so a synced/cloud vault never carries the marker.
+    pub fn inbox_seed_marker_path(&self) -> PathBuf {
+        self.index_dir.join("inbox-seed")
+    }
+
     pub fn search_dir(&self) -> PathBuf {
         self.index_dir.join(SEARCH_SUBDIR)
     }

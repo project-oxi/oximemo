@@ -873,6 +873,19 @@ impl Vault {
             };
         self.create_note(folder, body, fmt)
     }
+    /// Quick-capture entry: write into the Inbox (`idea` preset)
+    /// folder, falling back to vault root when the inbox is absent
+    /// (e.g. user deleted it, older vault). Marked by `preset` schema
+    /// marker so a renamed inbox still resolves.
+    pub fn create_capture(&self, body: String) -> Result<Memo> {
+        let folder = self
+            .folder_inventory()?
+            .into_iter()
+            .find(|f| f.preset.as_deref() == Some("idea"))
+            .map(|f| f.path)
+            .unwrap_or_default();
+        self.create_note_auto(&folder, body)
+    }
     /// Open (or create) the daily note for `date` (`YYYY-MM-DD`),
     /// daily-notes spec 2026-08-21 §2. Idempotent: an existing note at
     /// `{daily.folder}/{date}.md|html` is returned as-is, so manual
@@ -2111,6 +2124,31 @@ impl Vault {
                 crate::schema::DAILY_TEMPLATE_MD,
                 crate::schema::DAILY_SCHEMA_TOML,
             )?;
+        }
+        // One-shot Inbox seed (idea preset). Differs from the
+        // knowledge/daily above: install-type collections are user-ownable
+        // per the collections metadata/settings design §2.6, so once a
+        // user deletes the inbox we must NOT resurrect it on every
+        // migrate(). The marker + inventory check guards both the
+        // first-ever seed and the "user installed idea elsewhere"
+        // retroactively-applied case.
+        let marker = self.paths.inbox_seed_marker_path();
+        if !marker.exists() {
+            let already_has_idea = self
+                .folder_inventory()?
+                .iter()
+                .any(|f| f.preset.as_deref() == Some("idea"));
+            if !already_has_idea {
+                self.apply_preset(
+                    crate::schema::DEFAULT_INBOX_FOLDER,
+                    crate::schema::IDEA_TEMPLATE_MD,
+                    crate::schema::IDEA_SCHEMA_TOML,
+                )?;
+            }
+            if let Some(parent) = marker.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&marker, b"1")?;
         }
         Ok(())
     }
@@ -5018,5 +5056,77 @@ watcher_retry_interval_ms = 200
             });
         });
         assert_eq!(rec.calls.lock().len(), 1);
+    }
+
+    // -- create_capture + inbox seed (spec 2026-08-25 §2.1) --------
+
+    #[test]
+    fn create_capture_targets_idea_preset_folder() {
+        let (_t, v) = tmp_vault();
+        // First-vault open installs daily+knowledge+inbox (one-shot seed).
+        v.migrate().unwrap();
+        // H1 → deterministic slug filename; untitled bodies fall back
+        // to a timestamp per `create_note`'s `derive_filename_from_body`.
+        let n = v.create_capture("# quick thought".into()).unwrap();
+        assert_eq!(v.note_dto(&n).path, "inbox/quick-thought.md");
+    }
+
+    #[test]
+    fn create_capture_targets_idea_preset_renamed_path() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        // Move inbox via the existing rename_folder path so the marker
+        // resolves the new path.
+        v.rename_folder("inbox", "scratch").unwrap();
+        let n = v.create_capture("x".into()).unwrap();
+        let path = v.note_dto(&n).path;
+        assert!(path.starts_with("scratch/"), "got {path}");
+    }
+
+    #[test]
+    fn create_capture_falls_back_to_root_when_inbox_missing() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        // Delete inbox folder; verify capture still works (root fallback).
+        // Actual signature is `delete_folder(path) -> Result<Vec<MemoId>>`.
+        v.delete_folder("inbox").unwrap();
+        let n = v.create_capture("y".into()).unwrap();
+        assert_eq!(v.note_dto(&n).folder, "");
+    }
+
+    #[test]
+    fn inbox_seed_runs_once_and_not_recreated_after_delete() {
+        let (t, v) = tmp_vault();
+        v.migrate().unwrap();
+        assert!(v.paths().vault.join("inbox").join("SCHEMA.toml").exists());
+        v.delete_folder("inbox").unwrap();
+        // Re-run migrate — seed must NOT resurrect the deleted folder.
+        v.migrate().unwrap();
+        assert!(!v.paths().vault.join("inbox").join("SCHEMA.toml").exists());
+        drop(t);
+    }
+
+    #[test]
+    fn inbox_seed_skips_when_existing_idea_folder_already_present() {
+        let (_t, v) = tmp_vault();
+        // User pre-installed an ideas folder at a non-default path BEFORE
+        // migrate. The marker check must honor this: migrate must NOT
+        // install the default "inbox" folder on top.
+        v.install_collection("idea", "user-thoughts").unwrap();
+        v.migrate().unwrap();
+        let by_preset: std::collections::HashMap<String, String> = v
+            .folder_inventory()
+            .unwrap()
+            .into_iter()
+            .filter_map(|f| f.preset.map(|p| (p, f.path)))
+            .collect();
+        assert_eq!(
+            by_preset.get("idea").map(String::as_str),
+            Some("user-thoughts")
+        );
+        assert!(
+            !v.folder_inventory().unwrap().iter().any(|f| f.path == "inbox"),
+            "default inbox must not be installed alongside the user's idea folder"
+        );
     }
 }

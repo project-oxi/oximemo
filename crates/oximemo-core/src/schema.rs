@@ -101,7 +101,12 @@ pub struct PropertyDef {
 /// The physical name stays stable for grep/CLI parity; the UI displays a
 /// localized name (macOS `~/Desktop` → "데스크톱" convention).
 pub const DEFAULT_KNOWLEDGE_FOLDER: &str = "knowledge";
-
+/// Default Inbox folder's vault-relative path — the quick-capture
+/// destination (the `idea` preset). Installed on first `migrate()`
+/// (one-shot seed gated by [`crate::path::Paths::inbox_seed_marker_path`],
+/// design 2026-08-25); never recreated after the user deletes it
+/// (install-type collection contract, §2.6 of the collections design).
+pub const DEFAULT_INBOX_FOLDER: &str = "inbox";
 
 /// When a transition rule fires.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -720,7 +725,7 @@ pub const IDEA_SCHEMA_TOML: &str = r#"[meta]
 preset = "idea"
 
 [workspace]
-name = "아이디어"
+name = "인박스"
 
 [properties.kind]
 type = "select"
