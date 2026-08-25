@@ -7,6 +7,9 @@
 import { invoke } from "./tauri";
 import type {
   BacklinkInfo,
+  BaseInfo,
+  BasePage,
+  BaseSource,
   BrainLayer,
   BrainStatus,
   Config,
@@ -16,6 +19,7 @@ import type {
   FolderEntry,
   FolderSchema,
   GraphData,
+  LoadBaseDto,
   Memo,
   MemoSummary,
   MemoStats,
@@ -23,8 +27,10 @@ import type {
   DoctorReport,
   Facets,
   NoteQueryInput,
+  PropInfo,
   PropMutation,
   QueryPage,
+  RunBaseReq,
   ViewMode,
 } from "./types";
 
@@ -515,4 +521,62 @@ export function folderSchema(folder: string): Promise<FolderSchema | null> {
  *  applyKnowledgePreset IPC (spec 2026-08-23 §2). */
 export function installCollection(presetId: string, folder: string): Promise<void> {
   return invoke<void>("install_collection", { presetId, folder });
+}
+
+// --- Query views (design 2026-08-25) ----------------------------------------
+// Thin `invoke` wrappers over the base commands (queryNotes pattern).
+// Desktop-only: the tauri.ts browser fallback throws for every one of
+// these — there is deliberately no second query engine (spec §Decision).
+
+export function runBase(source: BaseSource, req: RunBaseReq): Promise<BasePage> {
+  return invoke<BasePage>("run_base", { source, req });
+}
+
+export function listBases(): Promise<BaseInfo[]> {
+  return invoke<BaseInfo[]>("list_bases");
+}
+
+export function loadBase(path: string): Promise<LoadBaseDto> {
+  return invoke<LoadBaseDto>("load_base", { path });
+}
+
+/** Save raw YAML; `expectedMtimeMs` guards against external edits (a
+ * mismatch is a reload conflict). Returns the fresh mtime for the next
+ * save. */
+export function saveBase(
+  path: string,
+  yaml: string,
+  expectedMtimeMs?: number,
+): Promise<LoadBaseDto> {
+  return invoke<LoadBaseDto>("save_base", {
+    path,
+    yaml,
+    expectedMtimeMs: expectedMtimeMs ?? null,
+  });
+}
+
+export function renameBase(
+  from: string,
+  to: string,
+  expectedMtimeMs?: number,
+): Promise<void> {
+  return invoke<void>("rename_base", {
+    from,
+    to,
+    expectedMtimeMs: expectedMtimeMs ?? null,
+  });
+}
+
+/** Moves the `.query` into `.trash/_queries/`; resolves the restore token. */
+export function trashBase(path: string): Promise<string> {
+  return invoke<string>("trash_base", { path });
+}
+
+/** Resolves the restored vault-relative path. */
+export function restoreBase(token: string): Promise<string> {
+  return invoke<string>("restore_base", { token });
+}
+
+export function baseProps(): Promise<PropInfo[]> {
+  return invoke<PropInfo[]>("base_props");
 }

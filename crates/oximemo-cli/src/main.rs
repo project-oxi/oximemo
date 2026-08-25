@@ -214,6 +214,13 @@ enum Cmd {
     /// Stamp a metadata hit (MetaHit JSON on stdin) onto a note —
     /// fills only schema-declared, still-empty fields.
     Stamp { id: String },
+
+    /// Query-view bases (`.query` files): list, run, rename, trash,
+    /// restore.
+    Base {
+        #[command(subcommand)]
+        sub: BaseCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -249,6 +256,37 @@ enum CollectionCmd {
         /// Target folder path.
         folder: String,
     },
+}
+
+#[derive(Subcommand)]
+enum BaseCmd {
+    /// List the vault's `.query` bases. Unloadable files are listed
+    /// too, with a ⚠ marker.
+    List {
+        /// table | json | ndjson
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
+    /// Run one page of a `.query` view and print the table.
+    Run {
+        /// Vault-relative `.query` path (e.g. `queries/all.query`).
+        path: String,
+        /// View index within the file (0-based).
+        #[arg(long)]
+        view: Option<usize>,
+        /// Page size.
+        #[arg(long, default_value_t = 30)]
+        limit: u32,
+        /// Page offset.
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+    },
+    /// Rename/move a `.query` file (destination must not exist).
+    Rename { from: String, to: String },
+    /// Move a `.query` file to trash; prints the restore token.
+    Trash { path: String },
+    /// Restore a trashed `.query` file by its token.
+    Restore { token: String },
 }
 
 fn main() -> ExitCode {
@@ -423,6 +461,22 @@ fn run() -> Result<()> {
             }
             Ok(())
         }
+        Cmd::Base { sub } => match sub {
+            BaseCmd::List { format } => {
+                let fmt = format::Format::from_arg(&format)
+                    .ok_or_else(|| anyhow!("unknown --format: {format}"))?;
+                commands::cmd_base_list(&vault, fmt)
+            }
+            BaseCmd::Run {
+                path,
+                view,
+                limit,
+                offset,
+            } => commands::cmd_base_run(&vault, &path, view, limit, offset),
+            BaseCmd::Rename { from, to } => commands::cmd_base_rename(&vault, &from, &to),
+            BaseCmd::Trash { path } => commands::cmd_base_trash(&vault, &path),
+            BaseCmd::Restore { token } => commands::cmd_base_restore(&vault, &token),
+        },
         // Handled before the vault is opened (see above).
         Cmd::Upgrade { .. } => unreachable!(),
     }

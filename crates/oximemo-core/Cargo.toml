@@ -34,11 +34,12 @@ unicode-normalization = "0.1"
 regex = "1"
 parking_lot = "0.12"
 oxi-frontmatter = { version = "0.1", path = "../oxi-frontmatter" }
+oxibrain-client = { workspace = true }
 serde_yaml_ng = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 tokio = { version = "1", features = ["rt"] }
 
+[dev-dependencies]
 tempfile = "3"
 proptest = "1"
-tempfile = "3"

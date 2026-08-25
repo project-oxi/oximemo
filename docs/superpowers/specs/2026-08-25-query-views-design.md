@@ -279,9 +279,12 @@ uses its first member; missing/error values enter 그룹 없음.
   cached result key, so per-group pages cannot exceed the view limit.
 - Tauri commands: `run_base`, `list_bases`, `load_base`, `save_base`,
   `rename_base`, `trash_base`, `restore_base`, `base_props`.
-  `base_props` returns `{ key, observed_types, options }`; a key with
-  conflicting observed/schema types offers only equality/contains in
-  the builder until the user switches to an advanced expression.
+  `base_props` returns `{ key, observed_types, options }` on the wire —
+  the core field is named `kinds` and the Tauri DTO maps it to
+  `observedTypes` (camelCase per the wire conventions in this section);
+  a key with conflicting observed/schema types offers only
+  equality/contains in the builder until the user switches to an
+  advanced expression.
 - Watcher: `is_user_content` (`watcher.rs:102-111`) currently accepts only
   `md|html|markdown|htm` + `oximemo.toml`, so `.query` must be added.
   Query changes emit `bases:changed`, clear path-matching result keys,
@@ -560,6 +563,11 @@ changed:
   prevent O(notes × formulas) recomputation on every offset page.
 - Made result keys include query content, generation, clock, view, and
   aggregate flags so edited `.query` files/`now()` cannot reuse stale data.
+  (Plan A implementation added `this_id` to result keys — two embeds of
+  the same `.query` in one session differ only by embed scope, so without
+  it the widget cache serves one note's cells to the other; and result
+  keys hash full-precision generation mtime so same-second writes cannot
+  alias.)
 - Made cell errors representable in the DTO (`BaseCell`), and made board
   group paging representable in `run_base(group?)`.
 - Separated browse location from the existing folder-scoped search

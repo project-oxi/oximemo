@@ -100,14 +100,45 @@ fn debounce_loop(rx: mpsc::Receiver<PathBuf>, debounce: Duration, on_change: OnC
 }
 
 /// Truth-half file extensions under version control: markdown notes
-/// (`.md`), HTML notes (`.html`), and the vault config (`.toml`). Asset
-/// files under `_assets/` are excluded by the watcher's root scope, so
-/// arbitrary binary commits never land.
+/// (`.md`), HTML notes (`.html`), the vault config (`.toml`), and saved
+/// query definitions (`.query`, query views spec §3). `.query` edits are
+/// not note content — the app's watcher callback routes them to
+/// `bases:changed` instead of reindexing. Asset files under `_assets/`
+/// are excluded by the watcher's root scope, so arbitrary binary commits
+/// never land.
 fn is_user_content(p: &Path) -> bool {
     matches!(
         p.extension().and_then(|e| e.to_str()),
-        Some("md" | "html" | "markdown" | "htm")
+        Some("md" | "html" | "markdown" | "htm" | "query")
     ) || p
         .file_name()
         .is_some_and(|n| n == "oximemo.toml")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_user_content;
+    use std::path::Path;
+
+    #[test]
+    fn query_files_are_user_content() {
+        assert!(is_user_content(Path::new("queries/독서.query")));
+        assert!(is_user_content(Path::new("x.query")));
+    }
+
+    #[test]
+    fn query_like_extensions_are_not() {
+        assert!(!is_user_content(Path::new("x.queryx")));
+        assert!(!is_user_content(Path::new("x.queries")));
+        assert!(!is_user_content(Path::new("query"))); // no extension
+    }
+
+    #[test]
+    fn existing_content_rules_unchanged() {
+        assert!(is_user_content(Path::new("a/b.md")));
+        assert!(is_user_content(Path::new("a.htm")));
+        assert!(is_user_content(Path::new("oximemo.toml")));
+        assert!(!is_user_content(Path::new("a.txt")));
+        assert!(!is_user_content(Path::new("a.toml"))); // only the vault config name
+    }
 }

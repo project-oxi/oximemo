@@ -96,18 +96,74 @@ pub struct RedbIndex {
 impl RedbIndex {
     /// Open (creating) the index database. Caller is responsible for the
     /// cross-process advisory lock (§5.7) around open + use.
+    ///
+    /// Read-first: when both `by_id` and `by_sort` already exist, we
+    /// return immediately without committing any transaction. The
+    /// previous implementation always ran `begin_write + open_table +
+    /// commit`, which bumped `meta.redb`'s mtime on every open even
+    /// when no user-visible write had happened.
+    ///
+    /// Note that redb 2.6.3's `Database::new` (called by both
+    /// `Database::create` and `Database::open`) unconditionally writes
+    /// the file header on every open, so the file's mtime bumps on
+    /// every call regardless. [`crate::vault::Vault::snapshot`] keys
+    /// its cache on the *post-open* stat so the cache stays
+    /// self-consistent across back-to-back reads (see the doc on
+    /// `snapshot` for the rationale).
     pub fn open(path: &std::path::Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let db = redb::Database::create(path)?;
-        let tx = db.begin_write()?;
+        // Probe both tables in a read transaction. If both already
+        // exist (the steady state for every open after the first), we
+        // skip the legacy `begin_write + open_table + commit` creation
+        // path so we never commit an empty transaction. The Database
+        // constructor itself still writes the header — see the doc note
+        // above — but at least we don't compound the problem with an
+        // extra empty commit.
         {
-            let _ = tx.open_table(BY_ID)?;
-            let _ = tx.open_table(BY_SORT)?;
+            let tx = db.begin_read()?;
+            let has_by_id = tx.open_table(BY_ID).is_ok();
+            let has_by_sort = tx.open_table(BY_SORT).is_ok();
+            if has_by_id && has_by_sort {
+                return Ok(Self { db });
+            }
         }
+        // Fresh DB or a partial schema from an interrupted first-open:
+        // run the one-time creation transaction so both tables exist
+        // before subsequent code paths assume they do.
+        let tx = db.begin_write()?;
+        let _ = tx.open_table(BY_ID)?;
+        let _ = tx.open_table(BY_SORT)?;
         tx.commit()?;
         Ok(Self { db })
+    }
+
+    /// Insert many records in ONE transaction. Bulk fixture helper:
+    /// [`MemoIndex::upsert`] commits per record, which makes seeding
+    /// tens of thousands of test records quadratic in fsyncs.
+    pub fn upsert_bulk(&self, recs: &[IndexRecord]) -> Result<()> {
+        let tx = self.db.begin_write()?;
+        {
+            let mut by_id = tx.open_table(BY_ID)?;
+            let mut by_sort = tx.open_table(BY_SORT)?;
+            for rec in recs {
+                let uuid = rec.id.as_uuid();
+                let id_slice: &[u8] = uuid.as_bytes();
+                let sort_key = encode_sort(rec.updated_at, rec.id);
+                let value = serde_json::to_vec(rec)?;
+                if let Some(prev) = by_id.get(id_slice)? {
+                    let prev_rec: IndexRecord = serde_json::from_slice(prev.value())?;
+                    let prev_key = encode_sort(prev_rec.updated_at, prev_rec.id);
+                    by_sort.remove(&prev_key[..])?;
+                }
+                by_id.insert(id_slice, value.as_slice())?;
+                by_sort.insert(sort_key.as_slice(), id_slice)?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 }
 

@@ -267,3 +267,101 @@ export interface BacklinkInfo {
   title: string;
   preview: string;
 }
+
+// --- Query views (design 2026-08-25) ----------------------------------------
+// Wire mirrors the core DTOs: the base/req DTO structs carry serde
+// rename_all = "camelCase" (Plan A Task 12), but serde casing does NOT
+// propagate into nested types — `Duration` (expr::value::DurationSpec) and
+// `BaseClock` (EvalClockDto) serialize their fields snake_case as declared
+// in Plan A Task 9, like MemoSummary's created_at. Enums are externally
+// tagged like every Rust enum on this wire. Rust command wrappers land with
+// Plan A Task 12 — until then these are desktop-only.
+
+/** Expr engine value (`expr::value::Value`), externally tagged. `Date` is an
+ * RFC 3339 string; `Duration` carries the calendar/fixed split. */
+export type BaseValue =
+  | "Null"
+  | { Bool: boolean }
+  | { Num: number }
+  | { Str: string }
+  | { List: BaseValue[] }
+  | { Date: string }
+  | { Duration: { calendar_months: number; fixed_millis: number } };
+
+export interface BaseCell {
+  value: BaseValue | null;
+  error: string | null;
+}
+
+export interface BaseRow {
+  summary: MemoSummary;
+  folder: string;
+  format: NoteFormat;
+  cells: BaseCell[];
+}
+
+export interface GroupCount {
+  key: string;
+  count: number;
+}
+
+export interface SummaryValue {
+  name: string;
+  /** Absent aggregates arrive as the "Null" variant, never JSON null. */
+  value: BaseValue;
+}
+
+export interface BaseClock {
+  now_utc: string;
+  local_offset_seconds: number;
+}
+
+export interface BasePage {
+  rows: BaseRow[];
+  total: number;
+  groupCounts: GroupCount[] | null;
+  /** Column path → summary; keys use dot identifiers (`note.rating`). */
+  summaries: Record<string, SummaryValue> | null;
+  clock: BaseClock;
+  resultKey: string;
+  warnings: string[];
+}
+
+/** `run_base` source. `Inline` carries raw YAML so the wire stays plain
+ * strings; `Path` is vault-relative. */
+export type BaseSource = { Inline: { yaml: string } } | { Path: string };
+
+export interface RunBaseReq {
+  viewIndex: number;
+  offset: number;
+  limit: number;
+  /** Canonical group key for board column paging; null = full dataset. */
+  group: string | null;
+  nowMs: number | null;
+  localOffsetSeconds: number | null;
+  includeGroupCounts: boolean;
+  includeSummaries: boolean;
+  thisId: MemoId | null;
+}
+
+export interface BaseInfo {
+  path: string;
+  name: string;
+  mtimeMs: number;
+  /** False when the file fails the parse smoke test (sidebar ⚠). */
+  loadable: boolean;
+}
+
+export interface LoadBaseDto {
+  yaml: string;
+  mtimeMs: number;
+}
+
+/** Observed property catalog for the filter builder (spec §3). The
+ * wire field is `observedTypes` (spec §3 name; core's Rust field is
+ * `kinds` — the Tauri DTO maps it). */
+export interface PropInfo {
+  key: string;
+  observedTypes: string[];
+  options: string[];
+}

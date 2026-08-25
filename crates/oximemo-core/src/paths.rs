@@ -40,6 +40,12 @@ pub const TEMPLATE_HTML_NAME: &str = "TEMPLATE.html";
 /// outside the note extensions so no scan exclusion is needed (design
 /// 2026-08-23 §6.2).
 pub const SCHEMA_NAME: &str = "SCHEMA.toml";
+/// Extension for saved query-view documents (spec §1, §3).
+pub const QUERY_EXT: &str = "query";
+/// Sub-directory under `.trash/` holding trashed `.query` files. Lives under
+/// the trash root so a global purge (designed elsewhere) wipes them with the
+/// rest of the trash tree.
+pub const TRASH_QUERIES_DIR: &str = "_queries";
 
 /// Resolved filesystem locations for one vault.
 #[derive(Debug, Clone)]

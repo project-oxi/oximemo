@@ -15,7 +15,9 @@
 //! (`oximemo …` while the GUI is running) correct.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crate::base::BaseInfo;
 
 use time::OffsetDateTime;
 
@@ -68,6 +70,24 @@ pub enum VaultStatus {
     },
 }
 
+/// Cached, generation-keyed index export used by [`Vault::query_notes`].
+/// `generation` is `(meta.redb mtime, meta.redb size)`. redb is opened
+/// transiently inside an fs2 flock (see the module doc at the top of this
+/// file), so an in-process counter cannot see CLI writes from another
+/// process — the file stat IS the cross-process generation. `RedbIndex::open`
+/// is read-first when the tables already exist
+/// (`crates/oximemo-core/src/store/index.rs`), so mtime only changes on
+/// real writes; the cache key is exact and there is no rounding window.
+struct SnapshotState {
+    generation: (std::time::SystemTime, u64),
+    recs: std::sync::Arc<Vec<crate::store::index::IndexRecord>>,
+}
+
+/// Snapshot cache cap (spec §3, snapshot budget): when `export_since`
+/// returns more than this many records we return the freshly-loaded vector
+/// without caching, so the cache never holds a multi-megabyte Arc.
+const SNAPSHOT_CACHE_CAP: usize = 50_000;
+
 pub struct Vault {
     paths: Paths,
     status: VaultStatus,
@@ -77,7 +97,22 @@ pub struct Vault {
     /// SCHEMA.toml files are not watcher targets, so the mtime is checked
     /// on every lookup (design 2026-08-23 §6.2).
     schemas: RwLock<std::collections::HashMap<String, (std::time::SystemTime, Option<crate::schema::FolderSchema>)>>,
+    /// Base-`.query` file cache keyed by vault-relative path: `(mtime, def)`.
+    /// Mirrors the `schemas` cache. The watcher calls
+    /// [`Self::invalidate_base_caches`] to drop entries after external edits.
+    bases: RwLock<std::collections::HashMap<String, (std::time::SystemTime, crate::base::BaseDef)>>,
+    /// Generation-keyed cache of the full index export. Populated lazily
+    /// on the first call per generation; bypassed (returned without
+    /// caching) when the export exceeds [`SNAPSHOT_CACHE_CAP`] so a
+    /// multi-megabyte Arc never sits in memory between queries.
+    snapshot: RwLock<Option<SnapshotState>>,
+    /// Bounded LRU cache for evaluated base results (Task 10).
+    /// `pub(crate)` so `base::exec::run_base` can call `get`/`put`
+    /// directly without leaking the surface to other crates.
+    base_results: crate::base::SharedResultCache,
 }
+
+
 
 impl Vault {
     /// Resolve a vault (default location when `vault` is `None`) and load its
@@ -124,6 +159,9 @@ impl Vault {
             config: RwLock::new(config),
             files,
             schemas: RwLock::new(Default::default()),
+            bases: RwLock::new(Default::default()),
+            snapshot: RwLock::new(None),
+            base_results: crate::base::SharedResultCache::new(),
         })
     }
 
@@ -758,8 +796,11 @@ impl Vault {
         acquire(&self.paths.meta_lock_path(), kind, LOCK_TIMEOUT)
     }
 
-    /// Shared lock + transient redb, for a read operation.
-    fn with_redb<R>(&self, f: impl FnOnce(&RedbIndex) -> Result<R>) -> Result<R> {
+    /// Shared lock + transient redb. Crate-visible: `base::exec`'s
+    /// tests seed bulk index records in one transaction (creating
+    /// 20k notes through `create_note` is quadratic and would stall
+    /// the suite).
+    pub(crate) fn with_redb<R>(&self, f: impl FnOnce(&RedbIndex) -> Result<R>) -> Result<R> {
         let _g = self.lock(LockKind::Shared)?;
         let idx = RedbIndex::open(&self.paths.meta_db_path())?;
         f(&idx)
@@ -1495,6 +1536,144 @@ impl Vault {
         })
     }
 
+    /// Full-index snapshot cached across calls (spec §3 snapshot budget).
+    /// Returns the live list of [`IndexRecord`]s wrapped in an `Arc` so
+    /// concurrent readers share the same allocation; the cache key is the
+    /// `(mtime, size)` of `meta.redb`, so any write — by this process or
+    /// another process that holds the cross-process flock (CLI, GUI) —
+    /// invalidates the cached Arc on the next call.
+    ///
+    /// redb is opened transiently inside an `fs2` flock (see the module
+    /// doc at the top of this file), so an in-process counter cannot see
+    /// CLI writes from another process. The file stat IS the
+    /// cross-process generation.
+    ///
+    /// Budget: when the export exceeds [`SNAPSHOT_CACHE_CAP`] records we
+    /// return the freshly-loaded vector without caching, so the cache
+    /// never holds a multi-megabyte Arc between queries.
+    ///
+    /// Requires an initialized vault — `meta.redb` must exist. The
+    /// CLI entry point ([`crates/oximemo-cli/src/main.rs`]) calls
+    /// `Vault::migrate` right after `Vault::open`, and the Tauri
+    /// setup ([`apps/desktop/src-tauri/src/lib.rs`]) calls
+    /// `Vault::ensure_initialized` before exposing the vault to
+    /// commands. Library callers that have just `Vault::open`-ed a
+    /// fresh directory should call [`Vault::ensure_initialized`]
+    /// themselves before reaching for `snapshot()`.
+    pub fn snapshot(&self) -> Result<std::sync::Arc<Vec<crate::store::index::IndexRecord>>> {
+        // Thin wrapper — see [`Self::snapshot_with_gen`] for the flock-
+        // critical body and race-rationale comments.
+        self.snapshot_with_gen().map(|(recs, _)| recs)
+    }
+    /// Cache-key contract (spec §3, brief): (meta.redb mtime, size).
+    /// redb is opened transiently inside an fs2 flock (see the
+    /// module doc at the top of this file), so an in-process
+    /// counter cannot see CLI writes from another process — the
+    /// file stat IS the cross-process generation.
+    ///
+    /// **The cache rebuild path holds the Shared flock across the
+    /// entire redb-open-and-release cycle** — not just the closure
+    /// body of `with_redb`. The previous round kept the lock only
+    /// across the export closure, then re-stated after `with_redb`
+    /// returned and the lock was dropped; another process acquiring
+    /// Exclusive in that window could commit a write through
+    /// `meta.redb`, bumping mtime, and leave us caching
+    /// `{post_write_mtime, recs@pre_write}` forever.
+    ///
+    /// Holding Shared across the whole cycle (open + drop + stat)
+    /// means any external writer blocks until our snapshot has
+    /// committed its own cache key — eliminating the race and
+    /// preserving the exact `(mtime, size)` key.
+    ///
+    /// redb 2.6.3's `Database::new` writes the file header on
+    /// every open, which is why we key on the post-open (and
+    /// post-drop) stat: the next reader's stat lands on the same
+    /// value the file has after this snapshot's drop, and the
+    /// cache hits.
+    ///
+    /// `run_base` uses the returned generation as `result_key.gen`
+    /// so a cache entry's key equals the next caller's lookup key
+    /// exactly — no double-stat window to round to the same mtime
+    /// and miss the entry we just stored.
+    pub(crate) fn snapshot_with_gen(
+        &self,
+    ) -> Result<(std::sync::Arc<Vec<crate::store::index::IndexRecord>>, (std::time::SystemTime, u64))> {
+        // Inline a slimmed-down version of `snapshot()` so the gen is
+        // returned from the same code path without an extra lock +
+        // stat round trip. The behaviour mirrors `snapshot()`
+        // exactly: pre-stat cache hit, otherwise rebuild under
+        // Shared and cache the post-stat.
+        let pre = std::fs::metadata(self.paths.meta_db_path())?;
+        let pre_gen = (pre.modified()?, pre.len());
+        if let Some(cached) = self.snapshot.read().as_ref()
+            && cached.generation == pre_gen
+        {
+            return Ok((std::sync::Arc::clone(&cached.recs), cached.generation));
+        }
+        let (recs, post_gen) = {
+            let _g = self.lock(LockKind::Shared)?;
+            let idx = RedbIndex::open(&self.paths.meta_db_path())?;
+            let recs = idx.export_since(None)?;
+            drop(idx);
+            let post = std::fs::metadata(self.paths.meta_db_path())?;
+            ((recs), (post.modified()?, post.len()))
+        };
+        if recs.len() > SNAPSHOT_CACHE_CAP {
+            return Ok((std::sync::Arc::new(recs), post_gen));
+        }
+        let arc = std::sync::Arc::new(recs);
+        *self.snapshot.write() = Some(SnapshotState {
+            generation: post_gen,
+            recs: std::sync::Arc::clone(&arc),
+        });
+        Ok((arc, post_gen))
+    }
+
+    /// Length of the in-memory base-result cache (Task 10). Used by
+    /// tests to assert cache hits/misses without exposing the cache
+    /// handle.
+    #[allow(dead_code)]
+    pub(crate) fn base_cache_len(&self) -> usize {
+        self.base_results.len()
+    }
+
+    /// blake3 source-identity digest for a [`BaseSource`] (Task 10).
+    /// `Path`: bytes of the file at `query_rel_path(rel)`. `Inline`:
+    /// `write_base`'s canonical YAML output. Cheap (single file read
+    /// or one YAML serialisation).
+    pub(crate) fn base_source_hash(&self, source: &crate::base::BaseSource) -> Result<u64> {
+        use crate::base::cache::blake3_u64;
+        match source {
+            crate::base::BaseSource::Path(rel) => {
+                let abs = self.query_rel_path(rel)?;
+                let bytes = std::fs::read(&abs)?;
+                Ok(blake3_u64(&bytes))
+            }
+            crate::base::BaseSource::Inline(def) => {
+                let yaml = crate::base::write_base(def)?;
+                Ok(blake3_u64(yaml.as_bytes()))
+            }
+        }
+    }
+    /// Look up the in-memory base-result cache (Task 10). Returns
+    /// `None` on miss — callers fall through to a full evaluation.
+    pub(crate) fn base_cache_get(
+        &self,
+        key: &crate::base::cache::ResultKey,
+    ) -> Option<std::sync::Arc<crate::base::cache::BaseResult>> {
+        self.base_results.get(key)
+    }
+
+
+    /// Insert into the in-memory base-result cache (Task 10).
+    pub(crate) fn base_cache_put(
+        &self,
+        key: crate::base::cache::ResultKey,
+        result: std::sync::Arc<crate::base::cache::BaseResult>,
+    ) {
+        self.base_results.put(key, result);
+    }
+
     /// Offset-paginated property query (design 2026-08-23 §5.2). Filters
     /// and sorts over the in-memory index snapshot — never reads note
     /// files — so it composes with property sorts that the cursor path
@@ -1502,7 +1681,7 @@ impl Vault {
     /// cursor path for default newest-first browsing; use this whenever a
     /// property predicate or sort is present.
     pub fn query_notes(&self, query: &crate::props::NoteQuery) -> Result<crate::props::QueryPage> {
-        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let recs = self.snapshot()?;
         let summaries: Vec<MemoSummary> = recs.iter().map(|r| r.to_summary()).collect();
         let (items, total) = query.apply(summaries);
         Ok(crate::props::QueryPage { items, total })
@@ -2311,6 +2490,364 @@ impl Vault {
             Ok(())
         })
     }
+
+    // -- .query base CRUD (task 7) -----------------------------------
+
+    /// Validate a vault-relative `.query` path and resolve its absolute
+    /// counterpart. Delegates to [`crate::base::files::query_rel_path`]
+    /// (private). Public so `[#170]`. All violations →
+    /// `CoreError::Other("invalid query path: …")`.
+    pub fn query_rel_path(&self, rel: &str) -> Result<PathBuf> {
+        crate::base::files::query_rel_path(rel, &self.paths.vault)
+    }
+
+    /// Parse, load, and cache a `.query` document (mtime-keyed, like
+    /// [`Self::folder_schema`]). Cache miss reads raw bytes from disk,
+    /// parses via the model layer, and stores the result keyed by the
+    /// current mtime. Returns the parsed [`crate::base::BaseDef`].
+    pub fn load_base(&self, rel: &str) -> Result<crate::base::BaseDef> {
+        let abs = self.query_rel_path(rel)?;
+        let mtime = std::fs::metadata(&abs)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(UNIX_EPOCH - Duration::from_secs(1));
+        {
+            let cache = self.bases.read();
+            if let Some((cached_mtime, cached)) = cache.get(rel)
+                && *cached_mtime == mtime
+            {
+                return Ok(cached.clone());
+            }
+        }
+        let raw = std::fs::read_to_string(&abs)?;
+        let def = crate::base::parse_base(&raw)?;
+        self.bases
+            .write()
+            .insert(rel.to_string(), (mtime, def.clone()));
+        Ok(def)
+    }
+
+    /// Load the raw YAML bytes + on-disk mtime of a `.query` file.
+    /// Bypasses the mtime cache (a raw read), used by the builder's
+    /// code-mode to surface the user's exact text + current mtime for
+    /// the optimistic-concurrency check.
+    pub fn load_base_raw(&self, rel: &str) -> Result<(String, SystemTime)> {
+        let abs = self.query_rel_path(rel)?;
+        let raw = std::fs::read_to_string(&abs)?;
+        let mtime = std::fs::metadata(&abs)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(UNIX_EPOCH - Duration::from_secs(1));
+        Ok((raw, mtime))
+    }
+
+    /// Save (create or overwrite) a `.query` document. Parses +
+    /// validates first; an unparseable yaml is rejected without any
+    /// filesystem mutation. When `expected_mtime` is `Some(t)` and `t`
+    /// does not match the file's current mtime, returns a
+    /// `CoreError::Other("query modified elsewhere; reload")` and
+    /// touches nothing (spec §3, brief). Atomic write via temp-file +
+    /// rename in the same directory (brief).
+    pub fn save_base(
+        &self,
+        rel: &str,
+        yaml: &str,
+        expected_mtime: Option<SystemTime>,
+    ) -> Result<()> {
+        // Validate path, parse, validate before touching disk.
+        let abs = self.query_rel_path(rel)?;
+        // Parse + model validation. Never persist a file that won't load.
+        crate::base::files::parse_validate(yaml)?;
+        // Optimistic concurrency: the file's mtime must match the
+        // caller's expectation when supplied. Compared in milliseconds
+        // because filesystem mtime resolution differs across platforms.
+        if let Some(want) = expected_mtime {
+            let current = std::fs::metadata(&abs)
+                .ok()
+                .and_then(|m| m.modified().ok());
+            if let Some(now) = current
+                && !mtimes_match(now, want)
+            {
+                return Err(CoreError::other(
+                    "query modified elsewhere; reload",
+                ));
+            }
+        }
+        crate::base::files::atomic_write(&abs, yaml.as_bytes())?;
+        // Drop the cache entry — the next load re-reads.
+        self.bases.write().remove(rel);
+        Ok(())
+    }
+
+    /// Rename a `.query` file from `from` to `to`. Both paths are
+    /// validated; the destination is rejected if it already exists.
+    /// Atomic in the POSIX sense (`rename(2)` replaces atomically).
+    pub fn rename_base(
+        &self,
+        from: &str,
+        to: &str,
+        expected_mtime: Option<SystemTime>,
+    ) -> Result<()> {
+        let from_abs = self.query_rel_path(from)?;
+        let to_abs = self.query_rel_path(to)?;
+        if !from_abs.exists() {
+            return Err(CoreError::NotFound(from.to_string()));
+        }
+        if to_abs.exists() {
+            return Err(CoreError::other(format!(
+                "query '{to}' already exists"
+            )));
+        }
+        if let Some(want) = expected_mtime {
+            let current = std::fs::metadata(&from_abs)
+                .ok()
+                .and_then(|m| m.modified().ok());
+            if let Some(now) = current
+                && !mtimes_match(now, want)
+            {
+                return Err(CoreError::other(
+                    "query modified elsewhere; reload",
+                ));
+            }
+        }
+        if let Some(parent) = to_abs.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::rename(&from_abs, &to_abs)?;
+        // Drop any cache entries for either path.
+        self.bases.write().remove(from);
+        self.bases.write().remove(to);
+        Ok(())
+    }
+
+    /// Move a `.query` file into the trash. Returns a trash-relative
+    /// token of the form `<unix_millis>-<origin>` (spec §3 surface),
+    /// where `<origin>` percent-encodes the file's ORIGINAL
+    /// vault-relative path (see [`encode_query_origin`]) so restore
+    /// puts it back where it lived, not always under `queries/`. The
+    /// source must be a valid `.query` path; the trash landing is
+    /// always under `.trash/_queries/`, which the path guard would
+    /// refuse — so we bypass `query_rel_path` for the destination and
+    /// construct it directly.
+    pub fn trash_base(&self, rel: &str) -> Result<String> {
+        let abs = self.query_rel_path(rel)?;
+        if !abs.exists() {
+            return Err(CoreError::NotFound(rel.to_string()));
+        }
+        let origin = encode_query_origin(rel);
+        let trash_dir = self
+            .paths
+            .trash_root()
+            .join(crate::paths::TRASH_QUERIES_DIR);
+        std::fs::create_dir_all(&trash_dir)?;
+        let base_millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        // Disambiguate same-millisecond collisions by bumping the
+        // millis prefix until the destination is free. Tokens stay
+        // parseable: `<digits>-<origin>` with the leading digits
+        // consumed verbatim on restore (see `restore_base`). Origins
+        // that themselves start with digits cannot collide with a
+        // millis prefix because millis exceeds any plausible u32.
+        let mut millis = base_millis;
+        let token = loop {
+            let candidate = format!("{millis}-{origin}");
+            let dest = trash_dir.join(&candidate);
+            if !dest.exists() {
+                std::fs::rename(&abs, &dest)?;
+                break candidate;
+            }
+            millis += 1;
+        };
+        self.bases.write().remove(rel);
+        // Return the token alone — the destination is reconstructed
+        // from `trash_root()/TRASH_QUERIES_DIR/token` on restore, so
+        // the caller does not need the trash prefix. Keep the token a
+        // single filename (no separators, no `..`) so the restore
+        // guard can enforce a single-filename shape.
+        Ok(token)
+    }
+
+    /// Restore a `.query` file from trash. The `token` is the value
+    /// returned by [`Self::trash_base`] — e.g. `1700000000000-%2Fshelf%2Ffoo.query`
+    /// (origin-embedded) or the legacy `1700000000000-foo.query` shape,
+    /// which restores under `queries/` as it always did. The token is
+    /// guarded like a path: no separators, no `..`, no absolute.
+    /// Returns the vault-relative path of the restored file.
+    pub fn restore_base(&self, token: &str) -> Result<String> {
+        // Restore tokens live under `.trash/_queries/<token>` in the
+        // trunk. Forbid any path with a separator, `..` component, or
+        // absolute shape — a malicious caller must not reach into the
+        // live vault tree or escape the trash dir.
+        if token.is_empty()
+            || token.contains('/')
+            || token.contains('\\')
+            || Path::new(token).is_absolute()
+            || token.contains("..")
+        {
+            return Err(CoreError::other(format!(
+                "invalid restore token: '{token}'"
+            )));
+        }
+        let trash_root = self.paths.trash_root();
+        let token_path = trash_root
+            .join(crate::paths::TRASH_QUERIES_DIR)
+            .join(token);
+        if !token_path.exists() {
+            return Err(CoreError::NotFound(token.to_string()));
+        }
+        // Tokens are `<digits>-<rest>` — left-parse exactly one leading
+        // run of digits followed by a dash. `rest` is either a
+        // percent-encoded ORIGINAL vault-relative path (new format,
+        // leading `%2F` marker) or a legacy bare filename.
+        let (digits, rest) = match token.split_once('-') {
+            Some((d, r)) => (d, r),
+            None => {
+                return Err(CoreError::other(format!(
+                    "invalid restore token: missing millis prefix '{token}'"
+                )));
+            }
+        };
+        if !digits.chars().all(|c| c.is_ascii_digit()) || digits.is_empty() {
+            return Err(CoreError::other(format!(
+                "invalid restore token: malformed millis prefix '{token}'"
+            )));
+        }
+        // Origin-embedded token: restore at the original location.
+        // Legacy token (no leading marker / invalid escape): restore
+        // under `queries/<filename>` exactly as before — the literal
+        // `queries` directory is a normal non-hidden name, so no guard
+        // exception is required.
+        let target_rel = match decode_query_origin(rest) {
+            Some(origin) => origin,
+            None => format!("queries/{rest}"),
+        };
+        if Path::new(&target_rel).extension().and_then(|e| e.to_str())
+            != Some(crate::paths::QUERY_EXT)
+        {
+            return Err(CoreError::other(format!(
+                "invalid restore token: missing .query extension"
+            )));
+        }
+        // Compute the destination + validate it BEFORE moving the file
+        // out of trash. If the guard rejects, the trash file stays
+        // intact and the caller can retry.
+        let target_abs = self.paths.vault.join(&target_rel);
+        self.query_rel_path(&target_rel)?;
+        if target_abs.exists() {
+            return Err(CoreError::other(format!(
+                "query '{target_rel}' already exists"
+            )));
+        }
+        if let Some(parent) = target_abs.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::rename(&token_path, &target_abs)?;
+        self.bases.write().remove(&target_rel);
+        Ok(target_rel)
+    }
+
+    /// Enumerate every `.query` file in the vault, skipping
+    /// `.trash`, `_assets`, and any hidden/dunder directory at every
+    /// level (spec §3). Sorted by vault-relative path; duplicate
+    /// stems remain (the UI marks the ambiguity per spec §6).
+    pub fn list_bases(&self) -> Result<Vec<BaseInfo>> {
+        let entries = crate::base::files::list_query_files(&self.paths.vault);
+        let mut out = Vec::with_capacity(entries.len());
+        for (rel, mtime) in entries {
+            let abs = self.paths.vault.join(&rel);
+            let raw = std::fs::read_to_string(&abs).unwrap_or_default();
+            let loadable = crate::base::parse_base(&raw).is_ok();
+            let name = Path::new(&rel)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            out.push(BaseInfo {
+                path: rel,
+                name,
+                mtime,
+                loadable,
+            });
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(out)
+    }
+
+    /// Drop every entry from the in-memory base-`.query` cache. Called
+    /// from the file watcher when an external edit lands so the next
+    /// load re-reads from disk.
+    pub fn invalidate_base_caches(&self) {
+        self.bases.write().clear();
+        self.base_results.clear_all();
+    }
+}
+
+/// Compare two [`SystemTime`]s at millisecond resolution. FS mtime
+/// granularity varies across platforms (Linux ns, macOS µs, Windows
+/// 100ns FAT, etc.) — comparing full `Duration`s is reliable, but the
+/// optimistic-concurrency check intentionally treats sub-ms drifts as
+/// a match so a fast follow-up save doesn't trip the guard.
+pub(crate) fn mtimes_match(a: SystemTime, b: SystemTime) -> bool {
+    let a_ms = a
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i128)
+        .unwrap_or(0);
+    let b_ms = b
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i128)
+        .unwrap_or(0);
+    (a_ms - b_ms).abs() <= 1
+}
+
+/// Percent-encode a vault-relative `.query` path into the trash-token
+/// suffix that [`Vault::trash_base`] writes. The synthetic leading
+/// `%2F` marks the token as origin-embedded and disambiguates it from
+/// legacy bare-filename tokens — a root-level `x.query` would
+/// otherwise encode to a shape indistinguishable from legacy, which
+/// restores under `queries/`. Only `%` and `/` are escaped
+/// (`%25`, `%2F`); everything else (incl. UTF-8 folder names) passes
+/// through, keeping tokens readable.
+fn encode_query_origin(rel: &str) -> String {
+    let mut out = String::with_capacity(rel.len() + 3);
+    out.push_str("%2F");
+    for c in rel.chars() {
+        match c {
+            '%' => out.push_str("%25"),
+            '/' => out.push_str("%2F"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Inverse of [`encode_query_origin`]. Returns `None` for anything
+/// that is not a well-formed origin-embedded suffix: no leading `%2F`
+/// marker, or any `%` not starting a valid `%25`/`%2F` escape. Legacy
+/// bare filenames fall out as `None` and restore under `queries/`.
+/// (A legacy filename that literally begins `%2F` would decode as an
+/// origin — vanishingly rare, and the decoded path still passes the
+/// full `query_rel_path` guard, so it can only restore somewhere
+/// legal.)
+fn decode_query_origin(s: &str) -> Option<String> {
+    let mut rest = s.strip_prefix("%2F")?;
+    let mut out = String::with_capacity(rest.len());
+    while let Some(pos) = rest.find('%') {
+        let (head, tail) = rest.split_at(pos);
+        out.push_str(head);
+        // `get(..3)` returns None when the slice would split a UTF-8
+        // char — i.e. the escape is truncated. Anything that is not
+        // exactly `%25`/`%2F` is not ours.
+        match tail.get(..3)? {
+            "%25" => out.push('%'),
+            "%2F" => out.push('/'),
+            _ => return None,
+        }
+        rest = &tail[3..];
+    }
+    out.push_str(rest);
+    Some(out)
 }
 
 /// Build an [`IndexRecord`] from a [`Memo`] + its vault-relative path. The
@@ -4172,6 +4709,274 @@ watcher_retry_interval_ms = 200
         assert_eq!(page.items[0].id, a.id);
     }
 
+    #[test]
+    fn snapshot_cache_returns_same_arc_until_meta_redb_changes() {
+        let (_t, v) = tmp_vault();
+        let a = v
+            .create_note("", "# A".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let b = v
+            .create_note("", "# B".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let c = v
+            .create_note("", "# C".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+
+        let s1 = v.snapshot().unwrap();
+        let s2 = v.snapshot().unwrap();
+        assert!(
+            std::sync::Arc::ptr_eq(&s1, &s2),
+            "second snapshot reuses the cached Arc"
+        );
+        assert_eq!(s1.len(), 3);
+
+        // create_note writes through redb -> meta.redb file stat changes ->
+        // cache key changes -> new Arc, new contents.
+        let d = v
+            .create_note("", "# D".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let s3 = v.snapshot().unwrap();
+        assert!(
+            !std::sync::Arc::ptr_eq(&s1, &s3),
+            "snapshot Arc changes after a write to meta.redb"
+        );
+        let ids: std::collections::HashSet<_> = s3.iter().map(|r| r.id).collect();
+        assert!(ids.contains(&a.id));
+        assert!(ids.contains(&b.id));
+        assert!(ids.contains(&c.id));
+        assert!(ids.contains(&d.id));
+    }
+
+    /// Pins the read-first `RedbIndex::open` fix: two pure snapshot
+    /// reads back-to-back must share the cached Arc. The previous
+    /// `open()` committed an empty write transaction on every call,
+    /// which bumped `meta.redb`'s mtime even with no user-visible write;
+    /// that broke the exact `(mtime, size)` cache key between two reads.
+    #[test]
+    fn snapshot_reads_never_invalidate_cache() {
+        let (_t, v) = tmp_vault();
+        let _ = v
+            .create_note("", "# A".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        // Force a fresh snapshot so the cache is populated, then trigger
+        // the second read through `query_notes` to exercise the
+        // read-first path in `RedbIndex::open`.
+        let s1 = v.snapshot().unwrap();
+        // query_notes also calls snapshot(); if open() bumps mtime the
+        // cached Arc would be replaced.
+        let _ = v
+            .query_notes(&crate::props::NoteQuery::default())
+            .unwrap();
+        // Direct second read — no lock, no redb open on hit path.
+        let s2 = v.snapshot().unwrap();
+        assert!(
+            std::sync::Arc::ptr_eq(&s1, &s2),
+            "two pure reads must share the same cached Arc"
+        );
+    }
+
+    /// Pins the exact-key contract: a write immediately followed by
+    /// snapshot() in the same millisecond region must return a new Arc
+    /// containing the new note. This rules out any rounding compromise
+    /// (e.g. whole-second mtime rounding) that would mask invalidation.
+    #[test]
+    fn snapshot_write_then_read_yields_new_arc() {
+        let (_t, v) = tmp_vault();
+        let _ = v
+            .create_note("", "# A".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let s1 = v.snapshot().unwrap();
+        let _ = v
+            .create_note("", "# B".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let s2 = v.snapshot().unwrap();
+        assert!(
+            !std::sync::Arc::ptr_eq(&s1, &s2),
+            "write must invalidate the cache and produce a new Arc"
+        );
+        assert_eq!(s2.len(), 2, "new Arc must contain both notes");
+    }
+
+    /// Pins the no-held-handle contract: a second `Vault` (CLI) writing
+    /// while the first `Vault` (GUI) holds a warm snapshot cache must
+    /// succeed, and the first `Vault`'s next `snapshot()` must observe
+    /// the new note. This is the `oximemo` CLI-while-GUI flow that
+    /// `vault.rs` §5.7 documents; the round-1 memoization broke it
+    /// because holding a redb `Database` open in the GUI process made
+    /// the CLI's `Database::create` return `DatabaseAlreadyOpen`.
+    #[test]
+    fn second_vault_writes_through_warm_snapshot_cache() {
+        let (t, v_gui) = tmp_vault();
+        let _ = v_gui
+            .create_note("", "# A".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        // Warm the GUI's snapshot cache.
+        let s_gui_before = v_gui.snapshot().unwrap();
+        assert_eq!(s_gui_before.len(), 1);
+
+        // Open a second Vault on the same directory (simulates a CLI
+        // invocation). Both Vaults must cooperate through the fs2 flock
+        // — neither can hold a redb `Database` open past its lock scope.
+        let v_cli = Vault::open(Some(t.path())).unwrap();
+        let cli_note = v_cli
+            .create_note("", "# CLI".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        assert!(v_cli.query_notes(&Default::default()).unwrap().total >= 2);
+
+        // GUI's snapshot must miss (its cached (mtime, size) is now stale)
+        // and rebuild to include the CLI note.
+        let s_gui_after = v_gui.snapshot().unwrap();
+        assert!(
+            !std::sync::Arc::ptr_eq(&s_gui_before, &s_gui_after),
+            "GUI snapshot cache must invalidate after the CLI wrote through meta.redb"
+        );
+        assert_eq!(s_gui_after.len(), 2, "GUI sees both its own note and the CLI note");
+        assert!(
+            s_gui_after.iter().any(|r| r.id == cli_note.id),
+            "CLI note must be visible in the GUI's refreshed snapshot"
+        );
+    }
+
+    /// Stress pin for the round-3 race fix.
+    ///
+    /// The race under test: round 2's `snapshot()` dropped its
+    /// Shared flock (via `with_redb` returning) before re-stating
+    /// `meta.redb`. A writer waiting at Exclusive could commit in
+    /// that window; the reader's post-stat would capture the
+    /// post-commit mtime, leaving the cache storing
+    /// `{post_write_mtime, recs@pre_write}` — a poisoned entry
+    /// that serves stale data until a further write bumps the mtime.
+    /// Round 3's design holds Shared across the entire
+    /// open-and-release cycle, so the post-stat happens under the
+    /// flock and the writer cannot commit until the cache key is
+    /// committed.
+    ///
+    /// Honest note on determinism: under heavy concurrent write
+    /// traffic (as in this storm), every writer commit bumps the
+    /// file's mtime, so even a *transient* poison at iteration N is
+    /// unmasked by the iteration-N+1 commit. The "stuck poison"
+    /// only persists if NO further writes happen — under the storm
+    /// that never occurs because we commit continuously. So this
+    /// test is a *behavioral stress* on the cache (it would catch a
+    /// future regression where `snapshot()` returns stale records
+    /// after a burst of external writes), but it is **not** a
+    /// deterministic pin of the post-stat-in-window race.
+    ///
+    /// Pin: a writer thread commits N notes sequentially through
+    /// fresh `Vault`s. A reader thread loops `snapshot()` /
+    /// `query_notes()` and accumulates the set of paths it observes.
+    /// After both threads finish, every committed path must have
+    /// been observed by the reader at some point. A future
+    /// regression that drops records (e.g. a stale cache key that
+    /// never invalidates) would be caught here.
+    #[test]
+    fn snapshot_concurrent_writes_never_poison_cache() {
+        use std::collections::HashSet;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        use std::sync::Arc;
+
+        const STORM_COUNT: usize = 30;
+        const READER_ITERS: usize = 200;
+
+        let (t, v_reader) = tmp_vault();
+        v_reader.ensure_initialized().unwrap();
+        v_reader
+            .create_note("", "# Seed".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_w = Arc::clone(&stop);
+        let stop_r = Arc::clone(&stop);
+
+        let (written_tx, written_rx) = mpsc::channel::<String>();
+        let dir = t.path().to_path_buf();
+        let writer = std::thread::spawn(move || {
+            for i in 0..STORM_COUNT {
+                if stop_w.load(Ordering::Relaxed) {
+                    break;
+                }
+                let v_w = Vault::open(Some(&dir)).unwrap();
+                v_w.create_note(
+                    "",
+                    format!("# Storm{i}"),
+                    crate::memo::NoteFormat::Markdown,
+                )
+                .unwrap();
+                written_tx.send(format!("Storm{i}.md")).unwrap();
+            }
+        });
+
+        let (observed_tx, observed_rx) = mpsc::channel::<HashSet<String>>();
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let reader = std::thread::spawn(move || {
+            for _ in 0..READER_ITERS {
+                if stop_r.load(Ordering::Relaxed) {
+                    break;
+                }
+                let mut batch = HashSet::new();
+                if let Ok(snap) = v_reader.snapshot() {
+                    for r in snap.iter() {
+                        batch.insert(r.path.clone());
+                    }
+                }
+                if let Ok(page) =
+                    v_reader.query_notes(&crate::props::NoteQuery::default())
+                {
+                    for s in page.items.iter() {
+                        batch.insert(s.path.clone());
+                    }
+                }
+                observed_tx.send(batch).unwrap();
+                // Yield so writer commits can interleave. Without
+                // this sleep the reader thread runs far faster
+                // than the writer and observes only Seed.md before
+                // exiting.
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            done_tx.send(()).unwrap();
+        });
+
+        let mut all_observed: HashSet<String> = HashSet::new();
+        let mut committed: HashSet<String> = HashSet::new();
+        loop {
+            match observed_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                Ok(batch) => all_observed.extend(batch),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+            while let Ok(p) = written_rx.try_recv() {
+                committed.insert(p);
+            }
+        }
+        writer.join().unwrap();
+        stop.store(true, Ordering::Relaxed);
+        reader.join().unwrap();
+        while let Ok(batch) = observed_rx.try_recv() {
+            all_observed.extend(batch);
+        }
+        while let Ok(p) = written_rx.try_recv() {
+            committed.insert(p);
+        }
+        let _ = done_rx.recv();
+
+        let missing: Vec<_> = committed
+            .iter()
+            .filter(|p| !all_observed.contains(*p))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "committed paths {:?} were never observed by reader — cache was poisoned",
+            missing
+        );
+    }
+
+
+
+
+
+
+
     /// The knowledge folder ships with every vault (system-folder
     /// semantics, design + user prompt 2026-08-23): `migrate` creates it,
     /// recreation after deletion is empty-preset-only, and user edits to
@@ -5240,6 +6045,311 @@ watcher_retry_interval_ms = 200
         assert!(
             !v.folder_inventory().unwrap().iter().any(|f| f.path == "inbox"),
             "default inbox must not be installed alongside the user's idea folder"
+        );
+    }
+
+    // -- .query base file CRUD (task 7) -------------------------------
+
+    /// Minimal valid `.query` document used by the round-trip / parse-validate tests.
+    const QUERY_YAML: &str = "filters: 'file.name != \"\"'\nviews:\n  - type: table\n    name: All\n";
+
+    /// Save an inline literal `.query` (no helpers — exercises the public Vault API).
+    fn write_inline(dir: &Path, rel: &str, contents: &str) {
+        let abs = dir.join(rel);
+        if let Some(parent) = abs.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(abs, contents).unwrap();
+    }
+
+    fn must_err<T: std::fmt::Debug>(r: Result<T>) -> String {
+        match r {
+            Ok(v) => panic!("expected error, got {v:?}"),
+            Err(e) => format!("{e}"),
+        }
+    }
+
+    fn sleep_past_mtime_resolution() {
+        // Filesystem mtime resolution on macOS is coarse; nudge by 10 ms so
+        // a subsequent write produces a distinguishable mtime.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    #[test]
+    fn base_save_load_round_trip() {
+        let (_t, v) = tmp_vault();
+        v.save_base("queries/all.query", QUERY_YAML, None).unwrap();
+        let (raw, mtime) = v.load_base_raw("queries/all.query").unwrap();
+        assert_eq!(raw, QUERY_YAML);
+        let def = v.load_base("queries/all.query").unwrap();
+        assert_eq!(def.views.len(), 1);
+        assert_eq!(def.views[0].name.as_deref(), Some("All"));
+        assert!(mtime > std::time::UNIX_EPOCH);
+    }
+
+    #[test]
+    fn base_save_stale_mtime_is_conflict() {
+        let (_t, v) = tmp_vault();
+        v.save_base("queries/x.query", QUERY_YAML, None).unwrap();
+        let (_, baseline) = v.load_base_raw("queries/x.query").unwrap();
+        // External write — vault mtime cache must observe a different time.
+        sleep_past_mtime_resolution();
+        write_inline(v.paths().vault.as_path(), "queries/x.query", "filters: '1 == 1'\nviews:\n  - type: table\n");
+        let stale = baseline - std::time::Duration::from_secs(60);
+        let msg = must_err(v.save_base("queries/x.query", QUERY_YAML, Some(stale)));
+        assert!(
+            msg.contains("query modified elsewhere") || msg.contains("mtime"),
+            "expected mtime conflict error, got {msg}"
+        );
+    }
+
+    #[test]
+    fn base_save_invalid_yaml_keeps_original_untouched() {
+        let (_t, v) = tmp_vault();
+        v.save_base("queries/good.query", QUERY_YAML, None).unwrap();
+        let original_bytes = std::fs::read(v.paths().vault.join("queries/good.query")).unwrap();
+        // Bad YAML — parse fails, write must not touch the file.
+        let bad = "filters: ':\nviews:\n  - type: table\n";
+        let msg = must_err(v.save_base("queries/good.query", bad, None));
+        assert!(
+            msg.contains("parse") || msg.contains("yaml"),
+            "expected parse error from save_base; got {msg}"
+        );
+        let after_bytes = std::fs::read(v.paths().vault.join("queries/good.query")).unwrap();
+        assert_eq!(original_bytes, after_bytes, "original file must be untouched on parse failure");
+    }
+
+    #[test]
+    fn base_save_rejects_traversal() {
+        let (_t, v) = tmp_vault();
+        let msg = must_err(v.save_base("../escape.query", QUERY_YAML, None));
+        assert!(msg.contains("invalid query path"), "got {msg}");
+    }
+
+    #[test]
+    fn base_save_rejects_absolute() {
+        let (_t, v) = tmp_vault();
+        let msg = must_err(v.save_base("/abs.query", QUERY_YAML, None));
+        assert!(msg.contains("invalid query path"), "got {msg}");
+    }
+
+    #[test]
+    fn base_save_rejects_wrong_extension() {
+        let (_t, v) = tmp_vault();
+        let msg = must_err(v.save_base("notes/x.md", QUERY_YAML, None));
+        assert!(msg.contains("invalid query path"), "got {msg}");
+    }
+
+    #[test]
+    fn base_rename_refuses_existing_destination() {
+        let (_t, v) = tmp_vault();
+        v.save_base("a.query", QUERY_YAML, None).unwrap();
+        v.save_base("b.query", QUERY_YAML, None).unwrap();
+        let msg = must_err(v.rename_base("a.query", "b.query", None));
+        assert!(msg.contains("exists") || msg.contains("already"), "got {msg}");
+    }
+
+    #[test]
+    fn base_trash_then_restore_round_trip() {
+        let (_t, v) = tmp_vault();
+        v.save_base("queries/x.query", QUERY_YAML, None).unwrap();
+        let token = v.trash_base("queries/x.query").unwrap();
+        // Trashed → hidden from list_bases.
+        let live_after = v.list_bases().unwrap();
+        assert!(
+            !live_after.iter().any(|i| i.path == "queries/x.query"),
+            "trashed query must not appear in list_bases"
+        );
+        // Restore — should bring it back at the original relative path.
+        let restored_rel = v.restore_base(&token).unwrap();
+        assert_eq!(restored_rel, "queries/x.query");
+        let live_again = v.list_bases().unwrap();
+        assert!(
+            live_again.iter().any(|i| i.path == "queries/x.query"),
+            "restored query must reappear in list_bases"
+        );
+    }
+
+    #[test]
+    fn base_load_rejects_under_trash_dir() {
+        let (_t, v) = tmp_vault();
+        // Place a `.query` literally under `.trash/` — load must refuse.
+        std::fs::create_dir_all(v.paths().vault.join(".trash")).unwrap();
+        std::fs::write(
+            v.paths().vault.join(".trash/x.query"),
+            QUERY_YAML,
+        )
+        .unwrap();
+        let msg = must_err(v.load_base(".trash/x.query"));
+        assert!(msg.contains("invalid query path"), "got {msg}");
+    }
+
+    #[test]
+    fn base_save_preserves_unknown_top_level_key() {
+        let (_t, v) = tmp_vault();
+        let raw = "future: 42\nviews:\n  - type: table\n    name: A\n";
+        v.save_base("queries/forward.query", raw, None).unwrap();
+        let (loaded, _) = v.load_base_raw("queries/forward.query").unwrap();
+        let parsed: serde_yaml_ng::Value = serde_yaml_ng::from_str(&loaded).unwrap();
+        let map = parsed.as_mapping().expect("top-level mapping");
+        assert!(
+            map.iter().any(|(k, _)| k.as_str() == Some("future")),
+            "unknown `future` key dropped: {loaded}", loaded = loaded
+        );
+    }
+
+    /// Covering test for fix #1 (restore must left-parse `<digits>-`
+    /// and recover the original filename, even when it contains
+    /// dashes).
+    #[test]
+    fn base_trash_then_restore_preserves_dashed_filename() {
+        let (_t, v) = tmp_vault();
+        v.save_base("queries/my-base.query", QUERY_YAML, None).unwrap();
+        let token = v.trash_base("queries/my-base.query").unwrap();
+        let restored_rel = v.restore_base(&token).unwrap();
+        assert_eq!(restored_rel, "queries/my-base.query");
+        let (raw, _) = v.load_base_raw("queries/my-base.query").unwrap();
+        assert_eq!(raw, QUERY_YAML, "restored file must contain original content");
+    }
+
+    /// The trash token embeds the ORIGINAL vault-relative path, so a
+    /// query that did not live under `queries/` restores in place
+    /// instead of being relocated (whole-branch review finding).
+    #[test]
+    fn base_trash_root_level_query_restores_in_place() {
+        let (_t, v) = tmp_vault();
+        v.save_base("x.query", QUERY_YAML, None).unwrap();
+        let token = v.trash_base("x.query").unwrap();
+        let restored = v.restore_base(&token).unwrap();
+        assert_eq!(restored, "x.query", "root-level query must restore at origin");
+        assert!(v.load_base_raw("x.query").is_ok(), "file is back at origin");
+    }
+
+    #[test]
+    fn base_trash_nested_query_restores_original_dir() {
+        let (_t, v) = tmp_vault();
+        v.save_base("shelf/deep.query", QUERY_YAML, None).unwrap();
+        let token = v.trash_base("shelf/deep.query").unwrap();
+        assert!(token.contains("%2F"), "token must embed the origin path: {token}");
+        let restored = v.restore_base(&token).unwrap();
+        assert_eq!(restored, "shelf/deep.query");
+        let (raw, _) = v.load_base_raw("shelf/deep.query").unwrap();
+        assert_eq!(raw, QUERY_YAML, "restored content is the original");
+    }
+
+    /// Backward compatibility: a legacy `<millis>-<filename>` token
+    /// (written before the origin-embedding format) still parses and
+    /// restores under `queries/` exactly as before.
+    #[test]
+    fn base_restore_legacy_token_lands_under_queries() {
+        let (_t, v) = tmp_vault();
+        let trash_dir = v
+            .paths
+            .trash_root()
+            .join(crate::paths::TRASH_QUERIES_DIR);
+        std::fs::create_dir_all(&trash_dir).unwrap();
+        std::fs::write(trash_dir.join("1700000000000-old.query"), QUERY_YAML).unwrap();
+        let restored = v.restore_base("1700000000000-old.query").unwrap();
+        assert_eq!(restored, "queries/old.query");
+    }
+
+    /// Covering test for fix #1 (collision handling): trashing the
+    /// same filename twice in the same millisecond must produce two
+    /// Covering test for fix #1 (collision handling): trashing a file
+    /// when the natural millis slot is occupied must bump the millis
+    /// prefix and pick a free slot. The recovered token must still
+    /// round-trip through restore with the original filename.
+    #[test]
+    fn base_trash_collision_bumps_millis() {
+        let (_t, v) = tmp_vault();
+        v.save_base("queries/dup.query", QUERY_YAML, None).unwrap();
+        // Pre-stuff the trash with a file at the millis slot the
+        // next trash would naturally use. The slot is occupied, so
+        // trash_base must bump millis+1.
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let trash_dir = v
+            .paths
+            .trash_root()
+            .join(crate::paths::TRASH_QUERIES_DIR);
+        std::fs::create_dir_all(&trash_dir).unwrap();
+        std::fs::write(trash_dir.join(format!("{millis}-dup.query")), b"squatter").unwrap();
+        let token = v.trash_base("queries/dup.query").unwrap();
+        // The token's prefix must NOT be the natural millis (it's
+        // occupied); the bump logic advanced to millis+1.
+        let prefix: String = token
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        let prefix_num: u128 = prefix.parse().unwrap();
+        assert!(
+            prefix_num >= millis,
+            "bumped millis prefix {prefix_num} must not precede natural millis {millis}"
+        );
+        // And restore still works.
+        let rel = v.restore_base(&token).unwrap();
+        assert_eq!(rel, "queries/dup.query");
+        // The squatter survives (we never overwrote it).
+        assert_eq!(
+            std::fs::read(trash_dir.join(format!("{millis}-dup.query"))).unwrap(),
+            b"squatter"
+        );
+    }
+
+    /// Covering test for fix #2 (no carve-out for top-level dot /
+    /// underscore filenames — they're rejected up front so they
+    /// never reach disk).
+    #[test]
+    fn base_save_rejects_root_level_hidden_filename() {
+        let (_t, v) = tmp_vault();
+        let msg = must_err(v.save_base("_x.query", QUERY_YAML, None));
+        assert!(
+            msg.contains("invalid query path"),
+            "expected guard rejection for '_x.query'; got {msg}"
+        );
+        let msg = must_err(v.save_base(".x.query", QUERY_YAML, None));
+        assert!(
+            msg.contains("invalid query path"),
+            "expected guard rejection for '.x.query'; got {msg}"
+        );
+    }
+
+    /// Covering test for fix #3 (destination guard runs BEFORE the
+    /// rename out of trash — a rejected restore leaves the trash
+    /// file in place).
+    #[test]
+    fn base_restore_failure_keeps_trash_file_intact() {
+        let (_t, v) = tmp_vault();
+        // Construct a token whose recovered filename (`.query` suffix
+        // aside) maps to a destination the path guard rejects.
+        // Filenames with leading underscores get rejected by the
+        // guard, so we handcraft a trash file directly and feed its
+        // token through restore.
+        std::fs::create_dir_all(v.paths().trash_root().join(crate::paths::TRASH_QUERIES_DIR))
+            .unwrap();
+        // Place a `_x.query` directly under `.trash/_queries/` with
+        // the expected `<millis>-<​filename>` token shape. Restore
+        // will recover `_x.query` and try to land it at
+        // `queries/_x.query` — a hidden-prefixed component, which the
+        // guard must reject.
+        let token = "1700000000000-_x.query";
+        let token_path = v
+            .paths
+            .trash_root()
+            .join(crate::paths::TRASH_QUERIES_DIR)
+            .join(token);
+        std::fs::write(&token_path, QUERY_YAML).unwrap();
+        let msg = must_err(v.restore_base(token));
+        assert!(
+            msg.contains("invalid query path"),
+            "expected guard rejection on restore destination; got {msg}"
+        );
+        // The trash file must still be there.
+        assert!(
+            token_path.exists(),
+            "trash file must remain after rejected restore"
         );
     }
 }

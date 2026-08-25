@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use oximemo_core::Vault;
+use oximemo_core::base::{BaseSource, RunBaseReq};
 use oximemo_core::memo::{MemoFilter, MemoId};
 
 use crate::format::{self, Format};
@@ -528,6 +529,114 @@ pub fn cmd_collection_install(vault: &Vault, id: &str, folder: &str) -> Result<(
     Ok(())
 }
 
+// --- .query bases (spec 2026-08-25 §3) -----------------------------------
+
+/// One row of `oximemo base list` in json/ndjson modes — mirrors the
+/// desktop wire shape (`mtime` as epoch millis).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BaseListRow {
+    pub path: String,
+    pub name: String,
+    pub mtime_ms: u64,
+    pub loadable: bool,
+}
+
+/// `oximemo base list [--format table|json|ndjson]` — the vault's
+/// `.query` bases. Table for humans, json/ndjson for agents (same
+/// facts as `folders`).
+pub fn cmd_base_list(vault: &Vault, fmt: Format) -> Result<()> {
+    let bases = vault.list_bases()?;
+    match fmt {
+        Format::Table => print!("{}", format::format_base_list_table(&bases)),
+        Format::Json => {
+            let rows: Vec<BaseListRow> = bases.iter().map(base_list_row).collect();
+            println!("{}", serde_json::to_string_pretty(&rows)?);
+        }
+        Format::Ndjson => {
+            for b in &bases {
+                println!("{}", serde_json::to_string(&base_list_row(b))?);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn base_list_row(b: &oximemo_core::base::BaseInfo) -> BaseListRow {
+    BaseListRow {
+        path: b.path.clone(),
+        name: b.name.clone(),
+        mtime_ms: b
+            .mtime
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+        loadable: b.loadable,
+    }
+}
+
+/// `oximemo base run <PATH> [--view N] [--limit N] [--offset N]` —
+/// execute one page of a `.query` view and print the table. Warnings
+/// ride the page, so they go to stderr where scripts can ignore them.
+pub fn cmd_base_run(
+    vault: &Vault,
+    path: &str,
+    view: Option<usize>,
+    limit: u32,
+    offset: usize,
+) -> Result<()> {
+    let req = RunBaseReq {
+        view_index: view.unwrap_or(0),
+        offset,
+        limit,
+        group: None,
+        now_ms: None,
+        local_offset_seconds: None,
+        include_group_counts: true,
+        include_summaries: false,
+        this_id: None,
+    };
+    let page = vault.run_base(&BaseSource::Path(path.to_string()), &req)?;
+    // Header context from the same def run_base used (mtime-cached
+    // read — no second parse).
+    let def = vault.load_base(path)?;
+    let view_def = def.views.get(req.view_index);
+    let view_name = view_def
+        .and_then(|v| v.name.clone())
+        .unwrap_or_else(|| format!("view {}", req.view_index));
+    let columns = view_def
+        .map(oximemo_core::base::default_columns)
+        .unwrap_or_default();
+    for w in &page.warnings {
+        eprintln!("warning: {w}");
+    }
+    print!("{}", format::format_base_table(path, &view_name, &columns, &page));
+    Ok(())
+}
+
+/// `oximemo base rename <FROM> <TO>` — moves a `.query` file (the
+/// destination must not exist).
+pub fn cmd_base_rename(vault: &Vault, from: &str, to: &str) -> Result<()> {
+    vault.rename_base(from, to, None)?;
+    println!("renamed {from} -> {to}");
+    Ok(())
+}
+
+/// `oximemo base trash <PATH>` — prints the restore token (single
+/// stdout line; pipe it straight into `base restore`).
+pub fn cmd_base_trash(vault: &Vault, path: &str) -> Result<()> {
+    let token = vault.trash_base(path)?;
+    println!("{token}");
+    Ok(())
+}
+
+/// `oximemo base restore <TOKEN>` — prints the restored file's
+/// vault-relative path.
+pub fn cmd_base_restore(vault: &Vault, token: &str) -> Result<()> {
+    let rel = vault.restore_base(token)?;
+    println!("{rel}");
+    Ok(())
+}
+
 /// Read all of stdin, trimming a single trailing newline.
 fn read_stdin() -> Result<String> {
     use std::io::Read;
@@ -934,5 +1043,239 @@ mod tests {
             .unwrap();
         let hits = metadata_search(t.v(), MetadataDomain::Movie, "듄").unwrap();
         assert!(hits.is_empty());
+    }
+
+    // --- base subcommands (spec 2026-08-25 §3) --------------------------
+
+    use oximemo_core::base::{
+        BaseCell, BaseInfo, BasePage, BaseRow, BaseSource, EvalClockDto, GroupCount, RunBaseReq,
+    };
+    use oximemo_core::expr::value::Value;
+    use oximemo_core::memo::{MemoHash, MemoSummary};
+
+    fn cell_ok(v: Value) -> BaseCell {
+        BaseCell { value: Some(v), error: None }
+    }
+
+    fn cell_err(msg: &str) -> BaseCell {
+        BaseCell { value: None, error: Some(msg.to_string()) }
+    }
+
+    fn base_row(name: &str, cells: Vec<BaseCell>) -> BaseRow {
+        BaseRow {
+            summary: MemoSummary {
+                id: MemoId::now(),
+                created_at: time::OffsetDateTime::UNIX_EPOCH,
+                updated_at: time::OffsetDateTime::UNIX_EPOCH,
+                hash: MemoHash::new(""),
+                favorite: false,
+                title: Some(name.to_string()),
+                path: format!("notes/{name}.md"),
+                tags: Vec::new(),
+                props: Default::default(),
+                preview: String::new(),
+                deleted: false,
+            },
+            folder: "notes".into(),
+            format: "md".into(),
+            cells,
+        }
+    }
+
+    fn base_page(
+        rows: Vec<BaseRow>,
+        total: usize,
+        group_counts: Option<Vec<GroupCount>>,
+    ) -> BasePage {
+        BasePage {
+            rows,
+            total,
+            group_counts,
+            summaries: None,
+            clock: EvalClockDto {
+                now_utc: String::new(),
+                local_offset_seconds: 0,
+            },
+            result_key: String::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn base_table_renders_header_rows_and_error_markers() {
+        let page = base_page(
+            vec![
+                base_row(
+                    "First",
+                    vec![
+                        cell_ok(Value::Str("First".into())),
+                        cell_err("division by zero"),
+                    ],
+                ),
+                base_row(
+                    "Second",
+                    vec![
+                        cell_ok(Value::Str("Second".into())),
+                        cell_ok(Value::Num(3.0)),
+                    ],
+                ),
+            ],
+            2,
+            None,
+        );
+        let out = format::format_base_table(
+            "queries/all.query",
+            "Main",
+            &["file.name".to_string(), "score".to_string()],
+            &page,
+        );
+        assert!(
+            out.starts_with("queries/all.query · Main · 2 rows\n"),
+            "header line first, got: {out}"
+        );
+        assert!(
+            out.contains("file.name") && out.contains("score"),
+            "column labels head the table: {out}"
+        );
+        assert!(out.contains("First"));
+        assert!(out.contains("Second"));
+        assert!(out.contains("3"), "numeric cells render as text: {out}");
+        assert!(out.contains("⚠"), "error cells render the ⚠ marker: {out}");
+        assert!(
+            !out.contains("division by zero"),
+            "cell error detail stays out of the table: {out}"
+        );
+    }
+
+    #[test]
+    fn base_table_header_counts_page_and_total() {
+        let page = base_page(
+            vec![base_row("Only", vec![cell_ok(Value::Str("Only".into()))])],
+            5,
+            None,
+        );
+        let out = format::format_base_table(
+            "q.query",
+            "Table",
+            &["file.name".to_string()],
+            &page,
+        );
+        assert!(
+            out.starts_with("q.query · Table · 1 row (of 5)\n"),
+            "sliced page shows the dataset total: {out}"
+        );
+    }
+
+    #[test]
+    fn base_table_caps_columns_at_five() {
+        let cells: Vec<BaseCell> = (0..7).map(|i| cell_ok(Value::Num(i as f64))).collect();
+        let page = base_page(vec![base_row("R", cells)], 1, None);
+        let cols: Vec<String> =
+            ["c1", "c2", "c3", "c4", "c5", "c6", "c7"].iter().map(|s| s.to_string()).collect();
+        let out = format::format_base_table("q.query", "T", &cols, &page);
+        for kept in &["c1", "c2", "c3", "c4", "c5"] {
+            assert!(out.contains(kept), "column {kept} kept: {out}");
+        }
+        assert!(
+            !out.contains("c6") && !out.contains("c7"),
+            "columns past five are dropped: {out}"
+        );
+    }
+
+    #[test]
+    fn base_table_renders_group_counts_line() {
+        let page = base_page(
+            Vec::new(),
+            0,
+            Some(vec![
+                GroupCount { key: "reading".into(), count: 2 },
+                GroupCount { key: String::new(), count: 1 },
+            ]),
+        );
+        let out = format::format_base_table("q.query", "T", &["file.name".to_string()], &page);
+        assert!(out.contains("no rows"), "empty page says so: {out}");
+        assert!(
+            out.contains("groups: reading 2 · (none) 1"),
+            "group counts render after the table: {out}"
+        );
+    }
+
+    #[test]
+    fn base_list_table_marks_unloadable_bases() {
+        let bases = vec![
+            BaseInfo {
+                path: "queries/all.query".into(),
+                name: "all".into(),
+                mtime: std::time::UNIX_EPOCH,
+                loadable: true,
+            },
+            BaseInfo {
+                path: "queries/bad.query".into(),
+                name: "bad".into(),
+                mtime: std::time::UNIX_EPOCH,
+                loadable: false,
+            },
+        ];
+        let out = format::format_base_list_table(&bases);
+        assert!(
+            out.contains("PATH") && out.contains("NAME") && out.contains("MODIFIED")
+                && out.contains("STATUS"),
+            "brief's column headers: {out}"
+        );
+        assert!(out.contains("queries/all.query"));
+        assert!(out.contains("ok"), "loadable base reads ok: {out}");
+        assert!(out.contains("⚠"), "unloadable base carries the marker: {out}");
+    }
+
+    /// End-to-end through the real executor: the page `run_base`
+    /// produces must render (formatter + core shapes in lockstep).
+    #[test]
+    fn base_table_renders_a_real_run_base_page() {
+        let t = TmpVault::new();
+        let a = make_memo(t.v(), "# Alpha");
+        let mut pm = oximemo_core::PropMutation::default();
+        pm.sets.push((
+            "status".into(),
+            oximemo_core::PropValue::Str("reading".into()),
+        ));
+        cmd_update(t.v(), a, None, false, None, Some(pm)).unwrap();
+        make_memo(t.v(), "# Beta");
+        t.v()
+            .save_base(
+                "queries/reading.query",
+                "views:\n  - type: table\n    name: Main\n    columns: [file.name, status]\n    groupBy: { property: status }\n",
+                None,
+            )
+            .unwrap();
+        let req = RunBaseReq {
+            view_index: 0,
+            offset: 0,
+            limit: 30,
+            group: None,
+            now_ms: None,
+            local_offset_seconds: None,
+            include_group_counts: true,
+            include_summaries: false,
+            this_id: None,
+        };
+        let page = t
+            .v()
+            .run_base(&BaseSource::Path("queries/reading.query".into()), &req)
+            .unwrap();
+        let out = format::format_base_table(
+            "queries/reading.query",
+            "Main",
+            &["file.name".to_string(), "status".to_string()],
+            &page,
+        );
+        assert!(
+            out.starts_with("queries/reading.query · Main · 2 rows"),
+            "{out}"
+        );
+        assert!(out.contains("reading"), "status prop value renders: {out}");
+        assert!(
+            out.contains("groups: reading 1 · (none) 1"),
+            "real group counts render: {out}"
+        );
     }
 }

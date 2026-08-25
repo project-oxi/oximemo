@@ -245,6 +245,14 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::query_notes,
+            commands::run_base,
+            commands::list_bases,
+            commands::load_base,
+            commands::save_base,
+            commands::rename_base,
+            commands::trash_base,
+            commands::restore_base,
+            commands::base_props,
             commands::folder_schema,
             commands::set_metadata_config,
             commands::search_book_metadata,
@@ -363,6 +371,20 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
     let emit_handle = handle.clone();
     let git_tx = state.git_tx.clone();
     let on_change: oximemo_core::watcher::OnChange = Arc::new(move |path| {
+        // Saved-query edits are not note content (query views spec §3):
+        // broadcast bases:changed and skip reindex + git enqueue
+        // entirely. Belt-and-suspenders only: this throwaway Vault does
+        // NOT drop the running app's caches — the base and result
+        // caches are content/mtime-keyed and self-heal (a changed
+        // .query is a natural miss on the next run_base), so the
+        // event, not this call, is what refreshes the UI.
+        if path.extension().is_some_and(|e| e == "query") {
+            if let Ok(v) = oximemo_core::Vault::open(Some(&vault_path)) {
+                v.invalidate_base_caches();
+            }
+            let _ = emit_handle.emit("bases:changed", ());
+            return;
+        }
         if let Ok(v) = oximemo_core::Vault::open(Some(&vault_path)) {
             v.reindex_path(&path);
         }
@@ -670,6 +692,9 @@ async fn brain_connect(
 mod commands {
     use oximemo_core::Vault;
     use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
+    use oximemo_core::base::{BasePage, BaseRow, BaseSource, EvalClockDto, GroupCount, RunBaseReq, SummaryValue};
+    use std::collections::BTreeMap;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use oximemo_core::sync::ManifestRecord;
     use std::sync::Arc;
     use tauri::Manager;
@@ -833,6 +858,265 @@ mod commands {
             limit: limit.unwrap_or(50),
         };
         state.vault.query_notes(&query).map_err(|e| e.to_string())
+    }
+
+    // -- query views (design 2026-08-25) ----------------------------------
+
+    /// mtime → whole milliseconds since the Unix epoch (pre-epoch → 0).
+    pub fn systemtime_to_ms(t: SystemTime) -> u64 {
+        t.duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    /// Wire milliseconds → `SystemTime` (the optimistic-concurrency guard).
+    pub fn ms_to_systemtime(ms: u64) -> SystemTime {
+        UNIX_EPOCH + Duration::from_millis(ms)
+    }
+
+    /// `run_base` result on the wire: outer fields camelCase per the
+    /// reviewed types.ts contract; nested core types (`BaseRow`,
+    /// `EvalClockDto`, expr `Value`) keep their own serde casing
+    /// (snake_case `now_utc`/`local_offset_seconds`,
+    /// `DurationSpec.calendar_months/fixed_millis`) — `rename_all`
+    /// never propagates into nested types, which is exactly the
+    /// reviewed TS shape.
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct BasePageDto {
+        pub rows: Vec<BaseRow>,
+        pub total: usize,
+        pub group_counts: Option<Vec<GroupCount>>,
+        pub summaries: Option<BTreeMap<String, SummaryValue>>,
+        pub clock: EvalClockDto,
+        pub result_key: String,
+        pub warnings: Vec<String>,
+    }
+
+    impl From<BasePage> for BasePageDto {
+        fn from(p: BasePage) -> Self {
+            Self {
+                rows: p.rows,
+                total: p.total,
+                group_counts: p.group_counts,
+                summaries: p.summaries,
+                clock: p.clock,
+                result_key: p.result_key,
+                warnings: p.warnings,
+            }
+        }
+    }
+
+    /// One `.query` file for the sidebar list (mtime as wire millis).
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct BaseInfoDto {
+        pub path: String,
+        pub name: String,
+        pub mtime_ms: u64,
+        pub loadable: bool,
+    }
+
+    /// Raw `.query` text + the mtime guarding the next save.
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct LoadBaseDto {
+        pub yaml: String,
+        pub mtime_ms: u64,
+    }
+
+    /// `run_base` request on the wire (camelCase outer fields).
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RunBaseReqDto {
+        pub view_index: usize,
+        pub offset: usize,
+        pub limit: u32,
+        pub group: Option<String>,
+        pub now_ms: Option<i64>,
+        pub local_offset_seconds: Option<i32>,
+        pub include_group_counts: bool,
+        pub include_summaries: bool,
+        pub this_id: Option<String>,
+    }
+
+    impl RunBaseReqDto {
+        pub fn into_core(self) -> Result<RunBaseReq, String> {
+            Ok(RunBaseReq {
+                view_index: self.view_index,
+                offset: self.offset,
+                limit: self.limit,
+                group: self.group,
+                now_ms: self.now_ms,
+                local_offset_seconds: self.local_offset_seconds,
+                include_group_counts: self.include_group_counts,
+                include_summaries: self.include_summaries,
+                this_id: match self.this_id {
+                    Some(s) => Some(MemoId::parse(&s).map_err(|e| e.to_string())?),
+                    None => None,
+                },
+            })
+        }
+    }
+
+    /// `run_base` source on the wire: `Inline` carries raw YAML (plain
+    /// strings, not nested YAML values), `Path` is vault-relative.
+    /// Externally tagged like every Rust enum on this wire.
+    #[derive(serde::Deserialize)]
+    pub enum BaseSourceDto {
+        Inline { yaml: String },
+        Path(String),
+    }
+
+    impl BaseSourceDto {
+        pub fn into_core(self) -> Result<BaseSource, String> {
+            match self {
+                BaseSourceDto::Inline { yaml } => Ok(BaseSource::Inline(
+                    oximemo_core::base::parse_base(&yaml).map_err(|e| e.to_string())?,
+                )),
+                BaseSourceDto::Path(rel) => Ok(BaseSource::Path(rel)),
+            }
+        }
+    }
+
+    /// Observed property catalog entry (spec §3). Core names the kind
+    /// list `kinds`; the spec's wire name `observedTypes` wins
+    /// (Controller ruling) — mapped here, not renamed in core.
+    #[derive(serde::Serialize)]
+    pub struct PropInfoDto {
+        pub key: String,
+        #[serde(rename = "observedTypes")]
+        pub kinds: Vec<String>,
+        pub options: Vec<String>,
+    }
+
+    /// Execute one page of a base view (spec §3 pipeline; cache-aware).
+    #[tauri::command]
+    pub fn run_base(
+        state: State<'_, AppState>,
+        source: BaseSourceDto,
+        req: RunBaseReqDto,
+    ) -> Result<BasePageDto, String> {
+        let source = source.into_core()?;
+        let req = req.into_core()?;
+        state
+            .vault
+            .run_base(&source, &req)
+            .map(BasePageDto::from)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Every discoverable `.query` file. Non-loadable ones ride along
+    /// with `loadable: false` so the sidebar can flag (⚠) and repair
+    /// them instead of hiding.
+    #[tauri::command]
+    pub fn list_bases(state: State<'_, AppState>) -> Result<Vec<BaseInfoDto>, String> {
+        Ok(state
+            .vault
+            .list_bases()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|b| BaseInfoDto {
+                path: b.path,
+                name: b.name,
+                mtime_ms: systemtime_to_ms(b.mtime),
+                loadable: b.loadable,
+            })
+            .collect())
+    }
+
+    /// Raw `.query` text + current mtime (builder code-mode source of
+    /// truth).
+    #[tauri::command]
+    pub fn load_base(state: State<'_, AppState>, path: String) -> Result<LoadBaseDto, String> {
+        let (yaml, mtime) = state.vault.load_base_raw(&path).map_err(|e| e.to_string())?;
+        Ok(LoadBaseDto {
+            yaml,
+            mtime_ms: systemtime_to_ms(mtime),
+        })
+    }
+
+    /// Save (create or overwrite) a `.query` document. Core parses and
+    /// validates first — an unparseable YAML never reaches disk. A
+    /// mismatched `expected_mtime_ms` is the reload conflict. Returns
+    /// the fresh mtime for the next save.
+    #[tauri::command]
+    pub fn save_base(
+        state: State<'_, AppState>,
+        path: String,
+        yaml: String,
+        expected_mtime_ms: Option<u64>,
+    ) -> Result<LoadBaseDto, String> {
+        state
+            .vault
+            .save_base(&path, &yaml, expected_mtime_ms.map(ms_to_systemtime))
+            .map_err(|e| e.to_string())?;
+        let (raw, mtime) = state.vault.load_base_raw(&path).map_err(|e| e.to_string())?;
+        Ok(LoadBaseDto {
+            yaml: raw,
+            mtime_ms: systemtime_to_ms(mtime),
+        })
+    }
+
+    /// Rename/move a `.query` file. Emits `bases:changed` so the
+    /// sidebar re-lists; in-place saves ride the `.query` file watcher
+    /// instead (already emits the same event).
+    #[tauri::command]
+    pub fn rename_base(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        from: String,
+        to: String,
+        expected_mtime_ms: Option<u64>,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .rename_base(&from, &to, expected_mtime_ms.map(ms_to_systemtime))
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("bases:changed", ());
+        Ok(())
+    }
+
+    /// Move a `.query` file into `.trash/_queries/`; returns the token
+    /// `restore_base` consumes.
+    #[tauri::command]
+    pub fn trash_base(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        path: String,
+    ) -> Result<String, String> {
+        let token = state.vault.trash_base(&path).map_err(|e| e.to_string())?;
+        let _ = app.emit("bases:changed", ());
+        Ok(token)
+    }
+
+    /// Restore a trashed `.query`; returns the restored vault-relative
+    /// path.
+    #[tauri::command]
+    pub fn restore_base(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        token: String,
+    ) -> Result<String, String> {
+        let rel = state.vault.restore_base(&token).map_err(|e| e.to_string())?;
+        let _ = app.emit("bases:changed", ());
+        Ok(rel)
+    }
+
+    /// Observed property catalog for the filter builder (spec §3).
+    #[tauri::command]
+    pub fn base_props(state: State<'_, AppState>) -> Result<Vec<PropInfoDto>, String> {
+        Ok(state
+            .vault
+            .base_props()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|p| PropInfoDto {
+                key: p.key,
+                kinds: p.kinds,
+                options: p.options,
+            })
+            .collect())
     }
 
     /// The folder's property schema, or `null` in free-property mode.
@@ -2103,6 +2387,273 @@ mod tests {
         assert_eq!(arr[0]["note_count"], serde_json::json!(3));
         assert_eq!(arr[1]["path"], serde_json::Value::String("novel".into()));
         assert_eq!(arr[1]["note_count"], serde_json::json!(2));
+    }
+
+
+    // --- query views (design 2026-08-25) wire contract -----------------------
+    // The DTOs below mirror apps/desktop/src/lib/types.ts — that file is
+    // the reviewed contract: outer command DTOs camelCase, nested core
+    // types (BaseRow/MemoSummary, the EvalClockDto clock, expr Values)
+    // snake_case.
+
+    use super::commands::{
+        BaseInfoDto, BasePageDto, BaseSourceDto, LoadBaseDto, PropInfoDto, RunBaseReqDto,
+    };
+    use oximemo_core::base::{BaseCell, BasePage, BaseRow, EvalClockDto, GroupCount, SummaryValue};
+    use oximemo_core::expr::value::{DurationSpec, Value};
+    use oximemo_core::{MemoHash, MemoId, MemoSummary};
+
+    fn summary_fixture() -> MemoSummary {
+        MemoSummary {
+            id: MemoId::now(),
+            created_at: time::OffsetDateTime::now_utc(),
+            updated_at: time::OffsetDateTime::now_utc(),
+            hash: MemoHash::new("cafe01"),
+            favorite: false,
+            title: Some("Wire contract".into()),
+            path: "inbox/wire.md".into(),
+            tags: vec!["draft".into()],
+            props: Default::default(),
+            preview: "preview".into(),
+            deleted: false,
+        }
+    }
+
+    fn page_fixture() -> BasePage {
+        BasePage {
+            rows: vec![BaseRow {
+                summary: summary_fixture(),
+                folder: "inbox".into(),
+                format: "markdown".into(),
+                cells: vec![
+                    BaseCell {
+                        value: Some(Value::Duration(DurationSpec {
+                            calendar_months: 1,
+                            fixed_millis: 500,
+                        })),
+                        error: None,
+                    },
+                    BaseCell {
+                        value: Some(Value::Date(
+                            time::OffsetDateTime::parse(
+                                "2025-04-01T13:05:09+09:00",
+                                &time::format_description::well_known::Rfc3339,
+                            )
+                            .unwrap(),
+                        )),
+                        error: None,
+                    },
+                    BaseCell {
+                        value: None,
+                        error: Some("division by zero".into()),
+                    },
+                ],
+            }],
+            total: 1,
+            group_counts: Some(vec![GroupCount {
+                key: "reading".into(),
+                count: 1,
+            }]),
+            summaries: Some(
+                vec![(
+                    "note.rating".to_string(),
+                    SummaryValue {
+                        name: "Average".into(),
+                        value: Value::Num(4.5),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            ),
+            clock: EvalClockDto {
+                now_utc: "2026-08-25T00:00:00Z".into(),
+                local_offset_seconds: 32400,
+            },
+            result_key: "b3:abc".into(),
+            warnings: vec![],
+        }
+    }
+
+    /// `RunBaseReqDto` reads the camelCase wire shape types.ts sends and
+    /// maps losslessly onto the core `RunBaseReq` (incl. `thisId` → MemoId).
+    #[test]
+    fn run_base_req_dto_reads_camel_case_wire() {
+        let json = serde_json::json!({
+            "viewIndex": 1,
+            "offset": 40,
+            "limit": 20,
+            "group": "reading",
+            "nowMs": 1756084800000_i64,
+            "localOffsetSeconds": 32400,
+            "includeGroupCounts": true,
+            "includeSummaries": false,
+            "thisId": null
+        });
+        let dto: RunBaseReqDto = serde_json::from_value(json).expect("camelCase wire must parse");
+        assert_eq!(dto.view_index, 1);
+        assert_eq!(dto.offset, 40);
+        assert_eq!(dto.limit, 20);
+        assert_eq!(dto.group.as_deref(), Some("reading"));
+        assert_eq!(dto.now_ms, Some(1756084800000));
+        assert_eq!(dto.local_offset_seconds, Some(32400));
+        assert!(dto.include_group_counts);
+        assert!(!dto.include_summaries);
+        assert_eq!(dto.this_id, None);
+
+        let core = dto.into_core().expect("core req");
+        assert_eq!(core.view_index, 1);
+        assert_eq!(core.group.as_deref(), Some("reading"));
+        assert_eq!(core.now_ms, Some(1756084800000));
+        assert_eq!(core.local_offset_seconds, Some(32400));
+        assert!(core.include_group_counts);
+        assert!(!core.include_summaries);
+        assert!(core.this_id.is_none());
+
+        // A present `thisId` must parse into a MemoId, not pass through raw.
+        let id = MemoId::now();
+        let json = serde_json::json!({
+            "viewIndex": 0, "offset": 0, "limit": 50, "group": null,
+            "nowMs": null, "localOffsetSeconds": null,
+            "includeGroupCounts": false, "includeSummaries": false,
+            "thisId": id.to_string()
+        });
+        let dto: RunBaseReqDto = serde_json::from_value(json).expect("parse");
+        assert_eq!(dto.into_core().expect("core").this_id, Some(id));
+        assert!(MemoId::parse("not-a-uuid").is_err(), "sanity: bad id fails");
+    }
+
+    /// `BasePageDto`: outer fields camelCase (`groupCounts`, `resultKey`),
+    /// nested core types keep their snake_case serde (`clock.now_utc`,
+    /// `clock.local_offset_seconds`, `summary.created_at`,
+    /// `Duration.calendar_months/fixed_millis`) — exactly types.ts.
+    #[test]
+    fn base_page_dto_wire_shape_camel_outer_snake_nested() {
+        let json = serde_json::to_value(BasePageDto::from(page_fixture())).unwrap();
+        let obj = json.as_object().expect("object");
+        let mut keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["clock", "groupCounts", "resultKey", "rows", "summaries", "total", "warnings"]
+        );
+
+        assert_eq!(json["total"], serde_json::json!(1));
+        assert_eq!(json["resultKey"], serde_json::json!("b3:abc"));
+        assert_eq!(json["clock"]["now_utc"], serde_json::json!("2026-08-25T00:00:00Z"));
+        assert_eq!(json["clock"]["local_offset_seconds"], serde_json::json!(32400));
+        assert_eq!(json["groupCounts"][0]["key"], serde_json::json!("reading"));
+        assert_eq!(json["groupCounts"][0]["count"], serde_json::json!(1));
+        assert_eq!(json["summaries"]["note.rating"]["name"], serde_json::json!("Average"));
+        assert_eq!(json["summaries"]["note.rating"]["value"]["Num"], serde_json::json!(4.5));
+
+        let row = &json["rows"][0];
+        assert_eq!(row["folder"], serde_json::json!("inbox"));
+        assert_eq!(row["format"], serde_json::json!("markdown"));
+        // Nested MemoSummary stays snake_case (created_at), matching the
+        // long-standing MemoSummary wire style.
+        assert!(row["summary"].get("created_at").is_some(), "summary.created_at");
+        assert_eq!(row["summary"]["path"], serde_json::json!("inbox/wire.md"));
+        // Duration cells: externally tagged Value with snake_case fields.
+        assert_eq!(
+            row["cells"][0]["value"]["Duration"]["calendar_months"],
+            serde_json::json!(1)
+        );
+        assert_eq!(
+            row["cells"][0]["value"]["Duration"]["fixed_millis"],
+            serde_json::json!(500)
+        );
+        // Date cells ride the wire as RFC 3339 strings — the SAME
+        // single format as clock.now_utc (types.ts documents this
+        // contract; the old default serde form
+        // `2025-04-01 13:05:09.0 +09:00:00` is gone).
+        assert_eq!(
+            row["cells"][1]["value"]["Date"],
+            serde_json::json!("2025-04-01T13:05:09+09:00")
+        );
+        // Error cells carry `error` + JSON null value (per-cell ⚠ tooltip).
+        assert_eq!(row["cells"][2]["value"], serde_json::Value::Null);
+        assert_eq!(row["cells"][2]["error"], serde_json::json!("division by zero"));
+    }
+
+    /// `BaseSourceDto` is externally tagged on the wire; `Inline` carries
+    /// raw YAML that `into_core` parses via core `parse_base`.
+    #[test]
+    fn base_source_dto_externally_tagged_inline_parses_yaml() {
+        let dto: BaseSourceDto = serde_json::from_value(serde_json::json!({
+            "Inline": { "yaml": "filters: 'true == true'\n" }
+        }))
+        .expect("Inline wire shape");
+        match dto.into_core().expect("parse inline yaml") {
+            oximemo_core::base::BaseSource::Inline(def) => {
+                assert!(def.filters.is_some(), "yaml actually parsed");
+            }
+            other => panic!("expected Inline, got {other:?}"),
+        }
+
+        let dto: BaseSourceDto =
+            serde_json::from_value(serde_json::json!({ "Path": "queries/all.query" }))
+                .expect("Path wire shape");
+        assert!(matches!(
+            dto.into_core().expect("path"),
+            oximemo_core::base::BaseSource::Path(p) if p == "queries/all.query"
+        ));
+
+        // Unparseable inline YAML surfaces the core error string.
+        let dto: BaseSourceDto = serde_json::from_value(serde_json::json!({
+            "Inline": { "yaml": "views: 3\n" }
+        }))
+        .unwrap();
+        assert!(dto.into_core().is_err(), "bad yaml must fail");
+    }
+
+    /// `base_props` wire field is `observedTypes` (spec §3; core names it
+    /// `kinds`) — the Controller ruling maps, not renames, the core field.
+    #[test]
+    fn prop_info_dto_field_is_observed_types() {
+        let dto = PropInfoDto {
+            key: "status".into(),
+            kinds: vec!["select".into()],
+            options: vec!["reading".into(), "done".into()],
+        };
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["key"], serde_json::json!("status"));
+        assert_eq!(json["observedTypes"], serde_json::json!(["select"]));
+        assert_eq!(json["options"], serde_json::json!(["reading", "done"]));
+        assert!(json.get("kinds").is_none(), "core field name must not leak");
+    }
+
+    /// `list_bases`/`load_base` expose the mtime as `mtimeMs` milliseconds.
+    #[test]
+    fn base_info_and_load_dto_expose_mtime_ms() {
+        let info = serde_json::to_value(&BaseInfoDto {
+            path: "queries/all.query".into(),
+            name: "all".into(),
+            mtime_ms: 1_756_084_800_000,
+            loadable: true,
+        })
+        .unwrap();
+        let mut keys: Vec<&str> = info.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, vec!["loadable", "mtimeMs", "name", "path"]);
+        assert_eq!(info["mtimeMs"], serde_json::json!(1_756_084_800_000_u64));
+
+        let load = serde_json::to_value(&LoadBaseDto {
+            yaml: "views: []\n".into(),
+            mtime_ms: 42,
+        })
+        .unwrap();
+        assert_eq!(load["yaml"], serde_json::json!("views: []\n"));
+        assert_eq!(load["mtimeMs"], serde_json::json!(42));
+    }
+
+    /// mtime ↔ millis helpers round-trip exactly (they guard every save).
+    #[test]
+    fn systemtime_ms_helpers_roundtrip() {
+        use super::commands::{ms_to_systemtime, systemtime_to_ms};
+        let ms = 1_756_084_800_123_u64;
+        assert_eq!(systemtime_to_ms(ms_to_systemtime(ms)), ms);
+        // Pre-epoch clamp: SystemTime before UNIX_EPOCH maps to 0, never panics.
+        assert_eq!(systemtime_to_ms(std::time::UNIX_EPOCH), 0);
     }
 
     /// The git auto-commit consumer: a settled path under the vault must

@@ -1220,6 +1220,19 @@ async function browserFallback(
     case "cli_status":
       return "not-installed";
 
+    // --- Query views (design 2026-08-25): desktop-only by decision — no
+    // second engine. The `bases:changed` event is Rust-side; browser-mode
+    // listen() registration is a natural no-op (nothing emits it).
+    case "run_base":
+    case "list_bases":
+    case "load_base":
+    case "save_base":
+    case "rename_base":
+    case "trash_base":
+    case "restore_base":
+    case "base_props":
+      throw new Error("query views are desktop-only");
+
     default:
       return null;
   }
