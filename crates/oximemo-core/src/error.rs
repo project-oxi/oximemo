@@ -82,17 +82,11 @@ pub enum CoreError {
 
     #[error("image rejected: {0}")]
     AssetRejected(String),
-    #[error("image rejected: {0}")]
-    AssetRejected(String),
-
-    #[error("expression error at {line}:{col}: {message}")]
-    Expr { message: String, line: u32, col: u32 },
 
     #[error("expression error at {line}:{col}: {message}")]
     Expr { message: String, line: u32, col: u32 },
 
     #[error("{0}")]
-    Other(String),
     Other(String),
 }
 
