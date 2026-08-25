@@ -652,6 +652,45 @@ async function browserFallback(
       return n;
     }
 
+    case "create_capture": {
+      // Browser preview parity: resolve inbox via installed schema
+      // mirrors exactly like Rust does (first SCHEMA with
+      // meta.preset === "idea"). Falls back to "" root when absent.
+      const body = (args?.body as string | undefined) ?? "";
+      const format = "markdown" as "markdown" | "html";
+      const folder = (() => {
+        const schemas = loadSchemas();
+        for (const [p, s] of Object.entries(schemas)) {
+          if (s?.meta?.preset === "idea") return p;
+        }
+        return "";
+      })();
+      const title = deriveTitle(body, format);
+      const ext = format === "html" ? ".html" : ".md";
+      const base = (title ?? `note-${Date.now()}`).replace(/[^\p{L}\p{N}]+/gu, "-");
+      const now = new Date().toISOString();
+      const memo: Memo = {
+        id: crypto.randomUUID(),
+        created_at: now,
+        updated_at: now,
+        hash: fakeHash(),
+        favorite: false,
+        folder,
+        path: `${folder ? `${folder}/` : ""}${base}${ext}`,
+        format,
+        title,
+        tags: extractTags(body),
+        body,
+        props: {},
+        deleted_at: null,
+      };
+      const store = loadStore();
+      store[memo.id] = memo;
+      saveStore(store);
+      emitBrowser("memos:changed");
+      return memo;
+    }
+
     case "create_memo": {
       const now = new Date().toISOString();
       const body = (args?.body as string | undefined) ?? "";
