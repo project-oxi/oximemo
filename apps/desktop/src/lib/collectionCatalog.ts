@@ -9,8 +9,8 @@ import {
   Calendar,
   Clapperboard,
   FileText,
+  Inbox,
   Library,
-  Lightbulb,
   PenLine,
   type LucideIcon,
 } from "lucide-react";
@@ -68,10 +68,10 @@ export const COLLECTION_CATALOG: CollectionPresetInfo[] = [
   },
   {
     id: "idea",
-    icon: Lightbulb,
+    icon: Inbox,
     nameKey: "collection_name_idea",
     descKey: "collection_desc_idea",
-    defaultFolder: { ko: "아이디어", en: "ideas" },
+    defaultFolder: { ko: "인박스", en: "inbox" },
     hasMetadata: false,
   },
 ];

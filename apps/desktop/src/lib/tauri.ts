@@ -329,7 +329,7 @@ const NOVEL_PRESET_SCHEMA: FolderSchema = {
 
 const IDEA_PRESET_SCHEMA: FolderSchema = {
   meta: { preset: "idea" },
-  workspace: { name: "아이디어" },
+  workspace: { name: "인박스" },
   properties: {
     kind: { prop_type: "select", options: KIND_OPTIONS },
     status: {

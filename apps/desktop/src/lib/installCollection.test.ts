@@ -61,9 +61,9 @@ describe("fallback install_collection", () => {
   test.skipIf(isTauri)("idea preset carries the promote declaration", async () => {
     localStorage.setItem(SCHEMAS_KEY, "{}");
     localStorage.setItem(FOLDERS_KEY, "[]");
-    await installCollection("idea", "아이디어");
+    await installCollection("idea", "인박스");
     const schemas = JSON.parse(localStorage.getItem(SCHEMAS_KEY) ?? "{}");
-    expect(schemas["아이디어"].review.promote).toEqual({
+    expect(schemas["인박스"].review.promote).toEqual({
       into: "knowledge",
       kind: "knowledge",
       start_status: "stub",
