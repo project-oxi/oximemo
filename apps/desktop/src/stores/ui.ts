@@ -171,7 +171,9 @@ function loadCollapsed(): boolean {
 export function loadQueryView(): ViewMode {
   if (typeof window === "undefined") return "grid";
   const v = window.localStorage.getItem(QUERY_VIEW_KEY);
-  return v === "list" || v === "timeline" || v === "graph" ? v : "grid";
+  return v === "list" || v === "timeline" || v === "graph" || v === "calendar"
+    ? v
+    : "grid";
 }
 
 export const useUI = create<UIState>((set) => ({
