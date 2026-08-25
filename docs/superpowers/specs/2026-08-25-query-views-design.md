@@ -75,12 +75,16 @@ Structural rules:
 - `properties.<key>.displayName` affects rendering only, never evaluation.
 - `order`, `groupBy`, `summaries`, and `columns` may reference any
   identifier including `formula.*`.
-- `limit` is a hard cap on the view's result set (Bases semantics); the
-  request's `offset`/`limit` page *within* that cap. Absent = uncapped.
-- Unknown top-level keys and unknown `views[].type` values are preserved
-  on round-trip (flatten catch-all); an unknown view type renders as a
-  skipped/errored tab rather than failing the whole file — forward
-  compatibility with newer app versions.
+- `limit` is a hard cap on the view dataset (Bases semantics), applied
+  after filter/sort and before `total`/`group_counts`/`summaries`; the
+  request's `offset`/`limit` page *within* that capped dataset. Absent =
+  uncapped.
+- Unknown top-level keys are preserved semantically on builder
+  round-trip via flatten catch-all. Comments/whitespace/quote style are
+  not preserved when the builder rewrites YAML; direct code-mode saves
+  preserve the raw text. `views[].type` is stored as a string, not a
+  closed serde enum, so an unknown view type is preserved and renders as
+  a skipped/errored tab rather than failing the whole file.
 - `views: []` (or a missing `views`) auto-materializes one default
   `table` view in memory; it is written to disk on first edit.
 - Duplicate view names get a `(2)`-style suffix in the tab strip only;
@@ -121,8 +125,17 @@ Modules: `lexer.rs`, `parser.rs` (Pratt precedence climbing),
 
 ```rust
 enum Value { Null, Bool(bool), Num(f64), Str(String),
-             List(Vec<Value>), Date(OffsetDateTime), Duration(Duration) }
+             List(Vec<Value>), Date(OffsetDateTime), Duration(DurationSpec) }
+struct DurationSpec { calendar_months: i32, fixed_millis: i64 }
+struct EvalClock { now_utc: OffsetDateTime, local_offset: UtcOffset }
 ```
+
+`time::Duration` alone cannot represent calendar months/years: `1M` from
+January 31 is not a fixed number of seconds. `y`/`M` compile into
+`calendar_months`; `w`/`d`/`h`/`m`/`s` into `fixed_millis`. Date
+arithmetic applies calendar months first (clamping to the target month's
+last day), then the fixed duration. `today()` and date fields use the
+request's pinned system-local UTC offset; stored timestamps remain UTC.
 
 `PropValue` (Str|Bool|List — no `Num` variant, `props.rs:28-32`) converts
 losslessly; promotion is contextual:
@@ -132,13 +145,14 @@ losslessly; promotion is contextual:
   parseable. `Date ± Duration → Date`, `Date - Date → Num` (ms).
   Promotion failure is an expression error.
 - Equality (`==`/`!=`): cross-type attempts Str↔Num and Str↔Date parses;
-  otherwise values are simply unequal (filters must not crash on messy
-  data). Lists compare by membership (`note.<multiselect> == "x"` = any
-  member equals), matching `PropPredicate::Eq` (`props.rs:138-152`).
-- `now()` is **pinned once per request** and passed into the eval context,
-  so `now()`-dependent filters/formulas cannot drift between pages of one
-  scroll session (`run_base` accepts an optional `now_ms` the frontend
-  reuses across pages of the same view).
+  otherwise values are simply unequal. Lists compare by membership
+  (`note.<multiselect> == "x"` = any member equals), matching
+  `PropPredicate::Eq` (`props.rs:138-152`).
+- Division by zero and non-finite numeric results are expression errors;
+  `NaN`/infinity never enter sort/group/summary keys.
+- `now()` is pinned once per **view session**, not independently per
+  page. The first `run_base` response returns `clock_ms` and
+  `local_offset_seconds`; later pages reuse both.
 
 Operators: `+ - * / %`, `== != > < >= <=`, `! && ||`, member access `.`,
 index `[]`, calls, string/number/bool literals, duration-string arithmetic
@@ -173,14 +187,19 @@ Evaluation is total and terminating by construction.
 
 `CoreError::Expr { message, line, col }` carries the position.
 
-### Ordering consistency (known divergence)
+### Deterministic ordering and known divergence
 
-The engine sorts numerically/date-aware; the existing folder chip-bar sort
-(`SortSpec::PropAsc` → `prop_sort_key`, `props.rs:289-297`) is plain
-lexicographic. Base views use engine ordering; the chip bar keeps its
-current behavior in v1. Unifying them belongs to the `PropValue::Num`
-work already anticipated in that comment — tracked as a follow-up, not
-silently diverged.
+Engine ordering is total and stable: after contextual promotion, values
+sort `Bool < Num < Date < Str < List < Null/error`; strings use
+case-sensitive Unicode scalar order, lists compare by first member.
+Every order ends with `MemoId` ascending as an implicit tie-breaker —
+required so offset pages never duplicate/skip equal-key rows.
+
+The existing folder chip-bar sort (`SortSpec::PropAsc` →
+`prop_sort_key`, `props.rs:289-297`) is plain lexicographic. Base views
+use the engine order; the chip bar keeps its current behavior in v1.
+Unifying them belongs to the `PropValue::Num` work already anticipated
+in that comment — tracked as a follow-up, not silently diverged.
 
 ## §3 Execution pipeline (backend)
 
@@ -199,53 +218,76 @@ is part of this spec, not a non-goal:
   write (`upsert`/`remove`/`reindex`/`reindex_path`).
 - `run_base`, `base_props`, and `query_notes` all read the cached
   snapshot. Existing full-scan callers (`memo_stats`, `list_facets`,
-  `graph_data`, `get_backlinks`) may adopt it opportunistically — same
-  correctness, strictly less work.
-- Per request, only the formulas actually referenced by the active view
-  are evaluated, memoized per row.
-- Budget: ≤20k notes, warm page fetch < 30 ms; a `bench`-style test
-  asserts the snapshot is built once per generation, not once per call.
+  `graph_data`, `get_backlinks`) may adopt it opportunistically.
+- Snapshot caching alone is insufficient: offset page 2 must not
+  re-filter/re-evaluate 20k rows. `BaseResultCache` stores the evaluated,
+  ordered row ids + referenced cell values + group counts + summaries.
+  Key = `(source_fingerprint, view_index, index_generation, clock,
+  include_group_counts, include_summaries)`, where a path source
+  fingerprint includes the `.query` content hash/mtime and an inline
+  source fingerprint hashes its canonical AST. This prevents stale
+  results after a query edit and keeps `now()` results session-stable.
+  Pages are slices of this cached result.
+- Formula evaluation covers the transitive dependency closure reachable
+  from active filters/columns/order/groupBy/summaries only, memoized once
+  per row per result key.
+- Both caches are bounded: snapshot budget ≤64 MiB; result-cache LRU ≤16
+  keys / 64 MiB. Eviction only costs recomputation. Target: ≤20k notes,
+  warm page slice < 30 ms. Tests assert one snapshot/result build per key
+  and generation; wall-clock targets live in benchmarks, not CI asserts.
 
 ### Pipeline
 
-Filter (base AND view, soft-deleted always excluded) → **evaluate
-referenced formulas** → sort → page slice. Formula evaluation precedes
-sorting because `order`/`groupBy`/`summaries` may reference `formula.*`.
+Pipeline: filter (base AND view, soft-deleted always excluded) →
+**evaluate referenced formulas** → deterministic group-major sort →
+apply the view's hard `limit` → compute `total`/`group_counts`/summaries
+over that capped dataset → return a page slice. Formula evaluation
+precedes sorting because `order`/`groupBy`/`summaries` may reference
+`formula.*`.
 
-When `groupBy` is set the sort is **group-major**: group key (by
-`groupBy.direction`) first, then the view's `order` within each group, and
-`offset`/`limit` page over that order — so pages fill groups contiguously
-and a section's loaded rows can be compared against its exact count.
-Grouping a List-valued property groups by first member.
+When `groupBy` is set, group key (`groupBy.direction`) sorts first, then
+the view's `order` within each group, then the implicit MemoId tie-breaker.
+`offset`/`limit` page over that stable order. Grouping a List property
+uses its first member; missing/error values enter 그룹 없음.
 
 ### Surface
 
 - `crates/oximemo-core/src/base.rs`: `BaseDef` (serde YAML),
   `load_base(path)` (mtime cache, same shape as `folder_schema`,
-  `vault.rs:165-189`), `save_base(path, yaml, expected_mtime)`
-  (optimistic conflict → error, UI reloads), `delete_base(path)`,
-  `list_bases()` (sorted-path walk; duplicate stems resolve to the first
-  in sorted order and both rows carry a warn badge).
-- `run_base(source, view_index, offset, limit, now_ms?) -> BasePage`
-  where `source = Inline(BaseDef) | Path(String)`.
-- `BaseRow { summary: MemoSummary, folder: String, format: NoteFormat,
-  cells: Vec<Value> }`; `BasePage { rows, total, group_counts, summaries,
-  clock_ms }`. `group_counts` and `summaries` are exact over the full
-  filtered set; the frontend renders group sections from loaded rows
-  (safe because paging is group-major).
+  `vault.rs:165-189`), `save_base(path, yaml, expected_mtime)`,
+  `rename_base(from, to, expected_mtime)`, `trash_base(path)`, and
+  `restore_base(token)`. Query deletion is a move to
+  `.trash/_queries/`, never an irreversible unlink. `list_bases()` skips
+  `.trash`, `_assets`, and hidden/reserved app directories.
+- Every path command canonicalizes the vault root + parent, rejects
+  `..`, absolute paths, symlink escapes, reserved directories, and a
+  non-`.query` extension before any read/write/move.
+- `list_bases()` walks in sorted path order. A duplicate stem is marked
+  ambiguous; no API silently selects the first.
+- `run_base(source, view_index, offset, limit, clock?, group?) ->
+  BasePage`, where `source = Inline(BaseDef) | Path(String)` and optional
+  `group` selects one canonical group key for board column paging.
+- `BaseCell { value: Option<Value>, error: Option<ExprError> }`;
+  `BaseRow { summary: MemoSummary, folder: String, format: NoteFormat,
+  cells: Vec<BaseCell> }`; `BasePage { rows, total, group_counts,
+  summaries, clock, result_key }`. `BaseCell` is required by §2's
+  per-cell ⚠︎ contract; `Vec<Value>` cannot carry an error tooltip.
 - Summary functions: `All Checked Unchecked Empty Filled Unique Average
   Sum Min Max Median`.
-- Board loading: per-group paging — the board requests `limit` rows per
-  visible group column (`groupBy` + a group-key filter injected into the
-  request), never a single flat page. Column headers use `group_counts`.
+- Board loading: one `run_base(..., group: Some(key))` page per visible
+  scalar group column. Counts and columns come from the same capped
+  cached result key, so per-group pages cannot exceed the view limit.
 - Tauri commands: `run_base`, `list_bases`, `load_base`, `save_base`,
-  `delete_base`, `base_props` (distinct prop keys + observed kinds + top
-  ≤50 values, one snapshot pass, cached per generation).
+  `rename_base`, `trash_base`, `restore_base`, `base_props`.
+  `base_props` returns `{ key, observed_types, options }`; a key with
+  conflicting observed/schema types offers only equality/contains in
+  the builder until the user switches to an advanced expression.
 - Watcher: `is_user_content` (`watcher.rs:102-111`) currently accepts only
-  `md|html|markdown|htm` + `oximemo.toml`, so `.query` files are invisible
-  today — it must be widened, emitting a new `bases:changed` event.
+  `md|html|markdown|htm` + `oximemo.toml`, so `.query` must be added.
+  Query changes emit `bases:changed`, clear path-matching result keys,
+  and invalidate the mtime/name caches.
 - CLI: `oximemo base list`, `oximemo base run <path> [--view N]
-  [--limit N]`.
+  [--limit N]`, `oximemo base rename`, `oximemo base trash|restore`.
 
 ## §4 Table view + in-place cell editing
 
@@ -257,92 +299,102 @@ Grouping a List-valued property groups by first member.
   back to YAML in query views; not persisted for folders in v1),
   collapsible group sections with exact counts, sticky summary footer.
 - Cells by property type: select → badge (`badgeTone`), bool → checkbox,
-  date → date input, multiselect → chips, text → inline text; labels via
-  `propValueLabel(key, value, t, preset)`. Formula cells are read-only.
+  date → date input, multiselect → chips, text → inline text; formula
+  cells are read-only.
+- A base can cross folders whose schemas give the same key different
+  types/vocabularies. `TableView` batches `folder_schema` for the unique
+  `BaseRow.folder` values (the existing `useSchemaInfo(paths)` pattern)
+  and chooses the editor + `propValueLabel` preset **per row**. Missing
+  schema falls back to the runtime PropValue shape; a conflicting key
+  does not borrow another folder's schema.
+- Editable matrix:
+  - `note.*` / bare frontmatter props: typed editor.
+  - `file.favorite`: existing favorite mutation.
+  - `file.name`, tags, created/updated, path/folder/format, and every
+    `formula.*`: read-only. Tags are derived data today, not a
+    `PropMutation`; title/path rename is a separate workflow.
 - **Editing** reuses PropertyPanel's editors. Required rework:
-  - Lift the editors' context (`propKey`, `def: SchemaPropertyDef`,
-    `preset`, `value`, `onCommit`) out of PropertyPanel's render tree;
-    `BoolEditor`'s `onCommitBool(boolean)` fork is preserved.
+  - Lift editor context (`propKey`, `def`, row `preset`, `value`,
+    `onCommit`) out of PropertyPanel; preserve `BoolEditor`'s boolean
+    callback fork.
   - `commit()` today invalidates only `["memo", id]` + `["memos"]`
-    (`PropertyPanel.tsx:712-734`) — it must also invalidate `["base"]`,
-    and the `memos:changed` listener (`CardGrid.tsx:469-481`) gains
-    `["base"]`/`["bases"]`.
-  - `update_memo` returns the **post-transition `NoteDto`**
-    (`src-tauri/src/lib.rs:799-814`), so the edited row is reconciled from
-    the response — no full refetch, and schema transitions
-    (`schema.rs:336-408`) that touch other props show up immediately.
-  - **Row-order freeze**: editing rewrites `updated_at`, so a table sorted
-    by `note.updated desc` would yank the edited row to the top. While a
-    cell in a table has focus or an in-flight commit, that table suppresses
-    re-sort/invalidation; order settles on blur.
-- `views/BoardView.tsx` (query views only): columns from `group_counts`,
-  cards reuse `Card`, per-group paging (§3). Drag commits an
-  `update_memo` set of the group property. **A List-valued (multiselect)
-  group property disables board drag** — replacing the list would destroy
-  the other members; such a query may still group in a table. Dragging to
-  그룹 없음 commits a `removes` mutation.
-- `cards` / `list` view types are thin adapters over `BasePage.rows`
-  reusing `GridView`/`ListView`; they honor filters/order/limit and ignore
-  `columns`/`summaries`, and offer no cell editing.
+    (`PropertyPanel.tsx:712-734`) — it must also invalidate `["base"]`.
+    `memos:changed` (`CardGrid.tsx:469-481`) invalidates `["base"]`;
+    `bases:changed` alone invalidates `["bases"]`.
+  - `update_memo` returns the post-transition `NoteDto`
+    (`src-tauri/src/lib.rs:799-814`), so the row reconciles from that
+    response and transition side effects appear immediately.
+  - Editing a table sorted by updated time freezes only the displayed row
+    id order. Values still patch and invalidations mark the result stale;
+    the queued result swaps in on blur/commit. External changes are never
+    discarded by suppressing invalidation.
+- `views/BoardView.tsx` uses a BoardCard adapter/drag mode instead of
+  Card's folder-move drag contract. Drag commits the scalar group prop;
+  List-valued group props disable board drag, while table grouping still
+  works. Dragging to 그룹 없음 commits a `removes` mutation.
+- `cards` / `list` are note-only adapters over `BasePage.rows` reusing
+  Card rendering and virtualization, not GridView/ListView's folder-card
+  handlers. They honor filters/order/limit, ignore columns/summaries, and
+  offer no cell editing.
 
 ## §5 Query collection surface
 
-- **`stores/ui.ts` gets a tagged location union**, replacing the
-  `folderFilter === null` magic:
+- **`stores/ui.ts` gets a tagged browse-location union**, replacing the
+  `folderFilter === null` magic without conflating search with navigation:
 
   ```ts
   type Location =
     | { kind: "folder"; path: string }   // "" = vault root
     | { kind: "all" } | { kind: "favorites" }
-    | { kind: "search"; q: string }
     | { kind: "base"; source: { path: string } | { inline: BaseDef } };
   ```
 
+  Existing `search` + `searchScope: "folder"|"all"` remain a transient
+  overlay; folder-scoped search must not be regressed into a location
+  variant. Entering a base clears search and hides the global search
+  input; query filtering/searching happens through the base filter
+  builder. Clicking a tag or starting global search first exits the base
+  to the previous non-base location.
+
   Exactly one location is active; `folderFilter` survives only as a
-  derived getter (`kind === "folder" ? path : null`) so listing queries
-  keep their shape, but no decision site reads it directly. Cutover sites:
-  `Sidebar.tsx:238,250` (all-notes/favorites highlight),
-  `BreadcrumbBar.tsx:111` (crumb labels), `CardGrid.tsx:170`
-  (`setNoteViewLocked`), `:185` (listing key), `:1010` (`openCollection`),
-  `:1021` (`selectTag`), `:1025` (`setViewMode`), `:1214` (lock button),
-  `ui.ts:198-209` (`navigateUp` — ⌘↑ must exit a base to its previous
-  location, not to root browse), plus `loadQueryView`/`QUERY_VIEW_KEY`
-  (`ui.ts:160-174`), which stays scoped to the smart collections.
-  The `inline` variant exists so a fenced block's 「전체 열기」 has a
-  target (a fenced block has no path).
-- While a base is open: sidebar tag chips / `favoritesOnly` / the search
-  box do **not** silently AND into the base — the base's own filters are
-  the source of truth. Tag chips and search switch the location away from
-  the base (same as clicking a folder), which keeps one visible filter
-  model on screen.
+  derived getter (`kind === "folder" ? path : null`) so listing IPC keeps
+  its shape, but no decision site reads it directly. Cutover sites:
+  `Sidebar.tsx:238,250`, `BreadcrumbBar.tsx:111`,
+  `CardGrid.tsx:170,185,1010,1021,1025,1214`,
+  `ui.ts:160-174,198-209`. ⌘↑ exits a base to its recorded previous
+  non-base location. The `inline` source lets a fenced block's
+  「전체 열기」 open without first saving a file.
+- While a base is open, sidebar tags/favorites do not silently AND into
+  it. Their actions leave the base first; the base's own filter builder is
+  the single visible query model.
 - Sidebar **QUERIES** section (below FAVORITES): `list_bases()` rows
-  (Database icon, ⚠ on load failure), 「+ 새 쿼리」 creates
-  `queries/<unique-name>.query` at the vault root from a starter template.
+  (Database icon, ⚠ on load failure/ambiguous stem). 「+ 새 쿼리」 creates
+  `queries/<unique-name>.query`; context actions rename or move it to the
+  query trash, with an undo action backed by `restore_base`.
 - Full-screen base surface: per-base view tabs (+「새 뷰 추가」), 「필터」
   builder popover, 「코드」 YAML editor (CodeMirror, save → `save_base`,
-  errors annotated from `CoreError::Expr`). In base mode the **global view
-  switcher and folder-view lock are hidden** — view tabs replace them.
+  errors annotated from `CoreError::Expr`). In base mode the global
+  search, view switcher, and folder-view lock are hidden — view tabs and
+  the builder replace them.
 - View switcher overflow: with `Table` added (and `Calendar` pending) the
-  folder header would carry 6-8 icon buttons next to BreadcrumbBar and the
-  search input. At ≥6 modes it collapses into a Base UI dropdown.
+  folder header would carry 6-8 icons. At ≥6 modes it collapses into a
+  Base UI dropdown.
 - Filter builder: condition rows (property dropdown from `base_props`,
   operator, value with observed-value suggestions) over an and/or/not
-  tree. Builder state **is** the parsed expression tree, serialized as
-  tagged JSON nodes and printed back to YAML on save; a condition that
-  doesn't fit `<identifier> <op> <literal>` renders as a single 고급
-  expression row (Bases' point-and-click + code duality).
+  tree. Builder state is the parsed expression tree, serialized as tagged
+  JSON nodes and printed to YAML on save; a condition that doesn't fit
+  `<identifier> <op> <literal>` renders as one 고급 expression row.
 - Creation paths: sidebar 「+」, CommandPalette (`새 쿼리`, `쿼리 열기`),
-  and 「이 필터를 쿼리로 저장」 in the chip bar (serializes the active
-  `propFilter` into starter YAML).
+  and 「이 필터를 쿼리로 저장」 in the chip bar.
 
 ## §6 Inline embeds
 
-1. `![[query:독서-대시보드]]` — an explicit `query:` marker. The bare
-   `![[X]]` form cannot be used: `embeds.ts:31,157` resolves the captured
-   string as a **memo id** via `getMemo`, while the wiki-link path
-   serializes **titles** (`memoLinks.ts:39,56`), so a name-miss fallback
-   would be both unreachable and ambiguous with note titles. The marker
-   resolves against a cached `list_bases()` name map.
+1. `![[query:독서-대시보드]]` (unique stem) or
+   `![[query:queries/독서-대시보드.query]]` (explicit vault-relative
+   path). The bare `![[X]]` form is reserved for memo ids
+   (`embeds.ts:31,157`), while wiki-link insertion serializes titles
+   (`memoLinks.ts:39,56`). A duplicate stem is an error listing candidate
+   paths — never an arbitrary first match.
 2. ` ```query ` fenced block with inline YAML (one view's worth of keys).
 
 - New `queryExtension` (CM6) — **not** a reuse of `embedExtension`:
@@ -356,8 +408,10 @@ Grouping a List-valued property groups by first member.
   the existing single-line block-replace shape.
 - The StateField/ViewPlugin orchestration pattern (visible-range resolve,
   effect-driven cache, widgets never fetch) is reused for both forms.
-  Results are cached per `(source, index generation)` so a debounced save
-  of the containing note does not re-run every embed's full pipeline.
+  Widget keys use the backend `result_key` (§3), which includes source
+  content fingerprint, view, index generation, clock, and aggregate
+  flags. `.query` edits and note-index updates therefore cannot serve a
+  stale widget.
 - Embeds request `group_counts: false` / `summaries: false` and a small
   `limit` (default 10, ≤4 columns) — compact, read-only, cell click opens
   the note, footer 「N개 결과 · 전체 열기」 switches location to
@@ -368,13 +422,16 @@ Grouping a List-valued property groups by first member.
 
 ## §7 Synchronization & error handling
 
-- External `.query` edit → widened watcher → `bases:changed` → mtime cache
-  invalidated, open view + sidebar reload. In-app save racing an external
-  edit → `save_base` mtime conflict → reload prompt.
-- Load-time errors (§2 taxonomy) open the surface in code mode with the
-  error annotated; the sidebar row shows ⚠; embeds render an error chip.
-- Partially-synced/corrupt file (iCloud) → ⚠ state and code-mode
-  fallback, never a crash.
+- External `.query` edit → widened watcher → `bases:changed` → mtime/name
+  caches and source-matching result keys invalidated; open view + sidebar
+  reload. In-app save racing an external edit → mtime conflict → reload.
+- Rename is an atomic guarded fs rename. Delete moves into
+  `.trash/_queries/` and returns a restore token; normal `list_bases`
+  never scans that directory.
+- Load-time errors (§2 taxonomy) open in code mode with annotation;
+  sidebar shows ⚠; embeds render an error chip.
+- Partially-synced/corrupt file (iCloud) → ⚠ + code-mode fallback, never
+  a crash.
 
 ## §8 i18n
 
@@ -395,43 +452,53 @@ New keys (ko source of truth, en mirrored): `section_queries`,
 `oximemo-core` dev-dependencies today are `tempfile` only
 (`Cargo.toml:42-43`) — this work adds `proptest`.
 
-**Rust — expr (unit + property):** parser round-trip (print→parse
-idempotence), precedence table, promotion matrix (Str↔Num, Str↔Date, list
-membership equality), duration units, pinned `now()`, error spans, depth
-cap. **base/run_base (integration, `tmp_vault()` fixture,
-`vault.rs:2573-2576`):** nested filter groups, base∧view filters, formula
-chains + cycle rejection, formulas referenced by order/groupBy/summaries,
-group-major paging (loaded rows match `group_counts` prefixes), summaries
-over the full set, soft-deleted exclusion (a trashed note never appears
-and never leaks a `.trash/` folder), `this` in embed vs full-screen,
-unknown view type/keys preserved on round-trip, `views: []`
-materialization, mtime cache + save conflict, and a snapshot-cache test
-asserting one build per index generation.
+**Rust — expr (unit + property):** parser round-trip, precedence,
+promotion matrix, list membership, calendar-aware month/year arithmetic
+(Jan 31 + 1M clamps correctly; leap years), pinned local clock,
+division-by-zero/non-finite rejection, total ordering + MemoId tie-break,
+error spans, depth cap. **base/run_base (integration, `tmp_vault()`
+fixture, `vault.rs:2573-2576`):** nested filters, base∧view filters,
+formula dependency closure/cycles, formula order/group/summary keys,
+group-major stable paging, view-limit-before-aggregate semantics,
+per-group board paging, soft-deleted exclusion, `this` embed/full-screen,
+unknown view type/keys semantic preservation, `views: []`, mtime/save
+conflict, path traversal/symlink/reserved-directory rejection,
+rename/trash/restore, duplicate-stem ambiguity, one snapshot build per
+generation, and one evaluated-result build per complete result key.
 
-**Frontend (bun test):** builder↔YAML tagged-JSON round-trip, table cell
-commit (optimistic set reconciled from the returned `NoteDto`, `["base"]`
-invalidation, row-order freeze while focused), location-union branch
-coverage for the sites listed in §5, embed marker resolution, compact
-column clamping. **Manual E2E:** view tabs, code editor save/reload,
-sidebar section, `![[query:…]]` + fenced block in a live note, board drag
-firing a transition, board drag disabled on a multiselect group property.
+**Frontend (bun test):** builder↔YAML tagged-AST round-trip, table cell
+commit + returned-NoteDto reconciliation, per-row cross-schema editor
+selection, core/formula read-only matrix, queued row-order refresh,
+browse-location branch coverage with folder-scoped search preserved,
+unique-stem/path embed resolution and ambiguous-stem error, compact
+column clamping, board group request and BoardCard drag mode. **Manual
+Tauri E2E:** tabs, code save/reload, sidebar rename/trash/undo,
+`![[query:…]]` + fenced block, board transition, multiselect drag disabled.
 
 Browser-mode (`tauri.ts`) query commands return an explicit
 "desktop-only" state — no second engine.
 
 ## Implementation plans
 
-This spec is **three plans**, not one:
+This spec is **six implementation plans** with independently demonstrable
+surfaces:
 
-- **Plan A — engine + backend**: snapshot cache, `expr` module, `base.rs`,
-  the six Tauri commands, watcher widening, CLI. User-visible surface is
-  the CLI; the desktop UI lands in B/C.
-- **Plan B — table + editing**: `ViewMode::Table`, `TableView`, cell
-  editing rework (editor extraction, `["base"]` invalidation, row-order
-  freeze), folder tables.
-- **Plan C — query surfaces**: location union cutover, sidebar QUERIES,
-  view tabs, filter builder + code editor, inline embeds
-  (`![[query:…]]` + fence), `BoardView`, `cards`/`list` adapters, i18n.
+- **Plan A — query foundation**: generation snapshot cache + bounded
+  evaluated-result cache, `expr`, `base.rs`, guarded file CRUD, watcher,
+  Tauri commands, CLI. Demonstrated through CLI.
+- **Plan B — table + editing**: `ViewMode::Table`, TableView, editor
+  extraction, row-specific schema selection, cache invalidation,
+  returned-NoteDto reconciliation, stable-order queue. Demonstrated on
+  normal folders without `.query` UI.
+- **Plan C — base navigation shell**: browse-location union migration,
+  Sidebar QUERIES CRUD/undo, view tabs, YAML code editor, base-mode
+  header. Demonstrated by opening/editing a hand-written `.query`.
+- **Plan D — filter builder**: typed prop catalog, and/or/not builder,
+  advanced-expression rows, tagged-AST↔YAML serialization.
+- **Plan E — inline embeds**: explicit marker/path resolution, fenced-code
+  extension, result-key widget cache, compact full-screen handoff.
+- **Plan F — alternate layouts**: BoardView + BoardCard drag mode and
+  per-group paging, then cards/list note-only adapters.
 
 Sequencing note: the approved Calendar spec (2026-08-25) also extends
 `ViewMode` and the view switcher; whichever lands second rebases, and the
@@ -444,8 +511,8 @@ Sequencing note: the approved Calendar spec (2026-08-25) also extends
 - Custom summary formulas; Stddev/Range summaries.
 - Board/calendar as folder ViewModes; per-folder column persistence.
 - Cell editing inside inline (embedded) results.
-- Cross-request result caching beyond the snapshot + per-view/embed
-  generation keys defined in §3/§6.
+- Result caches are bounded by §3; persistent/on-disk compiled-query or
+  formula caches are out of scope.
 - Browser-mode (`tauri.ts`) query execution; wasm-shared engine.
 - Chart/map view types; cross-vault queries; `.query` template gallery.
 - Unifying the chip-bar's lexicographic prop sort with the engine's
@@ -458,7 +525,7 @@ changed:
 
 | Was | Now |
 |---|---|
-| `run_base` over `export_since(None)` per call (`vault.rs:1504-1506`, `index.rs:101-120`), caching a non-goal | §3 snapshot cache with generation invalidation + per-request formula memoization + stated budget |
+| `run_base` over `export_since(None)` per call (`vault.rs:1504-1506`, `index.rs:101-120`), caching a non-goal | §3 bounded snapshot + evaluated-result caches with generation/content/clock keys and stated budgets |
 | No deleted-note policy; pipeline bypassed `MemoFilter` (`memo.rs:290-291`) | §1: soft-deleted always excluded, `file.deleted` removed |
 | `baseFilter` "alongside" `folderFilter`, colliding with 10+ `null` branches | §5 tagged `Location` union + explicit cutover list |
 | `![[name]]` resolving via memo-id miss (`embeds.ts:157` vs `memoLinks.ts:56`) | §6 explicit `![[query:이름]]` marker + name map |
@@ -479,6 +546,29 @@ changed:
 | `quickcheck` assumed present (`Cargo.toml:42-43`: only `tempfile`) | §9 adds `proptest` |
 | Chip-bar vs engine sort divergence unmentioned | §2 documented + follow-up |
 | view `limit` vs request `offset/limit` undefined | §1 view limit caps, request pages within |
-| `now()` drift across pages | §2 clock pinned per request, reused across pages |
-| Degenerate bases (empty views, unknown type, dup names/stems) | §1 defined |
-| "one plan, 6 steps" | Three plans (A/B/C) |
+| `now()` drift across pages | §2 clock pinned per view session and reused across pages |
+| Degenerate bases (empty views, unknown type, dup names/stems) | §1/§6 define defaults, string view types, and ambiguity errors |
+| "one plan, 6 steps" | Six independently demonstrable implementation plans |
+
+## Final review corrections (2026-08-25)
+
+- Replaced fixed `Duration` with calendar-aware `DurationSpec` and pinned
+  local-time evaluation; month/year arithmetic is no longer falsely
+  described as fixed seconds.
+- Added deterministic total ordering + MemoId tie-break for stable pages.
+- Added a bounded evaluated-result cache; snapshot caching alone did not
+  prevent O(notes × formulas) recomputation on every offset page.
+- Made result keys include query content, generation, clock, view, and
+  aggregate flags so edited `.query` files/`now()` cannot reuse stale data.
+- Made cell errors representable in the DTO (`BaseCell`), and made board
+  group paging representable in `run_base(group?)`.
+- Separated browse location from the existing folder-scoped search
+  overlay; the earlier `location.kind = search` would regress search.
+- Defined row-specific schema/editor selection and the core-field
+  read-only matrix for cross-collection table results.
+- Replaced irreversible query deletion with guarded rename/trash/restore;
+  added traversal/symlink/reserved-path protection and trash scan exclusion.
+- Replaced ambiguous stem \"first match\" with explicit-path support and
+  an ambiguity error.
+- Split the still-oversized frontend plan into navigation shell, builder,
+  embeds, and alternate-layout plans.
