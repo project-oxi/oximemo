@@ -27,10 +27,10 @@ pub mod tags;
 pub mod template;
 pub mod wiki;
 
+pub mod base;
 pub mod lock;
+pub mod expr;
 pub mod store;
-pub mod sync;
-pub mod vault;
 pub mod watcher;
 
 pub use assets::{AssetInfo, AssetRef};

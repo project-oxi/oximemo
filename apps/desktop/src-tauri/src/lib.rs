@@ -2114,6 +2114,253 @@ mod tests {
     ///   2. passes a REAL `Vault` handle so the consumer's live
     ///      `c.git.auto_commit` read is exercised;
     ///   3. asserts that toggling `auto_commit` off in the live config
+
+// --- query views (design 2026-08-25) wire contract ---------------------------
+// The DTOs below mirror apps/desktop/src/lib/types.ts — that file is the
+// reviewed contract: outer command DTOs camelCase, nested core types
+// (BaseRow/MemoSummary, the EvalClockDto clock, expr Values) snake_case.
+
+use super::commands::{
+    BaseInfoDto, BasePageDto, BaseSourceDto, LoadBaseDto, PropInfoDto, RunBaseReqDto,
+};
+use oximemo_core::base::{BaseCell, BasePage, BaseRow, EvalClockDto, GroupCount, SummaryValue};
+use oximemo_core::expr::value::{DurationSpec, Value};
+use oximemo_core::{MemoHash, MemoId, MemoSummary};
+
+fn summary_fixture() -> MemoSummary {
+    MemoSummary {
+        id: MemoId::now(),
+        created_at: time::OffsetDateTime::now_utc(),
+        updated_at: time::OffsetDateTime::now_utc(),
+        hash: MemoHash::new("cafe01"),
+        favorite: false,
+        title: Some("Wire contract".into()),
+        path: "inbox/wire.md".into(),
+        tags: vec!["draft".into()],
+        props: Default::default(),
+        preview: "preview".into(),
+        deleted: false,
+    }
+}
+
+fn page_fixture() -> BasePage {
+    BasePage {
+        rows: vec![BaseRow {
+            summary: summary_fixture(),
+            folder: "inbox".into(),
+            format: "markdown".into(),
+            cells: vec![
+                BaseCell {
+                    value: Some(Value::Duration(DurationSpec {
+                        calendar_months: 1,
+                        fixed_millis: 500,
+                    })),
+                    error: None,
+                },
+                BaseCell {
+                    value: None,
+                    error: Some("division by zero".into()),
+                },
+            ],
+        }],
+        total: 1,
+        group_counts: Some(vec![GroupCount {
+            key: "reading".into(),
+            count: 1,
+        }]),
+        summaries: Some(
+            vec![(
+                "note.rating".to_string(),
+                SummaryValue {
+                    name: "Average".into(),
+                    value: Value::Num(4.5),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        ),
+        clock: EvalClockDto {
+            now_utc: "2026-08-25T00:00:00Z".into(),
+            local_offset_seconds: 32400,
+        },
+        result_key: "b3:abc".into(),
+        warnings: vec![],
+    }
+}
+
+/// `RunBaseReqDto` reads the camelCase wire shape types.ts sends and
+/// maps losslessly onto the core `RunBaseReq` (incl. `thisId` → MemoId).
+#[test]
+fn run_base_req_dto_reads_camel_case_wire() {
+    let json = serde_json::json!({
+        "viewIndex": 1,
+        "offset": 40,
+        "limit": 20,
+        "group": "reading",
+        "nowMs": 1756084800000_i64,
+        "localOffsetSeconds": 32400,
+        "includeGroupCounts": true,
+        "includeSummaries": false,
+        "thisId": null
+    });
+    let dto: RunBaseReqDto = serde_json::from_value(json).expect("camelCase wire must parse");
+    assert_eq!(dto.view_index, 1);
+    assert_eq!(dto.offset, 40);
+    assert_eq!(dto.limit, 20);
+    assert_eq!(dto.group.as_deref(), Some("reading"));
+    assert_eq!(dto.now_ms, Some(1756084800000));
+    assert_eq!(dto.local_offset_seconds, Some(32400));
+    assert!(dto.include_group_counts);
+    assert!(!dto.include_summaries);
+    assert_eq!(dto.this_id, None);
+
+    let core = dto.into_core().expect("core req");
+    assert_eq!(core.view_index, 1);
+    assert_eq!(core.group.as_deref(), Some("reading"));
+    assert_eq!(core.now_ms, Some(1756084800000));
+    assert_eq!(core.local_offset_seconds, Some(32400));
+    assert!(core.include_group_counts);
+    assert!(!core.include_summaries);
+    assert!(core.this_id.is_none());
+
+    // A present `thisId` must parse into a MemoId, not pass through raw.
+    let id = MemoId::now();
+    let json = serde_json::json!({
+        "viewIndex": 0, "offset": 0, "limit": 50, "group": null,
+        "nowMs": null, "localOffsetSeconds": null,
+        "includeGroupCounts": false, "includeSummaries": false,
+        "thisId": id.to_string()
+    });
+    let dto: RunBaseReqDto = serde_json::from_value(json).expect("parse");
+    assert_eq!(dto.into_core().expect("core").this_id, Some(id));
+    assert!(MemoId::parse("not-a-uuid").is_err(), "sanity: bad id fails");
+}
+
+/// `BasePageDto`: outer fields camelCase (`groupCounts`, `resultKey`),
+/// nested core types keep their snake_case serde (`clock.now_utc`,
+/// `clock.local_offset_seconds`, `summary.created_at`,
+/// `Duration.calendar_months/fixed_millis`) — exactly types.ts.
+#[test]
+fn base_page_dto_wire_shape_camel_outer_snake_nested() {
+    let json = serde_json::to_value(BasePageDto::from(page_fixture())).unwrap();
+    let obj = json.as_object().expect("object");
+    let mut keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["clock", "groupCounts", "resultKey", "rows", "summaries", "total", "warnings"]
+    );
+
+    assert_eq!(json["total"], serde_json::json!(1));
+    assert_eq!(json["resultKey"], serde_json::json!("b3:abc"));
+    assert_eq!(json["clock"]["now_utc"], serde_json::json!("2026-08-25T00:00:00Z"));
+    assert_eq!(json["clock"]["local_offset_seconds"], serde_json::json!(32400));
+    assert_eq!(json["groupCounts"][0]["key"], serde_json::json!("reading"));
+    assert_eq!(json["groupCounts"][0]["count"], serde_json::json!(1));
+    assert_eq!(json["summaries"]["note.rating"]["name"], serde_json::json!("Average"));
+    assert_eq!(json["summaries"]["note.rating"]["value"]["Num"], serde_json::json!(4.5));
+
+    let row = &json["rows"][0];
+    assert_eq!(row["folder"], serde_json::json!("inbox"));
+    assert_eq!(row["format"], serde_json::json!("markdown"));
+    // Nested MemoSummary stays snake_case (created_at), matching the
+    // long-standing MemoSummary wire style.
+    assert!(row["summary"].get("created_at").is_some(), "summary.created_at");
+    assert_eq!(row["summary"]["path"], serde_json::json!("inbox/wire.md"));
+    // Duration cells: externally tagged Value with snake_case fields.
+    assert_eq!(
+        row["cells"][0]["value"]["Duration"]["calendar_months"],
+        serde_json::json!(1)
+    );
+    assert_eq!(
+        row["cells"][0]["value"]["Duration"]["fixed_millis"],
+        serde_json::json!(500)
+    );
+    // Error cells carry `error` + JSON null value (per-cell ⚠ tooltip).
+    assert_eq!(row["cells"][1]["value"], serde_json::Value::Null);
+    assert_eq!(row["cells"][1]["error"], serde_json::json!("division by zero"));
+}
+
+/// `BaseSourceDto` is externally tagged on the wire; `Inline` carries
+/// raw YAML that `into_core` parses via core `parse_base`.
+#[test]
+fn base_source_dto_externally_tagged_inline_parses_yaml() {
+    let dto: BaseSourceDto = serde_json::from_value(serde_json::json!({
+        "Inline": { "yaml": "filters: 'true == true'\n" }
+    }))
+    .expect("Inline wire shape");
+    match dto.into_core().expect("parse inline yaml") {
+        oximemo_core::base::BaseSource::Inline(def) => {
+            assert!(def.filters.is_some(), "yaml actually parsed");
+        }
+        other => panic!("expected Inline, got {other:?}"),
+    }
+
+    let dto: BaseSourceDto =
+        serde_json::from_value(serde_json::json!({ "Path": "queries/all.query" }))
+            .expect("Path wire shape");
+    assert!(matches!(
+        dto.into_core().expect("path"),
+        oximemo_core::base::BaseSource::Path(p) if p == "queries/all.query"
+    ));
+
+    // Unparseable inline YAML surfaces the core error string.
+    let dto: BaseSourceDto = serde_json::from_value(serde_json::json!({
+        "Inline": { "yaml": "views: 3\n" }
+    }))
+    .unwrap();
+    assert!(dto.into_core().is_err(), "bad yaml must fail");
+}
+
+/// `base_props` wire field is `observedTypes` (spec §3; core names it
+/// `kinds`) — the Controller ruling maps, not renames, the core field.
+#[test]
+fn prop_info_dto_field_is_observed_types() {
+    let dto = PropInfoDto {
+        key: "status".into(),
+        kinds: vec!["select".into()],
+        options: vec!["reading".into(), "done".into()],
+    };
+    let json = serde_json::to_value(&dto).unwrap();
+    assert_eq!(json["key"], serde_json::json!("status"));
+    assert_eq!(json["observedTypes"], serde_json::json!(["select"]));
+    assert_eq!(json["options"], serde_json::json!(["reading", "done"]));
+    assert!(json.get("kinds").is_none(), "core field name must not leak");
+}
+
+/// `list_bases`/`load_base` expose the mtime as `mtimeMs` milliseconds.
+#[test]
+fn base_info_and_load_dto_expose_mtime_ms() {
+    let info = serde_json::to_value(&BaseInfoDto {
+        path: "queries/all.query".into(),
+        name: "all".into(),
+        mtime_ms: 1_756_084_800_000,
+        loadable: true,
+    })
+    .unwrap();
+    let mut keys: Vec<&str> = info.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["loadable", "mtimeMs", "name", "path"]);
+    assert_eq!(info["mtimeMs"], serde_json::json!(1_756_084_800_000_u64));
+
+    let load = serde_json::to_value(&LoadBaseDto {
+        yaml: "views: []\n".into(),
+        mtime_ms: 42,
+    })
+    .unwrap();
+    assert_eq!(load["yaml"], serde_json::json!("views: []\n"));
+    assert_eq!(load["mtimeMs"], serde_json::json!(42));
+}
+
+/// mtime ↔ millis helpers round-trip exactly (they guard every save).
+#[test]
+fn systemtime_ms_helpers_roundtrip() {
+    use super::commands::{ms_to_systemtime, systemtime_to_ms};
+    let ms = 1_756_084_800_123_u64;
+    assert_eq!(systemtime_to_ms(ms_to_systemtime(ms)), ms);
+    // Pre-epoch clamp: SystemTime before UNIX_EPOCH maps to 0, never panics.
+    assert_eq!(systemtime_to_ms(std::time::UNIX_EPOCH), 0);
+}
     ///      stops the next commit immediately (C1 regression guard).
     #[test]
     fn git_consumer_commits_and_respects_toggle() {

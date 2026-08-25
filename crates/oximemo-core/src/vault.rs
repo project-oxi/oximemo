@@ -4481,8 +4481,83 @@ watcher_retry_interval_ms = 200
             target.id,
             None,
             None,
-            Some(crate::props::PropMutation {
-                sets: vec![(
+    // PROBE-FRESH
+
+    #[test]
+    fn snapshot_cache_returns_same_arc_until_meta_redb_changes() {
+        let (_t, v) = tmp_vault();
+        let a = v
+            .create_note("", "# A".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let b = v
+            .create_note("", "# B".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let c = v
+            .create_note("", "# C".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+
+        let s1 = v.snapshot().unwrap();
+        let s2 = v.snapshot().unwrap();
+        assert!(
+            std::sync::Arc::ptr_eq(&s1, &s2),
+            "second snapshot reuses the cached Arc"
+        );
+        assert_eq!(s1.len(), 3);
+
+        // create_note writes through redb → meta.redb file stat changes →
+        // cache key changes → new Arc, new contents.
+        let d = v
+            .create_note("", "# D".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let s3 = v.snapshot().unwrap();
+        assert!(
+            !std::sync::Arc::ptr_eq(&s1, &s3),
+            "snapshot Arc changes after a write to meta.redb"
+        );
+        let ids: std::collections::HashSet<_> = s3.iter().map(|r| r.id).collect();
+        assert!(ids.contains(&a.id));
+        assert!(ids.contains(&b.id));
+        assert!(ids.contains(&c.id));
+        assert!(ids.contains(&d.id));
+    }
+
+    #[test]
+    fn snapshot_cache_returns_same_arc_until_meta_redb_changes() {
+        let (_t, v) = tmp_vault();
+        let a = v
+            .create_note("", "# A".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let b = v
+            .create_note("", "# B".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let c = v
+            .create_note("", "# C".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+
+        let s1 = v.snapshot().unwrap();
+        let s2 = v.snapshot().unwrap();
+        assert!(
+            std::sync::Arc::ptr_eq(&s1, &s2),
+            "second snapshot reuses the cached Arc"
+        );
+        assert_eq!(s1.len(), 3);
+
+        // create_note writes through redb → meta.redb file stat changes →
+        // cache key changes → new Arc, new contents.
+        let d = v
+            .create_note("", "# D".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let s3 = v.snapshot().unwrap();
+        assert!(
+            !std::sync::Arc::ptr_eq(&s1, &s3),
+            "snapshot Arc changes after a write to meta.redb"
+        );
+        let ids: std::collections::HashSet<_> = s3.iter().map(|r| r.id).collect();
+        assert!(ids.contains(&a.id));
+        assert!(ids.contains(&b.id));
+        assert!(ids.contains(&c.id));
+        assert!(ids.contains(&d.id));
+    }
                     "aliases".into(),
                     crate::props::PropValue::List(vec!["ML".into(), "기계학습".into()]),
                 )],
@@ -4523,6 +4598,44 @@ watcher_retry_interval_ms = 200
             .iter()
             .find(|e| e.source == stub.id.to_string() && e.target == target.id.to_string());
         assert!(edge.is_some(), "related-prop link must create a graph edge");
+    }
+
+    #[test]
+    fn snapshot_cache_returns_same_arc_until_meta_redb_changes() {
+        let (_t, v) = tmp_vault();
+        let a = v
+            .create_note("", "# A".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let b = v
+            .create_note("", "# B".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let c = v
+            .create_note("", "# C".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+
+        let s1 = v.snapshot().unwrap();
+        let s2 = v.snapshot().unwrap();
+        assert!(
+            std::sync::Arc::ptr_eq(&s1, &s2),
+            "second snapshot reuses the cached Arc"
+        );
+        assert_eq!(s1.len(), 3);
+
+        // create_note writes through redb → meta.redb file stat changes →
+        // cache key changes → new Arc, new contents.
+        let d = v
+            .create_note("", "# D".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let s3 = v.snapshot().unwrap();
+        assert!(
+            !std::sync::Arc::ptr_eq(&s1, &s3),
+            "snapshot Arc changes after a write to meta.redb"
+        );
+        let ids: std::collections::HashSet<_> = s3.iter().map(|r| r.id).collect();
+        assert!(ids.contains(&a.id));
+        assert!(ids.contains(&b.id));
+        assert!(ids.contains(&c.id));
+        assert!(ids.contains(&d.id));
     }
 
     #[test]
