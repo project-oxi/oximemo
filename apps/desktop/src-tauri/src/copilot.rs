@@ -1259,9 +1259,11 @@ pub fn parse_omp_models(text: &str) -> Result<Vec<ModelInfo>, String> {
 /// Parse `~/.codex/models_cache.json` — codex's own model catalog cache
 /// (`{"models":[{slug,display_name,visibility,…}]}`, verified 0.147.0).
 /// Only `visibility == "list"` models belong in a picker (codex marks
-/// internal models `hide`). A missing/stale cache is not an error: the
+/// internal models `hide`). The cache carries no provider field, so the
+/// caller passes the label — list_models reads it live from the config's
+/// `model_provider`. A missing/stale cache is not an error: the
 /// picker simply offers nothing (honest empty, spec §12).
-pub fn parse_codex_models_cache(text: &str) -> Vec<ModelInfo> {
+pub fn parse_codex_models_cache(text: &str, provider: &str) -> Vec<ModelInfo> {
     let v: serde_json::Value = match serde_json::from_str(text.trim()) {
         Ok(v) => v,
         Err(_) => return Vec::new(),
@@ -1280,7 +1282,7 @@ pub fn parse_codex_models_cache(text: &str) -> Vec<ModelInfo> {
                             .and_then(|n| n.as_str())
                             .unwrap_or(slug)
                             .to_string(),
-                        provider: "openai".to_string(),
+                        provider: provider.to_string(),
                         context_window: None,
                     })
                 })
@@ -1304,9 +1306,13 @@ pub async fn list_models(agent: &str, exe: &Path) -> Result<Vec<ModelInfo>, Stri
         "claude" | "oxicode" => Ok(Vec::new()),
         "codex" => {
             let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+            let provider = std::fs::read_to_string(home.join(".codex").join("config.toml"))
+                .ok()
+                .and_then(|t| disclosure_from_codex_config(&t).provider)
+                .unwrap_or_else(|| "openai".into());
             Ok(
                 std::fs::read_to_string(home.join(".codex").join("models_cache.json"))
-                    .map(|t| parse_codex_models_cache(&t))
+                    .map(|t| parse_codex_models_cache(&t, &provider))
                     .unwrap_or_default(),
             )
         }
@@ -2466,12 +2472,17 @@ pid_file = "/x"
             r#"{"slug":"codex-auto-review","display_name":"Codex Auto Review","visibility":"hide"}"#,
             r#"]}"#
         );
-        let ms = parse_codex_models_cache(json);
+        let ms = parse_codex_models_cache(json, "openai");
         assert_eq!(ms.len(), 2);
         assert_eq!(ms[0].id, "gpt-5.6-sol");
         assert_eq!(ms[0].name, "GPT-5.6-Sol");
         assert_eq!(ms[0].provider, "openai");
-        assert!(parse_codex_models_cache("not json").is_empty());
+        // The cache itself carries no provider — the label must come from
+        // the caller (list_models reads the live `model_provider` config).
+        let routed = parse_codex_models_cache(json, "ollama");
+        assert_eq!(routed.len(), 2);
+        assert!(routed.iter().all(|m| m.provider == "ollama"));
+        assert!(parse_codex_models_cache("not json", "ollama").is_empty());
     }
 
     #[test]
