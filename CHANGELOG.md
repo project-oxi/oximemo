@@ -37,6 +37,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     remains a config.toml field with no UI (search is always
     user-initiated; empty keys already disable keyed providers).
 
+- **Quick capture lands in Inbox (spec 2026-08-25)** — `⌘⇧N` always writes
+  to the `idea` preset folder (displayed as 인박스/Inbox per locale; the
+  preset id and `kind` stay stable), so captures have one canonical
+  destination instead of a per-call folder picker:
+  - **One-shot inbox seed** — `Vault::migrate` creates `inbox/` exactly
+    once when no `idea` folder exists, then never recreates it (delete
+    + restart still does NOT resurrect, and a user-installed `idea`
+    folder wins). `Vault::create_capture(body)` resolves via the preset
+    marker, falling back to the vault root if the marker is absent
+    (not a side path).
+  - **No destination state in the overlay** — `CaptureOverlay` strips
+    the destination folder/format props; the form is just text + Enter.
+    The `/` slash folder menu and `FolderChip` are gone from
+    `QuickCaptureForm`; `/` now inserts a literal slash, so Korean IME
+    can no longer half-fire the (now-removed) folder dropdown.
+  - **Tauri `create_capture` command** — single-param IPC (no folder
+    or format args), emits `memos:changed` on success so the inbox
+    list refreshes in place. The browser fallback mirrors the same
+    shape for UI smoke.
+  - **Catalog + locale + browser mirror** — the idea collection
+    displays as 인박스/Inbox wherever its name surfaces (sidebar,
+    capture overlay, palette, settings); the stale
+    `doc/CAPTURE_SLASH_PALETTE.md` spec is removed.
+
 ### Added (copilot schema-awareness, spec 2026-08-24)
 
 - **Self-describing vault via CLI** — delegated agents (the copilot)
