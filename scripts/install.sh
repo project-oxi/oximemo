@@ -25,12 +25,20 @@ WANT_APP=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    -h|--help)
+      cat <<'USAGE'
+install oximemo (CLI, and the desktop app with --app)
+
+  curl -fsSL .../install.sh | sh                  # CLI -> /usr/local/bin
+  curl -fsSL .../install.sh | sh -s -- --app      # + /Applications app
+
+env/flags: PREFIX=<dir> APPS_DIR=<dir> VERSION=<vX.Y.Z> --app
+USAGE
+      exit 0 ;;
     --prefix) PREFIX="$2"; shift 2 ;;
     --apps-dir) APPS_DIR="$2"; shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
     --app) WANT_APP=1; shift ;;
-    -h|--help)
-      sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
