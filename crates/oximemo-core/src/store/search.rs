@@ -277,7 +277,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let s = TantivySearch::open(dir.path()).unwrap();
         let id = MemoId::now();
-        s.upsert(id, "sphinx of black quartz", None, &[], "").unwrap();
+        s.upsert(id, "sphinx of black quartz", None, &[], "")
+            .unwrap();
         s.remove(id).unwrap();
         assert!(s.search("quartz", 10).unwrap().is_empty());
     }

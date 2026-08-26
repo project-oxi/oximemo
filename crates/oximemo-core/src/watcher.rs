@@ -110,9 +110,7 @@ fn is_user_content(p: &Path) -> bool {
     matches!(
         p.extension().and_then(|e| e.to_str()),
         Some("md" | "html" | "markdown" | "htm" | "query")
-    ) || p
-        .file_name()
-        .is_some_and(|n| n == "oximemo.toml")
+    ) || p.file_name().is_some_and(|n| n == "oximemo.toml")
 }
 
 #[cfg(test)]

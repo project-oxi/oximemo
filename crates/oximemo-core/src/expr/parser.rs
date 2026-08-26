@@ -19,13 +19,13 @@
 //!   name without a following `(` remain parse errors.
 //!
 //! - Recursion is bounded by [`MAX_PARSE_DEPTH`]: over-deep input is a
-//!   positioned parse error, never a stack-overflow abort.
-//! Parse errors carry the physical 1-based line/col of the offending
-//! token (or the end-of-input position) via [`CoreError::Expr`].
+//!   positioned parse error, never a stack-overflow abort. Parse errors
+//!   carry the physical 1-based line/col of the offending token (or the
+//!   end-of-input position) via [`CoreError::Expr`].
 
 use crate::error::CoreError;
-use crate::expr::lexer::{tokenize, Lexed, Span, Tok};
-use crate::expr::value::{format_num, group_string, Value};
+use crate::expr::lexer::{Lexed, Span, Tok, tokenize};
+use crate::expr::value::{Value, format_num, group_string};
 
 /// Maximum recursion depth the parser may descend before erroring
 /// (spec §7 never-a-crash). Every nested construct — parens, call
@@ -42,10 +42,40 @@ const MAX_PARSE_DEPTH: u32 = 200;
 /// Kept in one place because `expr::funcs` dispatches on the same set;
 /// a bare `foo(...)` whose head is not in this list is a parse error.
 const GLOBALS: &[&str] = &[
-    "now", "today", "date", "list", "if", "isEmpty", "isBlank", "typeof", "length",
-    "contains", "startsWith", "endsWith", "lower", "upper", "trim", "replace", "split",
-    "join", "includes", "first", "last", "unique", "sort", "round", "floor", "ceil",
-    "abs", "min", "max", "sum", "mean", "format", "hasTag", "inFolder",
+    "now",
+    "today",
+    "date",
+    "list",
+    "if",
+    "isEmpty",
+    "isBlank",
+    "typeof",
+    "length",
+    "contains",
+    "startsWith",
+    "endsWith",
+    "lower",
+    "upper",
+    "trim",
+    "replace",
+    "split",
+    "join",
+    "includes",
+    "first",
+    "last",
+    "unique",
+    "sort",
+    "round",
+    "floor",
+    "ceil",
+    "abs",
+    "min",
+    "max",
+    "sum",
+    "mean",
+    "format",
+    "hasTag",
+    "inFolder",
 ];
 
 fn is_global(name: &str) -> bool {
@@ -62,10 +92,7 @@ pub enum Expr {
     /// Dot-joined identifier chain, e.g. `note.tags`.
     Path(Vec<String>),
     /// Global function call, e.g. `length(note.tags)`.
-    Call {
-        name: String,
-        args: Vec<Expr>,
-    },
+    Call { name: String, args: Vec<Expr> },
     /// Method call on a path, e.g. `file.hasTag("x")`; the method name is
     /// the final path segment and `target` is the rest of the path.
     Method {
@@ -74,15 +101,9 @@ pub enum Expr {
         args: Vec<Expr>,
     },
     /// Postfix indexing, e.g. `note.tags[0]`.
-    Index {
-        target: Box<Expr>,
-        index: Box<Expr>,
-    },
+    Index { target: Box<Expr>, index: Box<Expr> },
     /// Unary `!` or `-`.
-    Unary {
-        op: &'static str,
-        expr: Box<Expr>,
-    },
+    Unary { op: &'static str, expr: Box<Expr> },
     /// Left-associative binary operation.
     Binary {
         op: &'static str,
@@ -130,7 +151,6 @@ impl Parser {
         self.toks.get(self.pos)
     }
 
-
     fn next(&mut self) -> Option<Lexed> {
         let t = self.toks.get(self.pos).cloned();
         if t.is_some() {
@@ -154,8 +174,7 @@ impl Parser {
             return Err(err("expression nesting too deep", span));
         }
         let mut lhs = self.parse_unary()?;
-        loop {
-            let Some(t) = self.peek() else { break };
+        while let Some(t) = self.peek() {
             let prec = match &t.tok {
                 Tok::Op("||") => 1,
                 Tok::Op("&&") => 2,
@@ -167,7 +186,9 @@ impl Parser {
             if prec < min_prec {
                 break;
             }
-            let Tok::Op(op) = &t.tok else { unreachable!("matched Op above") };
+            let Tok::Op(op) = &t.tok else {
+                unreachable!("matched Op above")
+            };
             let op: &'static str = op;
             self.next();
             // prec + 1 makes same-precedence operators left-associative.
@@ -182,25 +203,25 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> Result<Expr, CoreError> {
-        if let Some(t) = self.peek() {
-            if let Tok::Op(op @ ("!" | "-")) = &t.tok {
-                let op: &'static str = op;
-                let op_span = t.span;
-                // Unary chains self-recurse without re-entering
-                // parse_binary, so the shared depth counter must be
-                // applied here too — `!!!!!…x` is as deep as parens.
-                self.depth += 1;
-                let over = self.depth > MAX_PARSE_DEPTH;
-                if over {
-                    self.depth -= 1;
-                    return Err(err("expression nesting too deep", op_span));
-                }
-                self.next();
-                let inner = self.parse_unary();
+        if let Some(t) = self.peek()
+            && let Tok::Op(op @ ("!" | "-")) = &t.tok
+        {
+            let op: &'static str = op;
+            let op_span = t.span;
+            // Unary chains self-recurse without re-entering
+            // parse_binary, so the shared depth counter must be
+            // applied here too — `!!!!!…x` is as deep as parens.
+            self.depth += 1;
+            let over = self.depth > MAX_PARSE_DEPTH;
+            if over {
                 self.depth -= 1;
-                let expr = Box::new(inner?);
-                return Ok(Expr::Unary { op, expr });
+                return Err(err("expression nesting too deep", op_span));
             }
+            self.next();
+            let inner = self.parse_unary();
+            self.depth -= 1;
+            let expr = Box::new(inner?);
+            return Ok(Expr::Unary { op, expr });
         }
         self.parse_postfix()
     }
@@ -237,14 +258,11 @@ impl Parser {
                             tok: Tok::Ident(id),
                             ..
                         }) => id,
-                        Some(bad) => {
-                            return Err(err("expected identifier after `.`", bad.span))
-                        }
+                        Some(bad) => return Err(err("expected identifier after `.`", bad.span)),
                         None => return Err(err("expected identifier after `.`", self.eof)),
                     };
                     if !matches!(self.peek().map(|t| &t.tok), Some(Tok::Op("("))) {
-                        let span =
-                            self.peek().map(|t| t.span).unwrap_or(self.eof);
+                        let span = self.peek().map(|t| t.span).unwrap_or(self.eof);
                         return Err(err("expected `(` after method name", span));
                     }
                     let args = self.parse_args()?;
@@ -288,12 +306,10 @@ impl Parser {
 
         match target {
             // Length-1 path with a global head is the function-call form.
-            Expr::Path(mut segs) if segs.len() == 1 && is_global(&segs[0]) => {
-                Ok(Expr::Call {
-                    name: segs.remove(0),
-                    args,
-                })
-            }
+            Expr::Path(mut segs) if segs.len() == 1 && is_global(&segs[0]) => Ok(Expr::Call {
+                name: segs.remove(0),
+                args,
+            }),
             // Longer path: the last segment names the method, the rest is
             // its target (`file.hasTag("x")`).
             Expr::Path(mut segs) if segs.len() >= 2 => {
@@ -355,20 +371,26 @@ impl Parser {
                 self.expect_op(")")?;
                 Ok(e)
             }
-            other => Err(err(format!("expected expression, found {}", describe(&other)), t.span)),
+            other => Err(err(
+                format!("expected expression, found {}", describe(&other)),
+                t.span,
+            )),
         }
     }
 
     fn expect_op(&mut self, op: &str) -> Result<(), CoreError> {
         match self.next() {
-            Some(Lexed { tok: Tok::Op(o), .. }) if o == op => Ok(()),
-            Some(bad) => Err(
-                err(
-                    format!("expected `{op}`, found {}", describe(&bad.tok)),
-                    bad.span,
-                ),
-            ),
-            None => Err(err(format!("expected `{op}` before end of input"), self.eof)),
+            Some(Lexed {
+                tok: Tok::Op(o), ..
+            }) if o == op => Ok(()),
+            Some(bad) => Err(err(
+                format!("expected `{op}`, found {}", describe(&bad.tok)),
+                bad.span,
+            )),
+            None => Err(err(
+                format!("expected `{op}` before end of input"),
+                self.eof,
+            )),
         }
     }
 }
@@ -403,7 +425,10 @@ fn eof_span(src: &str) -> Span {
 /// the top level.
 fn prec(e: &Expr) -> u8 {
     match e {
-        Expr::Lit(_) | Expr::Path(_) | Expr::Call { .. } | Expr::Index { .. }
+        Expr::Lit(_)
+        | Expr::Path(_)
+        | Expr::Call { .. }
+        | Expr::Index { .. }
         | Expr::Method { .. } => 7,
         Expr::Unary { .. } => 6,
         Expr::Binary { op, .. } => binary_prec(op).unwrap_or(6),
@@ -464,7 +489,10 @@ fn child(e: &Expr, min_prec: u8) -> String {
 }
 
 fn fmt_args(args: &[Expr]) -> String {
-    args.iter().map(expr_to_string).collect::<Vec<_>>().join(", ")
+    args.iter()
+        .map(expr_to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn escape_str(s: &str) -> String {
@@ -496,9 +524,17 @@ mod tests {
 
     #[test]
     fn unary_index_call() {
-        assert!(matches!(parse_expr("!favorite").unwrap(), Expr::Unary { op: "!", .. }));
-        assert!(matches!(parse_expr("note.tags[0]").unwrap(), Expr::Index { .. }));
-        assert!(matches!(parse_expr("if(x > 1, \"a\", \"b\")").unwrap(), Expr::Call { name, .. } if name == "if"));
+        assert!(matches!(
+            parse_expr("!favorite").unwrap(),
+            Expr::Unary { op: "!", .. }
+        ));
+        assert!(matches!(
+            parse_expr("note.tags[0]").unwrap(),
+            Expr::Index { .. }
+        ));
+        assert!(
+            matches!(parse_expr("if(x > 1, \"a\", \"b\")").unwrap(), Expr::Call { name, .. } if name == "if")
+        );
     }
 
     #[test]
@@ -545,7 +581,11 @@ mod tests {
                 assert!(message.contains("nesting too deep"), "got: {message}");
                 // parse_binary holds depth 1, so unary #200 (the one
                 // past the cap) trips the counter — column 200.
-                assert_eq!((line, col), (1, 200), "span points at the over-deep operator");
+                assert_eq!(
+                    (line, col),
+                    (1, 200),
+                    "span points at the over-deep operator"
+                );
             }
             other => panic!("expected depth error, got {other:?}"),
         }
@@ -667,7 +707,10 @@ mod tests {
             "if(x > 1, \"a\", \"b\")"
         );
         assert_eq!(roundtrip_eq("now() - \"1w\""), "now() - \"1w\"");
-        assert_eq!(roundtrip_eq("file.hasTag(\"work\")"), "file.hasTag(\"work\")");
+        assert_eq!(
+            roundtrip_eq("file.hasTag(\"work\")"),
+            "file.hasTag(\"work\")"
+        );
         // Numbers print canonically.
         let n = Expr::Lit(Value::Num(4.0));
         assert_eq!(expr_to_string(&n), "4");

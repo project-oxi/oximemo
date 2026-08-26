@@ -180,7 +180,11 @@ pub fn parse_where(raw: &str) -> Result<PropPredicate> {
             "invalid --where expression {raw:?}: empty value"
         )));
     }
-    let op = if op == PropOp::Eq && values.len() > 1 { PropOp::In } else { op };
+    let op = if op == PropOp::Eq && values.len() > 1 {
+        PropOp::In
+    } else {
+        op
+    };
     Ok(PropPredicate {
         key: key.to_string(),
         op,
@@ -191,8 +195,9 @@ pub fn parse_where(raw: &str) -> Result<PropPredicate> {
 /// Sort specification for [`NoteQuery`]. The default listing path
 /// (`list_memos`) stays cursor-paginated newest-first; only explicit
 /// sorts use this.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SortSpec {
+    #[default]
     UpdatedDesc,
     UpdatedAsc,
     /// Ascending by property key (missing values sort last).
@@ -237,21 +242,12 @@ pub struct NoteQuery {
     pub limit: u32,
 }
 
-impl Default for SortSpec {
-    fn default() -> Self {
-        SortSpec::UpdatedDesc
-    }
-}
-
 impl NoteQuery {
     /// Apply the query to pre-loaded summaries. Returns (matched, total).
     pub fn apply(&self, summaries: Vec<MemoSummary>) -> (Vec<MemoSummary>, usize) {
         let mut matched: Vec<MemoSummary> = summaries
             .into_iter()
-            .filter(|s| {
-                self.filter.matches(s)
-                    && self.props.iter().all(|p| p.matches(&s.props))
-            })
+            .filter(|s| self.filter.matches(s) && self.props.iter().all(|p| p.matches(&s.props)))
             .collect();
         match &self.sort {
             SortSpec::UpdatedDesc => matched.sort_by(|a, b| {
@@ -425,7 +421,11 @@ mod tests {
 
         assert!(parse_where("status=understood").unwrap().matches(&props));
         assert!(!parse_where("status=stub").unwrap().matches(&props));
-        assert!(parse_where("status=stub,vague,understood").unwrap().matches(&props));
+        assert!(
+            parse_where("status=stub,vague,understood")
+                .unwrap()
+                .matches(&props)
+        );
         assert!(parse_where("subdomain~AI").unwrap().matches(&props));
         assert!(!parse_where("subdomain~DATA").unwrap().matches(&props));
         assert!(parse_where("done=true").unwrap().matches(&props));
@@ -457,7 +457,9 @@ mod tests {
             "removed key must map to None"
         );
         assert_eq!(
-            sp.iter().find(|(k, _)| k == "status").map(|(_, v)| v.clone()),
+            sp.iter()
+                .find(|(k, _)| k == "status")
+                .map(|(_, v)| v.clone()),
             Some(Some(Value::Str("stub".into())))
         );
         // Set wins over remove for the same key.

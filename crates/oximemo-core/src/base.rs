@@ -7,16 +7,16 @@ pub(crate) mod cache;
 pub(crate) mod exec;
 pub(crate) mod files;
 
+use serde::de::{self, Deserializer};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use serde::de::{Deserializer, self};
 
 use serde::{Deserialize, Serialize};
 
+pub(crate) use cache::SharedResultCache;
 pub use exec::{
     BaseCell, BasePage, BaseRow, BaseSource, EvalClockDto, GroupCount, PropInfo, RunBaseReq,
     SummaryValue, default_columns,
 };
-pub(crate) use cache::SharedResultCache;
 pub use files::BaseInfo;
 
 use crate::error::CoreError;
@@ -96,9 +96,7 @@ fn filter_spec_from_value(v: serde_yaml_ng::Value) -> Result<FilterSpec, String>
                 .to_string();
             let items = match strip_tags(val) {
                 serde_yaml_ng::Value::Sequence(seq) => seq,
-                other => {
-                    return Err(format!("`{key}` filter body must be a list, got {other:?}"))
-                }
+                other => return Err(format!("`{key}` filter body must be a list, got {other:?}")),
             };
             let mut children = Vec::with_capacity(items.len());
             for item in items {
@@ -265,9 +263,7 @@ pub fn validate(def: &BaseDef) -> Result<Vec<String>, CoreError> {
             continue;
         }
         let mut path: Vec<&str> = Vec::new();
-        if let Some(cycle) =
-            dfs_cycle(name, &graph, &mut path, &mut on_stack, &mut finished)
-        {
+        if let Some(cycle) = dfs_cycle(name, &graph, &mut path, &mut on_stack, &mut finished) {
             return Err(CoreError::Expr {
                 message: format!("formula cycle: {cycle}"),
                 line: 0,
@@ -287,9 +283,7 @@ pub fn validate(def: &BaseDef) -> Result<Vec<String>, CoreError> {
         for dep in deps {
             if !known.contains(dep.as_str()) {
                 return Err(CoreError::Expr {
-                    message: format!(
-                        "formula `{name}` references unknown formula `formula.{dep}`"
-                    ),
+                    message: format!("formula `{name}` references unknown formula `formula.{dep}`"),
                     line: 0,
                     col: 0,
                 });
@@ -557,9 +551,7 @@ mod tests {
         // The unknown key must survive a round-trip.
         let parsed = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&yaml).expect("yaml parse");
         let mapping = parsed.as_mapping().expect("top-level mapping");
-        let has_future = mapping
-            .iter()
-            .any(|(k, _)| k.as_str() == Some("future"));
+        let has_future = mapping.iter().any(|(k, _)| k.as_str() == Some("future"));
         assert!(has_future, "unknown `future` key lost: {yaml}");
     }
 
@@ -665,7 +657,10 @@ views:
         let err = parse_base(yaml).unwrap_err();
         match err {
             CoreError::Expr { line, col, .. } => {
-                assert!(line > 0 && col > 0, "expected real location, got {line}:{col}");
+                assert!(
+                    line > 0 && col > 0,
+                    "expected real location, got {line}:{col}"
+                );
             }
             other => panic!("expected Expr error, got {other:?}"),
         }

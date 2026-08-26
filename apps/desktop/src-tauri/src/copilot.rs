@@ -92,7 +92,7 @@ fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf>
     }
     dirs.into_iter()
         .map(|d| d.join(name))
-        .find(|p| is_executable(&p))
+        .find(|p| is_executable(p))
 }
 
 fn which(name: &str) -> Option<PathBuf> {
@@ -274,10 +274,11 @@ fn disclosure_from_codex_config(text: &str) -> Disclosure {
             if let Some(m) = quoted.filter(|m| !m.is_empty()) {
                 model = Some(m.to_string());
             }
-        } else if key.trim() == "model_provider" && provider.is_none() {
-            if let Some(p) = quoted.filter(|p| !p.is_empty()) {
-                provider = Some(p.to_string());
-            }
+        } else if key.trim() == "model_provider"
+            && provider.is_none()
+            && let Some(p) = quoted.filter(|p| !p.is_empty())
+        {
+            provider = Some(p.to_string());
         }
     }
     if provider.is_none() && model.is_some() {
@@ -1060,14 +1061,12 @@ pub fn parse_codex_jsonl(stdout: &str) -> CodexTurn {
                 let item = v.get("item");
                 if item.and_then(|i| i.get("type")).and_then(|t| t.as_str())
                     == Some("agent_message")
-                {
-                    if let Some(text) = item
+                    && let Some(text) = item
                         .and_then(|i| i.get("text"))
                         .and_then(|t| t.as_str())
                         .filter(|t| !t.trim().is_empty())
-                    {
-                        parts.push(text.to_string());
-                    }
+                {
+                    parts.push(text.to_string());
                 }
             }
             Some("error") => {
@@ -1121,14 +1120,13 @@ pub fn parse_oxicode_jsonl(stdout: &str) -> String {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        if v.get("type").and_then(|t| t.as_str()) == Some("message_end") {
-            if let Some(text) = v
+        if v.get("type").and_then(|t| t.as_str()) == Some("message_end")
+            && let Some(text) = v
                 .get("text")
                 .and_then(|t| t.as_str())
                 .filter(|t| !t.trim().is_empty())
-            {
-                last = Some(text.to_string());
-            }
+        {
+            last = Some(text.to_string());
         }
     }
     last.unwrap_or_else(|| stdout.trim().to_string())
@@ -1522,7 +1520,7 @@ mod tests {
         assert!(ctx.contains("  - id: 01991a\n"));
         assert!(ctx.contains("    title: 러닝 기록\n"));
         assert!(ctx.contains("    path: memos/2026/08/run.md\n"));
-        let empty = build_context(
+        let _empty = build_context(
             Path::new("/v"),
             Path::new("/c"),
             Path::new("/s"),

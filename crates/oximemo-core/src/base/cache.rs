@@ -57,8 +57,7 @@ fn value_heap(v: &Value) -> usize {
     match v {
         Value::Str(s) => s.len(),
         Value::List(l) => {
-            l.len() * std::mem::size_of::<Value>()
-                + l.iter().map(value_heap).sum::<usize>()
+            l.len() * std::mem::size_of::<Value>() + l.iter().map(value_heap).sum::<usize>()
         }
         _ => 0,
     }
@@ -84,8 +83,7 @@ pub(crate) fn estimate_result_bytes(r: &BaseResult) -> usize {
         b += s.tags.capacity() * size_of::<String>()
             + s.tags.iter().map(|t| heap_str(t)).sum::<usize>();
         b += s.props.len()
-            * (size_of::<String>() + size_of::<crate::props::PropValue>()
-                + 2 * size_of::<usize>()); // BTreeMap node overhead
+            * (size_of::<String>() + size_of::<crate::props::PropValue>() + 2 * size_of::<usize>()); // BTreeMap node overhead
         for (k, v) in &s.props {
             b += heap_str(k);
             b += match v {
@@ -258,7 +256,8 @@ impl BaseResultCache {
         }
         // The guard re-evaluates each iteration; an empty deque ends the
         // loop (a too-big entry then inserts alone rather than spinning).
-        while (self.map.len() >= RESULT_CACHE_CAP || self.total_bytes + bytes > RESULT_CACHE_BUDGET_BYTES)
+        while (self.map.len() >= RESULT_CACHE_CAP
+            || self.total_bytes + bytes > RESULT_CACHE_BUDGET_BYTES)
             && let Some(oldest) = self.order.pop_front()
         {
             let ob = self.entry_bytes.pop_front().unwrap_or(0);
@@ -335,8 +334,14 @@ pub fn render_result_key(k: &ResultKey) -> String {
     };
     format!(
         "{:016x}-v{}-g{}.{:09}{}-c{}.{}-f{}",
-        k.source_hash, k.view_index, secs, nanos, this_tag,
-        k.clock_ms, k.local_offset_seconds, flags
+        k.source_hash,
+        k.view_index,
+        secs,
+        nanos,
+        this_tag,
+        k.clock_ms,
+        k.local_offset_seconds,
+        flags
     )
 }
 
@@ -367,7 +372,6 @@ impl SharedResultCache {
 
     pub fn put(&self, key: ResultKey, result: Arc<BaseResult>) {
         self.inner.lock().put(key, result);
-
     }
 
     pub fn clear_all(&self) {
@@ -459,7 +463,6 @@ mod tests {
         assert!(c.get(&key(15, 0)).is_some(), "newest still present");
     }
 
-
     #[test]
     fn bytes_budget_evicts_oldest() {
         // Two ~3/8-budget entries fit; a third evicts the first.
@@ -518,10 +521,7 @@ mod tests {
         let base = ResultKey {
             source_hash: 1,
             view_index: 0,
-            generation: (
-                SystemTime::UNIX_EPOCH + std::time::Duration::new(5, 100),
-                7,
-            ),
+            generation: (SystemTime::UNIX_EPOCH + std::time::Duration::new(5, 100), 7),
             clock_ms: 0,
             local_offset_seconds: 0,
             group_counts: false,
@@ -532,10 +532,7 @@ mod tests {
         // Same second, different nanos → distinct strings (spec §6:
         // same-second writes must not alias the widget key).
         let nanos = ResultKey {
-            generation: (
-                SystemTime::UNIX_EPOCH + std::time::Duration::new(5, 101),
-                7,
-            ),
+            generation: (SystemTime::UNIX_EPOCH + std::time::Duration::new(5, 101), 7),
             ..base.clone()
         };
         assert_ne!(s, render_result_key(&nanos));

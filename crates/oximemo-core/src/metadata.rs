@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use crate::props::{PropValue, Props};
 use crate::schema::FolderSchema;
 
-
 /// The objective fields a metadata provider can fill — anything else
 /// (ratings, status, badges) is the user's judgment and never maps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -82,15 +81,55 @@ pub struct ProviderInfo {
 /// v1 catalog (spec §3.2, all eight providers verified).
 pub const PROVIDER_CATALOG: &[ProviderInfo] = &[
     // Books
-    ProviderInfo { id: "open_library", domain: ProviderDomain::Book, access: ProviderAccess::Keyless, regions: &[] },
-    ProviderInfo { id: "google_books", domain: ProviderDomain::Book, access: ProviderAccess::Keyed, regions: &[] },
-    ProviderInfo { id: "aladin", domain: ProviderDomain::Book, access: ProviderAccess::Keyed, regions: &["KR"] },
-    ProviderInfo { id: "ndl_search", domain: ProviderDomain::Book, access: ProviderAccess::ConditionalKeyless, regions: &["JP"] },
-    ProviderInfo { id: "dnb_sru", domain: ProviderDomain::Book, access: ProviderAccess::Keyless, regions: &["DE"] },
+    ProviderInfo {
+        id: "open_library",
+        domain: ProviderDomain::Book,
+        access: ProviderAccess::Keyless,
+        regions: &[],
+    },
+    ProviderInfo {
+        id: "google_books",
+        domain: ProviderDomain::Book,
+        access: ProviderAccess::Keyed,
+        regions: &[],
+    },
+    ProviderInfo {
+        id: "aladin",
+        domain: ProviderDomain::Book,
+        access: ProviderAccess::Keyed,
+        regions: &["KR"],
+    },
+    ProviderInfo {
+        id: "ndl_search",
+        domain: ProviderDomain::Book,
+        access: ProviderAccess::ConditionalKeyless,
+        regions: &["JP"],
+    },
+    ProviderInfo {
+        id: "dnb_sru",
+        domain: ProviderDomain::Book,
+        access: ProviderAccess::Keyless,
+        regions: &["DE"],
+    },
     // Movies
-    ProviderInfo { id: "tmdb", domain: ProviderDomain::Movie, access: ProviderAccess::Keyed, regions: &[] },
-    ProviderInfo { id: "omdb", domain: ProviderDomain::Movie, access: ProviderAccess::Keyed, regions: &[] },
-    ProviderInfo { id: "kmdb", domain: ProviderDomain::Movie, access: ProviderAccess::KeyedWithApproval, regions: &["KR"] },
+    ProviderInfo {
+        id: "tmdb",
+        domain: ProviderDomain::Movie,
+        access: ProviderAccess::Keyed,
+        regions: &[],
+    },
+    ProviderInfo {
+        id: "omdb",
+        domain: ProviderDomain::Movie,
+        access: ProviderAccess::Keyed,
+        regions: &[],
+    },
+    ProviderInfo {
+        id: "kmdb",
+        domain: ProviderDomain::Movie,
+        access: ProviderAccess::KeyedWithApproval,
+        regions: &["KR"],
+    },
 ];
 
 /// Provider priority per (domain, region). Region-specific lists
@@ -132,7 +171,9 @@ pub fn meta_field_name(f: MetaField) -> &'static str {
 pub fn stamp_targets(schema: &FolderSchema, hit: &MetaHit) -> Vec<(String, PropValue)> {
     let mut out: Vec<(String, PropValue)> = Vec::new();
     for (key, def) in &schema.properties {
-        let Some(mapped) = def.metadata.as_deref() else { continue };
+        let Some(mapped) = def.metadata.as_deref() else {
+            continue;
+        };
         for (field, value) in &hit.fields {
             if meta_field_name(*field) == mapped {
                 out.push((key.clone(), PropValue::Str(value.clone())));
@@ -164,13 +205,16 @@ pub fn has_metadata_targets(schema: &FolderSchema) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{parse_schema, BOOK_SCHEMA_TOML, IDEA_SCHEMA_TOML, MOVIE_SCHEMA_TOML};
+    use crate::schema::{BOOK_SCHEMA_TOML, IDEA_SCHEMA_TOML, MOVIE_SCHEMA_TOML, parse_schema};
 
     #[test]
     fn provider_order_resolves_every_region_table() {
         for d in [ProviderDomain::Book, ProviderDomain::Movie] {
             for r in ["", "KR", "JP", "DE", "US"] {
-                assert!(!provider_order(d, r).is_empty(), "{d:?}/{r} must have a default");
+                assert!(
+                    !provider_order(d, r).is_empty(),
+                    "{d:?}/{r} must have a default"
+                );
             }
         }
     }
@@ -219,8 +263,24 @@ mod tests {
             ..Default::default()
         };
         let next = stamp_into(&schema, &hit, &base);
-        assert_eq!(next.get("rating").and_then(|v| if let PropValue::Str(s) = v { Some(s.as_str()) } else { None }), Some("5"));
-        assert_eq!(next.get("author").and_then(|v| if let PropValue::Str(s) = v { Some(s.as_str()) } else { None }), Some("Test"));
+        assert_eq!(
+            next.get("rating")
+                .and_then(|v| if let PropValue::Str(s) = v {
+                    Some(s.as_str())
+                } else {
+                    None
+                }),
+            Some("5")
+        );
+        assert_eq!(
+            next.get("author")
+                .and_then(|v| if let PropValue::Str(s) = v {
+                    Some(s.as_str())
+                } else {
+                    None
+                }),
+            Some("Test")
+        );
     }
     #[test]
     fn movie_preset_maps_director_and_runtime() {

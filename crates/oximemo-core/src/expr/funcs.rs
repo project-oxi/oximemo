@@ -26,7 +26,7 @@
 
 use crate::error::CoreError;
 use crate::expr::eval::{EvalClock, EvalCtx};
-use crate::expr::value::{group_string, parse_date_ish, type_name, Value};
+use crate::expr::value::{Value, group_string, parse_date_ish, type_name};
 
 /// Dispatch a global function or method call.
 ///
@@ -55,7 +55,11 @@ pub fn call_function(
             let local = ctx.local;
             let n = ctx.now_utc.to_offset(local);
             let d = n.date();
-            Value::Date(d.with_hms(0, 0, 0).expect("midnight is valid").assume_offset(local))
+            Value::Date(
+                d.with_hms(0, 0, 0)
+                    .expect("midnight is valid")
+                    .assume_offset(local),
+            )
         }),
         "date" => match args.as_slice() {
             [Value::Str(s)] => parse_date_ish(s)
@@ -72,34 +76,30 @@ pub fn call_function(
             _ => Err(arity_msg(name, "exactly three arguments", args.len())),
         },
         "isEmpty" => one_arg(name, &args).map(|v| match v {
-            Value::Null | Value::Str(_) | Value::List(_) => {
-                Value::Bool(match v {
-                    Value::Null => true,
-                    Value::Str(s) => s.is_empty(),
-                    Value::List(items) => items.is_empty(),
-                    _ => unreachable!(),
-                })
-            }
+            Value::Null | Value::Str(_) | Value::List(_) => Value::Bool(match v {
+                Value::Null => true,
+                Value::Str(s) => s.is_empty(),
+                Value::List(items) => items.is_empty(),
+                _ => unreachable!(),
+            }),
             _ => Value::Bool(false),
         }),
         "isBlank" => one_arg(name, &args).map(|v| match v {
-            Value::Null | Value::Str(_) | Value::List(_) => {
-                Value::Bool(match v {
-                    Value::Null => true,
-                    Value::Str(s) => s.trim().is_empty(),
-                    Value::List(items) => items.is_empty(),
-                    _ => unreachable!(),
-                })
-            }
+            Value::Null | Value::Str(_) | Value::List(_) => Value::Bool(match v {
+                Value::Null => true,
+                Value::Str(s) => s.trim().is_empty(),
+                Value::List(items) => items.is_empty(),
+                _ => unreachable!(),
+            }),
             _ => Value::Bool(false),
         }),
-        "typeof" => one_arg(name, &args).map(|v| Value::Str(type_name(&v).into())),
+        "typeof" => one_arg(name, &args).map(|v| Value::Str(type_name(v).into())),
         "length" => one_arg(name, &args).and_then(|v| match v {
             Value::Str(s) => Ok(Value::Num(s.chars().count() as f64)),
             Value::List(items) => Ok(Value::Num(items.len() as f64)),
             other => Err(expr_err(format!(
                 "length(): expected string or list, got {}",
-                type_name(&other)
+                type_name(other)
             ))),
         }),
 
@@ -127,7 +127,9 @@ pub fn call_function(
         }),
         "split" => two_args(name, &args).and_then(|(s, sep)| match (s, sep) {
             (Value::Str(s), Value::Str(sep)) => Ok(Value::List(
-                s.split(sep.as_str()).map(|p| Value::Str(p.to_string())).collect(),
+                s.split(sep.as_str())
+                    .map(|p| Value::Str(p.to_string()))
+                    .collect(),
             )),
             _ => Err(expr_err("split(): expected (string, string)")),
         }),
@@ -156,7 +158,7 @@ pub fn call_function(
             Value::List(items) => {
                 let mut out: Vec<Value> = Vec::with_capacity(items.len());
                 for it in items {
-                    if !out.iter().any(|m| eq_for_includes(m, &it)) {
+                    if !out.iter().any(|m| eq_for_includes(m, it)) {
                         out.push(it.clone());
                     }
                 }
@@ -219,8 +221,8 @@ pub fn call_function(
         }),
         "days" => one_arg(name, &args).and_then(|v| match v {
             Value::Duration(d) => {
-                let total_ms = (d.calendar_months as f64) * 30.44 * 86_400_000.0
-                    + (d.fixed_millis as f64);
+                let total_ms =
+                    (d.calendar_months as f64) * 30.44 * 86_400_000.0 + (d.fixed_millis as f64);
                 Ok(Value::Num(total_ms / 86_400_000.0))
             }
             Value::Num(n) => {
@@ -268,10 +270,7 @@ fn one_arg<'a>(name: &str, args: &'a [Value]) -> Result<&'a Value, CoreError> {
     }
 }
 
-fn two_args<'a>(
-    name: &str,
-    args: &'a [Value],
-) -> Result<(&'a Value, &'a Value), CoreError> {
+fn two_args<'a>(name: &str, args: &'a [Value]) -> Result<(&'a Value, &'a Value), CoreError> {
     if args.len() != 2 {
         Err(arity_msg(name, "exactly two", args.len()))
     } else {
@@ -300,7 +299,7 @@ fn one_str<'a>(name: &str, args: &'a [Value]) -> Result<&'a str, CoreError> {
     })
 }
 
-fn one_num<'a>(name: &str, args: &'a [Value]) -> Result<f64, CoreError> {
+fn one_num(name: &str, args: &[Value]) -> Result<f64, CoreError> {
     one_arg(name, args).and_then(|v| promote_number(name, v))
 }
 
@@ -352,11 +351,9 @@ fn eq_for_includes(a: &Value, b: &Value) -> bool {
     // test (numeric/date string promotion). A list member should not
     // promote to a different kind than the haystack itself.
     match (a, b) {
-        (Value::Num(x), Value::Str(y)) | (Value::Str(y), Value::Num(x)) => y
-            .parse::<f64>()
-            .ok()
-            .map(|n| n == *x)
-            .unwrap_or(false),
+        (Value::Num(x), Value::Str(y)) | (Value::Str(y), Value::Num(x)) => {
+            y.parse::<f64>().ok().map(|n| n == *x).unwrap_or(false)
+        }
         (Value::Date(_), Value::Str(_)) | (Value::Str(_), Value::Date(_)) => {
             matches!(
                 (crate::expr::value::promote_date(a), crate::expr::value::promote_date(b)),
@@ -450,8 +447,8 @@ mod tests {
     use crate::expr::value::DurationSpec;
     use std::cell::Cell;
     use std::sync::LazyLock;
-    use time::macros::datetime;
     use time::UtcOffset;
+    use time::macros::datetime;
 
     /// Pre-computed shared clock.
     static CLOCK: LazyLock<EvalClock> = LazyLock::new(|| EvalClock {
@@ -676,7 +673,11 @@ mod tests {
             panic!("expected CoreError::Expr");
         };
         assert!(msg.contains("date"), "got `{msg}`");
-        let err = call("replace", vec![Value::Str("a".into()), Value::Str("b".into())]).unwrap_err();
+        let err = call(
+            "replace",
+            vec![Value::Str("a".into()), Value::Str("b".into())],
+        )
+        .unwrap_err();
         let CoreError::Expr { message: msg, .. } = err else {
             panic!("expected CoreError::Expr");
         };
@@ -691,6 +692,13 @@ mod tests {
         // the wiring (covered by `eval_dispatches_through_call_function`
         // in eval.rs).
         let err = call("nope", vec![]).unwrap_err();
-        assert!(matches!(err, CoreError::Expr { line: 0, col: 0, .. }));
+        assert!(matches!(
+            err,
+            CoreError::Expr {
+                line: 0,
+                col: 0,
+                ..
+            }
+        ));
     }
 }

@@ -196,13 +196,13 @@ pub struct PromoteDef {
 
 /// Parse a `SCHEMA.toml` document.
 pub fn parse_schema(src: &str) -> Result<FolderSchema> {
-    let schema: FolderSchema = toml::from_str(src)
-        .map_err(|e| CoreError::other(format!("invalid SCHEMA.toml: {e}")))?;
+    let schema: FolderSchema =
+        toml::from_str(src).map_err(|e| CoreError::other(format!("invalid SCHEMA.toml: {e}")))?;
     for rule in &schema.transitions {
         if rule.key.is_empty() || rule.to.is_empty() {
-            return Err(CoreError::other(format!(
-                "invalid SCHEMA.toml transition: `key` and `to` are required"
-            )));
+            return Err(CoreError::other(
+                "invalid SCHEMA.toml transition: `key` and `to` are required".to_string(),
+            ));
         }
         if (rule.copy_from.is_some() || rule.into.is_some() || rule.merge.is_some())
             && !(rule.copy_from.is_some() && rule.into.is_some())
@@ -807,9 +807,13 @@ mod tests {
             ("novel", (NOVEL_TEMPLATE_MD, NOVEL_SCHEMA_TOML)),
             ("idea", (IDEA_TEMPLATE_MD, IDEA_SCHEMA_TOML)),
         ] {
-            let s = parse_schema(schema_toml)
-                .unwrap_or_else(|e| panic!("{id} preset must parse: {e}"));
-            assert_eq!(s.meta.preset.as_deref(), Some(id), "{id} carries the marker");
+            let s =
+                parse_schema(schema_toml).unwrap_or_else(|e| panic!("{id} preset must parse: {e}"));
+            assert_eq!(
+                s.meta.preset.as_deref(),
+                Some(id),
+                "{id} carries the marker"
+            );
             let kind = &s.properties["kind"];
             assert!(kind.options.contains(&"note".to_string()));
             assert!(kind.options.contains(&id.to_string()));
@@ -828,8 +832,14 @@ mod tests {
         assert_eq!(promote.start_status.as_deref(), Some("stub"));
 
         let book = parse_schema(BOOK_SCHEMA_TOML).unwrap();
-        assert_eq!(book.properties["author"].metadata.as_deref(), Some("author"));
-        assert!(book.properties["rating"].metadata.is_none(), "ratings never map");
+        assert_eq!(
+            book.properties["author"].metadata.as_deref(),
+            Some("author")
+        );
+        assert!(
+            book.properties["rating"].metadata.is_none(),
+            "ratings never map"
+        );
 
         let movie = parse_schema(MOVIE_SCHEMA_TOML).unwrap();
         assert_eq!(movie.properties["series"].prop_type, PropType::Bool);
@@ -838,7 +848,9 @@ mod tests {
     #[test]
     fn parse_rejects_bad_transitions() {
         assert!(parse_schema("[[transitions]]\nkey = \"x\"\nto = []\n").is_err());
-        assert!(parse_schema("[[transitions]]\nkey = \"x\"\nto = [\"a\"]\ninto = \"y\"\n").is_err());
+        assert!(
+            parse_schema("[[transitions]]\nkey = \"x\"\nto = [\"a\"]\ninto = \"y\"\n").is_err()
+        );
         assert!(parse_schema("[review]\nproperty = \"status\"\n").is_err());
     }
 
@@ -854,7 +866,10 @@ mod tests {
         let mut p = props(&[("status", " mastered "), ("domain", "TECH")]);
         p.insert("status".into(), PropValue::Str("guru".into()));
         let vs = validate(&s, &p);
-        assert!(vs.iter().any(|v| v.key == "status" && v.reason.contains("guru")));
+        assert!(
+            vs.iter()
+                .any(|v| v.key == "status" && v.reason.contains("guru"))
+        );
 
         // Bad date.
         let mut p2 = props(&[("status", "stub"), ("domain", "TECH")]);
@@ -864,10 +879,7 @@ mod tests {
 
         // Clean props validate.
         let mut p3 = props(&[("status", "stub"), ("domain", "TECH")]);
-        p3.insert(
-            "status_changed".into(),
-            PropValue::Str("2026-08-23".into()),
-        );
+        p3.insert("status_changed".into(), PropValue::Str("2026-08-23".into()));
         assert!(validate(&s, &p3).is_empty(), "{p3:?}");
     }
 
@@ -882,7 +894,7 @@ mod tests {
             out.get("peak_status"),
             Some(&PropValue::Str("understood".into()))
         );
-        assert!(out.get("status_changed").is_some());
+        assert!(out.contains_key("status_changed"));
 
         // mastered entry keeps peak at mastered.
         let new2 = props(&[("status", "mastered")]);

@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::base::{parse_base, validate, BaseDef};
+use crate::base::{BaseDef, parse_base, validate};
 use crate::error::{CoreError, Result};
 use crate::paths::{
     ASSETS_DIR, QUERY_EXT, SCHEMA_NAME, TEMPLATE_HTML_NAME, TEMPLATE_NAME, TRASH_DIR,
@@ -71,11 +71,7 @@ pub(crate) fn query_rel_path(rel: &str, vault_root: &Path) -> Result<PathBuf> {
             )));
         }
     }
-    if Path::new(rel)
-        .extension()
-        .and_then(|e| e.to_str())
-        != Some(QUERY_EXT)
-    {
+    if Path::new(rel).extension().and_then(|e| e.to_str()) != Some(QUERY_EXT) {
         return Err(CoreError::other(format!(
             "invalid query path: extension must be '{QUERY_EXT}' (got '{rel}')"
         )));
@@ -136,9 +132,9 @@ pub(crate) fn query_rel_path(rel: &str, vault_root: &Path) -> Result<PathBuf> {
         if !canon_parent.starts_with(&canon_root)
             || (canon_parent == canon_root && rel.contains('/'))
         {
-            return Err(CoreError::other(format!(
-                "invalid query path: escapes vault root"
-            )));
+            return Err(CoreError::other(
+                "invalid query path: escapes vault root".to_string(),
+            ));
         }
     }
     Ok(abs)
@@ -153,9 +149,9 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let parent = path.parent().ok_or_else(|| {
-        CoreError::other("invalid query path: no parent directory")
-    })?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| CoreError::other("invalid query path: no parent directory"))?;
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -183,11 +179,7 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 /// component starting with `.` or `_` are skipped at every level. The
 /// caller filters to `.query` files. Returns relative POSIX paths.
 pub(crate) fn list_query_files(root: &Path) -> Vec<(String, SystemTime)> {
-    fn visit(
-        dir: &Path,
-        prefix: &str,
-        out: &mut Vec<(String, SystemTime)>,
-    ) {
+    fn visit(dir: &Path, prefix: &str, out: &mut Vec<(String, SystemTime)>) {
         let entries = match std::fs::read_dir(dir) {
             Ok(e) => e,
             Err(_) => return,
@@ -211,8 +203,7 @@ pub(crate) fn list_query_files(root: &Path) -> Vec<(String, SystemTime)> {
             if file_type.is_dir() {
                 visit(&path, &child_rel, out);
             } else if file_type.is_file()
-                && Path::new(&name_str).extension().and_then(|e| e.to_str())
-                    == Some(QUERY_EXT)
+                && Path::new(&name_str).extension().and_then(|e| e.to_str()) == Some(QUERY_EXT)
             {
                 let mtime = std::fs::metadata(&path)
                     .ok()

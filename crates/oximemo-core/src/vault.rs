@@ -83,6 +83,18 @@ struct SnapshotState {
     recs: std::sync::Arc<Vec<crate::store::index::IndexRecord>>,
 }
 
+/// Return of [`Vault::snapshot_with_gen`]: the record snapshot plus the
+/// generation it was read at `(mtime, size)` — callers use the pair as
+/// their cache key (spec §3).
+pub(crate) type SnapshotWithGen = (
+    std::sync::Arc<Vec<crate::store::index::IndexRecord>>,
+    (std::time::SystemTime, u64),
+);
+
+/// Row staged for the tantivy upsert batch in `reindex`:
+/// `(id, body, title, tags, path)`.
+type SearchRow = (MemoId, String, Option<String>, Vec<String>, String);
+
 /// Snapshot cache cap (spec §3, snapshot budget): when `export_since`
 /// returns more than this many records we return the freshly-loaded vector
 /// without caching, so the cache never holds a multi-megabyte Arc.
@@ -96,7 +108,12 @@ pub struct Vault {
     /// Folder-schema cache keyed by folder path: `(mtime, schema)`. The
     /// SCHEMA.toml files are not watcher targets, so the mtime is checked
     /// on every lookup (design 2026-08-23 §6.2).
-    schemas: RwLock<std::collections::HashMap<String, (std::time::SystemTime, Option<crate::schema::FolderSchema>)>>,
+    schemas: RwLock<
+        std::collections::HashMap<
+            String,
+            (std::time::SystemTime, Option<crate::schema::FolderSchema>),
+        >,
+    >,
     /// Base-`.query` file cache keyed by vault-relative path: `(mtime, def)`.
     /// Mirrors the `schemas` cache. The watcher calls
     /// [`Self::invalidate_base_caches`] to drop entries after external edits.
@@ -111,8 +128,6 @@ pub struct Vault {
     /// directly without leaking the surface to other crates.
     base_results: crate::base::SharedResultCache,
 }
-
-
 
 impl Vault {
     /// Resolve a vault (default location when `vault` is `None`) and load its
@@ -209,7 +224,10 @@ impl Vault {
         let path = if folder_norm.is_empty() {
             self.paths.vault.join(crate::paths::SCHEMA_NAME)
         } else {
-            self.paths.vault.join(&folder_norm).join(crate::paths::SCHEMA_NAME)
+            self.paths
+                .vault
+                .join(&folder_norm)
+                .join(crate::paths::SCHEMA_NAME)
         };
         let mtime = std::fs::metadata(&path)
             .ok()
@@ -251,9 +269,8 @@ impl Vault {
     /// installed collections are user-owned — deleting them is
     /// permanent (no recreate-on-migrate).
     pub fn install_collection(&self, preset_id: &str, folder: &str) -> Result<()> {
-        let (template, schema) = crate::schema::collection_preset(preset_id).ok_or_else(
-            || CoreError::other(format!("unknown collection preset: {preset_id}")),
-        )?;
+        let (template, schema) = crate::schema::collection_preset(preset_id)
+            .ok_or_else(|| CoreError::other(format!("unknown collection preset: {preset_id}")))?;
         self.apply_preset(folder, template, schema)
     }
 
@@ -853,7 +870,9 @@ impl Vault {
         };
         let mut mutation = Mutation::default();
         for (k, v) in &tmpl_props {
-            mutation.set_props.insert(k.clone(), Some(v.to_frontmatter()));
+            mutation
+                .set_props
+                .insert(k.clone(), Some(v.to_frontmatter()));
         }
         let tags = tags_of(fmt, &body);
         validate_note_input(&body, &tags)?;
@@ -870,15 +889,8 @@ impl Vault {
             std::fs::create_dir_all(parent)?;
         }
         let crate_fmt = to_crate_fmt(fmt);
-        write_document(
-            &path,
-            &body,
-            crate_fmt,
-            mutation,
-            Synthesize::Yes,
-            now,
-        )
-        .map_err(crate::store::files::frontmatter_error_to_core)?;
+        write_document(&path, &body, crate_fmt, mutation, Synthesize::Yes, now)
+            .map_err(crate::store::files::frontmatter_error_to_core)?;
         // Read back: write_document just synthesized id/created/updated
         // (the typed values are only known after the disk write).
         let note = self
@@ -1163,7 +1175,9 @@ impl Vault {
         };
         for (k, v) in &note.props {
             if old_props.get(k) != Some(v) {
-                mutation.set_props.insert(k.clone(), Some(v.to_frontmatter()));
+                mutation
+                    .set_props
+                    .insert(k.clone(), Some(v.to_frontmatter()));
             }
         }
         for k in old_props.keys() {
@@ -1339,21 +1353,21 @@ impl Vault {
                     let mut prop_mutation = Mutation::default();
                     for (k, v) in &src.props {
                         let rv = match v {
-                            crate::props::PropValue::Str(s) => {
-                                crate::props::PropValue::Str(crate::wiki::replace_link_target(s, old, new))
-                            }
-                            crate::props::PropValue::List(items) => {
-                                crate::props::PropValue::List(
-                                    items
-                                        .iter()
-                                        .map(|i| crate::wiki::replace_link_target(i, old, new))
-                                        .collect(),
-                                )
-                            }
+                            crate::props::PropValue::Str(s) => crate::props::PropValue::Str(
+                                crate::wiki::replace_link_target(s, old, new),
+                            ),
+                            crate::props::PropValue::List(items) => crate::props::PropValue::List(
+                                items
+                                    .iter()
+                                    .map(|i| crate::wiki::replace_link_target(i, old, new))
+                                    .collect(),
+                            ),
                             b @ crate::props::PropValue::Bool(_) => b.clone(),
                         };
                         if &rv != v {
-                            prop_mutation.set_props.insert(k.clone(), Some(rv.to_frontmatter()));
+                            prop_mutation
+                                .set_props
+                                .insert(k.clone(), Some(rv.to_frontmatter()));
                             updated.props.insert(k.clone(), rv);
                         }
                     }
@@ -1595,9 +1609,7 @@ impl Vault {
     /// so a cache entry's key equals the next caller's lookup key
     /// exactly — no double-stat window to round to the same mtime
     /// and miss the entry we just stored.
-    pub(crate) fn snapshot_with_gen(
-        &self,
-    ) -> Result<(std::sync::Arc<Vec<crate::store::index::IndexRecord>>, (std::time::SystemTime, u64))> {
+    pub(crate) fn snapshot_with_gen(&self) -> Result<SnapshotWithGen> {
         // Inline a slimmed-down version of `snapshot()` so the gen is
         // returned from the same code path without an extra lock +
         // stat round trip. The behaviour mirrors `snapshot()`
@@ -1663,7 +1675,6 @@ impl Vault {
     ) -> Option<std::sync::Arc<crate::base::cache::BaseResult>> {
         self.base_results.get(key)
     }
-
 
     /// Insert into the in-memory base-result cache (Task 10).
     pub(crate) fn base_cache_put(
@@ -1777,7 +1788,7 @@ impl Vault {
         // (design §5.3): H1 titles beat aliases; within either kind the
         // OLDEST note (`created_at`) wins, so the map is deterministic
         // regardless of iteration order.
-        let mut by_created: Vec<&IndexRecord> = live.iter().copied().collect();
+        let mut by_created: Vec<&IndexRecord> = live.to_vec();
         by_created.sort_by_key(|r| r.created_at);
         let mut title_map: std::collections::HashMap<String, MemoId> = Default::default();
         for r in &by_created {
@@ -1787,9 +1798,7 @@ impl Vault {
         }
         for r in &by_created {
             for a in crate::props::aliases_of(&r.props) {
-                title_map
-                    .entry(a.trim().to_lowercase())
-                    .or_insert(r.id);
+                title_map.entry(a.trim().to_lowercase()).or_insert(r.id);
             }
         }
 
@@ -2002,7 +2011,6 @@ impl Vault {
         self.replace_section(|c, v| c.git = v, v)
     }
 
-
     /// `[metadata]` — provider keys and region preference (spec 2026-
     /// 08-23 §3.4). Mirrors `set_brain_config`'s section-setter pattern.
     pub fn set_metadata_config(&self, v: crate::config::MetadataConfig) -> Result<()> {
@@ -2106,8 +2114,7 @@ impl Vault {
                 _ => continue,
             };
             let src_fmt = crate::memo::NoteFormat::from_rel(&r.path);
-            let links =
-                crate::wiki::extract_links(&link_scan_text(src_fmt, &body, &r.props));
+            let links = crate::wiki::extract_links(&link_scan_text(src_fmt, &body, &r.props));
             let hit = links.iter().any(|l| {
                 targets
                     .iter()
@@ -2203,7 +2210,7 @@ impl Vault {
         self.ensure_initialized()?;
         self.with_redb_and_search(|idx, search| {
             let mut stats = IndexStats::default();
-            let mut search_owned: Vec<(MemoId, String, Option<String>, Vec<String>, String)> = Vec::new();
+            let mut search_owned: Vec<SearchRow> = Vec::new();
             for path in self.files.scan() {
                 match self.files.read_memo(&path) {
                     Ok(Some(note)) => {
@@ -2253,13 +2260,15 @@ impl Vault {
             }
             let batch: Vec<crate::store::search::Upsert<'_>> = search_owned
                 .iter()
-                .map(|(id, body, title, tags, aliases)| crate::store::search::Upsert {
-                    id: *id,
-                    body,
-                    title: title.as_deref(),
-                    tags,
-                    aliases,
-                })
+                .map(
+                    |(id, body, title, tags, aliases)| crate::store::search::Upsert {
+                        id: *id,
+                        body,
+                        title: title.as_deref(),
+                        tags,
+                        aliases,
+                    },
+                )
                 .collect();
             search.upsert_batch(&batch)?;
             Ok(stats)
@@ -2415,10 +2424,9 @@ impl Vault {
                         let folder = rel.rfind('/').map(|i| &rel[..i]).unwrap_or("");
                         if let Ok(Some(schema)) = self.folder_schema(folder) {
                             for v in crate::schema::validate(&schema, &note.props) {
-                                report.schema_violations.push((
-                                    path.clone(),
-                                    format!("{}: {}", v.key, v.reason),
-                                ));
+                                report
+                                    .schema_violations
+                                    .push((path.clone(), format!("{}: {}", v.key, v.reason)));
                             }
                         }
                     }
@@ -2562,15 +2570,11 @@ impl Vault {
         // caller's expectation when supplied. Compared in milliseconds
         // because filesystem mtime resolution differs across platforms.
         if let Some(want) = expected_mtime {
-            let current = std::fs::metadata(&abs)
-                .ok()
-                .and_then(|m| m.modified().ok());
+            let current = std::fs::metadata(&abs).ok().and_then(|m| m.modified().ok());
             if let Some(now) = current
                 && !mtimes_match(now, want)
             {
-                return Err(CoreError::other(
-                    "query modified elsewhere; reload",
-                ));
+                return Err(CoreError::other("query modified elsewhere; reload"));
             }
         }
         crate::base::files::atomic_write(&abs, yaml.as_bytes())?;
@@ -2594,9 +2598,7 @@ impl Vault {
             return Err(CoreError::NotFound(from.to_string()));
         }
         if to_abs.exists() {
-            return Err(CoreError::other(format!(
-                "query '{to}' already exists"
-            )));
+            return Err(CoreError::other(format!("query '{to}' already exists")));
         }
         if let Some(want) = expected_mtime {
             let current = std::fs::metadata(&from_abs)
@@ -2605,9 +2607,7 @@ impl Vault {
             if let Some(now) = current
                 && !mtimes_match(now, want)
             {
-                return Err(CoreError::other(
-                    "query modified elsewhere; reload",
-                ));
+                return Err(CoreError::other("query modified elsewhere; reload"));
             }
         }
         if let Some(parent) = to_abs.parent() {
@@ -2691,9 +2691,7 @@ impl Vault {
             )));
         }
         let trash_root = self.paths.trash_root();
-        let token_path = trash_root
-            .join(crate::paths::TRASH_QUERIES_DIR)
-            .join(token);
+        let token_path = trash_root.join(crate::paths::TRASH_QUERIES_DIR).join(token);
         if !token_path.exists() {
             return Err(CoreError::NotFound(token.to_string()));
         }
@@ -2726,9 +2724,9 @@ impl Vault {
         if Path::new(&target_rel).extension().and_then(|e| e.to_str())
             != Some(crate::paths::QUERY_EXT)
         {
-            return Err(CoreError::other(format!(
-                "invalid restore token: missing .query extension"
-            )));
+            return Err(CoreError::other(
+                "invalid restore token: missing .query extension".to_string(),
+            ));
         }
         // Compute the destination + validate it BEFORE moving the file
         // out of trash. If the guard rejects, the trash file stays
@@ -2902,11 +2900,7 @@ fn link_scan_body<'a>(fmt: crate::memo::NoteFormat, body: &'a str) -> std::borro
 /// Link-scan text covering the body AND all 1-dimensional property values
 /// (design 2026-08-23 §5.3): `[[..]]` inside e.g. `related` counts as a
 /// link for graph edges, backlinks, and rename propagation.
-fn link_scan_text(
-    fmt: crate::memo::NoteFormat,
-    body: &str,
-    props: &crate::props::Props,
-) -> String {
+fn link_scan_text(fmt: crate::memo::NoteFormat, body: &str, props: &crate::props::Props) -> String {
     let body_part = link_scan_body(fmt, body);
     let props_part = crate::props::props_link_text(props);
     if props_part.is_empty() {
@@ -4148,15 +4142,14 @@ watcher_retry_interval_ms = 200
         v.set_folder_pinned("daily", true).unwrap();
         v.set_pin_order(&["daily".into(), "novel".into(), "work".into()])
             .unwrap();
-        let pinned: Vec<String> = v
-            .with_config(|c| {
-                c.folders
-                    .items
-                    .iter()
-                    .filter(|f| f.pinned == Some(true))
-                    .map(|f| f.path.clone())
-                    .collect()
-            });
+        let pinned: Vec<String> = v.with_config(|c| {
+            c.folders
+                .items
+                .iter()
+                .filter(|f| f.pinned == Some(true))
+                .map(|f| f.path.clone())
+                .collect()
+        });
         assert_eq!(pinned, vec!["daily", "novel", "work"]);
         // Non-permutation (unknown path) errors.
         assert!(v.set_pin_order(&["daily".into(), "ghost".into()]).is_err());
@@ -4273,10 +4266,11 @@ watcher_retry_interval_ms = 200
         );
         // Unlock drops the pin (same entry-drop semantics as List).
         v.set_folder_view("book", None).unwrap();
-        assert!(v
-            .with_config(|c| c.folders.items.clone())
-            .iter()
-            .all(|f| f.path != "book"));
+        assert!(
+            v.with_config(|c| c.folders.items.clone())
+                .iter()
+                .all(|f| f.path != "book")
+        );
     }
 
     #[test]
@@ -4602,7 +4596,11 @@ watcher_retry_interval_ms = 200
     fn update_note_with_sets_and_removes_props() {
         let (_t, v) = tmp_vault();
         let note = v
-            .create_note("", "# Props\n\nbody".into(), crate::memo::NoteFormat::Markdown)
+            .create_note(
+                "",
+                "# Props\n\nbody".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
             .unwrap();
 
         let updated = v
@@ -4642,8 +4640,8 @@ watcher_retry_interval_ms = 200
                 }),
             )
             .unwrap();
-        assert!(updated.props.get("status").is_none());
-        assert!(v.get_memo(note.id).unwrap().props.get("status").is_none());
+        assert!(!updated.props.contains_key("status"));
+        assert!(!v.get_memo(note.id).unwrap().props.contains_key("status"));
 
         // Same-value re-set must not bump `updated`.
         let before = updated.updated_at;
@@ -4674,8 +4672,14 @@ watcher_retry_interval_ms = 200
                 }),
             )
             .unwrap();
-        assert_eq!(noop.updated_at, prev.updated_at, "no-op re-set must not bump updated");
-        assert_eq!(noop.hash, prev.hash, "no-op re-set must not change the digest");
+        assert_eq!(
+            noop.updated_at, prev.updated_at,
+            "no-op re-set must not bump updated"
+        );
+        assert_eq!(
+            noop.hash, prev.hash,
+            "no-op re-set must not change the digest"
+        );
     }
 
     #[test]
@@ -4790,9 +4794,7 @@ watcher_retry_interval_ms = 200
         let s1 = v.snapshot().unwrap();
         // query_notes also calls snapshot(); if open() bumps mtime the
         // cached Arc would be replaced.
-        let _ = v
-            .query_notes(&crate::props::NoteQuery::default())
-            .unwrap();
+        let _ = v.query_notes(&crate::props::NoteQuery::default()).unwrap();
         // Direct second read — no lock, no redb open on hit path.
         let s2 = v.snapshot().unwrap();
         assert!(
@@ -4856,7 +4858,11 @@ watcher_retry_interval_ms = 200
             !std::sync::Arc::ptr_eq(&s_gui_before, &s_gui_after),
             "GUI snapshot cache must invalidate after the CLI wrote through meta.redb"
         );
-        assert_eq!(s_gui_after.len(), 2, "GUI sees both its own note and the CLI note");
+        assert_eq!(
+            s_gui_after.len(),
+            2,
+            "GUI sees both its own note and the CLI note"
+        );
         assert!(
             s_gui_after.iter().any(|r| r.id == cli_note.id),
             "CLI note must be visible in the GUI's refreshed snapshot"
@@ -4898,9 +4904,9 @@ watcher_retry_interval_ms = 200
     #[test]
     fn snapshot_concurrent_writes_never_poison_cache() {
         use std::collections::HashSet;
+        use std::sync::Arc;
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::mpsc;
-        use std::sync::Arc;
 
         const STORM_COUNT: usize = 30;
         const READER_ITERS: usize = 200;
@@ -4923,12 +4929,8 @@ watcher_retry_interval_ms = 200
                     break;
                 }
                 let v_w = Vault::open(Some(&dir)).unwrap();
-                v_w.create_note(
-                    "",
-                    format!("# Storm{i}"),
-                    crate::memo::NoteFormat::Markdown,
-                )
-                .unwrap();
+                v_w.create_note("", format!("# Storm{i}"), crate::memo::NoteFormat::Markdown)
+                    .unwrap();
                 written_tx.send(format!("Storm{i}.md")).unwrap();
             }
         });
@@ -4946,9 +4948,7 @@ watcher_retry_interval_ms = 200
                         batch.insert(r.path.clone());
                     }
                 }
-                if let Ok(page) =
-                    v_reader.query_notes(&crate::props::NoteQuery::default())
-                {
+                if let Ok(page) = v_reader.query_notes(&crate::props::NoteQuery::default()) {
                     for s in page.items.iter() {
                         batch.insert(s.path.clone());
                     }
@@ -4997,12 +4997,6 @@ watcher_retry_interval_ms = 200
         );
     }
 
-
-
-
-
-
-
     /// The knowledge folder ships with every vault (system-folder
     /// semantics, design + user prompt 2026-08-23): `migrate` creates it,
     /// recreation after deletion is empty-preset-only, and user edits to
@@ -5015,9 +5009,7 @@ watcher_retry_interval_ms = 200
         assert!(root.join("TEMPLATE.md").exists());
         assert!(root.join("SCHEMA.toml").exists());
         assert!(
-            v.folder_schema("knowledge")
-                .unwrap()
-                .is_some(),
+            v.folder_schema("knowledge").unwrap().is_some(),
             "the shipped folder must carry its schema"
         );
 
@@ -5074,9 +5066,7 @@ watcher_retry_interval_ms = 200
         v.apply_knowledge_preset("knowledge").unwrap();
 
         // Blank capture → template body (H1 placeholder) + stamped props.
-        let blank = v
-            .create_note_auto("knowledge", String::new())
-            .unwrap();
+        let blank = v.create_note_auto("knowledge", String::new()).unwrap();
         assert_eq!(
             blank.props.get("status"),
             Some(&crate::props::PropValue::Str("stub".into()))
@@ -5116,7 +5106,7 @@ watcher_retry_interval_ms = 200
         let today = time::OffsetDateTime::now_utc().date().to_string();
         assert_eq!(
             learned.props.get("status_changed"),
-            Some(&crate::props::PropValue::Str(today.into()))
+            Some(&crate::props::PropValue::Str(today))
         );
 
         // doctor: the blank note lacks `domain` (required) → violation.
@@ -5139,9 +5129,7 @@ watcher_retry_interval_ms = 200
         v.ensure_initialized().unwrap();
         v.create_folder("knowledge").unwrap();
         v.apply_knowledge_preset("knowledge").unwrap();
-        let n = v
-            .create_note_auto("knowledge", "# 재확인".into())
-            .unwrap();
+        let n = v.create_note_auto("knowledge", "# 재확인".into()).unwrap();
         v.update_note_with(
             n.id,
             None,
@@ -5150,7 +5138,7 @@ watcher_retry_interval_ms = 200
                 sets: vec![(
                     "status".into(),
                     crate::props::PropValue::Str("understood".into()),
- )],
+                )],
                 removes: vec![],
             }),
         )
@@ -5162,7 +5150,10 @@ watcher_retry_interval_ms = 200
         let abs = v.paths().vault.join(&rel);
         let raw = std::fs::read_to_string(&abs).unwrap();
         let today = time::OffsetDateTime::now_utc().date().to_string();
-        let backdated = raw.replace(&format!("status_changed: {today}"), "status_changed: 2026-01-01");
+        let backdated = raw.replace(
+            &format!("status_changed: {today}"),
+            "status_changed: 2026-01-01",
+        );
         std::fs::write(&abs, backdated).unwrap();
         v.reindex().unwrap();
 
@@ -5183,7 +5174,7 @@ watcher_retry_interval_ms = 200
             .unwrap();
         assert_eq!(
             out.props.get("status_changed"),
-            Some(&crate::props::PropValue::Str(today.into())),
+            Some(&crate::props::PropValue::Str(today)),
             "on=write must stamp the review date on a reassert"
         );
         assert_eq!(
@@ -5211,9 +5202,11 @@ watcher_retry_interval_ms = 200
         // skip-if-exists: a user-edited schema survives reinstall.
         std::fs::write(root.join("SCHEMA.toml"), "[workspace]\nname = \"내 책\"\n").unwrap();
         v.install_collection("book", "책").unwrap();
-        assert!(std::fs::read_to_string(root.join("SCHEMA.toml"))
-            .unwrap()
-            .contains("내 책"));
+        assert!(
+            std::fs::read_to_string(root.join("SCHEMA.toml"))
+                .unwrap()
+                .contains("내 책")
+        );
 
         // Deleting an installed collection is permanent: migrate does
         // not resurrect it (unlike knowledge/daily system folders).
@@ -5306,7 +5299,11 @@ watcher_retry_interval_ms = 200
         let (_t, v) = tmp_vault();
         // Target known by alias "ML".
         let target = v
-            .create_note("", "# 머신러닝\n\n본문".into(), crate::memo::NoteFormat::Markdown)
+            .create_note(
+                "",
+                "# 머신러닝\n\n본문".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
             .unwrap();
         v.update_note_with(
             target.id,
@@ -5359,7 +5356,11 @@ watcher_retry_interval_ms = 200
     fn rename_propagation_rewrites_prop_links() {
         let (_t, v) = tmp_vault();
         let target = v
-            .create_note("", "# 딥러닝\n\nb".into(), crate::memo::NoteFormat::Markdown)
+            .create_note(
+                "",
+                "# 딥러닝\n\nb".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
             .unwrap();
         let stub = v
             .create_note("", "# 오류역전파".into(), crate::memo::NoteFormat::Markdown)
@@ -5379,12 +5380,8 @@ watcher_retry_interval_ms = 200
         .unwrap();
 
         // Rename the target note.
-        v.update_note(
-            target.id,
-            Some("# 심층학습\n\nb".into()),
-            None,
-        )
-        .unwrap();
+        v.update_note(target.id, Some("# 심층학습\n\nb".into()), None)
+            .unwrap();
 
         let reread = v.get_memo(stub.id).unwrap();
         assert_eq!(
@@ -5955,7 +5952,10 @@ watcher_retry_interval_ms = 200
             Some("user-thoughts")
         );
         assert!(
-            !v.folder_inventory().unwrap().iter().any(|f| f.path == "inbox"),
+            !v.folder_inventory()
+                .unwrap()
+                .iter()
+                .any(|f| f.path == "inbox"),
             "default inbox must not be installed alongside the user's idea folder"
         );
     }
@@ -5963,7 +5963,8 @@ watcher_retry_interval_ms = 200
     // -- .query base file CRUD (task 7) -------------------------------
 
     /// Minimal valid `.query` document used by the round-trip / parse-validate tests.
-    const QUERY_YAML: &str = "filters: 'file.name != \"\"'\nviews:\n  - type: table\n    name: All\n";
+    const QUERY_YAML: &str =
+        "filters: 'file.name != \"\"'\nviews:\n  - type: table\n    name: All\n";
 
     /// Save an inline literal `.query` (no helpers — exercises the public Vault API).
     fn write_inline(dir: &Path, rel: &str, contents: &str) {
@@ -6006,7 +6007,11 @@ watcher_retry_interval_ms = 200
         let (_, baseline) = v.load_base_raw("queries/x.query").unwrap();
         // External write — vault mtime cache must observe a different time.
         sleep_past_mtime_resolution();
-        write_inline(v.paths().vault.as_path(), "queries/x.query", "filters: '1 == 1'\nviews:\n  - type: table\n");
+        write_inline(
+            v.paths().vault.as_path(),
+            "queries/x.query",
+            "filters: '1 == 1'\nviews:\n  - type: table\n",
+        );
         let stale = baseline - std::time::Duration::from_secs(60);
         let msg = must_err(v.save_base("queries/x.query", QUERY_YAML, Some(stale)));
         assert!(
@@ -6028,7 +6033,10 @@ watcher_retry_interval_ms = 200
             "expected parse error from save_base; got {msg}"
         );
         let after_bytes = std::fs::read(v.paths().vault.join("queries/good.query")).unwrap();
-        assert_eq!(original_bytes, after_bytes, "original file must be untouched on parse failure");
+        assert_eq!(
+            original_bytes, after_bytes,
+            "original file must be untouched on parse failure"
+        );
     }
 
     #[test]
@@ -6058,7 +6066,10 @@ watcher_retry_interval_ms = 200
         v.save_base("a.query", QUERY_YAML, None).unwrap();
         v.save_base("b.query", QUERY_YAML, None).unwrap();
         let msg = must_err(v.rename_base("a.query", "b.query", None));
-        assert!(msg.contains("exists") || msg.contains("already"), "got {msg}");
+        assert!(
+            msg.contains("exists") || msg.contains("already"),
+            "got {msg}"
+        );
     }
 
     #[test]
@@ -6087,11 +6098,7 @@ watcher_retry_interval_ms = 200
         let (_t, v) = tmp_vault();
         // Place a `.query` literally under `.trash/` — load must refuse.
         std::fs::create_dir_all(v.paths().vault.join(".trash")).unwrap();
-        std::fs::write(
-            v.paths().vault.join(".trash/x.query"),
-            QUERY_YAML,
-        )
-        .unwrap();
+        std::fs::write(v.paths().vault.join(".trash/x.query"), QUERY_YAML).unwrap();
         let msg = must_err(v.load_base(".trash/x.query"));
         assert!(msg.contains("invalid query path"), "got {msg}");
     }
@@ -6106,7 +6113,8 @@ watcher_retry_interval_ms = 200
         let map = parsed.as_mapping().expect("top-level mapping");
         assert!(
             map.iter().any(|(k, _)| k.as_str() == Some("future")),
-            "unknown `future` key dropped: {loaded}", loaded = loaded
+            "unknown `future` key dropped: {loaded}",
+            loaded = loaded
         );
     }
 
@@ -6116,12 +6124,16 @@ watcher_retry_interval_ms = 200
     #[test]
     fn base_trash_then_restore_preserves_dashed_filename() {
         let (_t, v) = tmp_vault();
-        v.save_base("queries/my-base.query", QUERY_YAML, None).unwrap();
+        v.save_base("queries/my-base.query", QUERY_YAML, None)
+            .unwrap();
         let token = v.trash_base("queries/my-base.query").unwrap();
         let restored_rel = v.restore_base(&token).unwrap();
         assert_eq!(restored_rel, "queries/my-base.query");
         let (raw, _) = v.load_base_raw("queries/my-base.query").unwrap();
-        assert_eq!(raw, QUERY_YAML, "restored file must contain original content");
+        assert_eq!(
+            raw, QUERY_YAML,
+            "restored file must contain original content"
+        );
     }
 
     /// The trash token embeds the ORIGINAL vault-relative path, so a
@@ -6133,7 +6145,10 @@ watcher_retry_interval_ms = 200
         v.save_base("x.query", QUERY_YAML, None).unwrap();
         let token = v.trash_base("x.query").unwrap();
         let restored = v.restore_base(&token).unwrap();
-        assert_eq!(restored, "x.query", "root-level query must restore at origin");
+        assert_eq!(
+            restored, "x.query",
+            "root-level query must restore at origin"
+        );
         assert!(v.load_base_raw("x.query").is_ok(), "file is back at origin");
     }
 
@@ -6142,7 +6157,10 @@ watcher_retry_interval_ms = 200
         let (_t, v) = tmp_vault();
         v.save_base("shelf/deep.query", QUERY_YAML, None).unwrap();
         let token = v.trash_base("shelf/deep.query").unwrap();
-        assert!(token.contains("%2F"), "token must embed the origin path: {token}");
+        assert!(
+            token.contains("%2F"),
+            "token must embed the origin path: {token}"
+        );
         let restored = v.restore_base(&token).unwrap();
         assert_eq!(restored, "shelf/deep.query");
         let (raw, _) = v.load_base_raw("shelf/deep.query").unwrap();
@@ -6155,10 +6173,7 @@ watcher_retry_interval_ms = 200
     #[test]
     fn base_restore_legacy_token_lands_under_queries() {
         let (_t, v) = tmp_vault();
-        let trash_dir = v
-            .paths
-            .trash_root()
-            .join(crate::paths::TRASH_QUERIES_DIR);
+        let trash_dir = v.paths.trash_root().join(crate::paths::TRASH_QUERIES_DIR);
         std::fs::create_dir_all(&trash_dir).unwrap();
         std::fs::write(trash_dir.join("1700000000000-old.query"), QUERY_YAML).unwrap();
         let restored = v.restore_base("1700000000000-old.query").unwrap();
@@ -6182,19 +6197,13 @@ watcher_retry_interval_ms = 200
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or(0);
-        let trash_dir = v
-            .paths
-            .trash_root()
-            .join(crate::paths::TRASH_QUERIES_DIR);
+        let trash_dir = v.paths.trash_root().join(crate::paths::TRASH_QUERIES_DIR);
         std::fs::create_dir_all(&trash_dir).unwrap();
         std::fs::write(trash_dir.join(format!("{millis}-dup.query")), b"squatter").unwrap();
         let token = v.trash_base("queries/dup.query").unwrap();
         // The token's prefix must NOT be the natural millis (it's
         // occupied); the bump logic advanced to millis+1.
-        let prefix: String = token
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
+        let prefix: String = token.chars().take_while(|c| c.is_ascii_digit()).collect();
         let prefix_num: u128 = prefix.parse().unwrap();
         assert!(
             prefix_num >= millis,

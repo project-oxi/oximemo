@@ -208,7 +208,11 @@ pub fn format_base_table(
         let parts: Vec<String> = counts
             .iter()
             .map(|g| {
-                let key = if g.key.is_empty() { "(none)" } else { g.key.as_str() };
+                let key = if g.key.is_empty() {
+                    "(none)"
+                } else {
+                    g.key.as_str()
+                };
                 format!("{key} {}", g.count)
             })
             .collect();
@@ -231,7 +235,11 @@ pub fn format_base_list_table(bases: &[oximemo_core::base::BaseInfo]) -> String 
                 b.path.clone(),
                 b.name.clone(),
                 rfc3339(time::OffsetDateTime::from(b.mtime)),
-                if b.loadable { "ok".into() } else { "⚠ unloadable".into() },
+                if b.loadable {
+                    "ok".into()
+                } else {
+                    "⚠ unloadable".into()
+                },
             ]
         })
         .collect();
@@ -247,9 +255,7 @@ pub fn format_base_list_table(bases: &[oximemo_core::base::BaseInfo]) -> String 
     }
     let mut out = String::new();
     let header_cells: Vec<String> = header.iter().map(|s| s.to_string()).collect();
-    for parts in std::iter::once(header_cells)
-        .chain(rows.iter().map(|r| r.to_vec()))
-    {
+    for parts in std::iter::once(header_cells).chain(rows.iter().map(|r| r.to_vec())) {
         let cells: Vec<String> = parts
             .iter()
             .enumerate()

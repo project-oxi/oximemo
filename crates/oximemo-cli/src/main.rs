@@ -140,7 +140,9 @@ enum Cmd {
     },
 
     /// Soft-delete a note (moves to trash).
-    Delete { id: String },
+    Delete {
+        id: String,
+    },
     /// Edit an existing note (body / favorite).
     Update {
         id: String,
@@ -163,7 +165,9 @@ enum Cmd {
         #[arg(long = "unset", value_name = "KEY")]
         unset: Vec<String>,
     },
-    Restore { id: String },
+    Restore {
+        id: String,
+    },
     /// Live memo counts.
     Stats,
 
@@ -213,7 +217,9 @@ enum Cmd {
 
     /// Stamp a metadata hit (MetaHit JSON on stdin) onto a note —
     /// fills only schema-declared, still-empty fields.
-    Stamp { id: String },
+    Stamp {
+        id: String,
+    },
 
     /// Query-view bases (`.query` files): list, run, rename, trash,
     /// restore.
@@ -350,7 +356,8 @@ fn run() -> Result<()> {
             let predicates = where_
                 .iter()
                 .map(|w| oximemo_core::parse_where(w))
-                .map(|r| r.map_err(|e| anyhow::anyhow!(e))).collect::<Result<Vec<_>>>()?;
+                .map(|r| r.map_err(|e| anyhow::anyhow!(e)))
+                .collect::<Result<Vec<_>>>()?;
             let sort_spec = match &sort {
                 Some(s) => Some(oximemo_core::parse_sort(s)?),
                 None => None,
@@ -424,9 +431,9 @@ fn run() -> Result<()> {
             };
             let mut pm = oximemo_core::PropMutation::default();
             for s in &set {
-                let (k, v) = s.split_once('=').ok_or_else(|| {
-                    anyhow!("invalid --set {s:?}: expected KEY=VAL")
-                })?;
+                let (k, v) = s
+                    .split_once('=')
+                    .ok_or_else(|| anyhow!("invalid --set {s:?}: expected KEY=VAL"))?;
                 let value = if v.contains(',') {
                     oximemo_core::PropValue::List(
                         v.split(',').map(|x| x.trim().to_string()).collect(),

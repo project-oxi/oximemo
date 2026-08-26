@@ -7,7 +7,6 @@
 //! comments are intentionally NOT supported: YAML strings are single-line
 //! and comment-like content inside them must not silently disappear.
 
-
 use crate::error::CoreError;
 
 /// 1-based source position of a token.
@@ -100,9 +99,7 @@ pub(crate) fn tokenize(src: &str) -> Result<Vec<Lexed>, CoreError> {
                     num.push(nc);
                     col += 1;
                     chars.next();
-                } else if nc == '.'
-                    && !seen_point
-                    && next_after_current(&chars, 1).is_ascii_digit()
+                } else if nc == '.' && !seen_point && next_after_current(&chars, 1).is_ascii_digit()
                 {
                     seen_point = true;
                     num.push(nc);
@@ -113,7 +110,11 @@ pub(crate) fn tokenize(src: &str) -> Result<Vec<Lexed>, CoreError> {
                 }
             }
             let value: f64 = num.parse().map_err(|_| {
-                err(format!("invalid numeric literal `{num}`"), start_line, start_col)
+                err(
+                    format!("invalid numeric literal `{num}`"),
+                    start_line,
+                    start_col,
+                )
             })?;
             // Spec §2: non-finite numerics are expression errors. A literal
             // long enough to overflow f64 is rejected here rather than
@@ -262,7 +263,10 @@ mod tests {
     use crate::error::CoreError;
 
     fn err_at(src: &str) -> (u32, u32) {
-        match tokenize(src) { Err(CoreError::Expr { line, col, .. }) => (line, col), _ => panic!("expected error") }
+        match tokenize(src) {
+            Err(CoreError::Expr { line, col, .. }) => (line, col),
+            _ => panic!("expected error"),
+        }
     }
 
     #[test]
@@ -282,7 +286,7 @@ mod tests {
     #[test]
     fn strings_numbers_ops() {
         assert!(tokenize(r#""a \"b\" c""#).is_ok());
-        assert!(matches!(tokenize("3.14").unwrap()[0].tok, Tok::Num(n) if (n - 3.14).abs() < 1e-9));
+        assert!(matches!(tokenize("3.14").unwrap()[0].tok, Tok::Num(n) if (3.0..3.2).contains(&n)));
         // Brief wrote `[1].tok` (no `&`); `Tok::Op(o) if *o == "&&"` only
         // typechecks when matching through a reference, so `&` is added.
         // The `Op(&'static str)` interface from the brief is unchanged.

@@ -389,17 +389,25 @@ pub fn cmd_schema(vault: &Vault, folder: Option<String>) -> Result<()> {
 /// are parsed from the preset schemas themselves — one source of truth
 /// with the GUI catalog.
 pub fn collection_catalog() -> Vec<(&'static str, String)> {
-    ["knowledge", "daily", "book", "movie", "blog", "novel", "idea"]
-        .into_iter()
-        .filter_map(|id| {
-            let (_, schema_toml) = oximemo_core::schema::collection_preset(id)?;
-            let name = oximemo_core::schema::parse_schema(schema_toml)
-                .ok()
-                .and_then(|s| s.workspace.name)
-                .unwrap_or_else(|| id.to_string());
-            Some((id, name))
-        })
-        .collect()
+    [
+        "knowledge",
+        "daily",
+        "book",
+        "movie",
+        "blog",
+        "novel",
+        "idea",
+    ]
+    .into_iter()
+    .filter_map(|id| {
+        let (_, schema_toml) = oximemo_core::schema::collection_preset(id)?;
+        let name = oximemo_core::schema::parse_schema(schema_toml)
+            .ok()
+            .and_then(|s| s.workspace.name)
+            .unwrap_or_else(|| id.to_string());
+        Some((id, name))
+    })
+    .collect()
 }
 
 /// `oximemo collection list` — the installable catalog (JSON).
@@ -460,16 +468,10 @@ pub fn cmd_metadata_search(
 /// core `stamp_targets` fills only schema-declared, still-empty mapped
 /// props; `source_url`/`cover_url` land only when the schema declares
 /// them and nothing occupies them. Ratings never map.
-pub fn cmd_stamp(
-    vault: &Vault,
-    id: MemoId,
-    hit: &oximemo_core::metadata::MetaHit,
-) -> Result<()> {
+pub fn cmd_stamp(vault: &Vault, id: MemoId, hit: &oximemo_core::metadata::MetaHit) -> Result<()> {
     let memo = vault.get_memo(id)?;
     let dto = vault.note_dto(&memo);
-    let schema = vault
-        .folder_schema(&dto.folder)?
-        .unwrap_or_default();
+    let schema = vault.folder_schema(&dto.folder)?.unwrap_or_default();
     let mut sets: Vec<(String, oximemo_core::PropValue)> =
         oximemo_core::metadata::stamp_targets(&schema, hit)
             .into_iter()
@@ -616,7 +618,10 @@ pub fn cmd_base_run(
             columns.len()
         );
     }
-    print!("{}", format::format_base_table(path, &view_name, &columns, &page));
+    print!(
+        "{}",
+        format::format_base_table(path, &view_name, &columns, &page)
+    );
     Ok(())
 }
 
@@ -782,7 +787,15 @@ mod tests {
         assert!(after.favorite);
         assert_eq!(after.body, "first body");
 
-        cmd_update(t.v(), id, Some("new body #urgent".into()), false, None, None).unwrap();
+        cmd_update(
+            t.v(),
+            id,
+            Some("new body #urgent".into()),
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         let after = t.v().get_memo(id).unwrap();
         assert_eq!(after.body, "new body #urgent");
         assert!(after.tags.iter().any(|x| x == "urgent"));
@@ -810,7 +823,15 @@ mod tests {
         let t = TmpVault::new();
         make_memo(t.v(), "a");
         make_memo(t.v(), "b");
-        cmd_update(t.v(), make_memo(t.v(), "fav"), None, false, Some(true), None).unwrap();
+        cmd_update(
+            t.v(),
+            make_memo(t.v(), "fav"),
+            None,
+            false,
+            Some(true),
+            None,
+        )
+        .unwrap();
         cmd_stats(t.v()).unwrap();
         let s = t.v().memo_stats().unwrap();
         assert_eq!(s.memos, 3);
@@ -839,10 +860,8 @@ mod tests {
         let t = TmpVault::new();
         t.v().install_collection("movie", "movies").unwrap();
         let rows = folder_rows(t.v()).unwrap();
-        let by: std::collections::HashMap<String, FolderRow> = rows
-            .into_iter()
-            .map(|r| (r.path.clone(), r))
-            .collect();
+        let by: std::collections::HashMap<String, FolderRow> =
+            rows.into_iter().map(|r| (r.path.clone(), r)).collect();
         assert!(by["daily"].daily, "configured daily folder is flagged");
         assert!(!by["knowledge"].daily);
         assert_eq!(by["knowledge"].preset.as_deref(), Some("knowledge"));
@@ -858,7 +877,10 @@ mod tests {
         assert_eq!(full.preset.as_deref(), Some("knowledge"));
         assert!(full.schema.is_some());
         assert!(
-            full.template.as_deref().unwrap().contains("kind: knowledge"),
+            full.template
+                .as_deref()
+                .unwrap()
+                .contains("kind: knowledge"),
             "raw TEMPLATE.md is reported"
         );
 
@@ -876,7 +898,15 @@ mod tests {
     #[test]
     fn collection_catalog_names_and_install() {
         let ids: Vec<&str> = collection_catalog().iter().map(|(id, _)| *id).collect();
-        for expected in ["knowledge", "daily", "book", "movie", "blog", "novel", "idea"] {
+        for expected in [
+            "knowledge",
+            "daily",
+            "book",
+            "movie",
+            "blog",
+            "novel",
+            "idea",
+        ] {
             assert!(ids.contains(&expected), "catalog carries {expected}");
         }
         // Names come from the presets themselves (single source of truth).
@@ -1017,12 +1047,9 @@ mod tests {
             subtitle: None,
             url: Some("https://elsewhere".into()),
             cover_url: None,
-            fields: [(
-                oximemo_core::metadata::MetaField::RuntimeMin,
-                "166".into(),
-            )]
-            .into_iter()
-            .collect(),
+            fields: [(oximemo_core::metadata::MetaField::RuntimeMin, "166".into())]
+                .into_iter()
+                .collect(),
         };
         cmd_stamp(t.v(), id, &hit2).unwrap();
         let note = t.v().get_memo(id).unwrap();
@@ -1061,11 +1088,17 @@ mod tests {
     use oximemo_core::memo::{MemoHash, MemoSummary};
 
     fn cell_ok(v: Value) -> BaseCell {
-        BaseCell { value: Some(v), error: None }
+        BaseCell {
+            value: Some(v),
+            error: None,
+        }
     }
 
     fn cell_err(msg: &str) -> BaseCell {
-        BaseCell { value: None, error: Some(msg.to_string()) }
+        BaseCell {
+            value: None,
+            error: Some(msg.to_string()),
+        }
     }
 
     fn base_row(name: &str, cells: Vec<BaseCell>) -> BaseRow {
@@ -1161,12 +1194,7 @@ mod tests {
             5,
             None,
         );
-        let out = format::format_base_table(
-            "q.query",
-            "Table",
-            &["file.name".to_string()],
-            &page,
-        );
+        let out = format::format_base_table("q.query", "Table", &["file.name".to_string()], &page);
         assert!(
             out.starts_with("q.query · Table · 1 row (of 5)\n"),
             "sliced page shows the dataset total: {out}"
@@ -1177,8 +1205,10 @@ mod tests {
     fn base_table_caps_columns_at_five() {
         let cells: Vec<BaseCell> = (0..7).map(|i| cell_ok(Value::Num(i as f64))).collect();
         let page = base_page(vec![base_row("R", cells)], 1, None);
-        let cols: Vec<String> =
-            ["c1", "c2", "c3", "c4", "c5", "c6", "c7"].iter().map(|s| s.to_string()).collect();
+        let cols: Vec<String> = ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let out = format::format_base_table("q.query", "T", &cols, &page);
         for kept in &["c1", "c2", "c3", "c4", "c5"] {
             assert!(out.contains(kept), "column {kept} kept: {out}");
@@ -1195,8 +1225,14 @@ mod tests {
             Vec::new(),
             0,
             Some(vec![
-                GroupCount { key: "reading".into(), count: 2 },
-                GroupCount { key: String::new(), count: 1 },
+                GroupCount {
+                    key: "reading".into(),
+                    count: 2,
+                },
+                GroupCount {
+                    key: String::new(),
+                    count: 1,
+                },
             ]),
         );
         let out = format::format_base_table("q.query", "T", &["file.name".to_string()], &page);
@@ -1225,13 +1261,18 @@ mod tests {
         ];
         let out = format::format_base_list_table(&bases);
         assert!(
-            out.contains("PATH") && out.contains("NAME") && out.contains("MODIFIED")
+            out.contains("PATH")
+                && out.contains("NAME")
+                && out.contains("MODIFIED")
                 && out.contains("STATUS"),
             "brief's column headers: {out}"
         );
         assert!(out.contains("queries/all.query"));
         assert!(out.contains("ok"), "loadable base reads ok: {out}");
-        assert!(out.contains("⚠"), "unloadable base carries the marker: {out}");
+        assert!(
+            out.contains("⚠"),
+            "unloadable base carries the marker: {out}"
+        );
     }
 
     /// End-to-end through the real executor: the page `run_base`

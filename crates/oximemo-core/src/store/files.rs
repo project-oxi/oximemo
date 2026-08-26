@@ -675,6 +675,9 @@ mod tests {
         )
         .unwrap();
         let read = store.read_memo(&path).unwrap().unwrap();
-        assert_eq!(read.hash, hash::hash_memo(b"body bytes for hash", true, &Default::default()));
+        assert_eq!(
+            read.hash,
+            hash::hash_memo(b"body bytes for hash", true, &Default::default())
+        );
     }
 }

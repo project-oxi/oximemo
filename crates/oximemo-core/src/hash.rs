@@ -162,7 +162,7 @@ mod tests {
         assert_ne!(a, b, "a property-only edit must surface in the sync diff");
     }
 
-#[test]
+    #[test]
     fn identical_state_hashes_equal() {
         let a = hash_memo(b"body", true, &Default::default());
         let b = hash_memo(b"body", true, &Default::default());

@@ -269,7 +269,6 @@ fn build_next_table(mut existing: Table, mutations: Mutation, now: OffsetDateTim
         None => {}
     }
 
-
     // Property changes: non-core keys only, applied after the core
     // fields so a hostile `set_props` cannot override id/created/etc.
     for (key, change) in mutations.set_props {
@@ -543,7 +542,10 @@ mod tests {
         let mut set_props = IndexMap::new();
         set_props.insert("status".to_string(), Some(Value::Str("understood".into())));
         set_props.insert("tags".to_string(), None); // remove
-        set_props.insert("domain".to_string(), Some(Value::Array(vec!["TECH".into()])));
+        set_props.insert(
+            "domain".to_string(),
+            Some(Value::Array(vec!["TECH".into()])),
+        );
         set_props.insert(
             "updated".to_string(),
             Some(Value::Str("hostile-override".into())),
@@ -567,10 +569,7 @@ mod tests {
         else {
             panic!("expected Memo");
         };
-        assert_eq!(
-            table.get("status"),
-            Some(&Value::Str("understood".into()))
-        );
+        assert_eq!(table.get("status"), Some(&Value::Str("understood".into())));
         assert_eq!(
             table.get("domain"),
             Some(&Value::Array(vec!["TECH".into()]))

@@ -153,11 +153,7 @@ fn file_stem(path: &str) -> String {
 /// timestamp at the day boundary renders the same day/weekday the
 /// caller sees in `today()`/`format(...)`. Stored timestamps remain
 /// UTC; the offset is applied at extraction time only.
-pub fn resolve(
-    path: &[String],
-    row: &RowData,
-    local: UtcOffset,
-) -> Result<Value, CoreError> {
+pub fn resolve(path: &[String], row: &RowData, local: UtcOffset) -> Result<Value, CoreError> {
     if let Some(v) = resolve_standard(path, row)? {
         return Ok(v);
     }
@@ -386,10 +382,11 @@ fn eval_node<'a>(
             // (`file` alone is not a value) but they read RowData
             // directly. Detect the AST shape before evaluating the
             // target so the resolver never sees them.
-            if let Expr::Path(segs) = target.as_ref() {
-                if segs.len() == 1 && segs[0] == "file" {
-                    return dispatch_file_method(row, args, name, ctx, calls);
-                }
+            if let Expr::Path(segs) = target.as_ref()
+                && segs.len() == 1
+                && segs[0] == "file"
+            {
+                return dispatch_file_method(row, args, name, ctx, calls);
             }
             let mut vals = Vec::with_capacity(args.len() + 1);
             vals.push(eval_with_calls(target, row, ctx, calls)?);
@@ -813,9 +810,17 @@ mod tests {
             resolve(&["favorite".into()], &row, time::UtcOffset::UTC).unwrap(),
             Value::Bool(false)
         ); // bare → core fallback
-        assert_eq!(resolve(&["nope".into()], &row, time::UtcOffset::UTC).unwrap(), Value::Null); // unknown → Null
         assert_eq!(
-            resolve(&["file".into(), "folder".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(&["nope".into()], &row, time::UtcOffset::UTC).unwrap(),
+            Value::Null
+        ); // unknown → Null
+        assert_eq!(
+            resolve(
+                &["file".into(), "folder".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Str("book".into())
         ); // from path "book/x.md"
     }
@@ -865,15 +870,30 @@ mod tests {
             Value::List(vec![Value::Str("소설".into()), Value::Str("wip".into())])
         );
         assert_eq!(
-            resolve(&["file".into(), "created".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["file".into(), "created".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Date(datetime!(2025-01-01 00:00 UTC))
         );
         assert_eq!(
-            resolve(&["file".into(), "updated".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["file".into(), "updated".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Date(datetime!(2025-06-15 12:00 UTC))
         );
         assert_eq!(
-            resolve(&["file".into(), "favorite".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["file".into(), "favorite".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Bool(false)
         );
         assert_eq!(
@@ -901,7 +921,12 @@ mod tests {
             Value::Str("x".into())
         );
         assert_eq!(
-            resolve(&["file".into(), "format".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["file".into(), "format".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Str("markdown".into())
         );
         // Title wins over the stem.
@@ -916,13 +941,23 @@ mod tests {
         r.path = "root.md".into();
         let row = row_of(&r);
         assert_eq!(
-            resolve(&["file".into(), "folder".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["file".into(), "folder".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Str(String::new())
         );
         r.path = "a/b/page.html".into();
         let row = row_of(&r);
         assert_eq!(
-            resolve(&["file".into(), "format".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["file".into(), "format".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Str("html".into())
         );
         assert_eq!(
@@ -930,9 +965,17 @@ mod tests {
             Value::Str("page".into())
         );
         // Bare namespace names and extra path segments are Null, not errors.
-        assert_eq!(resolve(&["file".into()], &row, time::UtcOffset::UTC).unwrap(), Value::Null);
         assert_eq!(
-            resolve(&["file".into(), "folder".into(), "deep".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(&["file".into()], &row, time::UtcOffset::UTC).unwrap(),
+            Value::Null
+        );
+        assert_eq!(
+            resolve(
+                &["file".into(), "folder".into(), "deep".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Null
         );
     }
@@ -947,14 +990,28 @@ mod tests {
             Value::Str("2020-01-01".into())
         );
         assert_eq!(
-            resolve(&["note".into(), "created".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["note".into(), "created".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Str("2020-01-01".into())
         );
         // `tags` and `deleted` are not fallback keys.
         let plain = empty_row();
-        assert_eq!(resolve(&["tags".into()], &plain, time::UtcOffset::UTC).unwrap(), Value::Null);
-        assert_eq!(resolve(&["deleted".into()], &plain, time::UtcOffset::UTC).unwrap(), Value::Null);
-        assert_eq!(resolve(&["note".into()], &plain, time::UtcOffset::UTC).unwrap(), Value::Null);
+        assert_eq!(
+            resolve(&["tags".into()], &plain, time::UtcOffset::UTC).unwrap(),
+            Value::Null
+        );
+        assert_eq!(
+            resolve(&["deleted".into()], &plain, time::UtcOffset::UTC).unwrap(),
+            Value::Null
+        );
+        assert_eq!(
+            resolve(&["note".into()], &plain, time::UtcOffset::UTC).unwrap(),
+            Value::Null
+        );
     }
 
     #[test]
@@ -972,15 +1029,30 @@ mod tests {
         );
         let row = RowData::from_record(&r, &formulas, None);
         assert_eq!(
-            resolve(&["formula".into(), "age".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["formula".into(), "age".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Num(3.0)
         );
         // Stored errors are re-raised as runtime cell errors (0/0 position).
-        let err = resolve(&["formula".into(), "bad".into()], &row, time::UtcOffset::UTC).unwrap_err();
+        let err = resolve(
+            &["formula".into(), "bad".into()],
+            &row,
+            time::UtcOffset::UTC,
+        )
+        .unwrap_err();
         assert!(matches!(err, CoreError::Expr { message, line: 0, col: 0 }
             if message.contains("bad") && message.contains("boom")));
         assert_eq!(
-            resolve(&["formula".into(), "nope".into()], &row, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["formula".into(), "nope".into()],
+                &row,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Null
         );
     }
@@ -993,15 +1065,28 @@ mod tests {
         let inner = RowData::from_record(&inner_rec, &NO_FORMULAS, Some(&outer));
         // `this.*` resolves through the embedding row's scope.
         assert_eq!(
-            resolve(&["this".into(), "genre".into()], &inner, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["this".into(), "genre".into()],
+                &inner,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Str("SF".into())
         );
         // Without a `this` row (or with an empty path) the namespace is Null.
         assert_eq!(
-            resolve(&["this".into(), "genre".into()], &outer, time::UtcOffset::UTC).unwrap(),
+            resolve(
+                &["this".into(), "genre".into()],
+                &outer,
+                time::UtcOffset::UTC
+            )
+            .unwrap(),
             Value::Null
         );
-        assert_eq!(resolve(&["this".into()], &inner, time::UtcOffset::UTC).unwrap(), Value::Null);
+        assert_eq!(
+            resolve(&["this".into()], &inner, time::UtcOffset::UTC).unwrap(),
+            Value::Null
+        );
     }
 
     #[test]
@@ -1015,9 +1100,19 @@ mod tests {
         let query_row = RowData::from_query_file(&q, &NO_FORMULAS);
         let row_rec = rec(&[("status", PropValue::Str("읽는중".into()))]);
         let row = RowData::from_record(&row_rec, &NO_FORMULAS, Some(&query_row));
-        let r = |p: &[&str]| resolve(&p.iter().map(|s| s.to_string()).collect::<Vec<_>>(), &row, time::UtcOffset::UTC).unwrap();
+        let r = |p: &[&str]| {
+            resolve(
+                &p.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                &row,
+                time::UtcOffset::UTC,
+            )
+            .unwrap()
+        };
         // The five synthesized keys.
-        assert_eq!(r(&["this", "file", "path"]), Value::Str("queries/book-view.query".into()));
+        assert_eq!(
+            r(&["this", "file", "path"]),
+            Value::Str("queries/book-view.query".into())
+        );
         assert_eq!(r(&["this", "file", "folder"]), Value::Str("queries".into()));
         assert_eq!(r(&["this", "file", "name"]), Value::Str("book-view".into()));
         assert_eq!(
@@ -1139,20 +1234,34 @@ mod tests {
         // Spec §2: only `+`/`-` combine dates with durations or two dates.
         // `*`, `/`, `%` against any date operand must error, even if the
         // other operand parses as a duration literal.
-        assert!(eval_date(
-            &parse_expr("file.created * \"1w\"").unwrap(), &row, &test_ctx()
-        ).is_err());
-        assert!(eval_date(
-            &parse_expr("date(\"2025-01-01\") / \"1d\"").unwrap(), &row, &test_ctx()
-        ).is_err());
-        assert!(eval_date(
-            &parse_expr("date(\"2025-01-01\") % \"1d\"").unwrap(), &row, &test_ctx()
-        ).is_err());
+        assert!(
+            eval_date(
+                &parse_expr("file.created * \"1w\"").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .is_err()
+        );
+        assert!(
+            eval_date(
+                &parse_expr("date(\"2025-01-01\") / \"1d\"").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .is_err()
+        );
+        assert!(
+            eval_date(
+                &parse_expr("date(\"2025-01-01\") % \"1d\"").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .is_err()
+        );
         // The `+`/`-` date tracks still work after the op guard.
         assert!(matches!(e("file.created + \"1w\""), Value::Date(_)));
         assert!(matches!(e("file.created - \"1w\""), Value::Date(_)));
     }
-
 
     #[test]
     fn numeric_edges() {
@@ -1213,7 +1322,12 @@ mod tests {
         let row = empty_row();
         // Globals now succeed: `date()` is the function table entry.
         assert!(matches!(
-            eval(&parse_expr("date(\"2025-01-01\")").unwrap(), &row, &test_ctx()).unwrap(),
+            eval(
+                &parse_expr("date(\"2025-01-01\")").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .unwrap(),
             Value::Date(_)
         ));
         // Method calls route through the same table; the evaluated
@@ -1224,20 +1338,40 @@ mod tests {
         ));
         // `file.hasTag(...)` is row-aware and reads RowData directly.
         assert_eq!(
-            eval(&parse_expr("file.hasTag(\"소설\")").unwrap(), &row, &test_ctx()).unwrap(),
+            eval(
+                &parse_expr("file.hasTag(\"소설\")").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            eval(&parse_expr("file.hasTag(\"nope\")").unwrap(), &row, &test_ctx()).unwrap(),
+            eval(
+                &parse_expr("file.hasTag(\"nope\")").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .unwrap(),
             Value::Bool(false)
         );
         // `file.inFolder(p)` is a recursive prefix match.
         assert_eq!(
-            eval(&parse_expr("file.inFolder(\"book\")").unwrap(), &row, &test_ctx()).unwrap(),
+            eval(
+                &parse_expr("file.inFolder(\"book\")").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            eval(&parse_expr("file.inFolder(\"book/sub\")").unwrap(), &row, &test_ctx()).unwrap(),
+            eval(
+                &parse_expr("file.inFolder(\"book/sub\")").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .unwrap(),
             Value::Bool(false)
         );
         // Unknown names are caught at parse time (`frobnicate()` is a
@@ -1245,13 +1379,9 @@ mod tests {
         // the parser's GLOBALS list. Spot-check one here by going
         // through the table directly.
         let ctx = test_ctx();
-        assert!(crate::expr::funcs::call_function(
-            "totally_made_up",
-            vec![],
-            ctx.clock,
-            &ctx,
-        )
-        .is_err());
+        assert!(
+            crate::expr::funcs::call_function("totally_made_up", vec![], ctx.clock, &ctx,).is_err()
+        );
         // Plain expressions evaluate normally.
         assert!(matches!(
             eval(&parse_expr("1 + 2").unwrap(), &row, &test_ctx()).unwrap(),
@@ -1268,7 +1398,12 @@ mod tests {
             Value::Num(2025.0)
         );
         assert_eq!(
-            eval(&parse_expr("file.created.month").unwrap(), &row, &test_ctx()).unwrap(),
+            eval(
+                &parse_expr("file.created.month").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .unwrap(),
             Value::Num(1.0)
         );
         assert_eq!(
@@ -1276,7 +1411,12 @@ mod tests {
             Value::Num(1.0)
         );
         assert_eq!(
-            eval(&parse_expr("file.created.weekday").unwrap(), &row, &test_ctx()).unwrap(),
+            eval(
+                &parse_expr("file.created.weekday").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .unwrap(),
             Value::Num(3.0)
         );
         // updated_at = 2025-06-15 12:00 UTC → hour/minute/second.
@@ -1285,20 +1425,25 @@ mod tests {
             Value::Num(12.0)
         );
         assert_eq!(
-            eval(&parse_expr("file.updated.minute").unwrap(), &row, &test_ctx()).unwrap(),
+            eval(
+                &parse_expr("file.updated.minute").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .unwrap(),
             Value::Num(0.0)
         );
         assert_eq!(
-            eval(&parse_expr("file.updated.second").unwrap(), &row, &test_ctx()).unwrap(),
+            eval(
+                &parse_expr("file.updated.second").unwrap(),
+                &row,
+                &test_ctx()
+            )
+            .unwrap(),
             Value::Num(0.0)
         );
         // Unknown fields error rather than silently returning Null.
-        assert!(eval(
-            &parse_expr("file.created.yeer").unwrap(),
-            &row,
-            &test_ctx()
-        )
-        .is_err());
+        assert!(eval(&parse_expr("file.created.yeer").unwrap(), &row, &test_ctx()).is_err());
         // Date arithmetic result (Date − Date → Num) gets the day count
         // through the `days()` function, not as a Path member.
         // `days()` works on a Path whose head resolves to a Date
@@ -1324,11 +1469,10 @@ mod tests {
         r.created_at = time::macros::datetime!(2025-01-01 18:00 UTC);
         r.updated_at = time::macros::datetime!(2025-01-01 18:00 UTC);
         let row = row_of(&r);
-        static CLOCK_KST: std::sync::LazyLock<EvalClock> =
-            std::sync::LazyLock::new(|| EvalClock {
-                now_utc: time::macros::datetime!(2026-08-25 0:00 UTC),
-                local: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
-            });
+        static CLOCK_KST: std::sync::LazyLock<EvalClock> = std::sync::LazyLock::new(|| EvalClock {
+            now_utc: time::macros::datetime!(2026-08-25 0:00 UTC),
+            local: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
+        });
         let ctx = EvalCtx {
             clock: &CLOCK_KST,
             depth: std::cell::Cell::new(0),
@@ -1362,11 +1506,10 @@ mod tests {
         let mut r2 = rec(&[]);
         r2.created_at = time::macros::datetime!(2025-01-02 02:00 UTC);
         let row2 = row_of(&r2);
-        static CLOCK_NYC: std::sync::LazyLock<EvalClock> =
-            std::sync::LazyLock::new(|| EvalClock {
-                now_utc: time::macros::datetime!(2026-08-25 0:00 UTC),
-                local: time::UtcOffset::from_hms(-5, 0, 0).unwrap(),
-            });
+        static CLOCK_NYC: std::sync::LazyLock<EvalClock> = std::sync::LazyLock::new(|| EvalClock {
+            now_utc: time::macros::datetime!(2026-08-25 0:00 UTC),
+            local: time::UtcOffset::from_hms(-5, 0, 0).unwrap(),
+        });
         let ctx2 = EvalCtx {
             clock: &CLOCK_NYC,
             depth: std::cell::Cell::new(0),

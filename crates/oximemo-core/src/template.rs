@@ -133,9 +133,7 @@ pub fn apply_template_to_table(
     let mut out = oxi_frontmatter::Table::new();
     for (k, v) in table {
         let v = match v {
-            oxi_frontmatter::Value::Str(s) => {
-                oxi_frontmatter::Value::Str(apply_template(s, ctx))
-            }
+            oxi_frontmatter::Value::Str(s) => oxi_frontmatter::Value::Str(apply_template(s, ctx)),
             oxi_frontmatter::Value::Array(items) => oxi_frontmatter::Value::Array(
                 items.iter().map(|i| apply_template(i, ctx)).collect(),
             ),

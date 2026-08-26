@@ -11,8 +11,8 @@
 //! cursor" is simply `range((Excluded(cursor_key), Unbounded))`. This needs no
 //! reverse iteration and bounds pagination work to the page size.
 
-use redb::{ReadableDatabase, ReadableTable, ReadableTableMetadata};
 use crate::error::CoreError;
+use redb::{ReadableDatabase, ReadableTable, ReadableTableMetadata};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -201,7 +201,6 @@ fn upgrade_file_format(path: &std::path::Path, from_version: u8) -> Result<()> {
     }
     RedbIndex::upgrade_via_redb2(path)
 }
-
 
 impl MemoIndex for RedbIndex {
     fn upsert(&self, rec: &IndexRecord) -> Result<()> {

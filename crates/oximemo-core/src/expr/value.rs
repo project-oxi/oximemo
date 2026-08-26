@@ -49,7 +49,9 @@ static MIN_REP_UTC: LazyLock<OffsetDateTime> = LazyLock::new(|| {
 });
 static MAX_REP_UTC: LazyLock<OffsetDateTime> = LazyLock::new(|| {
     let d = Date::from_calendar_date(MAX_YEAR, Month::December, 31).expect("valid clamp date");
-    d.with_hms(23, 59, 59).expect("23:59:59 is valid").assume_utc()
+    d.with_hms(23, 59, 59)
+        .expect("23:59:59 is valid")
+        .assume_utc()
 });
 
 /// Render a numeric `Value` for display. Integer-valued numbers omit the
@@ -97,10 +99,10 @@ pub fn parse_duration_lit(s: &str) -> Option<DurationSpec> {
     // Reject any signed prefix: the grammar is unsigned integer + unit,
     // and a leading `-` would silently flip `calendar_months` into
     // i32::MIN territory when `date_add` multiplies by sign.
-    if let Some(&first) = split.0.first() {
-        if first == b'-' || first == b'+' {
-            return None;
-        }
+    if let Some(&first) = split.0.first()
+        && (first == b'-' || first == b'+')
+    {
+        return None;
     }
     let n: i64 = std::str::from_utf8(split.0).ok()?.parse().ok()?;
     if n < 0 {
@@ -160,10 +162,8 @@ pub fn parse_date_ish(s: &str) -> Option<OffsetDateTime> {
     if let Ok(date) = Date::parse(s, &date_fmt) {
         return Some(date.with_hms(0, 0, 0).ok()?.assume_utc());
     }
-    let dt_fmt = time::format_description::parse(
-        "[year]-[month]-[day] [hour]:[minute]:[second]",
-    )
-    .ok()?;
+    let dt_fmt =
+        time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").ok()?;
     if let Ok(dt) = PrimitiveDateTime::parse(s, &dt_fmt) {
         return Some(dt.assume_utc());
     }
@@ -203,7 +203,12 @@ pub fn promote_date(v: &Value) -> Option<OffsetDateTime> {
 /// combination can overflow `time::Date`'s year range or `Duration`'s
 /// millisecond span, and the engine must convert overflow into a clamped
 /// date rather than a process abort.
-pub fn date_add(d: OffsetDateTime, dur: &DurationSpec, sign: i32, local: UtcOffset) -> OffsetDateTime {
+pub fn date_add(
+    d: OffsetDateTime,
+    dur: &DurationSpec,
+    sign: i32,
+    local: UtcOffset,
+) -> OffsetDateTime {
     debug_assert!(sign == 1 || sign == -1);
     let after_months = if dur.calendar_months != 0 {
         add_calendar_months(d, dur.calendar_months, sign, local)
@@ -225,7 +230,12 @@ fn clamp_extremum(local: UtcOffset, positive: bool) -> OffsetDateTime {
     base.to_offset(local)
 }
 
-fn add_calendar_months(d: OffsetDateTime, months: i32, sign: i32, local: UtcOffset) -> OffsetDateTime {
+fn add_calendar_months(
+    d: OffsetDateTime,
+    months: i32,
+    sign: i32,
+    local: UtcOffset,
+) -> OffsetDateTime {
     let months = months.saturating_mul(sign);
     let local_dt = d.to_offset(local);
     let date = local_dt.date();
@@ -265,7 +275,13 @@ fn add_calendar_months(d: OffsetDateTime, months: i32, sign: i32, local: UtcOffs
 
 fn days_in_month(year: i32, month: Month) -> u8 {
     match month {
-        Month::January | Month::March | Month::May | Month::July | Month::August | Month::October | Month::December => 31,
+        Month::January
+        | Month::March
+        | Month::May
+        | Month::July
+        | Month::August
+        | Month::October
+        | Month::December => 31,
         Month::April | Month::June | Month::September | Month::November => 30,
         Month::February => {
             if is_leap(year) {
@@ -348,10 +364,34 @@ mod tests {
 
     #[test]
     fn duration_literals() {
-        assert_eq!(parse_duration_lit("1w"), Some(DurationSpec { calendar_months: 0, fixed_millis: 7 * 86_400_000 }));
-        assert_eq!(parse_duration_lit("2M"), Some(DurationSpec { calendar_months: 2, fixed_millis: 0 }));
-        assert_eq!(parse_duration_lit("1y"), Some(DurationSpec { calendar_months: 12, fixed_millis: 0 }));
-        assert_eq!(parse_duration_lit("30m"), Some(DurationSpec { calendar_months: 0, fixed_millis: 1_800_000 }));
+        assert_eq!(
+            parse_duration_lit("1w"),
+            Some(DurationSpec {
+                calendar_months: 0,
+                fixed_millis: 7 * 86_400_000
+            })
+        );
+        assert_eq!(
+            parse_duration_lit("2M"),
+            Some(DurationSpec {
+                calendar_months: 2,
+                fixed_millis: 0
+            })
+        );
+        assert_eq!(
+            parse_duration_lit("1y"),
+            Some(DurationSpec {
+                calendar_months: 12,
+                fixed_millis: 0
+            })
+        );
+        assert_eq!(
+            parse_duration_lit("30m"),
+            Some(DurationSpec {
+                calendar_months: 0,
+                fixed_millis: 1_800_000
+            })
+        );
         assert_eq!(parse_duration_lit("1x"), None);
         assert_eq!(parse_duration_lit("w"), None);
     }
@@ -370,9 +410,19 @@ mod tests {
     #[test]
     fn month_arithmetic_clamps() {
         let jan31 = datetime!(2025-01-31 0:00 UTC);
-        let feb = date_add(jan31, &parse_duration_lit("1M").unwrap(), 1, time::UtcOffset::UTC);
+        let feb = date_add(
+            jan31,
+            &parse_duration_lit("1M").unwrap(),
+            1,
+            time::UtcOffset::UTC,
+        );
         assert_eq!(feb, datetime!(2025-02-28 0:00 UTC)); // 2025 not a leap year
-        let leap = date_add(datetime!(2024-01-31 0:00 UTC), &parse_duration_lit("1M").unwrap(), 1, time::UtcOffset::UTC);
+        let leap = date_add(
+            datetime!(2024-01-31 0:00 UTC),
+            &parse_duration_lit("1M").unwrap(),
+            1,
+            time::UtcOffset::UTC,
+        );
         assert_eq!(leap, datetime!(2024-02-29 0:00 UTC));
     }
 
@@ -402,8 +452,14 @@ mod tests {
 
     #[test]
     fn total_order_ranking() {
-        let mut v = vec![Value::Null, Value::Str("b".into()), Value::List(vec![]),
-                         Value::Num(9.0), Value::Bool(false), Value::Bool(true)];
+        let mut v = [
+            Value::Null,
+            Value::Str("b".into()),
+            Value::List(vec![]),
+            Value::Num(9.0),
+            Value::Bool(false),
+            Value::Bool(true),
+        ];
         v.sort_by(total_order);
         assert!(matches!(v[0], Value::Bool(false)));
         assert!(matches!(v[5], Value::Null));

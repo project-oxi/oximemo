@@ -25,11 +25,13 @@ use time::format_description::well_known::Rfc3339;
 
 use super::{BaseDef, BaseViewDef, FilterGroup, FilterSpec, validate};
 use super::{formula_deps, walk_formula};
-use time::{OffsetDateTime, UtcOffset};
-use crate::expr::value::{Value, group_string, parse_date_ish, promote_num, total_order, type_name};
+use crate::error::{CoreError, Result};
 use crate::expr::eval::{EvalClock, EvalCtx, RowData, compare, eval};
 use crate::expr::parser::{Expr, parse_expr};
-use crate::error::{CoreError, Result};
+use crate::expr::value::{
+    Value, group_string, parse_date_ish, promote_num, total_order, type_name,
+};
+use time::{OffsetDateTime, UtcOffset};
 
 use crate::memo::{MemoHash, MemoId, MemoSummary, NoteFormat};
 use crate::props::PropValue;
@@ -46,8 +48,6 @@ fn systemtime_to_odt(t: std::time::SystemTime) -> OffsetDateTime {
         Err(_) => OffsetDateTime::UNIX_EPOCH,
     }
 }
-
-
 
 /// One rendered cell: the evaluated value, or the error that replaced it
 /// (spec §2's per-cell ⚠︎ contract — `Vec<Value>` cannot carry a tooltip).
@@ -312,7 +312,9 @@ impl Vault {
         //    since last call" probe key.
         let source_hash = self.base_source_hash(source)?;
         let (now_utc, local) = clock_from_req(req.now_ms, req.local_offset_seconds)?;
-        let clock_ms: i64 = (now_utc.unix_timestamp_nanos() / 1_000_000).try_into().unwrap_or(0);
+        let clock_ms: i64 = (now_utc.unix_timestamp_nanos() / 1_000_000)
+            .try_into()
+            .unwrap_or(0);
         let local_offset_seconds: i32 = local.whole_seconds();
         // Single snapshot call returns BOTH the records and the
         // generation the snapshot cache just locked in. Using that
@@ -422,7 +424,6 @@ impl Vault {
             .filter(|(n, _)| closure.contains(n))
             .collect();
 
-
         // 5. Snapshot → filter. Soft-deleted records never enter any
         //    base pipeline (spec §1).
         // snap is already populated above by snapshot_with_gen.
@@ -496,7 +497,7 @@ impl Vault {
                         return Err(fatal(format!(
                             "filter must evaluate to a boolean, got {}",
                             type_name(&v)
-                        )))
+                        )));
                     }
                 }
             }
@@ -507,7 +508,8 @@ impl Vault {
             // the view order. Errors/Null → None (sorts last); a List
             // group key uses its first member (spec §3). Without a
             // groupBy there is no group key position at all.
-            let mut keys = Vec::with_capacity(order_specs.len() + usize::from(group_spec.is_some()));
+            let mut keys =
+                Vec::with_capacity(order_specs.len() + usize::from(group_spec.is_some()));
             let mut group_str = String::new();
             if let Some((e, _)) = &group_spec {
                 let g = group_key(e, &row, &ctx);
@@ -541,8 +543,8 @@ impl Vault {
             descs.push(*d);
         }
         kept.sort_by(|a, b| {
-            for i in 0..descs.len() {
-                let ord = cmp_key(&a.keys[i], &b.keys[i], descs[i]);
+            for ((ka, kb), d) in a.keys.iter().zip(&b.keys).zip(&descs) {
+                let ord = cmp_key(ka, kb, *d);
                 if ord != Ordering::Equal {
                     return ord;
                 }
@@ -582,11 +584,16 @@ impl Vault {
 
         // 9. Summaries over the capped dataset.
         let summaries = if req.include_summaries {
-            Some(compute_summaries(view, &kept, this_row.as_ref(), &ctx, &mut warnings)?)
+            Some(compute_summaries(
+                view,
+                &kept,
+                this_row.as_ref(),
+                &ctx,
+                &mut warnings,
+            )?)
         } else {
             None
         };
-
 
         // Cells + group_strs for EVERY kept row (the cached BaseResult
         // holds the full dataset so group paging can slice without
@@ -600,8 +607,14 @@ impl Vault {
             let cells: Vec<BaseCell> = columns
                 .iter()
                 .map(|c| match eval(c, &row, &ctx) {
-                    Ok(v) => BaseCell { value: Some(v), error: None },
-                    Err(e) => BaseCell { value: None, error: Some(e.to_string()) },
+                    Ok(v) => BaseCell {
+                        value: Some(v),
+                        error: None,
+                    },
+                    Err(e) => BaseCell {
+                        value: None,
+                        error: Some(e.to_string()),
+                    },
                 })
                 .collect();
             full_rows.push(BaseRow {
@@ -786,18 +799,15 @@ fn topo_formulas(formulas: Option<&BTreeMap<String, String>>) -> Result<Vec<(Str
 /// are evaluated per row. Must run after `topo_formulas` so cycles are
 /// already rejected.
 fn formula_closure(formulas: &[(String, Expr)], roots: &[&Expr]) -> HashSet<String> {
-    let by_name: HashMap<&str, &Expr> = formulas
-        .iter()
-        .map(|(n, e)| (n.as_str(), e))
-        .collect();
+    let by_name: HashMap<&str, &Expr> = formulas.iter().map(|(n, e)| (n.as_str(), e)).collect();
     fn expand(e: &Expr, by_name: &HashMap<&str, &Expr>, out: &mut HashSet<String>) {
         let mut refs = std::collections::BTreeSet::new();
         walk_formula(e, &mut refs);
         for name in refs {
-            if out.insert(name.clone()) {
-                if let Some(body) = by_name.get(name.as_str()) {
-                    expand(body, by_name, out);
-                }
+            if out.insert(name.clone())
+                && let Some(body) = by_name.get(name.as_str())
+            {
+                expand(body, by_name, out);
             }
         }
     }
@@ -864,11 +874,7 @@ fn cmp_key(a: &Option<Value>, b: &Option<Value>, desc: bool) -> Ordering {
         (Some(_), None) => Ordering::Less,
         (Some(x), Some(y)) => {
             let ord = compare(x, y).unwrap_or_else(|_| total_order(x, y));
-            if desc {
-                ord.reverse()
-            } else {
-                ord
-            }
+            if desc { ord.reverse() } else { ord }
         }
     }
 }
@@ -906,15 +912,20 @@ fn compute_summaries(
             ));
         }
         let value = summary_value(fname, &vals, path, warnings);
-        out.insert(path.clone(), SummaryValue { name: fname.clone(), value });
+        out.insert(
+            path.clone(),
+            SummaryValue {
+                name: fname.clone(),
+                value,
+            },
+        );
     }
     Ok(out)
 }
 
 fn summary_value(fname: &str, vals: &[Value], path: &str, warnings: &mut Vec<String>) -> Value {
-    let count = |pred: &dyn Fn(&Value) -> bool| {
-        Value::Num(vals.iter().filter(|v| pred(v)).count() as f64)
-    };
+    let count =
+        |pred: &dyn Fn(&Value) -> bool| Value::Num(vals.iter().filter(|v| pred(v)).count() as f64);
     match fname {
         "All" => Value::Num(vals.len() as f64),
         "Checked" => count(&|v| matches!(v, Value::Bool(true))),
@@ -989,7 +1000,9 @@ fn summary_value(fname: &str, vals: &[Value], path: &str, warnings: &mut Vec<Str
             }
         }
         other => {
-            warnings.push(format!("summary {path}: unknown summary function `{other}`"));
+            warnings.push(format!(
+                "summary {path}: unknown summary function `{other}`"
+            ));
             Value::Null
         }
     }
@@ -1038,8 +1051,14 @@ mod tests {
     #[test]
     fn formula_closure_reaches_only_referenced() {
         let formulas = [
-            ("age".to_string(), parse_expr("(now() - file.created).days()").unwrap()),
-            ("double_age".to_string(), parse_expr("formula.age * 2").unwrap()),
+            (
+                "age".to_string(),
+                parse_expr("(now() - file.created).days()").unwrap(),
+            ),
+            (
+                "double_age".to_string(),
+                parse_expr("formula.age * 2").unwrap(),
+            ),
             ("unused".to_string(), parse_expr("1 / 0").unwrap()),
         ];
         let root = parse_expr("formula.double_age > 10").unwrap();
@@ -1089,14 +1108,50 @@ mod tests {
     /// Returns ids as `[b1, b2, b3, b4, f1, f2]`.
     fn seed() -> (TempDir, Vault, [MemoId; 6]) {
         let (dir, v) = tmp_vault();
-        let b1 = note(&v, "book", "책1", &[("status", "읽는중"), ("rating", "9")], false);
-        let b2 = note(&v, "book", "책2", &[("status", "읽는중"), ("rating", "10")], false);
-        let b3 = note(&v, "book", "책3", &[("status", "완독"), ("rating", "7")], false);
+        let b1 = note(
+            &v,
+            "book",
+            "책1",
+            &[("status", "읽는중"), ("rating", "9")],
+            false,
+        );
+        let b2 = note(
+            &v,
+            "book",
+            "책2",
+            &[("status", "읽는중"), ("rating", "10")],
+            false,
+        );
+        let b3 = note(
+            &v,
+            "book",
+            "책3",
+            &[("status", "완독"), ("rating", "7")],
+            false,
+        );
         // No rating: Null sort key + the formula-error row for tests.
         let b4 = note(&v, "book", "책4", &[("status", "완독")], false);
-        let f1 = note(&v, "film", "영화1", &[("status", "보는중"), ("rating", "8")], false);
-        let f2 = note(&v, "film", "영화2", &[("status", "완독"), ("rating", "9")], true);
-        let trashed = note(&v, "book", "낡은책", &[("status", "읽는중"), ("rating", "1")], false);
+        let f1 = note(
+            &v,
+            "film",
+            "영화1",
+            &[("status", "보는중"), ("rating", "8")],
+            false,
+        );
+        let f2 = note(
+            &v,
+            "film",
+            "영화2",
+            &[("status", "완독"), ("rating", "9")],
+            true,
+        );
+        let trashed = note(
+            &v,
+            "book",
+            "낡은책",
+            &[("status", "읽는중"), ("rating", "1")],
+            false,
+        );
         v.delete_memo(trashed).unwrap();
         (dir, v, [b1, b2, b3, b4, f1, f2])
     }
@@ -1218,7 +1273,10 @@ views:
         // Pages are disjoint and cover the full dataset.
         let ids1: HashSet<MemoId> = p1.rows.iter().map(|r| r.summary.id).collect();
         let ids2: HashSet<MemoId> = p2.rows.iter().map(|r| r.summary.id).collect();
-        assert!(ids1.is_disjoint(&ids2), "pages overlap: {ids1:?} ∩ {ids2:?}");
+        assert!(
+            ids1.is_disjoint(&ids2),
+            "pages overlap: {ids1:?} ∩ {ids2:?}"
+        );
         let union: HashSet<MemoId> = ids1.union(&ids2).copied().collect();
         assert_eq!(union.len(), 6);
     }
@@ -1295,7 +1353,10 @@ views:
         assert_eq!(page.rows.len(), 2);
         let counts = page.group_counts.expect("group_counts");
         let got: Vec<(String, usize)> = counts.iter().map(|c| (c.key.clone(), c.count)).collect();
-        assert_eq!(got, vec![("보는중".to_string(), 1), ("완독".to_string(), 1)]);
+        assert_eq!(
+            got,
+            vec![("보는중".to_string(), 1), ("완독".to_string(), 1)]
+        );
         assert_eq!(counts.iter().map(|c| c.count).sum::<usize>(), page.total);
     }
 
@@ -1449,14 +1510,24 @@ views:
         note_raw(&v, "mix", "F", &[("flag", PropValue::Bool(false))]);
         note_raw(&v, "mix", "T", &[("flag", PropValue::Bool(true))]);
         note_raw(&v, "mix", "S", &[("flag", PropValue::Str("a".into()))]);
-        note_raw(&v, "mix", "L", &[("flag", PropValue::List(vec!["x".into()]))]);
-        let yaml = "views:\n  - type: table\n    order:\n      - { property: flag, direction: asc }\n";
+        note_raw(
+            &v,
+            "mix",
+            "L",
+            &[("flag", PropValue::List(vec!["x".into()]))],
+        );
+        let yaml =
+            "views:\n  - type: table\n    order:\n      - { property: flag, direction: asc }\n";
         let page = run(&v, yaml, &req(0));
         assert_eq!(names(&page), vec!["F", "T", "S", "L"], "Bool < Str < List");
         let yaml_desc =
             "views:\n  - type: table\n    order:\n      - { property: flag, direction: desc }\n";
         let page = run(&v, yaml_desc, &req(0));
-        assert_eq!(names(&page), vec!["L", "S", "T", "F"], "desc inverts uniformly");
+        assert_eq!(
+            names(&page),
+            vec!["L", "S", "T", "F"],
+            "desc inverts uniformly"
+        );
     }
 
     // 11. Full-screen Path runs synthesize `this.file.*` from the
@@ -1492,10 +1563,7 @@ views:
         let page = run(&v, yaml, &r);
         assert_eq!(page.total, 0);
         assert!(
-            !page
-                .warnings
-                .iter()
-                .any(|w| w.contains("outside an embed")),
+            !page.warnings.iter().any(|w| w.contains("outside an embed")),
             "{:?}",
             page.warnings
         );
@@ -1504,10 +1572,7 @@ views:
         let page = run(&v, yaml, &r);
         assert_eq!(page.total, 6);
         assert!(
-            !page
-                .warnings
-                .iter()
-                .any(|w| w.contains("outside an embed")),
+            !page.warnings.iter().any(|w| w.contains("outside an embed")),
             "{:?}",
             page.warnings
         );
@@ -1533,7 +1598,6 @@ views:
             1,
             "same fingerprint must not grow the cache"
         );
-
     }
 
     /// A new note writes through `meta.redb` → generation changes →
@@ -1704,7 +1768,10 @@ views:
         r.local_offset_seconds = Some(0);
         let page = run(&v, "views:\n  - type: table\n", &r);
         assert!(!page.rows.is_empty());
-        assert_eq!(page.total, 200, "full oversize dataset is still computed and returned");
+        assert_eq!(
+            page.total, 200,
+            "full oversize dataset is still computed and returned"
+        );
         assert_eq!(
             v.base_cache_len(),
             0,
@@ -1755,7 +1822,7 @@ views:
         // frequency desc, ties alpha asc.
         let (_d, v) = bulk_notes(9, |i| {
             let val = match i {
-                0 | 1 | 2 => "b",
+                0..=2 => "b",
                 3 | 4 => "x",
                 5 | 6 => "y",
                 7 => "a",
@@ -1784,7 +1851,10 @@ views:
         assert_eq!(info(&props, "cap20").kinds, vec!["select"]);
         assert_eq!(info(&props, "cap20").options.len(), 20);
         assert_eq!(info(&props, "over20").kinds, vec!["text"]);
-        assert!(info(&props, "over20").options.is_empty(), "text has no options");
+        assert!(
+            info(&props, "over20").options.is_empty(),
+            "text has no options"
+        );
     }
 
     #[test]
@@ -1834,7 +1904,10 @@ views:
                 title: Some("n1".to_string()),
                 tags: Vec::new(),
                 props: vec![
-                    ("genre".to_string(), PropValue::List(vec!["a".into(), "b".into()])),
+                    (
+                        "genre".to_string(),
+                        PropValue::List(vec!["a".into(), "b".into()]),
+                    ),
                     ("done".to_string(), PropValue::Bool(true)),
                     ("mood".to_string(), PropValue::Str("ok".into())),
                 ]
@@ -1854,7 +1927,10 @@ views:
                 title: Some("n2".to_string()),
                 tags: Vec::new(),
                 props: vec![
-                    ("genre".to_string(), PropValue::List(vec!["a".into(), "c".into()])),
+                    (
+                        "genre".to_string(),
+                        PropValue::List(vec!["a".into(), "c".into()]),
+                    ),
                     ("done".to_string(), PropValue::Bool(false)),
                     ("mood".to_string(), PropValue::Bool(true)),
                 ]
@@ -1884,23 +1960,34 @@ views:
     fn base_props_unions_folders_and_excludes_soft_deleted() {
         let (dir, v) = tmp_vault();
         v.ensure_initialized().unwrap();
-        let rec = |id: u64, path: &str, props: Vec<(String, PropValue)>, deleted: bool| IndexRecord {
-            id: MemoId(uuid::Uuid::from_u64_pair(id, 2)),
-            created_at: OffsetDateTime::UNIX_EPOCH,
-            updated_at: OffsetDateTime::UNIX_EPOCH,
-            hash: MemoHash::new(""),
-            favorite: false,
-            path: path.to_string(),
-            title: Some(format!("n{id}")),
-            tags: Vec::new(),
-            props: props.into_iter().collect(),
-            deleted,
-            deleted_at: deleted.then_some(OffsetDateTime::UNIX_EPOCH),
-            preview: String::new(),
-        };
+        let rec =
+            |id: u64, path: &str, props: Vec<(String, PropValue)>, deleted: bool| IndexRecord {
+                id: MemoId(uuid::Uuid::from_u64_pair(id, 2)),
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+                hash: MemoHash::new(""),
+                favorite: false,
+                path: path.to_string(),
+                title: Some(format!("n{id}")),
+                tags: Vec::new(),
+                props: props.into_iter().collect(),
+                deleted,
+                deleted_at: deleted.then_some(OffsetDateTime::UNIX_EPOCH),
+                preview: String::new(),
+            };
         let recs = vec![
-            rec(1, "book/n1.md", vec![("status".into(), PropValue::Str("읽는중".into()))], false),
-            rec(2, "film/n2.md", vec![("status".into(), PropValue::Str("보는중".into()))], false),
+            rec(
+                1,
+                "book/n1.md",
+                vec![("status".into(), PropValue::Str("읽는중".into()))],
+                false,
+            ),
+            rec(
+                2,
+                "film/n2.md",
+                vec![("status".into(), PropValue::Str("보는중".into()))],
+                false,
+            ),
             rec(
                 3,
                 "book/n3.md",
