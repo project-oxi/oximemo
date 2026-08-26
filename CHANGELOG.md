@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [0.10.1] — 2026-08-27
+
+### Fixed
+
+- **Launch crash with real vault data** — "undefined is not an object
+  (evaluating 'n.length')" on first open. The 2026-08-23 folder redesign
+  dropped `folder` from the wire `MemoSummary` (`path` became the source
+  of truth), but the desktop UI still read `memo.folder`; `undefined`
+  reached `colorForFolder → hueFor` and took down the whole-tree error
+  boundary at launch. The browser fallback kept synthesizing `folder`,
+  hiding the bug from dev mode. `folder` is now derived from `path` at
+  the Tauri wire boundary (list/search/query/base responses) so every
+  consumer sees the folder the type promises.
+- The error boundary now shows the component stack, so the next render
+  crash pinpoints the component immediately.
+
 ## [0.10.0] — 2026-08-26
 
 ### Added
