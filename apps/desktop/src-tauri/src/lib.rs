@@ -261,6 +261,7 @@ pub fn run() {
             commands::list_memos,
             commands::get_memo,
             commands::create_memo,
+            commands::create_capture,
             commands::open_daily_note,
             commands::update_memo,
             commands::delete_memo,
@@ -407,12 +408,6 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
         Err(e) => tracing::warn!(error = %e, "vault watcher failed to start"),
     }
 }
-
-/// Background consumer for vault git auto-commits. Receives settled paths
-/// from the watcher thread and performs the gix commit/remove off every
-/// interactive path. Coalesces bursts: after a message arrives, drain any
-/// queued siblings for 250 ms so a save-burst produces one commit per file
-/// state, not per event. `commit_file`'s content dedup makes unchanged
 
 /// Background consumer for vault git auto-commits. Receives settled paths
 /// from the watcher thread and performs the gix commit/remove off every
@@ -642,21 +637,13 @@ struct BrainEndpointConf {
 }
 
 impl BrainEndpointConf {
-    fn from_brain(b: &oximemo_core::config::BrainConfig) -> Self {
-        Self {
-            enabled: b.enabled,
-            socket: b.socket.clone(),
-            space: b.space.clone(),
-        }
-    }
-
     /// Resolve the brain endpoint with **ecosystem-canonical** space:
     /// `~/.oxi/config.toml [vault].space` wins over the vault-local
     /// `BrainConfig::space` (ECOSYSTEM.md §C5). All brain_* commands
-    /// must use this constructor — they read the same space the daemon's
-    /// `register_vault` (vault.rs:117) registered the watcher under. Using
-    /// `from_brain` directly silently queries the wrong space when the
-    /// operator sets the ecosystem override.
+    /// must resolve through here — they read the same space the
+    /// daemon's `register_vault` (vault.rs:117) registered the watcher
+    /// under; reading the vault-local field directly would silently
+    /// query the wrong space when the operator sets the override.
     fn from_vault_config(c: &oximemo_core::config::VaultConfig) -> Self {
         let home = std::env::var("HOME").unwrap_or_default();
         let space = oximemo_core::brain::resolve_space(std::path::Path::new(&home), &c.brain.space);
@@ -691,12 +678,14 @@ async fn brain_connect(
 
 mod commands {
     use oximemo_core::Vault;
+    use oximemo_core::base::{
+        BasePage, BaseRow, BaseSource, EvalClockDto, GroupCount, RunBaseReq, SummaryValue,
+    };
     use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
-    use oximemo_core::base::{BasePage, BaseRow, BaseSource, EvalClockDto, GroupCount, RunBaseReq, SummaryValue};
-    use std::collections::BTreeMap;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use oximemo_core::sync::ManifestRecord;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use tauri::Manager;
     use tauri::{AppHandle, Emitter, State};
     use time::format_description::well_known::Rfc3339;
@@ -793,7 +782,10 @@ mod commands {
         app: AppHandle,
         body: String,
     ) -> Result<oximemo_core::memo::NoteDto, String> {
-        let memo = state.vault.create_capture(body).map_err(|e| e.to_string())?;
+        let memo = state
+            .vault
+            .create_capture(body)
+            .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(state.vault.note_dto(&memo))
     }
@@ -1029,7 +1021,10 @@ mod commands {
     /// truth).
     #[tauri::command]
     pub fn load_base(state: State<'_, AppState>, path: String) -> Result<LoadBaseDto, String> {
-        let (yaml, mtime) = state.vault.load_base_raw(&path).map_err(|e| e.to_string())?;
+        let (yaml, mtime) = state
+            .vault
+            .load_base_raw(&path)
+            .map_err(|e| e.to_string())?;
         Ok(LoadBaseDto {
             yaml,
             mtime_ms: systemtime_to_ms(mtime),
@@ -1051,7 +1046,10 @@ mod commands {
             .vault
             .save_base(&path, &yaml, expected_mtime_ms.map(ms_to_systemtime))
             .map_err(|e| e.to_string())?;
-        let (raw, mtime) = state.vault.load_base_raw(&path).map_err(|e| e.to_string())?;
+        let (raw, mtime) = state
+            .vault
+            .load_base_raw(&path)
+            .map_err(|e| e.to_string())?;
         Ok(LoadBaseDto {
             yaml: raw,
             mtime_ms: systemtime_to_ms(mtime),
@@ -1098,7 +1096,10 @@ mod commands {
         app: AppHandle,
         token: String,
     ) -> Result<String, String> {
-        let rel = state.vault.restore_base(&token).map_err(|e| e.to_string())?;
+        let rel = state
+            .vault
+            .restore_base(&token)
+            .map_err(|e| e.to_string())?;
         let _ = app.emit("bases:changed", ());
         Ok(rel)
     }
@@ -1415,7 +1416,7 @@ mod commands {
     pub async fn brain_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
         let cfg = state
             .vault
-            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c));
+            .with_config(crate::BrainEndpointConf::from_vault_config);
         if !cfg.enabled {
             return Ok(serde_json::json!({"online": false, "disabled": true}));
         }
@@ -1454,7 +1455,7 @@ mod commands {
     ) -> Result<serde_json::Value, String> {
         let cfg = state
             .vault
-            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c));
+            .with_config(crate::BrainEndpointConf::from_vault_config);
         if !cfg.enabled {
             return Err("brain disabled in config".to_string());
         }
@@ -1479,7 +1480,7 @@ mod commands {
     ) -> Result<serde_json::Value, String> {
         let cfg = state
             .vault
-            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c));
+            .with_config(crate::BrainEndpointConf::from_vault_config);
         if !cfg.enabled {
             return Err("brain disabled in config".to_string());
         }
@@ -1503,7 +1504,7 @@ mod commands {
     ) -> Result<serde_json::Value, String> {
         let cfg = state
             .vault
-            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c));
+            .with_config(crate::BrainEndpointConf::from_vault_config);
         if !cfg.enabled {
             return Ok(serde_json::json!({ "online": false, "spaces": [] }));
         }
@@ -2099,10 +2100,10 @@ mod commands {
         }
         // Per-turn model (omp only). The id came from the agent's own
         // listing, but re-validate: it goes straight into a subprocess argv.
-        if let Some(m) = model.as_deref() {
-            if !crate::copilot::valid_model_id(m) {
-                return Err("invalid model id".to_string());
-            }
+        if let Some(m) = model.as_deref()
+            && !crate::copilot::valid_model_id(m)
+        {
+            return Err("invalid model id".to_string());
         }
         // Atomically claim the busy slot BEFORE any prep work: the old
         // check-then-spawn window let two concurrent sends both pass.
@@ -2212,7 +2213,7 @@ mod commands {
             let out = crate::copilot::run_agent_process(
                 &exe,
                 &args,
-                &stdin_for_agent,
+                stdin_for_agent,
                 cwd,
                 cfg.timeout_secs,
                 move |pgid| {
@@ -2389,7 +2390,6 @@ mod tests {
         assert_eq!(arr[1]["note_count"], serde_json::json!(2));
     }
 
-
     // --- query views (design 2026-08-25) wire contract -----------------------
     // The DTOs below mirror apps/desktop/src/lib/types.ts — that file is
     // the reviewed contract: outer command DTOs camelCase, nested core
@@ -2534,24 +2534,47 @@ mod tests {
         keys.sort_unstable();
         assert_eq!(
             keys,
-            vec!["clock", "groupCounts", "resultKey", "rows", "summaries", "total", "warnings"]
+            vec![
+                "clock",
+                "groupCounts",
+                "resultKey",
+                "rows",
+                "summaries",
+                "total",
+                "warnings"
+            ]
         );
 
         assert_eq!(json["total"], serde_json::json!(1));
         assert_eq!(json["resultKey"], serde_json::json!("b3:abc"));
-        assert_eq!(json["clock"]["now_utc"], serde_json::json!("2026-08-25T00:00:00Z"));
-        assert_eq!(json["clock"]["local_offset_seconds"], serde_json::json!(32400));
+        assert_eq!(
+            json["clock"]["now_utc"],
+            serde_json::json!("2026-08-25T00:00:00Z")
+        );
+        assert_eq!(
+            json["clock"]["local_offset_seconds"],
+            serde_json::json!(32400)
+        );
         assert_eq!(json["groupCounts"][0]["key"], serde_json::json!("reading"));
         assert_eq!(json["groupCounts"][0]["count"], serde_json::json!(1));
-        assert_eq!(json["summaries"]["note.rating"]["name"], serde_json::json!("Average"));
-        assert_eq!(json["summaries"]["note.rating"]["value"]["Num"], serde_json::json!(4.5));
+        assert_eq!(
+            json["summaries"]["note.rating"]["name"],
+            serde_json::json!("Average")
+        );
+        assert_eq!(
+            json["summaries"]["note.rating"]["value"]["Num"],
+            serde_json::json!(4.5)
+        );
 
         let row = &json["rows"][0];
         assert_eq!(row["folder"], serde_json::json!("inbox"));
         assert_eq!(row["format"], serde_json::json!("markdown"));
         // Nested MemoSummary stays snake_case (created_at), matching the
         // long-standing MemoSummary wire style.
-        assert!(row["summary"].get("created_at").is_some(), "summary.created_at");
+        assert!(
+            row["summary"].get("created_at").is_some(),
+            "summary.created_at"
+        );
         assert_eq!(row["summary"]["path"], serde_json::json!("inbox/wire.md"));
         // Duration cells: externally tagged Value with snake_case fields.
         assert_eq!(
@@ -2572,7 +2595,10 @@ mod tests {
         );
         // Error cells carry `error` + JSON null value (per-cell ⚠ tooltip).
         assert_eq!(row["cells"][2]["value"], serde_json::Value::Null);
-        assert_eq!(row["cells"][2]["error"], serde_json::json!("division by zero"));
+        assert_eq!(
+            row["cells"][2]["error"],
+            serde_json::json!("division by zero")
+        );
     }
 
     /// `BaseSourceDto` is externally tagged on the wire; `Inline` carries
@@ -2632,7 +2658,12 @@ mod tests {
             loadable: true,
         })
         .unwrap();
-        let mut keys: Vec<&str> = info.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        let mut keys: Vec<&str> = info
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
         keys.sort_unstable();
         assert_eq!(keys, vec!["loadable", "mtimeMs", "name", "path"]);
         assert_eq!(info["mtimeMs"], serde_json::json!(1_756_084_800_000_u64));
@@ -2657,16 +2688,12 @@ mod tests {
     }
 
     /// The git auto-commit consumer: a settled path under the vault must
-    /// land as a commit; a deleted path must land as a removal. Drives the
-    /// REAL `spawn_git_consumer` against a REAL `GitLayer` on disk.
-    /// The git auto-commit consumer:
-    ///   1. drives the REAL `spawn_git_consumer` against a REAL `GitLayer`
-    ///      on disk;
-    ///   2. passes a REAL `Vault` handle so the consumer's live
-    ///      `c.git.auto_commit` read is exercised;
-    ///   3. asserts that toggling `auto_commit` off in the live config
-
-    ///      stops the next commit immediately (C1 regression guard).
+    /// land as a commit; a deleted path must land as a removal. Drives:
+    ///   1. the REAL `spawn_git_consumer` against a REAL `GitLayer` on disk;
+    ///   2. a REAL `Vault` handle so the consumer's live `c.git.auto_commit`
+    ///      read is exercised;
+    ///   3. that toggling `auto_commit` off in the live config stops the
+    ///      next commit immediately (C1 regression guard).
     #[test]
     fn git_consumer_commits_and_respects_toggle() {
         let dir = tempfile::tempdir().unwrap();
