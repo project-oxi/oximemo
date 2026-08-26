@@ -6,7 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [0.10.0] — 2026-08-26
+
 ### Added
+
+- **Query views (spec 2026-08-25) — Notion-database-views / Obsidian-Bases-grade
+  querying over the whole vault.** Notes become a queryable database:
+  - **Expression engine** — a Bases-compatible formula language
+    (`file.*` / `this.*` / `note.*` paths, arithmetic, comparisons,
+    string/date/list methods, user `formulas:`) with bounded recursion
+    (depth 200), no loops/assignment/monkey-patching, and positioned
+    errors; every failure degrades to a per-cell ⚠︎, never a crash
+    (spec §7).
+  - **`.query` collections** — YAML files (name, filters, formulas,
+    columns, order, views) living in the vault; sidebar 쿼리 section
+    (list, create, rename, trash + undo), CommandPalette `새 쿼리` /
+    `쿼리 열기`, and 「이 필터를 쿼리로 저장」 from the chip bar.
+  - **BaseView** — full-screen results surface: table / board / cards /
+    list views with tabs, per-view column reordering (persisted back to
+    the YAML in base mode), group counts, summaries (All/Checked/
+    Unique/Average/…), pinned evaluation clock, and a CodeMirror YAML
+    editor with ⌘S save + mtime-conflict reload.
+  - **Table view for folders** — any folder can pin a table view:
+    schema columns, inline cell editing (select/chips/date/text with
+    autocomplete), drag-reorder columns, frozen name column, group
+    sections, summary footer.
+  - **Filter builder** — recursive and/or/not tree editor over the
+    parsed expression AST with property/operator pickers constrained by
+    observed types; round-trips to YAML (advanced rows for anything the
+    UI can't express).
+  - **Inline embeds** — `![[query:이름]]` markers and ```query fenced
+    blocks render live compact results inside notes (≤10 rows × ≤4
+    cells); embed footer 「N개 결과 · 전체 열기」 jumps into the full
+    view; card/list previews collapse fences to `[쿼리: N개 결과]`.
+  - **CLI** — `oximemo base run/list` renders query results in the
+    terminal; `oximemo base props` introspects the property catalog.
+  - **Performance** — formula closure evaluation (only formulas
+    reachable from active filters/columns/order/groupBy/summaries are
+    evaluated per row) and true byte-accounted result caching (64 MiB
+    LRU budget, oldest-first eviction, oversize bypass).
 
 - **Verified copilot adapters — Claude Code, Codex CLI, OxiCode.** Live-verified non-interactive contracts (spec §13): claude `-p --output-format=json` (stdin context, `-r` resume, `--model`, per-turn `modelUsage` + `permission_denials`), codex `exec --json` (stdin `<stdin>` block, `exec resume`, `-m`, `--skip-git-repo-check`), oxicode `--print --mode=json` (context rides the prompt — stdin is not read; single-turn, no by-id resume). Provider disclosure per agent (`~/.claude/settings.json`, `~/.codex/config.toml` top-level `model`/`model_provider`, `~/.oxicode/settings.json`); codex model picker reads its own `models_cache.json` (visibility=filter, provider label from the live `model_provider` config); claude/oxicode honestly show "no model list". Gemini CLI listed-but-unverified. Per spec §11 no permission/sandbox flags are ever attached — each agent's own policy owns writes (claude `-p` and codex `exec` default read-only; the panel surfaces claude's `permission_denials` per turn).
 - **Copilot activation feedback + settings polish.** Activation now fires a toast ("{agent} 활성화됨") with an "Open copilot" action; activation toast's "Open copilot" action now closes the settings dialog. The active-agent box shows the display name (not the raw id) plus provider/model disclosure and a read-only-policy hint for claude/codex, and the panel's model picker shows an honest "does not publish a model list" state instead of an error.
@@ -95,6 +133,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   knowledge notes; trigger vocabulary extended.
 
 ### Fixed
+
+- **create_capture IPC command was never registered** — the desktop
+  quick-capture path (⌘⇧N) would have failed with an unknown-command
+  error at runtime; the browser fallback masked it during development.
+  Caught by clippy dead-code during release prep and registered.
+
+- **redb 2 → 3 with transparent migration** — the metadata index
+  upgrades to redb 3's format; opening a redb-2 vault hops through redb
+  2.6's own in-place `Database::upgrade()` (two-phase-commit, crash
+  safe) and retries — every previously shipped vault opens unchanged,
+  no export/import step. (The earlier "format cliff" deferral was based
+  on a misreading; redb 2.6 fully reads and writes v3 files.)
 
 - **Movie preset template never stamped** — `watched_at: {{date}}` was
   an unquoted YAML flow-mapping start, a hard parse error in the

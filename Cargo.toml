@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.9.3"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.89"
 authors = ["oximemo"]
@@ -58,9 +58,9 @@ oxibrain-client = { version = "0.7", git = "https://github.com/a7garden/oxibrain
 anyhow = "1"
 oxi-vault-git = "0.1"
 
-oximemo-core = { path = "crates/oximemo-core", version = "0.9.3" }
-oximemo-capture = { path = "crates/oximemo-capture", version = "0.9.3" }
-oximemo-metadata = { path = "crates/oximemo-metadata", version = "0.9.3" }
+oximemo-core = { path = "crates/oximemo-core", version = "0.10.0" }
+oximemo-capture = { path = "crates/oximemo-capture", version = "0.10.0" }
+oximemo-metadata = { path = "crates/oximemo-metadata", version = "0.10.0" }
 
 [profile.release]
 codegen-units = 1
