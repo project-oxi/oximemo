@@ -9,6 +9,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { FolderCard, FolderEntry, FolderSchema, Memo, MemoSummary } from "./types";
 import { extractTags } from "./tags";
+import { normalizeSummaries } from "./summaryFolder";
 
 // `typeof window` guard keeps the module importable outside the browser
 // (bun tests): the fallback branch below never runs there.
@@ -18,9 +19,10 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   if (!inTauri) {
     return browserFallback(cmd, args) as Promise<T>;
   }
-  return tauriInvoke<T>(cmd, args);
+  // The Rust DTO omits `MemoSummary.folder` (path is the source of truth);
+  // repair summary-bearing responses so the UI contract keeps holding.
+  return tauriInvoke<T>(cmd, args).then((res) => normalizeSummaries<T>(cmd, res));
 }
-
 // --- Browser-mode event bus ------------------------------------------------
 // Mirrors the Rust `app.emit("memos:changed")` → JS `listen` path so the grid
 // refreshes after a create/update/delete even without the Tauri shell.
