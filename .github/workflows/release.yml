@@ -234,12 +234,12 @@ jobs:
       # oximemo-cli depends on oximemo-core, so core must be indexed first.
       # Version is read per-crate via cargo metadata (workspace-inherited and
       # standalone versions alike — oxi-vault-git is 0.x, not the app version).
-      - name: Publish leaf crates (frontmatter, core, capture, oxi-vault-git)
+      - name: Publish leaf crates (frontmatter, metadata, core, capture, oxi-vault-git)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          for crate in oxi-frontmatter oximemo-core oximemo-capture oxi-vault-git; do
+          for crate in oxi-frontmatter oximemo-metadata oximemo-core oximemo-capture oxi-vault-git; do
             CV=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$crate\") | .version")
             echo "Publishing $crate@$CV"
             if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \
