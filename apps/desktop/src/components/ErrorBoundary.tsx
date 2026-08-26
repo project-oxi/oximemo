@@ -13,17 +13,18 @@ import { useUI } from "../stores/ui";
 
 interface BoundaryState {
   error: Error | null;
+  stack: string | null;
 }
 
 export class ErrorBoundary extends Component<{ children: ReactNode }, BoundaryState> {
-  state: BoundaryState = { error: null };
+  state: BoundaryState = { error: null, stack: null };
 
   static getDerivedStateFromError(error: Error): BoundaryState {
-    return { error };
+    return { error, stack: null };
   }
-
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("oximemo render error:", error, info.componentStack);
+    this.setState({ stack: info.componentStack ?? null });
   }
 
   render() {
@@ -36,6 +37,11 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, BoundarySt
           <p className="max-w-md text-xs text-text-muted">
             {String(this.state.error.message || this.state.error)}
           </p>
+          {this.state.stack && (
+            <pre className="max-h-48 max-w-2xl overflow-auto rounded-lg bg-surface-muted p-2 text-left text-[10px] leading-tight text-text-subtle">
+              {this.state.stack}
+            </pre>
+          )}
           <button
             type="button"
             onClick={() => this.setState({ error: null })}
