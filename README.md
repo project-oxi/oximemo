@@ -68,9 +68,19 @@ Windows, Linux, and mobile are intentionally out of scope for the MVP. See the [
 curl -fsSL https://github.com/project-oxi/oximemo/releases/latest/download/install.sh | sh
 ```
 
-Downloads the latest release, verifies the sha256, installs to
-`/usr/local/bin` (sudo when needed). Pin a version or change the
-destination with `VERSION=v0.10.0` / `PREFIX=~/bin`.
+Downloads the latest release, verifies the sha256, installs the CLI to
+`/usr/local/bin` (sudo when needed). `VERSION=v0.10.0` / `PREFIX=~/bin`
+ pin or relocate.
+
+### One-liner (CLI + desktop app)
+
+```bash
+curl -fsSL https://github.com/project-oxi/oximemo/releases/latest/download/install.sh | sh -s -- --app
+```
+
+Also installs/updates `/Applications/OxiMemo.app` from the signed dmg
+(checksum-verified; the running app is refused replacement — quit it
+first, or let its in-app updater handle upgrades).
 
 ### From a release
 
