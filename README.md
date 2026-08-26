@@ -62,6 +62,16 @@ Windows, Linux, and mobile are intentionally out of scope for the MVP. See the [
 
 ## Install
 
+### One-liner (CLI)
+
+```bash
+curl -fsSL https://github.com/project-oxi/oximemo/releases/latest/download/install.sh | sh
+```
+
+Downloads the latest release, verifies the sha256, installs to
+`/usr/local/bin` (sudo when needed). Pin a version or change the
+destination with `VERSION=v0.10.0` / `PREFIX=~/bin`.
+
 ### From a release
 
 Download the prebuilt `oximemo` binary and `.dmg` from the
@@ -73,6 +83,12 @@ sudo install -m 0755 oximemo /usr/local/bin/oximemo
 oximemo --version
 ```
 
+### From crates.io (CLI)
+
+```bash
+cargo install oximemo-cli
+```
+
 ### From source
 
 ```bash
@@ -82,7 +98,8 @@ cargo build --release -p oximemo-cli
 # binary: target/release/oximemo
 ```
 
-> A Homebrew tap (`brew install`) is planned. For now, use a release tarball or build from source.
+> A Homebrew tap (`brew install`) is planned. For now, use the
+> one-liner, a release tarball, crates.io, or build from source.
 
 ## Quick start (CLI)
 

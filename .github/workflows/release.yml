@@ -68,6 +68,12 @@ jobs:
           shasum -a 256 staging/oximemo-${{ env.TARGET }}.tar.gz \
             | awk '{print $1}' > staging/oximemo-${{ env.TARGET }}.tar.gz.sha256
 
+      # The curl|sh installer ships as a release asset so
+      # releases/latest/download/install.sh always matches the binaries
+      # it fetches.
+      - name: Stage curl installer
+        run: cp scripts/install.sh staging/install.sh
+
       # Stage the CLI binary as a Tauri externalBin sidecar so the .app bundle
       # ships a signed, runnable `oximemo` command (Settings symlinks it onto
       # PATH). Must precede `cargo tauri build`, which embeds + signs it.
