@@ -3995,7 +3995,7 @@ dependencies = [
 
 [[package]]
 name = "oxi-frontmatter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "indexmap 2.14.0",
  "thiserror 2.0.19",

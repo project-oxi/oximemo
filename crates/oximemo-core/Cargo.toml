@@ -34,7 +34,7 @@ thiserror = { workspace = true }
 unicode-normalization = "0.1"
 regex = "1"
 parking_lot = "0.12"
-oxi-frontmatter = { version = "0.1", path = "../oxi-frontmatter" }
+oxi-frontmatter = { version = "0.2", path = "../oxi-frontmatter" }
 oxibrain-client = { workspace = true }
 serde_yaml_ng = "0.10"
 

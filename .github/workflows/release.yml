@@ -234,12 +234,12 @@ jobs:
       # oximemo-cli depends on oximemo-core, so core must be indexed first.
       # Version is read per-crate via cargo metadata (workspace-inherited and
       # standalone versions alike — oxi-vault-git is 0.x, not the app version).
-      - name: Publish leaf crates (core, capture, oxi-vault-git)
+      - name: Publish leaf crates (frontmatter, core, capture, oxi-vault-git)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          for crate in oximemo-core oximemo-capture oxi-vault-git; do
+          for crate in oxi-frontmatter oximemo-core oximemo-capture oxi-vault-git; do
             CV=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$crate\") | .version")
             echo "Publishing $crate@$CV"
             if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \
@@ -248,6 +248,19 @@ jobs:
             else
               cargo publish -p "$crate"
             fi
+            # Wait for the sparse index to propagate before the next
+            # iteration: oximemo-core resolves oxi-frontmatter from the
+            # registry, so publishing it against a not-yet-indexed
+            # dependency fails resolution (learned in the v0.10.0 run).
+            for i in $(seq 1 30); do
+              if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \
+                   | grep -q "\"max_stable_version\":\"$CV\""; then
+                echo "$crate@$CV indexed"
+                break
+              fi
+              echo "waiting for $crate@$CV to index ($i/30)…"
+              sleep 5
+            done
           done
 
       - name: Wait for crates.io to index oximemo-core (cli dependency)
