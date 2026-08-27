@@ -162,6 +162,13 @@ pub fn render_task_line(row: &TaskRow, fmt: WriteFormat, indent: u16, marker: ch
   budget (`SNAPSHOT_CACHE_CAP` 50k records, `vault.rs:106`).
 - `INDEX_FORMAT_VERSION` (`vault.rs:47-51`) is bumped so existing vaults
   reindex once through the normal `migrate()` path.
+- `tasks` is declared `#[serde(default)]`. This is load-bearing and
+  verified: `IndexRecord` marks most fields `#[serde(default)]`
+  (`store/index.rs:34-50`) while `hash`, `deleted`, and `preview`
+  deliberately have none, so a new field without a default would make every
+  pre-existing JSON record fail to deserialize — including the records the
+  version-bump reindex must read to compare hashes. With the default, old
+  records load as `tasks: []` and are refilled by the reindex pass.
 - Fenced code blocks are skipped: a ` ```md ` sample containing `- [ ]` is
   not a task. The parser tracks fence state while scanning lines.
 
@@ -274,10 +281,21 @@ pub struct PatchTaskResult {
 - Reference date priority `due > scheduled > start`; `when done` anchors on
   the completion date instead. All present dates shift by the same delta so
   a start/due window is preserved.
-- Month arithmetic reuses `expr::value::date_add`
-  (`expr/value.rs:196-230`), which already applies calendar months first
-  with end-of-month clamping (Jan 31 + 1M → Feb 28/29). **No RRULE crate is
-  added.**
+- Month/year arithmetic reuses `expr::value::date_add`
+  (`expr/value.rs:206-226`), which applies calendar months first with
+  end-of-month clamping and saturates instead of panicking on overflow.
+  **No RRULE crate is added.** Two bridging details the implementation must
+  honor: (a) its signature is
+  `date_add(OffsetDateTime, &DurationSpec, sign: i32, local: UtcOffset)`,
+  so a date-only task field is lifted to local midnight, shifted, then
+  converted back to a local `YYYY-MM-DD` — never through UTC; (b)
+  `every N months|years` uses `DurationSpec.calendar_months`, while
+  `every N days|weeks` and `every weekday` use `fixed_millis`, matching how
+  duration literals already compile (`expr/value.rs:88-135`).
+  Clamping is also why `every month on the 31st`-style rules are excluded
+  below: Obsidian Tasks *skips* short months there, which is the opposite of
+  clamping, and shipping a silent semantic mismatch is worse than refusing
+  the rule.
 - A recurrence rule requires at least one of start/scheduled/due (Tasks
   5.0.0 rule): the GUI blocks it, the CLI rejects it, and a file that
   violates it parses with a warning flag rather than failing.
