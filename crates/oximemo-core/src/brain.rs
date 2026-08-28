@@ -5,8 +5,8 @@
 //! blocks `open`, and a missing/unreachable daemon is logged, never
 //! propagated.
 //!
-//! Space precedence: `~/.oxi/config.toml [vault].space` (ecosystem-wide
-//! override) > the vault-local `config.brain.space` default. Socket
+//! Space identity is derived from the vault directory name (spec
+//! 2026-08-28 §2) — there is no configured space anymore. Socket
 //! precedence: the vault-local `config.brain.socket` value; empty string
 //! means "use the daemon default location".
 //!
@@ -153,8 +153,8 @@ thread_local! {
 }
 
 /// Public hook called by `Vault::open` when `config.brain.enabled`. The
-/// caller already resolved the final space (ecosystem > vault-local) and
-/// the socket (vault-local); we skip the registrar call when the global
+/// caller already derived the space (the vault directory name) and the
+/// socket (vault-local); we skip the registrar call when the global
 /// memo already holds the same tuple. Production dedup is the global
 /// memo alone: the worker thread clears it on every failure branch
 /// (see `run_real` and the spawn-failure path in `register`), so a
@@ -226,33 +226,6 @@ pub(crate) fn reset_registration_memo_for_test(reg: &Registration) {
     let _ = LOCAL_SEEN.try_with(|cell| {
         cell.borrow_mut().remove(reg);
     });
-}
-
-/// Resolve the space name with documented precedence.
-///
-/// 1. `~/.oxi/config.toml [vault].space` — ecosystem-wide override.
-/// 2. `fallback` — the vault-local `BrainConfig::space` default.
-pub fn resolve_space(home: &Path, fallback: &str) -> String {
-    let path = home.join(".oxi").join("config.toml");
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return fallback.to_string();
-    };
-    #[derive(serde::Deserialize)]
-    struct VaultSection {
-        space: Option<String>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Root {
-        vault: Option<VaultSection>,
-    }
-    match toml::from_str::<Root>(&text) {
-        Ok(r) => r
-            .vault
-            .and_then(|v| v.space)
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| fallback.to_string()),
-        Err(_) => fallback.to_string(),
-    }
 }
 
 /// Production registrar: spawn a detached thread that runs a one-shot
@@ -407,43 +380,6 @@ impl BrainRegistrar for RecordingBrainRegistrar {
 mod tests {
     use super::*;
 
-    #[test]
-    fn resolve_space_uses_fallback_when_no_ecosystem_file() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(resolve_space(dir.path(), "personal"), "personal");
-    }
-
-    #[test]
-    fn resolve_space_reads_ecosystem_override() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".oxi")).unwrap();
-        std::fs::write(
-            dir.path().join(".oxi/config.toml"),
-            "[vault]\nspace = \"work\"\n",
-        )
-        .unwrap();
-        assert_eq!(resolve_space(dir.path(), "personal"), "work");
-    }
-
-    #[test]
-    fn resolve_space_falls_back_when_ecosystem_key_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".oxi")).unwrap();
-        std::fs::write(dir.path().join(".oxi/config.toml"), "[vault]\n").unwrap();
-        assert_eq!(resolve_space(dir.path(), "personal"), "personal");
-    }
-
-    #[test]
-    fn resolve_space_empty_string_falls_back() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".oxi")).unwrap();
-        std::fs::write(
-            dir.path().join(".oxi/config.toml"),
-            "[vault]\nspace = \"\"\n",
-        )
-        .unwrap();
-        assert_eq!(resolve_space(dir.path(), "personal"), "personal");
-    }
     #[test]
     fn thread_local_recorder_does_not_leak_across_threads() {
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));

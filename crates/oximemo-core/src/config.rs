@@ -61,8 +61,9 @@ pub struct BrainConfig {
     pub enabled: bool,
     /// Absolute path to the daemon's Unix socket; empty = default location.
     pub socket: String,
-    /// Knowledge space name; "personal" matches the daemon's own default.
-    pub space: String,
+    // The historical `space` key is gone: a space IS its vault directory
+    // (spec 2026-08-28 §2), so stale `space = …` lines in existing
+    // oximemo.toml files parse as unknown-and-ignored.
 }
 
 impl Default for BrainConfig {
@@ -70,7 +71,6 @@ impl Default for BrainConfig {
         Self {
             enabled: true,
             socket: String::new(),
-            space: "personal".to_string(),
         }
     }
 }
@@ -377,7 +377,6 @@ mod tests {
         let c = VaultConfig::default();
         assert!(c.brain.enabled);
         assert_eq!(c.brain.socket, "");
-        assert_eq!(c.brain.space, "personal");
 
         let s = c.to_toml().unwrap();
         let back: VaultConfig = toml::from_str(&s).unwrap();
@@ -393,9 +392,9 @@ space = "work"
         let c2: VaultConfig = toml::from_str(t).unwrap();
         assert!(!c2.brain.enabled);
         assert_eq!(c2.brain.socket, "/tmp/custom.sock");
-        assert_eq!(c2.brain.space, "work");
 
-        // Exposed via config_json for the frontend.
+        // Exposed via config_json for the frontend; the stale
+        // `space = "work"` key above parsed as unknown-and-ignored.
         let j = c2.config_json();
         assert_eq!(j["brain"]["socket"], "/tmp/custom.sock");
     }

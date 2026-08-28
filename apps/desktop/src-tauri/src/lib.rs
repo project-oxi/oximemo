@@ -646,7 +646,8 @@ fn init_tracing() {
 }
 
 /// Resolved oxibrain connection settings from `[brain]` config: an explicit
-/// socket path wins; empty uses the daemon default location.
+/// socket path wins; empty uses the daemon default location. The space
+/// is derived from the vault directory name (spec 2026-08-28 §2).
 struct BrainEndpointConf {
     enabled: bool,
     socket: String,
@@ -654,20 +655,15 @@ struct BrainEndpointConf {
 }
 
 impl BrainEndpointConf {
-    /// Resolve the brain endpoint with **ecosystem-canonical** space:
-    /// `~/.oxi/config.toml [vault].space` wins over the vault-local
-    /// `BrainConfig::space` (ECOSYSTEM.md §C5). All brain_* commands
-    /// must resolve through here — they read the same space the
-    /// daemon's `register_vault` (vault.rs:117) registered the watcher
-    /// under; reading the vault-local field directly would silently
-    /// query the wrong space when the operator sets the override.
-    fn from_vault_config(c: &oximemo_core::config::VaultConfig) -> Self {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let space = oximemo_core::brain::resolve_space(std::path::Path::new(&home), &c.brain.space);
+    /// Resolve the brain endpoint. All brain_* commands must resolve
+    /// through here — they read the same space the daemon's
+    /// `register_vault` (core vault.rs) registered the watcher under:
+    /// the vault directory name.
+    fn from_vault_config(c: &oximemo_core::config::VaultConfig, vault: &std::path::Path) -> Self {
         Self {
             enabled: c.brain.enabled,
             socket: c.brain.socket.clone(),
-            space,
+            space: oximemo_core::spaces::vault_space_name(vault),
         }
     }
 }
@@ -1443,9 +1439,10 @@ mod commands {
     /// down is a normal state, not an error: `{online: false, ...}`.
     #[tauri::command]
     pub async fn brain_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+        let vault_path = state.vault.paths().vault.clone();
         let cfg = state
             .vault
-            .with_config(crate::BrainEndpointConf::from_vault_config);
+            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c, &vault_path));
         if !cfg.enabled {
             return Ok(serde_json::json!({"online": false, "disabled": true}));
         }
@@ -1482,9 +1479,10 @@ mod commands {
         query: String,
         budget: Option<u32>,
     ) -> Result<serde_json::Value, String> {
+        let vault_path = state.vault.paths().vault.clone();
         let cfg = state
             .vault
-            .with_config(crate::BrainEndpointConf::from_vault_config);
+            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c, &vault_path));
         if !cfg.enabled {
             return Err("brain disabled in config".to_string());
         }
@@ -1507,9 +1505,10 @@ mod commands {
         state: State<'_, AppState>,
         path: String,
     ) -> Result<serde_json::Value, String> {
+        let vault_path = state.vault.paths().vault.clone();
         let cfg = state
             .vault
-            .with_config(crate::BrainEndpointConf::from_vault_config);
+            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c, &vault_path));
         if !cfg.enabled {
             return Err("brain disabled in config".to_string());
         }
@@ -1531,9 +1530,10 @@ mod commands {
     pub async fn brain_list_spaces(
         state: State<'_, AppState>,
     ) -> Result<serde_json::Value, String> {
+        let vault_path = state.vault.paths().vault.clone();
         let cfg = state
             .vault
-            .with_config(crate::BrainEndpointConf::from_vault_config);
+            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c, &vault_path));
         if !cfg.enabled {
             return Ok(serde_json::json!({ "online": false, "spaces": [] }));
         }

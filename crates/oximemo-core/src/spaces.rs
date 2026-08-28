@@ -56,6 +56,17 @@ pub fn space_dir(home: &Path, name: &str) -> PathBuf {
     spaces_root(home).join(name)
 }
 
+/// The space identity of any vault path: the directory name. Space
+/// vaults were validated at resolution, so this is display/registration
+/// sugar; a rootless path falls back to the default name.
+pub fn vault_space_name(vault: &Path) -> String {
+    vault
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| DEFAULT_SPACE_NAME.to_string())
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct AppSettings {
     #[serde(default)]
@@ -188,6 +199,19 @@ mod tests {
             space_dir(Path::new("/h"), "work"),
             PathBuf::from("/h/.oxi/vault/work")
         );
+    }
+
+    #[test]
+    fn vault_space_name_is_the_dirname() {
+        assert_eq!(
+            vault_space_name(&space_dir(Path::new("/h"), "work")),
+            "work"
+        );
+        assert_eq!(
+            vault_space_name(Path::new("/tmp/custom-vault")),
+            "custom-vault"
+        );
+        assert_eq!(vault_space_name(Path::new("/")), DEFAULT_SPACE_NAME);
     }
 
     // -- resolve_vault_spec precedence (spec §1) --

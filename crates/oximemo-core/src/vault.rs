@@ -136,22 +136,36 @@ pub struct Vault {
 }
 
 impl Vault {
-    /// Resolve a vault (default location when `vault` is `None`) and load its
-    /// config. Does not create directories — call [`Self::ensure_initialized`]
-    /// for that. For the default vault this first runs the one-time
-    /// migration to `~/.oxi/vault` (see [`crate::migrate_vault`]).
+    /// Resolve a vault (space resolution when `vault` is `None`) and load
+    /// its config. Does not create directories — call
+    /// [`Self::ensure_initialized`] for that. `None` runs the full
+    /// space resolution chain (spec 2026-08-28 §1): `--space` >
+    /// `last_space` > `personal`, after the one-time default-vault and
+    /// flat→space migrations.
     pub fn open(vault: Option<&Path>) -> Result<Self> {
+        match vault {
+            Some(p) => Self::open_spec(&crate::spaces::VaultSpec::Explicit(p.to_path_buf())),
+            None => Self::open_spec(&crate::spaces::resolve_vault_spec(None, None)?),
+        }
+    }
+
+    /// Open the vault selected by an already-resolved spec. Runs the
+    /// home-relative migrations (app-support → `~/.oxi/vault`, then flat
+    /// → `personal`) for `Space` specs; `Explicit` paths skip both.
+    pub fn open_spec(spec: &crate::spaces::VaultSpec) -> Result<Self> {
         // Unit-test binaries (cfg(test)) must never point custom-vault
         // namespaces at the real Application Support — one leaked redb
         // per vault-opening test caused the 2026-08-28 index explosion
         // (267 dirs / 365 MB in a day). Downstream integration suites
         // (CLI, desktop) wire `isolate_index_root_for_tests` into their
-        // own helpers; this hook covers every in-crate test path.
+        // own helpers; this hook covers every in-crate test path —
+        // open_spec is the single funnel both open() and spec callers
+        // go through.
         #[cfg(test)]
         let _ = crate::paths::isolate_index_root_for_tests();
         let mut status = VaultStatus::Ok;
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        if vault.is_none() {
+        if matches!(spec, crate::spaces::VaultSpec::Space(_)) {
             match crate::migrate_vault::maybe_migrate(home.as_ref())? {
                 crate::migrate_vault::MigrationStatus::MergeRequired { old, new } => {
                     tracing::warn!(
@@ -170,15 +184,34 @@ impl Vault {
                 }
                 _ => {}
             }
+            match crate::migrate_spaces::maybe_migrate(home.as_ref())? {
+                crate::migrate_spaces::FlatMigrationStatus::MergeRequired { flat, space } => {
+                    tracing::warn!(
+                        flat = %flat.display(),
+                        space = %space.display(),
+                        "both the flat vault and ~/.oxi/vault/personal exist; \
+                         merge them by hand (see `oximemo doctor`)"
+                    );
+                    status = VaultStatus::MergeRequired {
+                        old: flat,
+                        new: space,
+                    };
+                }
+                crate::migrate_spaces::FlatMigrationStatus::Migrated { moved } => {
+                    tracing::info!(moved, "migrated flat vault into the personal space");
+                }
+                _ => {}
+            }
         }
-        let paths = Paths::resolve(vault);
+        let paths = Paths::resolve_spec(spec);
         let config = VaultConfig::load(&paths);
-        // Detached brain registration: ecosystem `[vault].space` wins over
-        // the vault-local `brain.space`; the daemon call (sync_run) is
-        // fire-and-forget so open never blocks on a missing daemon.
+        // Detached brain registration: the space is derived from the
+        // vault directory name (spec 2026-08-28 §2) — a space IS its
+        // directory, so vault-local or ecosystem space keys no longer
+        // exist. The daemon call (sync_run) is fire-and-forget so open
+        // never blocks on a missing daemon.
         if config.brain.enabled {
-            let space =
-                crate::brain::resolve_space(std::path::Path::new(&home), &config.brain.space);
+            let space = crate::spaces::vault_space_name(&paths.vault);
             crate::brain::register_vault(&paths.vault, &space, &config.brain.socket);
         }
         let files = FileStore::new(paths.clone());
@@ -3285,14 +3318,17 @@ mod tests {
         // index through env HOME, so the swap target must outlive them.
         let home = TempDir::new().unwrap().keep();
         let old = seed_old_default(&home);
-        let new = home.join(".oxi").join("vault");
+        // open(None) now resolves the personal space: migrate_vault
+        // moves the old tree to ~/.oxi/vault, then migrate_spaces moves
+        // the flat content into ~/.oxi/vault/personal.
+        let new = home.join(".oxi").join("vault").join("personal");
 
         let (vault_path, status) = crate::migrate_vault::with_home(&home, || {
             let v = Vault::open(None).unwrap();
             (v.paths().vault.clone(), v.status().clone())
         });
 
-        assert_eq!(vault_path, new, "open(None) resolves the new default");
+        assert_eq!(vault_path, new, "open(None) resolves the personal space");
         assert_eq!(status, VaultStatus::Ok);
         assert!(!old.exists(), "entire tree moved away");
         assert!(new.join("oximemo.toml").is_file());
@@ -3344,22 +3380,75 @@ mod tests {
                     new: new.clone()
                 }
             );
-            // The vault still opens at the new path and doctor surfaces
-            // the pending merge instead of failing silently.
-            assert_eq!(v.paths().vault, new);
+            // The vault still opens — at the personal space, after the
+            // flat→space migration relocated the container's stray
+            // content into personal/ — and doctor surfaces the pending
+            // merge instead of failing silently.
+            assert_eq!(v.paths().vault, new.join("personal"));
             let report = v.doctor(false).unwrap();
             assert!(report.merge_required);
         });
 
-        // Nothing was overwritten on either side.
+        // Nothing was overwritten on either side: the old side is
+        // untouched; the new side's flat content was relocated verbatim
+        // into personal/ by the flat→space migration.
         assert_eq!(
             std::fs::read_to_string(old.join("novel/first.md")).unwrap(),
             old_bytes
         );
         assert_eq!(
-            std::fs::read_to_string(new.join("other.md")).unwrap(),
+            std::fs::read_to_string(new.join("personal/other.md")).unwrap(),
             "---\nid: other\n---\nnew side\n"
         );
+    }
+
+    #[test]
+    fn open_none_resolves_to_personal_space() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            let v = Vault::open(None).unwrap();
+            assert_eq!(
+                v.paths().vault,
+                home.join(".oxi").join("vault").join("personal")
+            );
+        });
+    }
+
+    #[test]
+    fn open_spec_migrates_flat_vault_then_opens_personal() {
+        let home = tempfile::tempdir().unwrap().keep();
+        let flat = home.join(".oxi/vault");
+        std::fs::create_dir_all(&flat).unwrap();
+        std::fs::write(
+            flat.join("2026-08-28-090000.md"),
+            "---\nid: f1\n---\nflat\n",
+        )
+        .unwrap();
+        std::fs::write(flat.join("oximemo.toml"), "[general]\n").unwrap();
+        crate::migrate_vault::with_home(&home, || {
+            let v = Vault::open_spec(&crate::spaces::VaultSpec::Space("personal".into())).unwrap();
+            assert!(v.paths().vault.join("2026-08-28-090000.md").is_file());
+            assert_eq!(v.paths().vault, flat.join("personal"));
+        });
+    }
+
+    #[test]
+    fn registration_space_is_the_vault_dirname() {
+        let recorder = std::sync::Arc::new(crate::brain::RecordingBrainRegistrar::default());
+        crate::brain::with_test_recorder(recorder.clone(), || {
+            let dir = tempfile::tempdir().unwrap();
+            let v = Vault::open_spec(&crate::spaces::VaultSpec::Explicit(
+                dir.path().join("work-vault"),
+            ))
+            .unwrap();
+            let _ = v;
+            // The registration memo dedups per (vault, space, socket);
+            // the fresh tmp path makes this tuple unique, so no reset
+            // helper is needed.
+            let calls = recorder.calls.lock();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].space, "work-vault");
+        });
     }
 
     /// Seed a target note via the raw on-disk format: an `oxios:` table
@@ -3621,7 +3710,6 @@ mod tests {
         let brain = crate::config::BrainConfig {
             enabled: false,
             socket: "/tmp/other.sock".into(),
-            space: "work".into(),
         };
         v.set_brain_config(brain.clone()).unwrap();
         v.set_general_config(crate::config::GeneralConfig {
@@ -5905,6 +5993,11 @@ watcher_retry_interval_ms = 200
         let (recorder, dir) = fresh_recorder();
         let home = dir.path().to_path_buf();
         let expected_vault = dir.path().join("vault");
+        let expected_space = expected_vault
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap()
+            .to_string();
         std::fs::create_dir_all(&expected_vault).unwrap();
         std::fs::write(
             expected_vault.join("oximemo.toml"),
@@ -5919,7 +6012,9 @@ watcher_retry_interval_ms = 200
         let calls = recorder.calls.lock();
         assert_eq!(calls.len(), 1, "exactly one registration");
         assert_eq!(calls[0].vault, expected_vault);
-        assert_eq!(calls[0].space, "personal");
+        // The stale `space = "personal"` key in the seeded toml parsed
+        // as unknown-and-ignored: the space is the vault dirname.
+        assert_eq!(calls[0].space, expected_space);
         assert_eq!(calls[0].socket, "");
     }
 
@@ -5943,10 +6038,20 @@ watcher_retry_interval_ms = 200
     }
 
     #[test]
-    fn ecosystem_space_overrides_vault_local_space() {
+    fn stale_space_keys_are_ignored_dirname_wins() {
+        // Pre-spaces configs could set a space two ways: the ecosystem
+        // `~/.oxi/config.toml [vault].space` override and the
+        // vault-local `[brain].space`. Both are gone (spec
+        // 2026-08-28 §2): they parse but are ignored, and the
+        // registration space is the vault dirname.
         let (recorder, dir) = fresh_recorder();
         let home = dir.path().to_path_buf();
         let expected_vault = dir.path().join("vault");
+        let expected_space = expected_vault
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap()
+            .to_string();
         std::fs::create_dir_all(&expected_vault).unwrap();
         std::fs::create_dir_all(home.join(".oxi")).unwrap();
         std::fs::write(home.join(".oxi/config.toml"), "[vault]\nspace = \"work\"\n").unwrap();
@@ -5962,7 +6067,10 @@ watcher_retry_interval_ms = 200
         });
         let calls = recorder.calls.lock();
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].space, "work", "ecosystem wins over vault-local");
+        assert_eq!(
+            calls[0].space, expected_space,
+            "stale ecosystem/vault-local keys ignored; dirname wins"
+        );
     }
 
     #[test]
@@ -6042,7 +6150,7 @@ watcher_retry_interval_ms = 200
         let rec = crate::brain::RecordingBrainRegistrar::new();
         crate::brain::reset_registration_memo_for_test(&crate::brain::Registration {
             vault: expected_vault.clone(),
-            space: "personal".into(),
+            space: crate::spaces::vault_space_name(&expected_vault),
             socket: String::new(),
         });
         crate::brain::with_test_recorder(rec.clone(), || {
