@@ -2036,11 +2036,7 @@ impl Vault {
     /// dropped from the entry. Any other string is stored verbatim without
     /// validation — a stale field name after a schema drop falls into the
     /// "날짜 없음" bucket instead of erroring.
-    pub fn set_folder_calendar_field(
-        &self,
-        path: &str,
-        field: Option<String>,
-    ) -> Result<()> {
+    pub fn set_folder_calendar_field(&self, path: &str, field: Option<String>) -> Result<()> {
         let mut cfg = self.config.write();
         let normalized = field.filter(|s| s != "created_at");
         match cfg.folders.items.iter_mut().find(|f| f.path == path) {
@@ -2628,6 +2624,17 @@ impl Vault {
         report.stale_index_namespaces =
             self.sweep_stale_namespaces(STALE_NS_DOCTOR_MIN_AGE, fix)?;
 
+        // Space facts (spec 2026-08-28 §5): the active space identity
+        // for this vault, the full registry list, and a "stale" flag
+        // for `last_space` pointing at a deleted directory. Computed
+        // from `~/.oxi/vault/` directly — the daemon is never consulted.
+        report.active_space = crate::spaces::vault_space_name(&self.paths.vault);
+        report.spaces = crate::spaces::list_spaces();
+        report.last_space_stale = crate::spaces::last_space().filter(|n| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            !crate::spaces::space_dir(std::path::Path::new(&home), n).is_dir()
+        });
+
         report.vault_ok = self.paths.vault.is_dir();
         Ok(report)
     }
@@ -3132,6 +3139,16 @@ pub struct DoctorReport {
     pub stale_index_namespaces: u64,
     pub trash_expiring: u64,
     pub vault_ok: bool,
+    /// Active space (vault directory name; spec 2026-08-28 §5).
+    #[serde(default)]
+    pub active_space: String,
+    /// All space directories under ~/.oxi/vault.
+    #[serde(default)]
+    pub spaces: Vec<String>,
+    /// A recorded `last_space` whose directory is missing (resolution
+    /// fell through to the default). `None` = coherent.
+    #[serde(default)]
+    pub last_space_stale: Option<String>,
 }
 
 // -- graph data (§6.1 graph view) -------------------------------------
@@ -3959,6 +3976,21 @@ watcher_retry_interval_ms = 200
         assert_eq!(std::fs::read_to_string(&abs).unwrap(), edited);
     }
 
+    // -- doctor space facts (Task 5) --
+
+    #[test]
+    fn doctor_reports_space_facts() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            let v = Vault::open_spec(&crate::spaces::VaultSpec::Space("personal".into())).unwrap();
+            v.ensure_initialized().unwrap(); // creates ~/.oxi/vault/personal
+            let report = v.doctor(false).unwrap();
+            assert_eq!(report.active_space, "personal");
+            assert!(report.spaces.iter().any(|s| s == "personal"));
+            assert_eq!(report.last_space_stale, None); // no settings.json under fake home
+        });
+    }
+
     #[test]
     fn reindex_is_idempotent() {
         let (_t, v) = tmp_vault();
@@ -4485,7 +4517,7 @@ watcher_retry_interval_ms = 200
                 .iter()
                 .all(|f| f.path != "book")
         );
-}
+    }
 
     #[test]
     fn set_folder_view_persists_calendar() {
@@ -6606,7 +6638,10 @@ watcher_retry_interval_ms = 200
                 .unwrap(),
             1
         );
-        assert!(!root.join("locked").exists(), "unlocked after release: swept");
+        assert!(
+            !root.join("locked").exists(),
+            "unlocked after release: swept"
+        );
     }
 
     #[test]
@@ -6617,10 +6652,8 @@ watcher_retry_interval_ms = 200
         let d = root.join("oldns");
         std::fs::create_dir_all(&d).unwrap();
         let f = std::fs::File::create(d.join(crate::paths::META_DB_NAME)).unwrap();
-        f.set_modified(
-            std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600),
-        )
-        .unwrap();
+        f.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600))
+            .unwrap();
 
         let (_t, v) = tmp_vault();
         // Report-only: counts, does not delete.
