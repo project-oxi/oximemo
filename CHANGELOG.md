@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+### Spaces — per-space vault switching
+
+- Vaults now live per space at `~/.oxi/vault/<space>/`; a space IS its
+  directory name (spec `2026-08-28-spaces-design.md`).
+- One-time automatic migration moves the flat legacy vault into
+  `~/.oxi/vault/personal/` (git history and derived index included) and
+  rewrites the oxibrain `documents.toml` flat-root path. Collision with an
+  existing `personal/` surfaces a merge-required banner instead of moving.
+- New: sidebar-header space picker + ⌘K entries, `oximemo space
+  list|add|switch`, `--space`/`OXIMEMO_SPACE` one-shot flag. Switching
+  persists the app-local `last_space` (app support `settings.json`) and
+  relaunches the app.
+- Brain registration space is now derived from the vault directory name;
+  the `[brain].space` setting and the ecosystem `[vault].space` override
+  are no longer read by oximemo.
+
 ### Fixed
 
 - **Unbounded `by-vault` index accumulation** — custom `--vault` opens
