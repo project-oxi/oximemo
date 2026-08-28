@@ -27,6 +27,23 @@ describe("locale parity (ko/en)", () => {
     }
   });
 
+  test("both locales expose the space picker keys (spaces spec Task 8)", () => {
+    for (const key of [
+      "space_new",
+      "space_name_ph",
+      "space_create_confirm",
+      "space_name_invalid",
+      "palette_space_switch",
+      "palette_space_new",
+      "brain_space_derived",
+    ] as const) {
+      expect(typeof ko[key]).toBe("string");
+      expect(typeof en[key]).toBe("string");
+      expect(ko[key]).not.toBe("");
+      expect(en[key]).not.toBe("");
+    }
+  });
+
   test("calendar_more / calendar_no_date keep the {n} placeholder for interpolation", () => {
     expect(ko.calendar_more).toContain("{n}");
     expect(en.calendar_more).toContain("{n}");

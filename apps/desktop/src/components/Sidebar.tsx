@@ -10,6 +10,7 @@ import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, Gr
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
+import { SpacePicker } from "./SpacePicker";
 import { createQueryCollection, defaultQueryYaml } from "../lib/queryCreation";
 import { colorForFolder } from "../lib/color";
 import { dayLabel, todayLocalISO } from "../lib/dates";
@@ -290,6 +291,7 @@ export function Sidebar({
   return (
     <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface-sunken/60">
       <div data-tauri-drag-region className="h-12 shrink-0" />
+      <SpacePicker />
 
       {/* FAVORITES — smart collections only. Folder locations (pinned or
           the vault root) live in LOCATIONS below. */}

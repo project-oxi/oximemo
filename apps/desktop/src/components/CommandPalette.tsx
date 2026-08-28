@@ -33,6 +33,7 @@ import {
   Moon,
   Network,
   PanelLeft,
+  Plus,
   Search,
   Settings,
   Star,
@@ -87,6 +88,7 @@ const ICONS: Record<PaletteIcon, typeof Layers> = {
   moon: Moon,
   monitor: Monitor,
   library: Library,
+  plus: Plus,
 };
 
 interface Props {

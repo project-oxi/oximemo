@@ -219,19 +219,26 @@ export async function setIndexConfig(index: {
   return invoke("set_index_config", { index });
 }
 
-export interface BrainSpace {
+// --- spaces (spec 2026-08-28) ----------------------------------------------
+
+export interface SpaceInfo {
   name: string;
-  episodes: number;
+  current: boolean;
 }
 
-export interface BrainSpaces {
-  online: boolean;
-  spaces: BrainSpace[];
+/** Space dirs under ~/.oxi/vault. Filesystem-backed; daemon not required. */
+export async function spaceList(): Promise<SpaceInfo[]> {
+  return invoke<SpaceInfo[]>("space_list");
 }
 
-/** Daemon-exposed spaces for the settings picker. Offline is normal (C1). */
-export async function brainListSpaces(): Promise<BrainSpaces> {
-  return invoke<BrainSpaces>("brain_list_spaces");
+/** Create + scaffold; invalid names surface the backend error string. */
+export async function spaceCreate(name: string): Promise<SpaceInfo> {
+  return invoke<SpaceInfo>("space_create", { name });
+}
+
+/** Persist last_space and restart the app into the new space. */
+export async function spaceSwitch(name: string): Promise<void> {
+  return invoke("space_switch", { name });
 }
 
 // --- copilot (spec 2026-08-23) ----------------------------------------------

@@ -237,7 +237,7 @@ export interface Config {
   capture?: { double_tap_threshold_ms?: number; overlay_max_height?: number };
   appearance?: { theme?: "system" | "light" | "dark"; show_dock_icon?: boolean };
   folders?: FolderDef[];
-  brain?: { enabled?: boolean; socket?: string; space?: string };
+  brain?: { enabled?: boolean; socket?: string };
   daily?: { enabled?: boolean; folder?: string };
   git?: { auto_commit?: boolean; adopt_foreign_repo?: boolean };
   copilot?: {

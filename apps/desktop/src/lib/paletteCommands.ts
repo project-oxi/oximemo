@@ -23,7 +23,7 @@ export type PaletteIcon =
   | "layers" | "star" | "images" | "archive" | "calendar" | "folder"
   | "hash" | "grid" | "list" | "timeline" | "graph" | "sidebar"
   | "note-md" | "note-html" | "folder-plus" | "zap" | "settings"
-  | "sun" | "moon" | "monitor" | "library" | "table";
+  | "sun" | "moon" | "monitor" | "library" | "table" | "plus"
 
 export interface PaletteCommand {
   /** Stable identity for the recency log (e.g. "folder:work/2026"). */
@@ -73,6 +73,10 @@ export interface CommandCallbacks {
   openQuery?: (path: string) => void;
   openSettings: () => void;
   setTheme: (t: Theme) => void;
+  /** ⌘K space 전환 — opens the sidebar picker popover. */
+  openSpacePicker?: () => void;
+  /** ⌘K space 생성 — opens the picker straight into name input. */
+  createSpace?: () => void;
 }
 
 export interface CommandDeps {
@@ -235,6 +239,14 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
   add("action.capture", "zap", qc.title, qc.alias, "action", callbacks.quickCapture, { hint: "⌘⇧N" });
   const st = pair(locale, "settings");
   add("action.settings", "settings", st.title, st.alias, "action", callbacks.openSettings);
+  if (callbacks.openSpacePicker) {
+    const sp = pair(locale, "palette_space_switch");
+    add("action.space_switch", "layers", sp.title, sp.alias, "action", callbacks.openSpacePicker);
+  }
+  if (callbacks.createSpace) {
+    const sn = pair(locale, "palette_space_new");
+    add("action.space_new", "plus", sn.title, sn.alias, "action", callbacks.createSpace);
+  }
   // Theme trio excludes the active theme; title "테마: 다크" style.
   for (const t of ["system", "light", "dark"] as Theme[]) {
     if (t === theme) continue;
