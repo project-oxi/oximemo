@@ -123,7 +123,14 @@ pub fn run() {
                 .ok()
                 .map(PathBuf::from)
                 .or_else(parse_vault_arg);
-            let vault = oximemo_core::Vault::open(cli_vault.as_deref())?;
+            let cli_space = std::env::var("OXIMEMO_SPACE")
+                .ok()
+                .or_else(parse_space_arg);
+            let spec = oximemo_core::spaces::resolve_vault_spec(
+                cli_vault.as_deref(),
+                cli_space.as_deref(),
+            )?;
+            let vault = oximemo_core::Vault::open_spec(&spec)?;
             vault.ensure_initialized()?;
             // Regenerate cached card previews once when the indexed preview
             // format changes (e.g. line-break preservation). No-op when current.
@@ -287,6 +294,9 @@ pub fn run() {
             commands::reindex,
             commands::doctor,
             commands::vault_path,
+            commands::space_list,
+            commands::space_create,
+            commands::space_switch,
             commands::memo_stats,
             commands::list_facets,
             commands::list_folders,
@@ -306,7 +316,6 @@ pub fn run() {
             commands::move_note,
             commands::brain_status,
             commands::brain_gather,
-            commands::brain_list_spaces,
             commands::brain_history,
             commands::set_brain_config,
             commands::set_general_config,
@@ -368,6 +377,16 @@ fn parse_vault_arg() -> Option<PathBuf> {
     while let Some(a) = args.next() {
         if a == "--vault" {
             return args.next().map(PathBuf::from);
+        }
+    }
+    None
+}
+
+fn parse_space_arg() -> Option<String> {
+    let mut args = std::env::args_os().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--space" {
+            return args.next().map(|s| s.to_string_lossy().into_owned());
         }
     }
     None
@@ -1229,6 +1248,52 @@ mod commands {
         Ok(state.vault.paths().vault.display().to_string())
     }
 
+    /// One row of the space picker (spec 2026-08-28 §4).
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct SpaceInfo {
+        pub name: String,
+        pub current: bool,
+    }
+
+    impl SpaceInfo {
+        fn list(vault: &oximemo_core::Vault) -> Vec<Self> {
+            let current = oximemo_core::spaces::vault_space_name(&vault.paths().vault);
+            oximemo_core::spaces::list_spaces()
+                .into_iter()
+                .map(|name| {
+                    let is_current = name == current;
+                    Self { name, current: is_current }
+                })
+                .collect()
+        }
+    }
+
+    #[tauri::command]
+    pub fn space_list(state: State<'_, AppState>) -> Result<Vec<SpaceInfo>, String> {
+        Ok(SpaceInfo::list(&state.vault))
+    }
+
+    #[tauri::command]
+    pub fn space_create(
+        state: State<'_, AppState>,
+        name: String,
+    ) -> Result<SpaceInfo, String> {
+        oximemo_core::spaces::create_space(&name).map_err(|e| e.to_string())?;
+        SpaceInfo::list(&state.vault)
+            .into_iter()
+            .find(|s| s.name == name.trim())
+            .ok_or_else(|| format!("space '{name}' not found after creation"))
+    }
+
+    /// Switch the active space: persist `last_space`, then restart the
+    /// process (spec decision 3 — the boot-built AppState graph is not
+    /// hot-swappable; Obsidian-style relaunch).
+    #[tauri::command]
+    pub fn space_switch(app: tauri::AppHandle, name: String) -> Result<(), String> {
+        oximemo_core::spaces::switch_space(&name).map_err(|e| e.to_string())?;
+        app.restart(); // -> ! : relaunches into the new space
+    }
+
     #[tauri::command]
     pub fn memo_stats(state: State<'_, AppState>) -> Result<oximemo_core::MemoStats, String> {
         state.vault.memo_stats().map_err(|e| e.to_string())
@@ -1521,39 +1586,6 @@ mod commands {
             .await
             .map_err(|e| format!("brain history failed: {e}"))?;
         serde_json::to_value(&episodes).map_err(|e| e.to_string())
-    }
-
-    /// Spaces the daemon exposes, for the settings picker. Offline is a
-    /// normal state (C1): `{online: false, spaces: []}` — the UI falls back
-    /// to a free-text input.
-    #[tauri::command]
-    pub async fn brain_list_spaces(
-        state: State<'_, AppState>,
-    ) -> Result<serde_json::Value, String> {
-        let vault_path = state.vault.paths().vault.clone();
-        let cfg = state
-            .vault
-            .with_config(|c| crate::BrainEndpointConf::from_vault_config(c, &vault_path));
-        if !cfg.enabled {
-            return Ok(serde_json::json!({ "online": false, "spaces": [] }));
-        }
-        let (mut client, _caps) = match crate::brain_connect(&cfg).await {
-            Ok(c) => c,
-            Err(_) => return Ok(serde_json::json!({ "online": false, "spaces": [] })),
-        };
-        match client.list_spaces().await {
-            Ok(list) => Ok(serde_json::json!({
-                "online": true,
-                "spaces": list
-                    .iter()
-                    .map(|s| serde_json::json!({
-                        "name": s.name,
-                        "episodes": s.episode_count,
-                    }))
-                    .collect::<Vec<_>>(),
-            })),
-            Err(_) => Ok(serde_json::json!({ "online": false, "spaces": [] })),
-        }
     }
 
     // -- config sections (TOML ⇄ GUI parity) --------------------------------
