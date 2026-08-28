@@ -19,6 +19,7 @@ pub mod html;
 pub mod memo;
 pub mod metadata;
 pub mod migrate;
+pub mod migrate_spaces;
 pub mod migrate_vault;
 pub mod paths;
 pub mod props;
