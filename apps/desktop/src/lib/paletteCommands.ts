@@ -64,6 +64,10 @@ export interface CommandCallbacks {
   /** Open the review queue in a `[review]`-declared folder (§7.3). Absent
    *  when no folder declares one — the catalog is state-driven. */
   openReviewQueue?: (folder: string) => void;
+  /** Rollover command (spec §7): carry yesterday's not-done daily
+   *  tasks into today, with a confirm toast + guarded undo. Present
+   *  only when daily notes are enabled. */
+  rolloverTasks?: () => void;
   /** New folder preloaded with the knowledge preset (§6.3). */
   newKnowledgeFolder?: () => void;
   /** Open settings on the collections pane (⌘K 컬렉션 관리). */
@@ -229,6 +233,13 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
   add("action.new_md", "note-md", md.title, md.alias, "action", () => callbacks.newNote("markdown"), { hint: "⌘N" });
   const html = pair(locale, "new_note_html");
   add("action.new_html", "note-html", html.title, html.alias, "action", () => callbacks.newNote("html"));
+  // Rollover (spec §7): yesterday's not-done daily tasks → today.
+  // Daily-gated like nav.today; the callback owns the confirm/undo
+  // toast flow (lib/taskRollover).
+  if (dailyEnabled && callbacks.rolloverTasks) {
+    const ro = pair(locale, "task_rollover");
+    add("task.rollover", "calendar", ro.title, ro.alias, "action", callbacks.rolloverTasks);
+  }
   const nf = pair(locale, "folder_new");
   add("action.new_folder", "folder-plus", nf.title, nf.alias, "action", callbacks.newFolder);
   const qc = pair(locale, "palette_quick_capture");

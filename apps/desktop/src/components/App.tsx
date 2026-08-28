@@ -1,7 +1,8 @@
 /** App entry: provider chain + the main window shell. */
 
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useTodayKey } from "../lib/relativeDay";
 import { Bot, Terminal, X } from "lucide-react";
 import { isRouteCapture } from "../lib/window";
 import { listFolders, getConfig, setFolderPinned } from "../lib/api";
@@ -12,6 +13,7 @@ import { CardGrid } from "./CardGrid";
 import { CopilotPanel } from "./CopilotPanel";
 import { CaptureOverlay } from "./CaptureOverlay";
 import { ErrorToast } from "./ErrorBoundary";
+import { TaskQuickAdd } from "./TaskQuickAdd";
 import { Toast } from "./Toast";
 import { useUI } from "../stores/ui";
 import { applyTheme, saveTheme } from "../lib/theme";
@@ -68,11 +70,38 @@ function Shell() {
       {copilotOpen && <CopilotPanel />}
       <CopilotFab />
       <CollectionAutopin />
+      <MidnightRefresh />
       <CliNudge />
       <ErrorToast />
+      <TaskQuickAdd />
       <Toast />
     </>
   );
+}
+
+/**
+ * Midnight refresh (tasks spec §7.0 consumer; Plan E Task 4): when the
+ * local-midnight store rolls the day key, base views (task lists, the
+ * daily query fence's server-side relative math) and the open note —
+ * typically today's daily — refetch, so the app crosses days without a
+ * restart. The mount pass only records the baseline: refreshing at
+ * launch is what the query cache's staleness already does.
+ */
+function MidnightRefresh() {
+  const todayKey = useTodayKey();
+  const qc = useQueryClient();
+  const seen = useRef<string | null>(null);
+  useEffect(() => {
+    if (seen.current === null) {
+      seen.current = todayKey;
+      return;
+    }
+    if (seen.current === todayKey) return;
+    seen.current = todayKey;
+    void qc.invalidateQueries({ queryKey: ["base"] });
+    void qc.invalidateQueries({ queryKey: ["memo"] });
+  }, [todayKey, qc]);
+  return null;
 }
 
 /**

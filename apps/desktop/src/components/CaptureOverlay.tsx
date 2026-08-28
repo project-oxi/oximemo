@@ -8,8 +8,18 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { createCapture } from "../lib/api";
-import { listen } from "../lib/tauri";
+import { addTask, createCapture, getConfig } from "../lib/api";
+import { todayLocalISO } from "../lib/dates";
+import {
+  buildQuickAddTarget,
+  DAILY_RECURRENCE_WARNING_EVENT,
+  lineCfgFromTasks,
+  overlaySlashRoute,
+  parseQuickAddInput,
+  quickAddTarget,
+  shouldWarnDailyRecurrence,
+} from "../lib/quickAdd";
+import { emit, listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import { closeCurrentWindow, showCurrentWindow } from "../lib/window";
 import { useUI } from "../stores/ui";
@@ -47,7 +57,27 @@ export function CaptureOverlay() {
     savingRef.current = true;
     try {
       await closeCurrentWindow();
-      await createCapture(body);
+      // `/할일 …` routes through the same quick-add path as ⌘⇧T (spec
+      // §9): target = `[tasks] capture_target`, structured fields from
+      // the taskLine mirror. Everything else stays an inbox capture.
+      const routed = overlaySlashRoute(body);
+      if (routed) {
+        // Bare `/할일` with no text: nothing to add — the window is
+        // already hidden; `finally` releases the save lock.
+        if (!routed.rest) return;
+        const tasks = (await getConfig()).tasks;
+        const { text, fields } = parseQuickAddInput(routed.rest, lineCfgFromTasks(tasks));
+        const today = todayLocalISO();
+        const target = buildQuickAddTarget(quickAddTarget(tasks), today);
+        const result = await addTask(target, text, fields, today);
+        if (result.daily_recurrence_warning && shouldWarnDailyRecurrence(target, fields)) {
+          // This window is already hidden — relay the §9 warning toast
+          // to the main window, which owns the visible toast surface.
+          await emit(DAILY_RECURRENCE_WARNING_EVENT);
+        }
+      } else {
+        await createCapture(body);
+      }
     } catch (e) {
       setError(String(e).split("\n")[0]);
       await showCurrentWindow();

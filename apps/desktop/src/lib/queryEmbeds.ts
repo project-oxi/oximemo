@@ -55,7 +55,10 @@ interface QueryEmbedEntry {
   /** Marker form: resolved vault path for 「전체 열기」. */
   path?: string;
   columns?: string[];
-  rows?: { id: string; label: string; cells: string[] }[];
+  /** Spec §4 row identity: row_id for task rows stays distinct even
+   *  when several tasks share one parent memo (which would otherwise
+   *  collapse under a memo-id key). Click target is `memo_id`. */
+  rows?: { id: string; row_id: string; memo_id: string; label: string; cells: string[] }[];
   error?: string;
 }
 
@@ -158,7 +161,7 @@ class QueryEmbedWidget extends WidgetType {
         c.textContent = cell;
         rowEl.append(c);
       }
-      rowEl.addEventListener("click", () => useUI.getState().select(row.id));
+      rowEl.addEventListener("click", () => useUI.getState().select(row.memo_id));
       table.append(rowEl);
     }
     wrap.append(table);
@@ -326,10 +329,16 @@ class QueryEmbedResolverPlugin {
         thisId: source.thisId,
       };
       const page: BasePage = await runBase(wire, req);
-      const columns = (page.rows[0]?.cells.length ?? 0);
+      const columns = page.rows[0]?.cells.length ?? 0;
       const rows = page.rows.map((r) => ({
-        id: r.summary.id,
-        label: r.summary.title ?? r.summary.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "",
+        // Spec §4: row_id stays distinct even when several task rows
+        // share one parent memo (which would otherwise collapse under a
+        // memo-id key). The click target stays the parent memo id —
+        // MemoDetail only understands memo ids, not task line numbers.
+        id: r.row_id,
+        row_id: r.row_id,
+        memo_id: r.summary.id,
+        label: r.task?.text ?? r.summary.title ?? r.summary.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "",
         cells: r.cells
           .slice(1, Math.min(columns, EMBED_COLUMNS))
           .map((c) => (c.error ? "⚠︎" : formatBaseValue(c.value))),

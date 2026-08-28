@@ -132,6 +132,10 @@ interface UIState {
    * share one source of truth. */
   settingsOpen: boolean;
   setSettingsOpen: (b: boolean) => void;
+  /** Task quick-add spotlight (⌘⇧T, spec §9) open? Transient overlay
+   *  state — a minimal single-line input routed by `capture_target`. */
+  quickAddOpen: boolean;
+  setQuickAddOpen: (b: boolean) => void;
   /** Copilot floating window open (⌘⇧C / FAB). Transient. */
   copilotOpen: boolean;
   setCopilotOpen: (b: boolean) => void;
@@ -175,6 +179,19 @@ interface UIState {
   reviewMode: boolean;
   setReviewMode: (b: boolean) => void;
   consumeFolderCreate: () => void;
+  /** Task-line scroll target queued by `openTask`. When a task link
+   * lands on a memo, the editor needs to scroll to the
+   * (post-hash-repair) line once it has mounted — but the hash
+   * resolution is async, so the anchor is stored here and consumed by
+   * MemoDetail's mount effect. `null` = nothing pending. */
+  pendingTaskAnchor: { memoId: string; line: number } | null;
+  setTaskAnchor: (a: { memoId: string; line: number } | null) => void;
+  /** Returns the queued anchor's line and clears it — but only when the
+   * caller's memoId matches. A mismatched consume leaves the anchor
+   * intact: the note being opened may have changed between the queue
+   * and the consume, and we must not let MemoDetail B steal MemoDetail
+   * A's scroll target. */
+  consumeTaskAnchor: (memoId: string) => number | null;
 }
 
 const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
@@ -365,6 +382,8 @@ export const useUI = create<UIState>((set) => ({
   setCmdPaletteOpen: (b) => set({ cmdPaletteOpen: b }),
   settingsOpen: false,
   setSettingsOpen: (b) => set({ settingsOpen: b }),
+  quickAddOpen: false,
+  setQuickAddOpen: (b) => set({ quickAddOpen: b }),
   reviewMode: false,
   setReviewMode: (b) => set({ reviewMode: b }),
   copilotOpen: false,
@@ -375,6 +394,20 @@ export const useUI = create<UIState>((set) => ({
    *  (⌘K 컬렉션 관리 → collections pane). */
   settingsTab: null,
   setSettingsTab: (tab) => set({ settingsTab: tab }),
+  pendingTaskAnchor: null,
+  setTaskAnchor: (a) => set({ pendingTaskAnchor: a }),
+  consumeTaskAnchor: (memoId) => {
+    let resolved: number | null = null;
+    set((s) => {
+      const cur = s.pendingTaskAnchor;
+      if (cur && cur.memoId === memoId) {
+        resolved = cur.line;
+        return { pendingTaskAnchor: null };
+      }
+      return {};
+    });
+    return resolved;
+  },
   requestNewFolder: false,
   requestFolderCreate: () => set({ requestNewFolder: true }),
   consumeFolderCreate: () => set({ requestNewFolder: false }),

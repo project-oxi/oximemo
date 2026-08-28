@@ -92,6 +92,18 @@ pub enum CoreError {
         col: u32,
     },
 
+    #[error("task conflict: note {memo_id} changed since it was read")]
+    TaskConflict { memo_id: crate::memo::MemoId },
+
+    #[error("task not found: note {memo_id} line {line}")]
+    TaskNotFound {
+        memo_id: crate::memo::MemoId,
+        line: u32,
+    },
+
+    #[error("invalid tasks config: {0}")]
+    InvalidTasksConfig(String),
+
     #[error("{0}")]
     Other(String),
 }

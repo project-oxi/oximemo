@@ -7,6 +7,7 @@
 import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EditorView } from "@codemirror/view";
 import { ChevronLeft, ChevronRight, Folder, Star } from "lucide-react";
 
 import {
@@ -40,6 +41,7 @@ export function MemoDetail() {
   const draftId = useUI((s) => s.draftId);
   const draftPristine = useUI((s) => s.draftPristine);
   const setDraftId = useUI((s) => s.setDraftId);
+  const consumeTaskAnchor = useUI((s) => s.consumeTaskAnchor);
   const open = selectedId !== null;
   const qc = useQueryClient();
 
@@ -56,6 +58,7 @@ export function MemoDetail() {
   const [dirty, setDirty] = useState(false);
   const [seededId, setSeededId] = useState<string | null>(null);
   const folderPickerRef = useRef<FolderComboboxHandle>(null);
+  const [editorView, setEditorView] = useState<EditorView | null>(null);
 
   useEffect(() => {
     listFolders().then(setFolders).catch(() => {});
@@ -71,6 +74,32 @@ export function MemoDetail() {
     }
     if (!open && seededId !== null) setSeededId(null);
   }, [open, memo.data, seededId]);
+  // Consume the pending task anchor as soon as the editor remounts for the
+  // target memo: MemoEditorForm captures the CM6 view on its mount (via
+  // `onEditorView`) and posts it here; once we have BOTH the view AND a
+  // matching anchor in the store, we dispatch a scroll-into-center +
+  // selection so the task line is visible. The mismatch guard lives in
+  // `consumeTaskAnchor` itself: a memo opened for some other reason
+  // cannot steal a still-pending task anchor.
+  useEffect(() => {
+    if (!editorView || !selectedId) return;
+    const line = consumeTaskAnchor(selectedId);
+    if (line === null) return;
+    const doc = editorView.state.doc;
+    if (line < 0 || line >= doc.lines) {
+      // Out-of-range result from a stale or truncated body: leave the
+      // cursor at the document head and stop. This is rare in practice
+      // (resolve_task_line validates bounds server-side too) but a
+      // crash here would be worse than a missed scroll.
+      return;
+    }
+    const pos = doc.line(line + 1).from;
+    editorView.focus();
+    editorView.dispatch({
+      selection: { anchor: pos, head: pos },
+      effects: EditorView.scrollIntoView(pos, { y: "center" }),
+    });
+  }, [editorView, selectedId, memo.data?.body, consumeTaskAnchor]);
 
   useEffect(() => {
     if (!dirty || !selectedId) return;
@@ -126,7 +155,10 @@ export function MemoDetail() {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      // !shiftKey (tasks spec §7.1 required cutover): ⌘⇧Enter belongs
+      // to the CM6 task-widget toggle keymap, so the document-level
+      // save-and-close listener must not also swallow it.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "Enter") {
         e.preventDefault();
         closeRef.current();
       }
@@ -303,6 +335,7 @@ export function MemoDetail() {
                 body={body}
                 onBodyChange={edit(setBody)}
                 folderPickerRef={folderPickerRef}
+                onEditorView={setEditorView}
               />
             )}
             {memo.data && seededId === memo.data.id && (

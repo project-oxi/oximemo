@@ -63,6 +63,44 @@ fn value_heap(v: &Value) -> usize {
     }
 }
 
+/// True heap estimate for one `TaskDto`: every field that owns heap
+/// allocation (strings, `Vec<String>`, `Option<String>`, `Vec<TaskWarning>`
+/// with `raw: String` payloads) is mirrored from the existing
+/// `MemoSummary` accounting style. Enum/`char`/`Date`/`Priority` fields
+/// are inline and contribute `size_of` only. `task_ref.memo_id` is a
+/// `Uuid` (16 bytes) — fixed size, included via `size_of`; the string
+/// representation is built on demand by `Display` and never cached.
+/// `symbol: char` is inline; `status_type`/`priority` enums are inline.
+fn task_dto_heap(t: &crate::tasks::TaskDto) -> usize {
+    use std::mem::size_of;
+    let mut b = size_of::<crate::tasks::TaskDto>();
+    // task_ref: MemoId (Uuid, fixed) + line_hash (String). MemoId
+    // contributes `size_of::<Uuid>()`; line_hash's inner String is heap.
+    b += size_of::<uuid::Uuid>();
+    b += heap_str(&t.task_ref.line_hash.0);
+    // Text body + section + recurrence: each `String` (or
+    // `Option<String>`) carries a heap allocation when `Some`.
+    b += heap_str(&t.text);
+    if let Some(sec) = &t.section {
+        b += heap_str(sec);
+    }
+    if let Some(rec) = &t.recurrence {
+        b += heap_str(rec);
+    }
+    // Tags: `Vec<String>` capacity + per-element heap.
+    b += t.tags.capacity() * size_of::<String>()
+        + t.tags.iter().map(|tag| heap_str(tag)).sum::<usize>();
+    // Warnings: `Vec<TaskWarning>` capacity + per-element heap.
+    // `TaskWarning.raw: String` is the dominant heap payload;
+    // `field: Option<TaskField>` and `kind: TaskWarningKind` are
+    // inline enums.
+    b += t.warnings.capacity() * size_of::<crate::tasks::TaskWarning>();
+    for w in &t.warnings {
+        b += heap_str(&w.raw);
+    }
+    b
+}
+
 /// True heap estimate for a cached result (spec §3 byte accounting):
 /// summaries/folders/previews/tags/props/cells all carry their string
 /// payloads; enum/fixed overhead uses `size_of`. This replaces the
@@ -95,6 +133,19 @@ pub(crate) fn estimate_result_bytes(r: &BaseResult) -> usize {
             };
         }
         b += heap_str(&row.folder) + heap_str(&row.format);
+        // Generation-scoped identity (`n:<memo_id>` / `t:<memo_id>:<line>`);
+        // not in `MemoSummary` so the existing per-row loop never
+        // accounted for it. task-source views can produce large
+        // `view.limit` datasets where the row_id strings dominate
+        // per-row heap; omitting them would let the cache bypass its
+        // RESULT_CACHE_ENTRY_MAX_BYTES guard.
+        b += heap_str(&row.row_id);
+        // Task DTO: `Option<TaskDto>` is `None` for note-source rows
+        // and `Some(...)` for every task-source row. A large
+        // task-source dataset can accumulate tens of KiB of task
+        if let Some(t) = &row.task {
+            b += task_dto_heap(t);
+        }
         b += row.cells.capacity() * size_of::<BaseCell>();
         for c in &row.cells {
             if let Some(v) = &c.value {
@@ -399,9 +450,11 @@ mod tests {
 
     fn empty_row() -> BaseRow {
         BaseRow {
+            row_id: String::new(),
             summary: empty_summary(),
             folder: String::new(),
             format: "md".to_string(),
+            task: None,
             cells: Vec::new(),
         }
     }
@@ -542,5 +595,140 @@ mod tests {
             ..base.clone()
         };
         assert_ne!(s, render_result_key(&embed));
+    }
+
+    /// Finding 2 (P2): the per-row estimator must account for
+    /// `row_id` and `task: Option<TaskDto>` heap payloads. A task
+    /// view with a large `view.limit` could otherwise under-report
+    /// enough to bypass RESULT_CACHE_ENTRY_MAX_BYTES. Construct two
+    /// rows that differ ONLY in row_id + task payload: estimate
+    /// must be strictly larger when those fields are populated.
+    #[test]
+    fn estimate_result_bytes_accounts_for_row_id_and_task_payload() {
+        use crate::tasks::{
+            Priority, StatusType, TaskDto, TaskField, TaskLineHash, TaskRef, TaskWarning,
+            TaskWarningKind,
+        };
+        use time::macros::date;
+
+        let row_with_task = |row_id: &str, task: Option<TaskDto>| BaseRow {
+            row_id: row_id.to_string(),
+            summary: empty_summary(),
+            folder: String::new(),
+            format: "md".to_string(),
+            task,
+            cells: Vec::new(),
+        };
+
+        let baseline = Arc::new(BaseResult {
+            rows: vec![row_with_task("", None)],
+            group_strs: vec![String::new()],
+            total: 1,
+            group_counts: None,
+            summaries: None,
+            warnings: Vec::new(),
+            props: None,
+        });
+        let baseline_bytes = estimate_result_bytes(&baseline);
+
+        // row_id only: `t:<uuid>:<line>` ≈ 50 bytes of heap that the
+        // previous estimator silently dropped.
+        let with_row_id = Arc::new(BaseResult {
+            rows: vec![row_with_task(
+                "t:01a0445f-6d0c-7af2-b0c3-b9933337039e:7",
+                None,
+            )],
+            group_strs: vec![String::new()],
+            total: 1,
+            group_counts: None,
+            summaries: None,
+            warnings: Vec::new(),
+            props: None,
+        });
+        let with_row_id_bytes = estimate_result_bytes(&with_row_id);
+        assert_eq!(
+            with_row_id_bytes - baseline_bytes,
+            40, // row_id string length: "t:" + 36-char UUID + ":7" = 40
+            "row_id string contributes exactly its length (heap_str = size_of::<String> + len; the size_of delta is in size_of::<BaseRow> already)"
+        );
+
+        // Task payload: a TaskDto carrying non-trivial text/tags/
+        // warnings/section/recurrence. Each is a heap-owning field
+        // the estimator must count, mirroring the existing
+        // MemoSummary accounting style.
+        let big_task = TaskDto {
+            task_ref: TaskRef {
+                memo_id: MemoId(uuid::Uuid::now_v7()),
+                line: 7,
+                line_hash: TaskLineHash("abcdef0123456789".to_string()),
+            },
+            symbol: ' ',
+            status_type: StatusType::Todo,
+            text: "a moderately long task description that the cache should account for"
+                .to_string(),
+            tags: vec!["home".to_string(), "urgent".to_string()],
+            section: Some("Today".to_string()),
+            created: Some(date!(2026 - 08 - 28)),
+            start: None,
+            scheduled: None,
+            due: None,
+            done: None,
+            cancelled: None,
+            priority: Priority::High,
+            recurrence: Some("every weekday".to_string()),
+            warnings: vec![TaskWarning {
+                field: Some(TaskField::Due),
+                raw: "📅 not-a-date".to_string(),
+                kind: TaskWarningKind::InvalidValue,
+            }],
+        };
+        // Exact-bytes assertion: the estimator's task accounting is
+        // fully deterministic, so we assert the precise delta. The
+        // components (all heap bytes the estimator must count):
+        //   size_of::<TaskDto>()          — inline struct overhead
+        //   size_of::<Uuid>()             — task_ref.memo_id
+        //   heap_str(line_hash)           — "abcdef0123456789" (16 B)
+        //   heap_str(text)                — 68-byte description
+        //   heap_str(section)             — "Today" (5 B)
+        //   heap_str(recurrence)          — "every weekday" (13 B)
+        //   tags                          — cap 2×String + per-string heap
+        //   warnings                      — cap 1×TaskWarning + raw heap
+        let s = std::mem::size_of::<String>();
+        let expected_task_heap_delta: usize = std::mem::size_of::<TaskDto>()
+            + std::mem::size_of::<uuid::Uuid>()
+            + heap_str("abcdef0123456789")
+            + heap_str("a moderately long task description that the cache should account for")
+            + heap_str("Today")
+            + heap_str("every weekday")
+            + 2 * s
+            + heap_str("home")
+            + heap_str("urgent")
+            + std::mem::size_of::<TaskWarning>()
+            + heap_str("📅 not-a-date");
+        let with_task = Arc::new(BaseResult {
+            rows: vec![row_with_task("t:x:7", Some(big_task))],
+            group_strs: vec![String::new()],
+            total: 1,
+            group_counts: None,
+            summaries: None,
+            warnings: Vec::new(),
+            props: None,
+        });
+        let with_task_bytes = estimate_result_bytes(&with_task);
+        // The delta includes both row_id (5 bytes "t:x:7") AND the
+        // task payload heap. Subtract the row_id length to isolate
+        // the task payload contribution.
+        let task_delta = with_task_bytes - (baseline_bytes + "t:x:7".len());
+        assert_eq!(
+            task_delta, expected_task_heap_delta,
+            "task payload heap delta must match the hand-computed sum"
+        );
+        // And as a smoke check: task payload estimate is strictly
+        // larger than task-less rows.
+        assert!(
+            with_task_bytes > with_row_id_bytes,
+            "row with task payload must estimate larger than row without; \
+             task={with_task_bytes}, row_id_only={with_row_id_bytes}"
+        );
     }
 }

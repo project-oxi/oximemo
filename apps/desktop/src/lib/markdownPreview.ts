@@ -14,6 +14,7 @@
 import DOMPurify from "dompurify";
 import { queryPreviewCount } from "./queryPreviewCounts";
 import { marked } from "marked";
+import { preprocessTaskMarkdown, stripTaskMetadata } from "./taskPreview";
 
 marked.setOptions({
   // Render single newlines as <br> so the card preview keeps the line breaks
@@ -47,7 +48,7 @@ export function renderPreviewMarkdown(
       ? firstBlock
       : firstBlock.slice(0, maxLen).trimEnd() + "\u2026";
   return DOMPurify.sanitize(
-    marked.parse(collapseWikiLinks(collapseQueryBlocks(raw, query)), { async: false }) as string,
+    marked.parse(preprocessTaskMarkdown(collapseWikiLinks(collapseQueryBlocks(raw, query))), { async: false }) as string,
     {
       FORBID_TAGS: ["script", "iframe", "object", "embed", "style"],
       FORBID_ATTR: ["onerror", "onclick", "onload", "onmouseover", "onfocus"],
@@ -63,7 +64,7 @@ export function previewText(
   const trimmed = body.trim();
   if (!trimmed) return "";
   const html = DOMPurify.sanitize(
-    marked.parse(collapseWikiLinks(collapseQueryBlocks(trimmed, query)), {
+    marked.parse(stripTaskMetadata(collapseWikiLinks(collapseQueryBlocks(trimmed, query))), {
       async: false,
     }) as string,
     {

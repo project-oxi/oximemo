@@ -1,0 +1,1934 @@
+{
+  "cases": [
+    {
+      "body": "- [-] task ❌ 2026-08-20\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetStatus": "x"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [x] task ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "entering_done_from_cancelled_stamps_done_clears_cancelled",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [x] task ✅ 2026-08-20\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": "Toggle",
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task "
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "toggle_done_to_todo_clears_done",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [x] task ✅ 2026-08-20\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetStatus": "-"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [-] task ❌ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_status_done_to_cancelled_stamps_clears_done",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-27 🔁 every week\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": "Toggle",
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-09-03 🔁 every week",
+              "- [x] task 📅 2026-08-27 🔁 every week ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "toggle_recurrence_spawns_above_by_default",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-27 🔁 every week\n  - [ ] child\n- [ ] unrelated\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "below",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": "Toggle",
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [x] task 📅 2026-08-27 🔁 every week ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          },
+          {
+            "delete_lines": 0,
+            "insert_lines": [
+              "- [ ] task 📅 2026-09-03 🔁 every week"
+            ],
+            "start_line": 2
+          }
+        ]
+      },
+      "line": 0,
+      "name": "toggle_recurrence_spawns_below_after_subtree",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 🛫 2026-08-01 ⏳ 2026-08-10 📅 2026-08-20 🔁 every week\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": "Toggle",
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 🛫 2026-08-08 ⏳ 2026-08-17 📅 2026-08-27 🔁 every week",
+              "- [x] task 🛫 2026-08-01 ⏳ 2026-08-10 📅 2026-08-20 🔁 every week ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "toggle_recurrence_reference_priority_due_over_scheduled_over_start",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-20 🔁 every week when done\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": "Toggle",
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-09-03 🔁 every week when done",
+              "- [x] task 📅 2026-08-20 🔁 every week when done ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "toggle_recurrence_when_done_anchors_on_today",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-01-31 🔁 every month\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": "Toggle",
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-02-28 🔁 every month",
+              "- [x] task 📅 2026-01-31 🔁 every month ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "toggle_recurrence_month_clamp_jan31_to_feb28",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-20 🔁 every 6 months on the 2nd wednesday\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": "Toggle",
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [x] task 📅 2026-08-20 🔁 every 6 months on the 2nd wednesday ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "toggle_recurrence_unsupported_rule_no_spawn_keeps_text",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [x] task ✅ 2026-08-20 📅 2026-08-20 🔁 every week\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetStatus": "X"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [X] task ✅ 2026-08-20 📅 2026-08-20 🔁 every week"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "toggle_done_to_todo_clears_done_no_spawn",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [x] task ✅ 2026-08-20\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetStatus": "X"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [X] task ✅ 2026-08-20"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_status_same_type_done_x_to_X_preserves_done_date",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Created",
+          "value": "2026-08-30"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task ➕ 2026-08-30"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_created_emoji_append_when_absent",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task ➕ 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Created",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task ➕ 2026-08-31"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_created_emoji_replace_when_present",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Created",
+          "value": "2026-08-30"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [created:: 2026-08-30]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_created_dataview_append_when_absent",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task [created:: 2026-08-30]\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Created",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [created:: 2026-08-31]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_created_dataview_replace_when_present",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task ➕ 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Created",
+          "value": null
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task "
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_created_emoji_clear",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Start",
+          "value": "2026-08-30"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 🛫 2026-08-30"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_start_emoji_append_when_absent",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 🛫 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Start",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 🛫 2026-08-31"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_start_emoji_replace_when_present",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Start",
+          "value": "2026-08-30"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [start:: 2026-08-30]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_start_dataview_append_when_absent",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task [start:: 2026-08-30]\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Start",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [start:: 2026-08-31]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_start_dataview_replace_when_present",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 🛫 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Start",
+          "value": null
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task "
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_start_emoji_clear",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Scheduled",
+          "value": "2026-08-30"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task ⏳ 2026-08-30"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_scheduled_emoji_append_when_absent",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task ⏳ 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Scheduled",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task ⏳ 2026-08-31"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_scheduled_emoji_replace_when_present",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Scheduled",
+          "value": "2026-08-30"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [scheduled:: 2026-08-30]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_scheduled_dataview_append_when_absent",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task [scheduled:: 2026-08-30]\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Scheduled",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [scheduled:: 2026-08-31]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_scheduled_dataview_replace_when_present",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task ⏳ 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Scheduled",
+          "value": null
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task "
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_scheduled_emoji_clear",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-08-30"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_due_emoji_append_when_absent",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-31"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_due_emoji_replace_when_present",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-08-30"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [due:: 2026-08-30]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_due_dataview_append_when_absent",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task [due:: 2026-08-30]\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [due:: 2026-08-31]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_due_dataview_replace_when_present",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": null
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task "
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_due_emoji_clear",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Done",
+          "value": "2026-08-25"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task ✅ 2026-08-25"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_done_emoji_set",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [-] task ❌ 2026-08-20\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Cancelled",
+          "value": null
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [-] task "
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_cancelled_emoji_clear",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetPriority": "Highest"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 🔺"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_Highest_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetPriority": "Highest"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 [priority:: highest]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_Highest_dataview",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetPriority": "High"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 ⏫"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_High_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetPriority": "High"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 [priority:: high]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_High_dataview",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetPriority": "Medium"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 🔼"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_Medium_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetPriority": "Medium"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 [priority:: medium]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_Medium_dataview",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetPriority": "Low"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 🔽"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_Low_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetPriority": "Low"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 [priority:: low]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_Low_dataview",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetPriority": "Lowest"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 ⏬"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_Lowest_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetPriority": "Lowest"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30 [priority:: lowest]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_Lowest_dataview",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetPriority": "None"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_None_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetPriority": "None"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 📅 2026-08-30"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_None_dataview",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] old text 📅 2026-08-30 #tag\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetText": "new text"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] new text 📅 2026-08-30 #tag"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_text_emoji_preserves_due_and_tag",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] old #tag 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetText": "new"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] new #tag 📅 2026-08-30"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_text_emoji_tag_before_field_both_survive",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] old text [due:: 2026-08-30] #tag\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetText": "new text"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] new text [due:: 2026-08-30] #tag"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_text_dataview_preserves_field",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] old #task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "#task",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetText": "new"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] new #task"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_text_global_filter_hash_preserved",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] buy milk\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "milk",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetText": "new"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] new milk"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_text_global_filter_word_preserved",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetRecurrence": "every week"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task 🔁 every week"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_recurrence_add_rule_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 🔁 every week\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetRecurrence": null
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task "
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_recurrence_clear_rule_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetRecurrence": "every week"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [repeat:: every week]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_recurrence_add_rule_dataview",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] old\r\n- [ ] target 📅 2026-08-30\r\n- [ ] after\r\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetText": "new"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] new 📅 2026-08-30"
+            ],
+            "start_line": 1
+          }
+        ]
+      },
+      "line": 1,
+      "name": "set_text_crlf_body_preserves_crlf",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task 📅 2026-08-30 📅 2026-09-01\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-08-15"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task  📅 2026-08-15"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_due_emoji_collapse_when_duplicate_present",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] first\n- [ ] second\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetPriority": "Low"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] second 🔽"
+            ],
+            "start_line": 1
+          }
+        ]
+      },
+      "line": 1,
+      "name": "set_priority_targets_second_zero_based_line",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] 우유 사기 #장보기 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetStatus": "x"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [x] 우유 사기 #장보기 📅 2026-08-30 ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "korean_description_toggle_to_done_stamps_done_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] 우유 사기 #장보기 📅 2026-08-30\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-09-01"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] 우유 사기 #장보기 📅 2026-09-01"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "korean_description_set_date_due_emoji_replace",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] 보고서 초안 [due:: 2026-08-30] [priority:: high]\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetPriority": "Medium"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] 보고서 초안 [due:: 2026-08-30] [priority:: medium]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "korean_description_set_priority_high_dataview",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] 우유 사기 #장보기 buy milk\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "milk",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetText": "새 글"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] 새 글 #장보기 milk"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "korean_description_set_text_preserves_tag_and_filter_substring",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] 주간 회의 📅 2026-08-27 🔁 every week\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": "Toggle",
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] 주간 회의 📅 2026-09-03 🔁 every week",
+              "- [x] 주간 회의 📅 2026-08-27 🔁 every week ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "korean_description_recurrence_spawn_carries_korean_text",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] 보고서 제출 📅 2026-08-30 📅 2026-09-01\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-08-15"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] 보고서 제출  📅 2026-08-15"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "korean_description_duplicate_due_field_collapse",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] 한국 메모\r\n- [ ] 우유 사기 #장보기 📅 2026-08-30\r\n- [ ] 끝\r\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-09-01"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] 우유 사기 #장보기 📅 2026-09-01"
+            ],
+            "start_line": 1
+          }
+        ]
+      },
+      "line": 1,
+      "name": "korean_description_crlf_body_preserves_crlf_and_text",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] parent\n\t- [ ] child task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetPriority": "Low"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "\t- [ ] child task 🔽"
+            ],
+            "start_line": 1
+          }
+        ]
+      },
+      "line": 1,
+      "name": "tab_indent_child_set_priority_low",
+      "today": "2026-08-27"
+    }
+  ]
+}

@@ -6,6 +6,7 @@
  */
 import { invoke } from "./tauri";
 import type {
+  AddTarget,
   BacklinkInfo,
   BaseInfo,
   BasePage,
@@ -26,11 +27,19 @@ import type {
   IndexStats,
   DoctorReport,
   Facets,
+  MoveTasksReceipt,
+  MoveTasksRequest,
   NoteQueryInput,
+  PatchTaskResult,
   PropInfo,
   PropMutation,
   QueryPage,
   RunBaseReq,
+  TaskDraftTransform,
+  TaskDto,
+  TaskEdit,
+  TaskFields,
+  TaskSelector,
   ViewMode,
 } from "./types";
 
@@ -586,4 +595,77 @@ export function restoreBase(token: string): Promise<string> {
 
 export function baseProps(): Promise<PropInfo[]> {
   return invoke<PropInfo[]>("base_props");
+}
+
+// --- Tasks (spec 2026-08-27) --------------------------------------------------
+// Wire-shape passthroughs: `edit`/`selector`/`target`/`fields`/`request`
+// use the externally-tagged forms documented in types.ts (PascalCase
+// words, fixture-corpus compatible). `today` is always "YYYY-MM-DD".
+
+/** All indexed task rows across live notes; `noteId` narrows to one
+ *  note. Browser mode: desktop-only rejection. */
+export function listTasks(noteId: string | null): Promise<TaskDto[]> {
+  return invoke<TaskDto[]>("list_tasks", { noteId });
+}
+
+/** Hash-repair lookup for openTask: returns `line` itself when its bytes
+ *  still hash to `lineHash`, else the unique line that does; null when
+ *  absent or ambiguous. */
+export function resolveTaskLine(
+  noteId: string,
+  line: number,
+  lineHash: string,
+): Promise<number | null> {
+  return invoke<number | null>("resolve_task_line", { noteId, line, lineHash });
+}
+
+/** Apply one guarded edit to a persisted task line (spec §5). Emits
+ *  `memos:changed` on success. */
+export function patchTask(
+  selector: TaskSelector,
+  edit: TaskEdit,
+  today: string,
+): Promise<PatchTaskResult> {
+  return invoke<PatchTaskResult>("patch_task", { selector, edit, today });
+}
+
+/** Append a new task line under the target's configured section
+ *  (spec §6/§7). Emits `memos:changed` on success. */
+export function addTask(
+  target: AddTarget,
+  text: string,
+  fields: TaskFields,
+  today: string,
+): Promise<PatchTaskResult> {
+  return invoke<PatchTaskResult>("add_task", { target, text, fields, today });
+}
+
+/** Atomically move task subtrees between notes (spec §7). Emits
+ *  `memos:changed` on success. */
+export function moveTasks(
+  request: MoveTasksRequest,
+  today: string,
+): Promise<MoveTasksReceipt> {
+  return invoke<MoveTasksReceipt>("move_tasks", { request, today });
+}
+
+/** Guarded inverse of `moveTasks` (spec §7): proceeds only while both
+ *  notes still match the receipt's post-move hashes — an intervening
+ *  edit wins and undo refuses to erase it. Emits `memos:changed` on
+ *  success. */
+export function undoMoveTasks(receipt: MoveTasksReceipt): Promise<void> {
+  return invoke<void>("undo_move_tasks", { receipt });
+}
+
+/** Pure task-edit kernel on an arbitrary body — no lock, no disk. The
+ *  CM6 editor uses it on the unsaved buffer; `patchTask` runs the same
+ *  kernel under the vault's lock. Browser mode dispatches to the
+ *  taskLine mirror with the default tasks config. */
+export function transformTaskDraft(
+  body: string,
+  line: number,
+  edit: TaskEdit,
+  today: string,
+): Promise<TaskDraftTransform> {
+  return invoke<TaskDraftTransform>("transform_task_draft", { body, line, edit, today });
 }

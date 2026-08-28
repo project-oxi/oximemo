@@ -23,6 +23,22 @@ test("does not hard-break single newlines (chat semantics)", () => {
   expect(html).not.toContain("<br>");
 });
 
+test("task lines render inert chips (box + field spans)", () => {
+  const html = renderChatMarkdownHtml("- [/] wip 📅 2026-08-30 ⏫ 🚀", "Copy");
+  expect(html).toContain('class="ox-task-box ox-task-in-progress"');
+  expect(html).toContain('class="ox-task-field ox-task-due"');
+  expect(html).toContain('class="ox-task-field ox-task-priority"');
+  expect(html).toContain("🚀");
+  expect(html).not.toContain("[/]");
+  expect(html).not.toContain("📅");
+});
+
+test("task syntax inside fenced code is not chipped", () => {
+  const html = renderChatMarkdownHtml("```\n- [/] wip 📅 2026-08-30\n```", "Copy");
+  expect(html).not.toContain("ox-task-box");
+  expect(html).toContain("📅");
+});
+
 // DOMPurify needs a real DOM; bun's test runtime has none. The sanitize
 // boundary runs in the browser (smoke) and matches markdownPreview's config.
 const canSanitize = typeof DOMPurify.sanitize === "function";

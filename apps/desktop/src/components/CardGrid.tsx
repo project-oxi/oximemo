@@ -65,6 +65,7 @@ import { applyTheme, type Theme } from "../lib/theme";
 import { listen } from "../lib/tauri";
 import { createQueryCollection, defaultQueryYaml, tagFilterYaml } from "../lib/queryCreation";
 import { todayLocalISO } from "../lib/dates";
+import { runTaskRollover } from "../lib/taskRollover";
 import { useFolderNames, useSchemaInfo, schemaDisplayName } from "../lib/folders";
 import { propKeyLabel, propValueLabel, badgeTone } from "../lib/propDisplay";
 import { PropSelect } from "./PropSelect";
@@ -74,7 +75,7 @@ import {
   loadCalendarFieldQuery,
   saveCalendarFieldQuery,
 } from "../stores/ui";
-import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
+import type { BaseRow, FolderCard, MemoSummary, NoteFormat, ViewMode } from "../lib/types";
 
 import { MemoDetail } from "./MemoDetail";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
@@ -131,6 +132,7 @@ export function CardGrid() {
   const cycleTag = useUI((s) => s.cycleTag);
   const cmdPaletteOpen = useUI((s) => s.cmdPaletteOpen);
   const setCmdPaletteOpen = useUI((s) => s.setCmdPaletteOpen);
+  const setQuickAddOpen = useUI((s) => s.setQuickAddOpen);
   const requestNewFolder = useUI((s) => s.requestNewFolder);
   const consumeFolderCreate = useUI((s) => s.consumeFolderCreate);
   const setCopilotOpen = useUI((s) => s.setCopilotOpen);
@@ -407,6 +409,21 @@ export function CardGrid() {
     );
     return presets.size === 1 ? [...presets][0] : undefined;
   }, [tableFolders, tableSchemas]);
+  // Plan C: wrap MemoSummary into BaseRow (note rows only here — task
+  // rows come from BaseView's run_base). The note row_id is `n:<memo_id>`
+  // (spec §4); format/folder mirror MemoSummary so column editors keep
+  // working unchanged.
+  const tableRows: BaseRow[] = useMemo(
+    () => items.map((s) => ({
+      row_id: `n:${s.id}`,
+      summary: s,
+      folder: s.folder,
+      format: (s.path.toLowerCase().endsWith(".html") ? "html" : "markdown") as NoteFormat,
+      task: null,
+      cells: [],
+    })),
+    [items],
+  );
 
   // Direct-children folder tiles for the current browse level. We rely on
   // browse-by-default semantics (T5): folderFilter !== null ⇒ show this
@@ -961,6 +978,9 @@ export function CardGrid() {
         ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && key === "o");
       if (wantsPalette) {
         if (useUI.getState().selectedId) return;
+        // The quick-add spotlight owns keys while open (its own Escape
+        // closes it; ⌘K must not stack a palette underneath it).
+        if (useUI.getState().quickAddOpen) return;
         e.preventDefault();
         setCmdPaletteOpen(!useUI.getState().cmdPaletteOpen);
         return;
@@ -975,6 +995,20 @@ export function CardGrid() {
         if (!copilotVisible) return;
         e.preventDefault();
         setCopilotOpen(!useUI.getState().copilotOpen);
+        return;
+      }
+      // ⌘⇧T / Ctrl⇧T — task quick add (spec §9): a minimal single-line
+      // spotlight routed by `[tasks] capture_target` (daily | inbox).
+      // Guarded like ⌘K: inert under the palette modal and while a
+      // dialog (memo editor, settings drawer) holds focus. The capture
+      // overlay window never sees this listener (its own document); the
+      // /할일 prefix covers it there.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && key === "t") {
+        if (useUI.getState().selectedId) return;
+        if (cmdOpen) return;
+        if (useUI.getState().settingsOpen) return;
+        e.preventDefault();
+        setQuickAddOpen(!useUI.getState().quickAddOpen);
         return;
       }
       // ⌘↑ / Ctrl↑ — navigate up one folder (no-op in query mode or at
@@ -993,6 +1027,7 @@ export function CardGrid() {
       // dialog/palette handlers manage their own Escape behaviour.
       if (e.key === "Escape") {
         if (useUI.getState().selectedId) return;
+        if (useUI.getState().quickAddOpen) return;
         if (cmdOpen) return;
         if (localSearch === "") return;
         e.preventDefault();
@@ -1003,7 +1038,7 @@ export function CardGrid() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [requestAdd, localSearch, setSearch, setCmdPaletteOpen, setCopilotOpen, copilotVisible]);
+  }, [requestAdd, localSearch, setSearch, setCmdPaletteOpen, setQuickAddOpen, setCopilotOpen, copilotVisible]);
 
   // Palette navigation mirrors the sidebar's openFolder convention
   // (Sidebar.tsx): setView("memos") + favoritesOnly(false) + browse the
@@ -1068,6 +1103,18 @@ export function CardGrid() {
       },
       openGallery: () => setView("gallery"),
       openToday,
+      // 어제의 미완료 이월 (spec §7): the whole confirm → commit →
+      // guarded-undo flow lives in lib/taskRollover; this only feeds it
+      // the daily folder + UI sinks.
+      rolloverTasks: () => {
+        if (configQ.data?.daily?.enabled === false) return;
+        void runTaskRollover(configQ.data?.daily?.folder, {
+          t,
+          setToast,
+          setError,
+          invalidateBase: () => void qc.invalidateQueries({ queryKey: ["base"] }),
+        });
+      },
       selectTag: (tag: string) => {
         // Sidebar tag convention: vault-wide intent — drop folder and
         // favorite scope, then cycle the tag in.
@@ -1136,7 +1183,7 @@ export function CardGrid() {
     [
       jumpToFolder, openToday, setView, setFavoritesOnly, setFolderFilter,
       cycleTag, setNoteView, toggleSidebar, onNewNote, onNewHtmlNote,
-      setError, configQ.data, qc,
+      setError, configQ.data, qc, t, setToast,
     ],
   );
   // Knowledge-preset folder creation (§6.3): the palette action arms a
@@ -1761,7 +1808,7 @@ export function CardGrid() {
               <TimelineView {...viewProps} />
             ) : noteView === "table" ? (
               <TableView
-                items={items}
+                items={tableRows}
                 schemas={tableSchemas}
                 folderOrder={tableFolders}
                 preset={tablePreset}

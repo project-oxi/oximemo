@@ -6,10 +6,16 @@
  * convenience only — it never touches the real vault and is single-user.
  */
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit as tauriEmit, listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { FolderCard, FolderEntry, FolderSchema, Memo, MemoSummary } from "./types";
 import { extractTags } from "./tags";
 import { normalizeSummaries } from "./summaryFolder";
+import {
+  editFromJson,
+  transformTaskDraft as mirrorTransformTaskDraft,
+  type TaskLineCfg,
+  type WireTaskEdit,
+} from "./taskLine";
 
 // `typeof window` guard keeps the module importable outside the browser
 // (bun tests): the fallback branch below never runs there.
@@ -38,6 +44,7 @@ function emitBrowser(event: string, payload?: unknown): void {
   });
 }
 
+
 export async function listen<T>(
   event: string,
   handler: (payload: T) => void,
@@ -56,7 +63,17 @@ export async function listen<T>(
   }
   return tauriListen<T>(event, (e) => handler(e.payload));
 }
-
+/** Broadcast an event to every window + Rust (`/할일` quick-add in the
+ *  capture overlay uses it to surface the daily+recurrence warning
+ *  toast in the MAIN window — the overlay closes itself before the
+ *  result arrives). Browser mode reuses the local listener bus. */
+export async function emit(event: string, payload?: unknown): Promise<void> {
+  if (!inTauri) {
+    emitBrowser(event, payload);
+    return;
+  }
+  await tauriEmit(event, payload);
+}
 // --- Browser-mode localStorage store --------------------------------------
 const STORE_KEY = "oximemo:memos:v3";
 const VIEW_KEY = "oximemo:folderviews:v1";
@@ -1119,6 +1136,19 @@ async function browserFallback(
         ],
         brain: { enabled: true, socket: "", space: "personal" },
         index: { watcher_debounce_ms: 300 },
+        // TasksConfig::default() parity — the widget cfg and the
+        // transform_task_draft mirror below both key off these
+        // defaults (emoji format, no global filter, recurrence above,
+        // builtin status table).
+        tasks: {
+          enabled: true,
+          write_format: "emoji",
+          global_filter: "",
+          recurrence_insert: "above",
+          default_section: "할 일",
+          capture_target: "daily",
+          statuses: [],
+        },
       };
       // Dev/E2E override (e.g. { daily: { enabled: false } }) — browser
       // mode has no oximemo.toml, so gating needs a seeded surface.
@@ -1262,6 +1292,42 @@ async function browserFallback(
     case "restore_base":
     case "base_props":
       throw new Error("query views are desktop-only");
+
+    // --- Tasks (spec 2026-08-27): the five vault commands are
+    // desktop-only — there is deliberately no second task engine in
+    // browser mode. The pure kernel command dispatches to the Task-1
+    // browser mirror with the default tasks config (TasksConfig's
+    // defaults: emoji format, no global filter, recurrence above,
+    // builtin status table). The mirror does not track the recurrence
+    // spawn hint, so browser dispatches report null for it.
+    case "list_tasks":
+    case "resolve_task_line":
+    case "patch_task":
+    case "add_task":
+    case "move_tasks":
+      throw new Error("task commands require the desktop app");
+
+    case "transform_task_draft": {
+      const today = String(args?.today ?? "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) {
+        throw new Error(`invalid today "${today}": expected YYYY-MM-DD`);
+      }
+      const edit = editFromJson((args?.edit ?? {}) as WireTaskEdit);
+      const cfg: TaskLineCfg = {
+        writeFormat: "emoji",
+        globalFilter: "",
+        recurrenceInsert: "above",
+        statuses: [],
+      };
+      const out = mirrorTransformTaskDraft(
+        String(args?.body ?? ""),
+        Number(args?.line ?? 0),
+        edit,
+        today,
+        cfg,
+      );
+      return { changes: out.changes, spawned_line_hint: null };
+    }
 
     default:
       return null;

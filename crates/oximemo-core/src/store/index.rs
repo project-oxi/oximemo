@@ -45,6 +45,10 @@ pub struct IndexRecord {
     /// property queries never read files (design 2026-08-23 §5.1).
     #[serde(default)]
     pub props: crate::props::Props,
+    #[serde(default)]
+    pub tasks: Vec<crate::tasks::TaskRow>,
+    #[serde(default)]
+    pub tasks_truncated: bool,
     pub deleted: bool,
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub deleted_at: Option<OffsetDateTime>,
@@ -373,6 +377,8 @@ mod tests {
             deleted: false,
             deleted_at: None,
             preview: String::new(),
+            tasks: Vec::new(),
+            tasks_truncated: false,
         }
     }
 

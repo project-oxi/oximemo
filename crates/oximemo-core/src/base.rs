@@ -22,6 +22,18 @@ pub use files::BaseInfo;
 use crate::error::CoreError;
 use crate::expr::parser::{Expr, parse_expr};
 
+/// Which dataset a base iterates (spec §4): `notes` (the default — one
+/// row per indexed note) or `tasks` (one row per indexed task; `file.*`
+/// still serves the parent note). Unknown YAML values are load-time
+/// errors via serde.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BaseSourceKind {
+    #[default]
+    Notes,
+    Tasks,
+}
+
 /// The full `.query` document.
 ///
 /// `views` is required after normalization (see [`parse_base`]); callers
@@ -29,6 +41,8 @@ use crate::expr::parser::{Expr, parse_expr};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BaseDef {
+    #[serde(default)]
+    pub source: BaseSourceKind,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub filters: Option<FilterSpec>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -188,7 +202,7 @@ pub struct GroupBySpec {
 /// View types that the renderer actually understands. Anything else is
 /// preserved verbatim and reported as a warning so the frontend can show
 /// a skipped tab.
-pub const KNOWN_VIEW_TYPES: [&str; 4] = ["table", "board", "cards", "list"];
+pub const KNOWN_VIEW_TYPES: [&str; 5] = ["table", "board", "cards", "list", "tasks"];
 
 /// The spec §1 example, embedded verbatim for round-trip tests.
 pub const SPEC_EXAMPLE: &str = r#"filters:
@@ -333,6 +347,30 @@ pub fn validate(def: &BaseDef) -> Result<Vec<String>, CoreError> {
             warnings.push(format!(
                 "views[{i}].type `{t}` is not recognised; renderer will skip this tab"
             ));
+        }
+    }
+
+    // 6. Warning: view type / dataset mismatch (spec §4).
+    for (i, view) in def.views.iter().enumerate() {
+        let v_label = view_label(view, i);
+        match def.source {
+            BaseSourceKind::Notes => {
+                if view.r#type == "tasks" {
+                    warnings.push(format!(
+                        "view {v_label}: type `tasks` requires source: tasks"
+                    ));
+                }
+            }
+            BaseSourceKind::Tasks => {
+                if !matches!(
+                    view.r#type.as_str(),
+                    "tasks" | "table" | "board" | "list" | "cards"
+                ) {
+                    warnings.push(format!(
+                        "view {v_label}: source: tasks supports tasks/table/board/list/cards"
+                    ));
+                }
+            }
         }
     }
 
@@ -776,5 +814,49 @@ views:
             warnings.is_empty(),
             "no warnings expected on acyclic graph; got {warnings:?}"
         );
+    }
+
+    #[test]
+    fn source_defaults_to_notes_and_parses_tasks() {
+        let d = parse_base("views:\n  - type: table\n").unwrap();
+        assert!(matches!(d.source, BaseSourceKind::Notes));
+        let d = parse_base("source: tasks\nviews:\n  - type: table\n").unwrap();
+        assert!(matches!(d.source, BaseSourceKind::Tasks));
+        // round-trip keeps the field
+        let yaml = write_base(&d).unwrap();
+        assert!(yaml.contains("source: tasks"));
+    }
+
+    #[test]
+    fn unknown_source_is_a_load_time_error() {
+        let err = parse_base("source: bogus\nviews:\n  - type: table\n").unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("source"),
+            "error names the field: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_warns_on_source_view_type_mismatch() {
+        // notes source + tasks view -> warning
+        let d = parse_base("views:\n  - type: tasks\n").unwrap();
+        let warns = validate(&d).unwrap();
+        assert!(warns.iter().any(|w| w.contains("requires source: tasks")));
+        // tasks source + unsupported view type -> warning
+        let d = parse_base("source: tasks\nviews:\n  - type: gantt\n").unwrap();
+        let warns = validate(&d).unwrap();
+        assert!(
+            warns.iter().any(|w| w.contains("source: tasks supports")),
+            "gantt under source: tasks must warn; got {warns:?}"
+        );
+        // tasks source + tasks/table/board/list/cards -> no source warnings
+        for ty in ["tasks", "table", "board", "list", "cards"] {
+            let d = parse_base(&format!("source: tasks\nviews:\n  - type: {ty}\n")).unwrap();
+            let warns = validate(&d).unwrap();
+            assert!(
+                !warns.iter().any(|w| w.contains("source")),
+                "{ty}: {warns:?}"
+            );
+        }
     }
 }

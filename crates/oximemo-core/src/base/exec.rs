@@ -23,10 +23,10 @@ use std::sync::Arc;
 use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 
-use super::{BaseDef, BaseViewDef, FilterGroup, FilterSpec, validate};
+use super::{BaseDef, BaseSourceKind, BaseViewDef, FilterGroup, FilterSpec, validate};
 use super::{formula_deps, walk_formula};
 use crate::error::{CoreError, Result};
-use crate::expr::eval::{EvalClock, EvalCtx, RowData, compare, eval};
+use crate::expr::eval::{EvalClock, EvalCtx, RowData, RowSubject, compare, eval};
 use crate::expr::parser::{Expr, parse_expr};
 use crate::expr::value::{
     Value, group_string, parse_date_ish, promote_num, total_order, type_name,
@@ -36,6 +36,7 @@ use time::{OffsetDateTime, UtcOffset};
 use crate::memo::{MemoHash, MemoId, MemoSummary, NoteFormat};
 use crate::props::PropValue;
 use crate::store::index::IndexRecord;
+use crate::tasks::TaskDto;
 use crate::vault::Vault;
 
 /// `SystemTime` → UTC instant (pre-epoch and out-of-range clamp to the
@@ -61,9 +62,16 @@ pub struct BaseCell {
 /// the resolved column cells.
 #[derive(Debug, Clone, Serialize)]
 pub struct BaseRow {
+    /// Generation-scoped row identity (spec §4): `n:<memo_id>` for note
+    /// rows, `t:<memo_id>:<line>` for task rows. NOT stable across
+    /// external edits — consumers clear derived state when
+    /// `BasePage.result_key` changes.
+    pub row_id: String,
     pub summary: MemoSummary,
     pub folder: String,
     pub format: String,
+    /// Present only for `source: tasks` rows.
+    pub task: Option<TaskDto>,
     pub cells: Vec<BaseCell>,
 }
 
@@ -140,6 +148,13 @@ pub fn default_columns(view: &BaseViewDef) -> Vec<String> {
         .clone()
         .unwrap_or_else(|| vec!["file.name".to_string()])
 }
+
+/// Spec §4: an undeclared `limit` on a task-source view defaults to
+/// 200 rows. Tasks are per-line, not per-note, so an unbounded query
+/// would fan out to every task line in the vault (up to
+/// `MAX_TASKS_PER_NOTE` × vault size). Notes-source views keep the
+/// historical unbounded behaviour — explicit `view.limit` always wins.
+pub const TASK_SOURCE_DEFAULT_LIMIT: u32 = 200;
 
 // --- property catalog (base_props) ----------------------------------------
 
@@ -257,17 +272,48 @@ fn observed_props(snap: &[IndexRecord]) -> Vec<PropInfo> {
 
 // --- executor ------------------------------------------------------------
 
-/// A row that survived filtering: the record, its per-row formula
-/// results (for later cell/order/group/summary resolution), and its
-/// precomputed sort keys. `keys[0]` is the group key when `groupBy` is
-/// active, followed by one entry per `order` spec; `None` = error/Null
-/// key, which sorts last regardless of direction.
+/// A row that survived filtering: the record, the subject (note vs.
+/// one indexed task inside it for `source: tasks`), the row's
+/// generation-scoped id string, the per-row formula results, the
+/// precomputed sort keys, and the group bucket. `keys[0]` is the group
+/// key when `groupBy` is active, followed by one entry per `order`
+/// spec; `None` = error/Null key, which sorts last regardless of
+/// direction.
 struct Kept<'a> {
     rec: &'a IndexRecord,
+    subject: RowSubject<'a>,
+    /// Generation-scoped identity (`n:<memo_id>` / `t:<memo_id>:<line>`).
+    row_id: String,
     formulas: HashMap<String, Result<Value, CoreError>>,
     keys: Vec<Option<Value>>,
     /// Canonical group bucket (`""` = 그룹 없음, also when no `groupBy`).
     group_str: String,
+}
+
+/// Subject-aware `RowData` for one `(rec, subject)` pair: task rows get
+/// `task.*` scope, note rows get the plain note scope. Every phase
+/// that rebuilds a row scope — formula eval, sort/group key
+/// precompute, summaries, cell building — routes through this so no
+/// phase silently falls back to note-only construction (task rows
+/// would then see Null `task.*` while formulas/cells resolve).
+fn row_data_of<'a>(
+    rec: &'a IndexRecord,
+    subject: &RowSubject<'a>,
+    formulas: &'a HashMap<String, Result<Value, CoreError>>,
+    this: Option<&'a RowData<'a>>,
+) -> RowData<'a> {
+    match subject {
+        RowSubject::Task(t) => RowData::from_task(rec, t, formulas, this),
+        RowSubject::Note => RowData::from_record(rec, formulas, this),
+    }
+}
+
+impl Kept<'_> {
+    /// Convenience wrapper around [`row_data_of`] used by every
+    /// post-kept phase (cell building, summaries).
+    fn row_data<'b>(&'b self, this: Option<&'b RowData<'b>>) -> RowData<'b> {
+        row_data_of(self.rec, &self.subject, &self.formulas, this)
+    }
 }
 
 /// Runtime query-fatal error (spec §2 taxonomy: line/col zero).
@@ -455,6 +501,8 @@ impl Vault {
                     deleted: false,
                     deleted_at: None,
                     preview: String::new(),
+                    tasks: Vec::new(),
+                    tasks_truncated: false,
                 })
             }
             _ => None,
@@ -468,73 +516,110 @@ impl Vault {
                 .as_ref()
                 .map(|rec| RowData::from_query_file(rec, &empty_formulas)),
         };
+        // Subject-driven iteration (spec §4): `source: tasks` yields
+        // one row per indexed `TaskRow`; otherwise one row per note.
+        // Records with zero tasks contribute nothing in task mode;
+        // soft-deleted records are excluded exactly as before
+        // (`snap.iter().filter(|r| !r.deleted)` already does that).
+        let task_source = def.source == BaseSourceKind::Tasks;
         let mut kept: Vec<Kept> = Vec::new();
         for rec in snap.iter().filter(|r| !r.deleted) {
-            // Formulas first, in dependency order, memoized per row;
-            // errors are stored and re-raised as cell errors on lookup.
-            let mut fmap: HashMap<String, Result<Value, CoreError>> =
-                HashMap::with_capacity(active.len());
-            for (name, expr) in &active {
-                let row = RowData::from_record(rec, &fmap, this_row.as_ref());
-                let v = eval(expr, &row, &ctx);
-                fmap.insert(name.clone(), v);
+            if task_source && rec.tasks_truncated {
+                warnings.push(format!(
+                    "{}: task list truncated at {} rows (only the first {} indexed)",
+                    rec.path,
+                    crate::tasks::MAX_TASKS_PER_NOTE,
+                    crate::tasks::MAX_TASKS_PER_NOTE
+                ));
             }
-            let row = RowData::from_record(rec, &fmap, this_row.as_ref());
-            // Filters: keep Ok(Bool(true)); Ok(Bool(false))/Ok(Null)
-            // drop the row; any Err or other non-Bool is query-fatal
-            // (spec §2 — Null is the documented "outside an embed"
-            // value, not a type error).
-            let mut passes = true;
-            for f in &filters {
-                match eval(f, &row, &ctx) {
-                    Ok(Value::Bool(true)) => {}
-                    Ok(Value::Bool(false)) | Ok(Value::Null) => {
-                        passes = false;
-                        break;
-                    }
-                    Err(e) => return Err(e),
-                    Ok(v) => {
-                        return Err(fatal(format!(
-                            "filter must evaluate to a boolean, got {}",
-                            type_name(&v)
-                        )));
+            let subjects: Vec<RowSubject<'_>> = if task_source {
+                rec.tasks.iter().map(RowSubject::Task).collect()
+            } else {
+                vec![RowSubject::Note]
+            };
+            for subject in subjects {
+                let row_id = match &subject {
+                    RowSubject::Task(t) => format!("t:{}:{}", rec.id, t.line),
+                    RowSubject::Note => format!("n:{}", rec.id),
+                };
+                // Formulas first, in dependency order, memoized per
+                // (subject, record); errors are stored and re-raised
+                // as cell errors on lookup. Going through
+                // `row_data_of` keeps `task.*` resolving for task
+                // rows during formula evaluation (a plain
+                // `RowData::from_record` would Null them out).
+                let mut fmap: HashMap<String, Result<Value, CoreError>> =
+                    HashMap::with_capacity(active.len());
+                for (name, expr) in &active {
+                    let row = row_data_of(rec, &subject, &fmap, this_row.as_ref());
+                    let v = eval(expr, &row, &ctx);
+                    fmap.insert(name.clone(), v);
+                }
+                let row = row_data_of(rec, &subject, &fmap, this_row.as_ref());
+                // Filters: keep Ok(Bool(true)); Ok(Bool(false))/Ok(Null)
+                // drop the row; any Err or other non-Bool is
+                // query-fatal (spec §2 — Null is the documented
+                // "outside an embed" value, not a type error).
+                let mut passes = true;
+                for f in &filters {
+                    match eval(f, &row, &ctx) {
+                        Ok(Value::Bool(true)) => {}
+                        Ok(Value::Bool(false)) | Ok(Value::Null) => {
+                            passes = false;
+                            break;
+                        }
+                        Err(e) => return Err(e),
+                        Ok(v) => {
+                            return Err(fatal(format!(
+                                "filter must evaluate to a boolean, got {}",
+                                type_name(&v)
+                            )));
+                        }
                     }
                 }
-            }
-            if !passes {
-                continue;
-            }
-            // Sort keys: group key first (spec §3 group-major), then
-            // the view order. Errors/Null → None (sorts last); a List
-            // group key uses its first member (spec §3). Without a
-            // groupBy there is no group key position at all.
-            let mut keys =
-                Vec::with_capacity(order_specs.len() + usize::from(group_spec.is_some()));
-            let mut group_str = String::new();
-            if let Some((e, _)) = &group_spec {
-                let g = group_key(e, &row, &ctx);
-                group_str = match &g {
-                    Some(v) => group_string(v),
-                    None => String::new(),
-                };
-                keys.push(g);
-            }
-            for (e, _) in &order_specs {
-                keys.push(match eval(e, &row, &ctx) {
-                    Ok(Value::Null) | Err(_) => None,
-                    Ok(v) => Some(v),
+                if !passes {
+                    continue;
+                }
+                // Sort keys: group key first (spec §3 group-major),
+                // then the view order. Errors/Null → None (sorts
+                // last); a List group key uses its first member.
+                // Without a groupBy there is no group key position.
+                let mut keys =
+                    Vec::with_capacity(order_specs.len() + usize::from(group_spec.is_some()));
+                let mut group_str = String::new();
+                if let Some((e, _)) = &group_spec {
+                    let g = group_key(e, &row, &ctx);
+                    group_str = match &g {
+                        Some(v) => group_string(v),
+                        None => String::new(),
+                    };
+                    keys.push(g);
+                }
+                for (e, _) in &order_specs {
+                    keys.push(match eval(e, &row, &ctx) {
+                        Ok(Value::Null) | Err(_) => None,
+                        Ok(v) => Some(v),
+                    });
+                }
+                kept.push(Kept {
+                    rec,
+                    subject,
+                    row_id,
+                    formulas: fmap,
+                    keys,
+                    group_str,
                 });
             }
-            kept.push(Kept {
-                rec,
-                formulas: fmap,
-                keys,
-                group_str,
-            });
         }
 
-        // 6. Group-major stable sort; MemoId ascending is the final
-        //    tie-break so offset pages never duplicate or skip rows.
+        // 6. Group-major stable sort; (MemoId, subject line) ascending
+        //    is the final tie-break so offset pages never duplicate or
+        //    skip rows. For `source: tasks` rows from the same note, the
+        //    body line number is the only distinguishing key.
+        let line_of = |k: &Kept| match &k.subject {
+            RowSubject::Task(t) => t.line,
+            RowSubject::Note => 0,
+        };
         let mut descs: Vec<bool> = Vec::with_capacity(1 + order_specs.len());
         if let Some((_, d)) = &group_spec {
             descs.push(*d);
@@ -549,11 +634,21 @@ impl Vault {
                     return ord;
                 }
             }
-            a.rec.id.cmp(&b.rec.id)
+            a.rec.id.cmp(&b.rec.id).then(line_of(a).cmp(&line_of(b)))
         });
 
-        // 7. Hard cap, then `total` = capped dataset size.
-        if let Some(cap) = view.limit {
+        // 7. Hard cap, then `total` = capped dataset size. Spec §4:
+        //    an undeclared limit on a task source defaults to 200 —
+        //    task datasets are per-line, not per-note, and an
+        //    accidental unbounded query would otherwise fan out to
+        //    the whole vault's task lines. Notes source keeps the
+        //    historical unbounded behaviour; explicit view `limit`
+        //    always wins over the 200 default.
+        let effective_limit = view.limit.or(match def.source {
+            BaseSourceKind::Tasks => Some(TASK_SOURCE_DEFAULT_LIMIT),
+            BaseSourceKind::Notes => None,
+        });
+        if let Some(cap) = effective_limit {
             kept.truncate(cap as usize);
         }
         let total = kept.len();
@@ -603,7 +698,7 @@ impl Vault {
         let mut full_rows: Vec<BaseRow> = Vec::with_capacity(kept.len());
         let mut group_strs: Vec<String> = Vec::with_capacity(kept.len());
         for k in kept.iter() {
-            let row = RowData::from_record(k.rec, &k.formulas, this_row.as_ref());
+            let row = k.row_data(this_row.as_ref());
             let cells: Vec<BaseCell> = columns
                 .iter()
                 .map(|c| match eval(c, &row, &ctx) {
@@ -618,9 +713,14 @@ impl Vault {
                 })
                 .collect();
             full_rows.push(BaseRow {
+                row_id: k.row_id.clone(),
                 summary: k.rec.to_summary(),
                 folder: folder_of(&k.rec.path),
                 format: format_of(&k.rec.path).to_string(),
+                task: match &k.subject {
+                    RowSubject::Task(t) => Some(TaskDto::from_row(k.rec.id, t)),
+                    RowSubject::Note => None,
+                },
                 cells,
             });
             group_strs.push(k.group_str.clone());
@@ -900,7 +1000,7 @@ fn compute_summaries(
         let mut vals: Vec<Value> = Vec::with_capacity(kept.len());
         let mut errors = 0usize;
         for k in kept {
-            let row = RowData::from_record(k.rec, &k.formulas, this_row);
+            let row = k.row_data(this_row);
             match eval(&expr, &row, ctx) {
                 Ok(v) => vals.push(v),
                 Err(_) => errors += 1,
@@ -1760,6 +1860,8 @@ views:
                 deleted: false,
                 deleted_at: None,
                 preview: "x".repeat(192 * 1024),
+                tasks: Vec::new(),
+                tasks_truncated: false,
             })
             .collect();
         v.with_redb(|idx| idx.upsert_bulk(&recs)).unwrap();
@@ -1803,6 +1905,8 @@ views:
                 deleted: false,
                 deleted_at: None,
                 preview: String::new(),
+                tasks: Vec::new(),
+                tasks_truncated: false,
             })
             .collect();
         v.with_redb(|idx| idx.upsert_bulk(&recs)).unwrap();
@@ -1916,6 +2020,8 @@ views:
                 deleted: false,
                 deleted_at: None,
                 preview: String::new(),
+                tasks: Vec::new(),
+                tasks_truncated: false,
             },
             IndexRecord {
                 id: MemoId(uuid::Uuid::from_u64_pair(2, 1)),
@@ -1939,6 +2045,8 @@ views:
                 deleted: false,
                 deleted_at: None,
                 preview: String::new(),
+                tasks: Vec::new(),
+                tasks_truncated: false,
             },
         ];
         v.with_redb(|idx| idx.upsert_bulk(&recs)).unwrap();
@@ -1974,6 +2082,8 @@ views:
                 deleted,
                 deleted_at: deleted.then_some(OffsetDateTime::UNIX_EPOCH),
                 preview: String::new(),
+                tasks: Vec::new(),
+                tasks_truncated: false,
             };
         let recs = vec![
             rec(
@@ -2043,6 +2153,8 @@ views:
                 deleted: false,
                 deleted_at: None,
                 preview: String::new(),
+                tasks: Vec::new(),
+                tasks_truncated: false,
             })
             .collect();
         v.with_redb(|idx| idx.upsert_bulk(&seed)).unwrap();
@@ -2073,6 +2185,8 @@ views:
             deleted: false,
             deleted_at: None,
             preview: String::new(),
+            tasks: Vec::new(),
+            tasks_truncated: false,
         };
         v.with_redb(|idx| idx.upsert_bulk(&[extra])).unwrap();
         let third = v.base_props().unwrap();
@@ -2105,5 +2219,515 @@ views:
         }
         assert!(genre.options.contains(&"s39".to_string()));
         assert!(!genre.options.contains(&"s40".to_string()));
+    }
+
+    // --- Task 3: subject-driven iteration (spec §4) ---------------------
+
+    #[test]
+    fn task_source_rows_have_distinct_row_ids_and_task_dtos() {
+        let (_t, v) = tmp_vault();
+        let body = "# Note\n\n## Today\n\n- [ ] first task 📅 2026-08-30\n- [x] second task\n";
+        let id = v.create_memo(body.to_string(), None).unwrap().id;
+        v.migrate().unwrap();
+        let def = crate::base::parse_base(
+            "source: tasks\nviews:\n  - type: table\n    columns: [task.text, task.due]\n",
+        )
+        .unwrap();
+        let page = v
+            .run_base(
+                &BaseSource::Inline(def),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 50,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(page.rows.len(), 2, "one row per task: {page:?}");
+        let ids: Vec<&str> = page.rows.iter().map(|r| r.row_id.as_str()).collect();
+        // TaskRow.line is the 0-based index over the whole note body:
+        // `# Note`=0, blank=1, `## Today`=2, blank=3, tasks at 4 and 5.
+        assert_eq!(
+            ids,
+            vec![format!("t:{id}:4").as_str(), format!("t:{id}:5").as_str()]
+        );
+        // parent summary + task DTO both present
+        assert_eq!(page.rows[0].summary.id, id);
+        let task = page.rows[0].task.as_ref().expect("task dto");
+        assert_eq!(task.text, "first task");
+        assert_eq!(task.task_ref.line, 4);
+        assert_eq!(task.task_ref.memo_id, id);
+        // formula/cell content is per-task
+        assert_eq!(
+            page.rows[0].cells[0].value,
+            Some(Value::Str("first task".into()))
+        );
+        assert_eq!(
+            page.rows[1].cells[0].value,
+            Some(Value::Str("second task".into()))
+        );
+    }
+
+    #[test]
+    fn note_source_rows_use_note_row_ids() {
+        // Same vault shape, def WITHOUT `source: tasks`: one row per
+        // note, `n:<id>` row_id, no task DTO.
+        let (_t, v) = tmp_vault();
+        let body = "# Note\n\n## Today\n\n- [ ] first task 📅 2026-08-30\n- [x] second task\n";
+        let id = v.create_memo(body.to_string(), None).unwrap().id;
+        let def =
+            crate::base::parse_base("views:\n  - type: table\n    columns: [file.name]\n").unwrap();
+        let page = v
+            .run_base(
+                &BaseSource::Inline(def),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 50,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(page.rows.len(), 1, "one row per note: {page:?}");
+        assert_eq!(page.rows[0].row_id, format!("n:{id}"));
+        assert!(page.rows[0].task.is_none());
+    }
+
+    // --- Task 4: query semantics ---------------------------------------
+
+    /// Spec §4: an `source: tasks` def with no view `limit` defaults to
+    /// 200 rows hard-capped — tasks are per-line, not per-note, so an
+    /// unbounded query would fan out to every task line in the vault.
+    /// Explicit view limits always win over the default.
+    #[test]
+    fn task_source_applies_200_default_limit() {
+        let (_t, v) = tmp_vault();
+        // 250 task lines: the H1 becomes the indexed file name, the
+        // blank line ends the heading, then 250 `- [ ] …` lines.
+        let mut body = String::from("# Bulk\n\n");
+        for i in 0..250 {
+            body.push_str(&format!("- [ ] task {i:03}\n"));
+        }
+        v.create_memo(body, None).unwrap();
+        v.migrate().unwrap();
+
+        // No view limit → 200 row default cap applies.
+        let def = crate::base::parse_base("source: tasks\nviews:\n  - type: table\n").unwrap();
+        let page = v
+            .run_base(
+                &BaseSource::Inline(def.clone()),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 100,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            page.total, 200,
+            "default 200 cap applied; had 250 tasks in the vault"
+        );
+        assert_eq!(
+            page.rows.len(),
+            100,
+            "rows.len() is min(request.limit, total) → the 100-request slice"
+        );
+
+        // Explicit view limit wins over the 200 default.
+        let def5 =
+            crate::base::parse_base("source: tasks\nviews:\n  - type: table\n    limit: 5\n")
+                .unwrap();
+        let page5 = v
+            .run_base(
+                &BaseSource::Inline(def5),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 100,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            page5.total, 5,
+            "explicit view.limit: 5 wins over the 200 default"
+        );
+    }
+
+    /// Spec §4: comparing `task.due` (Null when absent) against
+    /// `today()` is a query-fatal error — operators see the
+    /// `cannot compare` message instead of silently dropping rows.
+    /// Guards (`!= null` short-circuit) make the same view safe.
+    #[test]
+    fn task_source_null_ordering_is_fatal_until_guarded() {
+        let (_t, v) = tmp_vault();
+        // Dated task uses 📅 2026-01-01 — clearly in the past for any
+        // current clock, so `task.due < today()` evaluates true.
+        // The undated task has no `📅` token → `task.due` resolves to Null.
+        let body = "# Plan\n\n- [ ] dated 📅 2026-01-01\n- [ ] undated\n";
+        v.create_memo(body.to_string(), None).unwrap();
+        v.migrate().unwrap();
+
+        // Bare `task.due < today()`: Null vs Date → cannot compare,
+        // surfaces as a runtime Expr error (spec §2's diagnostic
+        // taxonomy — no silent row drop).
+        let raw = crate::base::parse_base(
+            "source: tasks\nviews:\n  - type: table\n    filters: 'task.due < today()'\n",
+        )
+        .unwrap();
+        let err = v
+            .run_base(
+                &BaseSource::Inline(raw),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 50,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("cannot compare"),
+            "expected cannot-compare diagnostic, got: {err}"
+        );
+
+        // Guarded form: `task.due != null && task.due < today()`. The
+        // `!= null` arms to Bool(false) for the undated task, the
+        // boolean operator short-circuits, and only the dated task
+        // survives.
+        let guarded = crate::base::parse_base(
+            "source: tasks\nviews:\n  - type: table\n    filters: 'task.due != null && task.due < today()'\n",
+        )
+        .unwrap();
+        let page = v
+            .run_base(
+                &BaseSource::Inline(guarded),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 50,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            page.total, 1,
+            "only the dated task is overdue; undated short-circuits to false"
+        );
+        assert_eq!(page.rows[0].task.as_ref().unwrap().text, "dated");
+
+        // `task.due == null` keeps only the undated task.
+        let only_null = crate::base::parse_base(
+            "source: tasks\nviews:\n  - type: table\n    filters: 'task.due == null'\n",
+        )
+        .unwrap();
+        let page_null = v
+            .run_base(
+                &BaseSource::Inline(only_null),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 50,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(page_null.total, 1, "only the undated task");
+        assert_eq!(page_null.rows[0].task.as_ref().unwrap().text, "undated");
+    }
+
+    /// A note exceeding `MAX_TASKS_PER_NOTE` indexes only the first
+    /// 1000 task rows and sets `tasks_truncated`; a `source: tasks`
+    /// run surfaces that as a per-note warning naming the file.
+    #[test]
+    fn truncated_task_note_surfaces_a_query_warning() {
+        let (_t, v) = tmp_vault();
+        // 1001 task lines exceed MAX_TASKS_PER_NOTE (1000); `parse_tasks`
+        // drops the 1001st and sets `tasks_truncated: true` on the
+        // IndexRecord. `create_memo` + `migrate()` is the same indexing
+        // path the other Plan B tests use (the brief allows `migrate()`
+        // as the indexing path — a hand-written file alone would miss
+        // the index because `read_memo` returns None without a
+        // frontmatter identity).
+        let mut body = String::from("# Big\n\n");
+        for i in 0..1001 {
+            body.push_str(&format!("- [ ] task {i:04}\n"));
+        }
+        v.create_memo(body, None).unwrap();
+        v.migrate().unwrap();
+
+        // Confirm the record carries both 1000 tasks AND the truncation
+        // flag; total reflects only the indexed rows.
+        let snap: Vec<_> = v
+            .snapshot()
+            .unwrap()
+            .iter()
+            .map(|r| (r.path.clone(), r.tasks.len(), r.tasks_truncated))
+            .collect();
+        assert!(
+            snap.iter().any(|(_, n, trunc)| *n == 1000 && *trunc),
+            "expected one record with 1000 tasks + truncated=true; got {snap:?}"
+        );
+
+        // limit > MAX_TASKS_PER_NOTE so the 200-default cap does not
+        // shadow the truncation warning: the brief asserts
+        // `total == 1000` over all indexed rows, not the 200-capped
+        // slice. The truncation warning IS the contract.
+        let def =
+            crate::base::parse_base("source: tasks\nviews:\n  - type: table\n    limit: 2000\n")
+                .unwrap();
+        let page = v
+            .run_base(
+                &BaseSource::Inline(def),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 50,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            page.total, 1000,
+            "indexed 1000 task rows; the 1001st was dropped at parse time"
+        );
+        assert!(
+            page.warnings
+                .iter()
+                .any(|w| w.to_lowercase().contains("truncat")),
+            "expected a truncation warning, got {:?}",
+            page.warnings
+        );
+    }
+
+    /// Spec §4 / §13: formulas evaluated against a `source: tasks`
+    /// row must see the task subject — `task.*` resolves per-row,
+    /// not against the parent note. This test pins that contract:
+    /// `RowData::from_record` would Null every `task.due` lookup and
+    /// the three per-task cell assertions (past-due true, future
+    /// false, undated false via the guard) would all fail. The three
+    /// distinct row_ids close §13's "formula cells" bullet as a side
+    /// effect.
+    #[test]
+    fn task_source_formulas_evaluate_against_task_subject() {
+        let (_t, v) = tmp_vault();
+        // Past-due, future, undated (guard exercises the null path).
+        let body =
+            "# Plan\n\n- [ ] overdue 📅 2020-01-01\n- [ ] upcoming 📅 2030-01-01\n- [ ] undated\n";
+        let id = v.create_memo(body.to_string(), None).unwrap().id;
+        v.migrate().unwrap();
+        // Pin the clock so `today()` is deterministic across hosts.
+        // 2026-01-01 sits between the past-due (2020-01-01) and
+        // upcoming (2030-01-01) dates for an unambiguous ordering.
+        let now_ms: i64 = 1_767_225_600_000; // 2026-01-01T00:00:00Z
+        let local_offset_seconds: i32 = 0;
+        let def = crate::base::parse_base(
+            "source: tasks\nformulas:\n  overdue: 'task.due != null && task.due < today()'\nviews:\n  - type: table\n    columns: [task.text, formula.overdue]\n",
+        )
+        .unwrap();
+        let page = v
+            .run_base(
+                &BaseSource::Inline(def),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 50,
+                    group: None,
+                    now_ms: Some(now_ms),
+                    local_offset_seconds: Some(local_offset_seconds),
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            page.rows.len(),
+            3,
+            "one row per task (source: tasks): {page:?}"
+        );
+        // Map row → task text → formula.overdue cell. Cell content
+        // is per-task, not per-note: if the formula loop fell back to
+        // from_record, `task.due` would be Null for all three rows
+        // and the guard would short-circuit every formula to false.
+        let mut cells: std::collections::BTreeMap<&str, Option<Value>> = Default::default();
+        for r in &page.rows {
+            let text = match &r.cells[0].value {
+                Some(Value::Str(s)) => s.as_str(),
+                other => panic!("expected task.text string cell, got {other:?}"),
+            };
+            let overdue = r.cells[1].value.clone();
+            cells.insert(text, overdue);
+        }
+        assert_eq!(
+            cells.get("overdue").cloned().flatten(),
+            Some(Value::Bool(true)),
+            "past-due task's overdue formula must be true"
+        );
+        assert_eq!(
+            cells.get("upcoming").cloned().flatten(),
+            Some(Value::Bool(false)),
+            "future-dated task's overdue formula must be false"
+        );
+        assert_eq!(
+            cells.get("undated").cloned().flatten(),
+            Some(Value::Bool(false)),
+            "undated task's overdue formula must short-circuit false via the null guard"
+        );
+        // Three distinct row_ids (spec §13: two tasks from one parent
+        // produce distinct BaseRow.row_id values and formula cells).
+        let ids: std::collections::HashSet<&str> =
+            page.rows.iter().map(|r| r.row_id.as_str()).collect();
+        assert_eq!(
+            ids.len(),
+            3,
+            "row_ids must be distinct across tasks of the same parent note"
+        );
+        for r in &page.rows {
+            assert!(
+                r.row_id.starts_with(&format!("t:{id}:")),
+                "task row_id must be task-scoped (t:<memo_id>:<line>), got {}",
+                r.row_id
+            );
+        }
+    }
+    /// Spec §3 / §4: offset paging under tied sort keys must not
+    /// duplicate or skip rows, must cover the full dataset across
+    /// consecutive pages, and must produce a deterministic order
+    /// matching `(rec.id asc, subject line asc)`. The implementation
+    /// relies on a stable `sort_by` plus the final tie-break
+    /// `.then(rec.id).then(line_of)`; if the sort ever becomes
+    /// unstable, or paging drops/duplicates a row, this test
+    /// catches it. We use two notes so the `(rec.id asc)` component
+    /// is observable across notes: `first_id` (older UUIDv7) must
+    /// appear before `second_id` in the page walk, and within each
+    /// note the lines must come out body-ascending (lines 2 and 3).
+    #[test]
+    fn task_source_offset_pages_are_disjoint_under_equal_keys() {
+        let (_t, v) = tmp_vault();
+        let first_id = v
+            .create_memo("# First\n\n- [ ] f1\n- [ ] f2\n".to_string(), None)
+            .unwrap()
+            .id;
+        let second_id = v
+            .create_memo("# Second\n\n- [ ] s1\n- [ ] s2\n".to_string(), None)
+            .unwrap()
+            .id;
+        v.migrate().unwrap();
+        let def = crate::base::parse_base(
+            "source: tasks\nviews:\n  - type: table\n    columns: [task.text]\n",
+        )
+        .unwrap();
+        // Walk offset 0..3 with limit=1: four disjoint size-1 pages
+        // that together enumerate every task exactly once.
+        let mut seen: std::collections::HashSet<String> = Default::default();
+        let mut from_first: Vec<bool> = Vec::new();
+        let mut concat_lines: Vec<u32> = Vec::new();
+        for offset in 0..4usize {
+            let req = RunBaseReq {
+                view_index: 0,
+                offset,
+                limit: 1,
+                group: None,
+                now_ms: None,
+                local_offset_seconds: None,
+                include_group_counts: false,
+                include_summaries: false,
+                this_id: None,
+            };
+            let page = v.run_base(&BaseSource::Inline(def.clone()), &req).unwrap();
+            assert_eq!(
+                page.total, 4,
+                "total reflects full dataset (offset={offset})"
+            );
+            assert_eq!(
+                page.rows.len(),
+                1,
+                "limit=1 returns exactly 1 row (offset={offset})"
+            );
+            let r = &page.rows[0];
+            assert!(
+                seen.insert(r.row_id.clone()),
+                "row_id {} duplicated at offset={offset}; tie-break failed",
+                r.row_id
+            );
+            let line = r.task.as_ref().expect("task DTO present").task_ref.line;
+            concat_lines.push(line);
+            let is_first = r.row_id.starts_with(&format!("t:{first_id}:"));
+            from_first.push(is_first);
+            let expected_memo = if is_first { first_id } else { second_id };
+            assert_eq!(
+                r.row_id,
+                format!("t:{expected_memo}:{line}"),
+                "row_id encodes (memo_id, line)"
+            );
+        }
+        assert_eq!(
+            seen.len(),
+            4,
+            "all 4 task rows observed exactly once across pages"
+        );
+        // Order under `(rec.id asc, line asc)`: first_id (older,
+        // smaller UUIDv7) precedes second_id; within each note the
+        // task lines are body-ascending (lines 2 and 3).
+        assert_eq!(
+            from_first,
+            vec![true, true, false, false],
+            "page walk must order rows by (rec.id asc): first_id's tasks first; got {from_first:?}"
+        );
+        assert_eq!(
+            concat_lines,
+            vec![2, 3, 2, 3],
+            "page walk must enumerate lines body-ascending within each note; got {concat_lines:?}"
+        );
+        // Sanity: first_id must be the smaller MemoId (UUIDv7) for
+        // the page-order assertion to mean anything.
+        assert!(
+            first_id < second_id,
+            "first-created note must have the smaller MemoId (UUIDv7); \
+             otherwise the test fixture cannot pin the tie-break"
+        );
     }
 }

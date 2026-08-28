@@ -511,7 +511,29 @@ decay_to = "decayed"
 /// The daily preset's `TEMPLATE.md` (user prompt 2026-08-23): frontmatter
 /// stamps the document kind; the H1 normalizes to the date at creation
 /// (`open_daily`), so `{{date}}` here matches the canonical form.
-pub const DAILY_TEMPLATE_MD: &str = "---\nkind: daily\n---\n# {{date}}\n";
+/// Tasks spec §9 (2026-08-27): a `## 할 일` section embeds the guarded
+/// daily query — open tasks due/scheduled on or before the note's own
+/// ISO filename (`this.file.name`; the engine promotes ISO strings to
+/// dates in comparisons, so no new syntax is needed). `apply_preset` is
+/// skip-if-exists, so the fence ships only to NEW daily notes; existing
+/// notes and user-edited templates are never rewritten.
+pub const DAILY_TEMPLATE_MD: &str = r#"---
+kind: daily
+---
+# {{date}}
+
+## 할 일
+
+```query
+source: tasks
+filters:
+  and:
+    - 'task.type != "DONE" && task.type != "CANCELLED"'
+    - '(task.due != null && task.due <= this.file.name) || (task.scheduled != null && task.scheduled <= this.file.name)'
+views:
+  - { type: tasks, name: 오늘 }
+```
+"#;
 
 /// The daily preset's `SCHEMA.toml`: a lightweight journaling schema —
 /// mood (badge → calendar dot colors) and energy, both optional so
@@ -820,6 +842,49 @@ mod tests {
             assert_eq!(collection_preset(id).map(|(_, sc)| sc), Some(schema_toml));
         }
         assert!(collection_preset("nope").is_none());
+    }
+
+    /// Tasks spec §9: the daily template embeds the guarded daily query
+    /// byte-exact, and the fence's YAML parses through `parse_base` —
+    /// bare-string filter expressions under a grouped `and:`.
+    #[test]
+    fn daily_template_contains_guarded_task_query() {
+        const FENCE: &str = r#"```query
+source: tasks
+filters:
+  and:
+    - 'task.type != "DONE" && task.type != "CANCELLED"'
+    - '(task.due != null && task.due <= this.file.name) || (task.scheduled != null && task.scheduled <= this.file.name)'
+views:
+  - { type: tasks, name: 오늘 }
+```"#;
+        assert!(
+            DAILY_TEMPLATE_MD.contains(FENCE),
+            "template must embed the §9 fence verbatim: {DAILY_TEMPLATE_MD:?}"
+        );
+        // The YAML inside the fence parses: task source, an and-group of
+        // two bare-string expressions, one `tasks` view named 오늘.
+        let yaml = FENCE
+            .strip_prefix("```query\n")
+            .and_then(|y| y.strip_suffix("\n```"))
+            .expect("fence delimiters");
+        let def = crate::base::parse_base(yaml).expect("§9 fence parses");
+        assert!(matches!(def.source, crate::base::BaseSourceKind::Tasks));
+        match def.filters {
+            Some(crate::base::FilterSpec::Group(crate::base::FilterGroup::And(items))) => {
+                assert_eq!(items.len(), 2, "two guarded clauses: {items:?}");
+                assert!(
+                    items
+                        .iter()
+                        .all(|i| matches!(i, crate::base::FilterSpec::Expr(_))),
+                    "clauses must stay the bare-string form, not nested maps"
+                );
+            }
+            other => panic!("filters must be an and-group of two strings: {other:?}"),
+        }
+        assert_eq!(def.views.len(), 1);
+        assert_eq!(def.views[0].r#type, "tasks");
+        assert_eq!(def.views[0].name.as_deref(), Some("오늘"));
     }
 
     #[test]

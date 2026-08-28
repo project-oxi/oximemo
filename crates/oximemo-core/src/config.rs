@@ -30,6 +30,10 @@ pub struct VaultConfig {
     /// Copilot delegation (spec 2026-08-23). `agent`/`executable` are
     /// empty until the user explicitly activates a detected agent CLI.
     pub copilot: CopilotConfig,
+    /// Tasks feature (spec 2026-08-27 §11). Status symbols, write
+    /// format, and capture routing for `- [ ]` checkboxes.
+    #[serde(default)]
+    pub tasks: crate::tasks::TasksConfig,
     /// Forward-compatible schema marker. Unknown fields are ignored.
     pub schema_version: u32,
 }
@@ -47,6 +51,7 @@ impl Default for VaultConfig {
             metadata: MetadataConfig::default(),
             git: GitConfig::default(),
             copilot: CopilotConfig::default(),
+            tasks: crate::tasks::TasksConfig::default(),
             schema_version: 3,
         }
     }
@@ -355,6 +360,7 @@ impl VaultConfig {
             "brain": self.brain,
             "daily": self.daily,
             "copilot": self.copilot,
+            "tasks": self.tasks,
         })
     }
 }
@@ -458,6 +464,36 @@ folder = "journal"
         let json = c.config_json();
         assert_eq!(json["daily"]["enabled"], serde_json::json!(true));
         assert_eq!(json["daily"]["folder"], serde_json::json!("daily"));
+    }
+
+    #[test]
+    fn tasks_section_defaults_and_overrides() {
+        let c = VaultConfig::default();
+        assert!(c.tasks.enabled);
+        assert_eq!(c.tasks.write_format, crate::tasks::WriteFormat::Emoji);
+        assert_eq!(c.tasks.default_section, "할 일");
+
+        // Round-trips through TOML.
+        let s = c.to_toml().unwrap();
+        let back: VaultConfig = toml::from_str(&s).unwrap();
+        assert!(back.tasks.enabled);
+        assert_eq!(back.tasks.write_format, crate::tasks::WriteFormat::Emoji);
+        assert_eq!(back.tasks.default_section, "할 일");
+
+        // Explicit override wins.
+        let t = r#"
+[tasks]
+enabled = false
+default_section = "Todo"
+"#;
+        let c2: VaultConfig = toml::from_str(t).unwrap();
+        assert!(!c2.tasks.enabled);
+        assert_eq!(c2.tasks.default_section, "Todo");
+
+        // Exposed via config_json for the frontend.
+        let json = c2.config_json();
+        assert_eq!(json["tasks"]["enabled"], serde_json::json!(false));
+        assert_eq!(json["tasks"]["default_section"], serde_json::json!("Todo"));
     }
 
     #[test]

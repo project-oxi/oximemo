@@ -157,12 +157,30 @@ impl Paths {
         self.index_dir.join("index-fmt")
     }
 
+    /// Marker file recording the BLAKE3 fingerprint of the
+    /// extraction-affecting subset of `[tasks]` config (parser version,
+    /// `enabled`, `global_filter`, `statuses`). A mismatch (or absence)
+    /// triggers a one-time reindex so `IndexRecord.tasks` picks up the
+    /// new extraction rules.
+    pub fn tasks_fingerprint_path(&self) -> PathBuf {
+        self.index_dir.join("tasks-fingerprint")
+    }
+
     /// Marker file recording whether the one-time Inbox (`idea` preset)
     /// seed has run. Idempotent across migrations; absent = seed on next
     /// `ensure_default_folders()`. Lives under the index dir (not the
     /// vault) so a synced/cloud vault never carries the marker.
     pub fn inbox_seed_marker_path(&self) -> PathBuf {
         self.index_dir.join("inbox-seed")
+    }
+
+    /// Marker file recording whether the one-shot installed `할 일`
+    /// base seed (tasks spec §7.4) has run. Same ownership rule as
+    /// [`Self::inbox_seed_marker_path`]: present = never reseed, so a
+    /// deliberate deletion is permanent until the user re-creates the
+    /// file by hand.
+    pub fn tasks_base_seed_marker_path(&self) -> PathBuf {
+        self.index_dir.join("tasks-base-seed")
     }
 
     pub fn search_dir(&self) -> PathBuf {
@@ -223,8 +241,8 @@ static TEST_INDEX_ROOT: OnceLock<PathBuf> = OnceLock::new();
 pub fn isolate_index_root_for_tests() -> PathBuf {
     TEST_INDEX_ROOT
         .get_or_init(|| {
-            let root = std::env::temp_dir()
-                .join(format!("oximemo-test-index-{}", std::process::id()));
+            let root =
+                std::env::temp_dir().join(format!("oximemo-test-index-{}", std::process::id()));
             let _ = std::fs::create_dir_all(&root);
             root
         })
@@ -234,7 +252,10 @@ pub fn isolate_index_root_for_tests() -> PathBuf {
 /// App-support root for CUSTOM-vault index namespaces. Honors the
 /// test override for the same reason the `Some` branch does.
 fn custom_index_support() -> PathBuf {
-    TEST_INDEX_ROOT.get().cloned().unwrap_or_else(app_support_dir)
+    TEST_INDEX_ROOT
+        .get()
+        .cloned()
+        .unwrap_or_else(app_support_dir)
 }
 
 /// Root holding per-custom-vault index namespaces (`index/by-vault`).
@@ -242,7 +263,9 @@ fn custom_index_support() -> PathBuf {
 /// the test override so GC tests run against fixtures, not the user's
 /// real index.
 pub fn by_vault_root() -> PathBuf {
-    custom_index_support().join(INDEX_SUBDIR).join(BY_VAULT_SUBDIR)
+    custom_index_support()
+        .join(INDEX_SUBDIR)
+        .join(BY_VAULT_SUBDIR)
 }
 
 /// Stable, collision-resistant namespace for a custom vault's index dir.
@@ -262,7 +285,6 @@ fn vault_namespace(vault: &Path) -> String {
     let hex = hasher.finalize().to_hex();
     hex.as_str()[..16].to_string()
 }
-
 
 /// Lexically absolutize and normalize `p` without touching the
 /// filesystem: relative paths resolve against the CWD, `.` components
@@ -396,10 +418,11 @@ mod tests {
     fn custom_vaults_still_get_hash_namespaces() {
         let a = Paths::resolve(Some(Path::new("/tmp/some-other-vault")));
         let none = Paths::resolve(None);
-        assert!(a
-            .index_dir
-            .parent()
-            .is_some_and(|p| p.ends_with(BY_VAULT_SUBDIR)));
+        assert!(
+            a.index_dir
+                .parent()
+                .is_some_and(|p| p.ends_with(BY_VAULT_SUBDIR))
+        );
         assert_ne!(a.index_dir, none.index_dir);
         assert_eq!(a.vault, PathBuf::from("/tmp/some-other-vault"));
     }

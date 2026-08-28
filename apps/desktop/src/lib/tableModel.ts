@@ -14,7 +14,11 @@ export type TableColumn =
   | { kind: "updated" }   // file.updated — read-only date
   | { kind: "prop"; key: string } // note.<key> — typed editor
   // formula.<key> — engine-computed, read-only (query views only)
-  | { kind: "formula"; key: string };
+  | { kind: "formula"; key: string }
+  // task.<key> — typed task editor (Plan C Task 6). Renders an editor
+  // when the row carries a `BaseRow.task`; note rows render the cell
+  // empty (read-only). Commits via `patch_task` (spec §4).
+  | { kind: "task"; key: string };
 
 /** Columns for a set of folders: frozen name, the union of schema prop keys
  * (each folder's schema order, first occurrence wins), then updated. All
@@ -38,7 +42,7 @@ export function buildColumns(
 /** Spec §4 editable matrix: note props typed-editable; file.name, tags,
  * created/updated, path/folder/format are derived data — read-only. */
 export function columnEditable(col: TableColumn): boolean {
-  return col.kind === "prop";
+  return col.kind === "prop" || col.kind === "task";
 }
 
 /** Editor type for a schema-less key, inferred from the stored envelope.
@@ -138,6 +142,19 @@ export function applyFrozenOrder<T extends { id: string }>(fresh: T[], frozenIds
   const head = frozenIds.map((id) => byId.get(id)).filter((r): r is T => r !== undefined);
   const seen = new Set(frozenIds);
   return [...head, ...fresh.filter((r) => !seen.has(r.id))];
+}
+
+/** Spec §4 focus freeze, row_id-keyed variant: query-view rows carry a
+ * generation-scoped `row_id` (`n:<memo_id>` / `t:<memo_id>:<line>`) instead
+ * of the note's stable id. Two task rows under one parent share the parent
+ * memo id but stay distinct by row_id, so the freeze map must key on
+ * row_id or both rows collapse onto the same slot. */
+export function applyFrozenOrderByRowId<T extends { row_id: string }>(fresh: T[], frozenIds: string[] | null): T[] {
+  if (!frozenIds) return fresh;
+  const byId = new Map(fresh.map((r) => [r.row_id, r]));
+  const head = frozenIds.map((id) => byId.get(id)).filter((r): r is T => r !== undefined);
+  const seen = new Set(frozenIds);
+  return [...head, ...fresh.filter((r) => !seen.has(r.row_id))];
 }
 
 /** Reconcile a table row from the post-transition NoteDto `update_memo`

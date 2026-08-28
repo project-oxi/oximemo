@@ -1,4 +1,5 @@
 /** Shared types mirroring the Rust core. */
+import type { TaskLineChange as MirrorLineChange, WireTaskEdit } from "./taskLine";
 
 export type MemoId = string;
 
@@ -256,6 +257,32 @@ export interface Config {
     kmdb_key?: string;
   };
   index?: { watcher_debounce_ms?: number };
+  /** `[tasks]` vault config (spec §11) as `get_config` serializes it —
+   *  serde defaults applied, so every field is present once loaded. */
+  tasks?: TasksWireConfig;
+}
+
+/** One `[[tasks.statuses]]` row on the config wire. `type` is
+ * SCREAMING_SNAKE_CASE like every StatusType on the READ side;
+ * `name` is the optional per-status display override. */
+export interface TaskStatusWireDef {
+  symbol: string;
+  name?: string;
+  next: string;
+  type: string;
+}
+
+/** The `[tasks]` table. Field spellings match the Rust serde
+ * serialization; `cfgFromJson` (lib/taskLine.ts) adapts it into the
+ * mirror's `TaskLineCfg`, merging the builtin status table. */
+export interface TasksWireConfig {
+  enabled: boolean;
+  write_format: "emoji" | "dataview";
+  global_filter: string;
+  recurrence_insert: "above" | "below";
+  default_section: string;
+  capture_target: "daily" | "inbox";
+  statuses: TaskStatusWireDef[];
 }
 
 export interface GraphData {
@@ -302,9 +329,17 @@ export interface BaseCell {
 }
 
 export interface BaseRow {
+  /** Generation-scoped row identity (spec §4): `n:<memo_id>` for note
+   *  rows, `t:<memo_id>:<line>` for task rows. NOT stable across
+   *  external edits — consumers clear derived state when
+   *  `BasePage.result_key` changes. Wire field (snake_case; mirrors
+   *  the Rust `BaseRow` derive). */
+  row_id: string;
   summary: MemoSummary;
   folder: string;
   format: NoteFormat;
+  /** Present only for `source: tasks` rows; null for note rows. */
+  task: TaskDto | null;
   cells: BaseCell[];
 }
 
@@ -396,3 +431,206 @@ export interface PropInfo {
   observedTypes: string[];
   options: string[];
 }
+
+// --- Tasks (spec 2026-08-27) --------------------------------------------------
+// Wire mirrors of `crates/oximemo-core/src/tasks.rs` as serialized by the
+// Tauri commands in `src-tauri/src/lib.rs`. Two spelling rules hold:
+//  • READ side (TaskDto & friends): the serde attributes on the core
+//    types — snake_case fields, camelCase enum words (Priority,
+//    TaskWarning), SCREAMING_SNAKE_CASE StatusType, dates as
+//    "YYYY-MM-DD" strings, MemoId/MemoHash as bare strings.
+//  • WRITE side (TaskEdit, TaskSelector, AddTarget, TaskFields,
+//    MoveTasksRequest, TaskDraftTransform): the kernel types carry no
+//    serde derives (Task 1 decision), so the command layer owns these
+//    shapes — externally tagged PascalCase variant names, and the
+//    SetDate/SetPriority words PascalCase, byte-identical to the golden
+//    fixture corpus (taskFixtures.json) that taskLine.ts's adapters read.
+
+/** BLAKE3-derived 16-hex digest of one raw task line (spec §5
+ *  optimistic-lock key). Branded so it is never confused with a note
+ *  hash; values always originate from Rust. */
+export type TaskLineHash = string & { readonly __taskLineHash: never };
+
+/** Identifies one task line for `patch_task`, carrying the stale-write
+ *  guard (spec §5): `line_hash` is the target line's hash as the caller
+ *  last saw it. */
+export interface TaskRef {
+  memo_id: MemoId;
+  line: number;
+  line_hash: TaskLineHash;
+}
+
+/** How `patch_task` locates the target line (spec §5): `Exact` rejects
+ *  on drift from `line_hash`; `CurrentLine` targets whatever line is
+ *  there now (CM6 unsaved-buffer path). */
+export type TaskSelector =
+  | { Exact: TaskRef }
+  | { CurrentLine: { memo_id: MemoId; line: number } };
+
+/** Date-field word on the WRITE side — PascalCase per the fixture
+ *  corpus. (Parsed dates on the READ side are plain "YYYY-MM-DD"
+ *  strings instead; there is no lowercase date-word on this wire.) */
+export type TaskDateField =
+  | "Created"
+  | "Start"
+  | "Scheduled"
+  | "Due"
+  | "Done"
+  | "Cancelled";
+
+/** Priority word on the WRITE side — PascalCase per the fixture corpus.
+ *  NOTE the deliberate asymmetry: `TaskDto.priority` READS camelCase
+ *  ("high"); only edit/add inputs write PascalCase ("High"). */
+export type TaskPriorityWord =
+  | "Highest"
+  | "High"
+  | "Medium"
+  | "Low"
+  | "Lowest"
+  | "None";
+
+/** One edit to a task line — externally tagged (fixture-corpus form;
+ *  dates are "YYYY-MM-DD" or null). */
+export type TaskEdit =
+  | "Toggle"
+  | { SetStatus: string }
+  | { SetDate: { field: TaskDateField; value: string | null } }
+  | { SetPriority: TaskPriorityWord }
+  | { SetText: string }
+  | { SetRecurrence: string | null }
+  | "Delete";
+
+/** Fields for a brand-new task line (`add_task` input), snake_case.
+ *  `priority` follows the WRITE-side PascalCase word. */
+export interface TaskFields {
+  created: string | null;
+  start: string | null;
+  scheduled: string | null;
+  due: string | null;
+  priority: TaskPriorityWord;
+  recurrence: string | null;
+  tags: string[];
+}
+
+/** Where `add_task` appends (spec §6/§7): a note, the daily note for a
+ *  "YYYY-MM-DD" date, or the Inbox. */
+export type AddTarget = { Note: MemoId } | { Daily: string } | "Inbox";
+
+/** Atomic task-subtree move request (spec §7). `expected_destination_hash`
+ *  ("b3:<hex>", or null) guards the destination against stale views. */
+export interface MoveTasksRequest {
+  source: MemoId;
+  tasks: TaskRef[];
+  destination: AddTarget;
+  expected_destination_hash: string | null;
+}
+
+/** Parsed-field word on the READ side — camelCase (TaskField's serde
+ *  rename), as it appears inside `TaskWarning`. */
+export type TaskWarningField =
+  | "created"
+  | "start"
+  | "scheduled"
+  | "due"
+  | "done"
+  | "cancelled"
+  | "priority"
+  | "recurrence";
+
+/** An offending raw token recorded verbatim for UI repair (spec §1). */
+export interface TaskWarning {
+  field: TaskWarningField | null;
+  raw: string;
+  kind: "invalidValue" | "duplicate" | "unsupportedRule";
+}
+
+/** Indexed task row plus the ref needed to patch it again (spec §3/§10).
+ *  Dates are "YYYY-MM-DD" strings; `priority` reads camelCase. */
+export interface TaskDto {
+  task_ref: TaskRef;
+  symbol: string;
+  status_type:
+    | "TODO"
+    | "IN_PROGRESS"
+    | "ON_HOLD"
+    | "DONE"
+    | "CANCELLED"
+    | "NON_TASK";
+  text: string;
+  tags: string[];
+  section: string | null;
+  created: string | null;
+  start: string | null;
+  scheduled: string | null;
+  due: string | null;
+  done: string | null;
+  cancelled: string | null;
+  priority: "highest" | "high" | "medium" | "none" | "low" | "lowest";
+  recurrence: string | null;
+  warnings: TaskWarning[];
+}
+
+/** Successful `patch_task`/`add_task` (spec §5/§6): `note_hash` is the
+ *  whole-note hash right after the write; `spawned` is the recurrence
+ *  occurrence the edit created, when it created one.
+ *  `daily_recurrence_warning` is `add_task`-only (spec §9): the appended
+ *  task carries a recurrence rule AND the target was a daily note — the
+ *  documented anti-pattern. Advisory: surface as a
+ *  `task_daily_recurrence_warning` toast, never block. */
+export interface PatchTaskResult {
+  note_hash: string;
+  task: TaskDto;
+  spawned: TaskDto | null;
+  daily_recurrence_warning: boolean;
+}
+
+/** Proof of a successful `move_tasks` (spec §7) — sufficient for the
+ *  guarded undo (proceeds only while both post-move hashes still
+ *  match). */
+export interface MoveTasksReceipt {
+  source: MemoId;
+  destination: MemoId;
+  source_pre_hash: string;
+  source_post_hash: string;
+  destination_pre_hash: string | null;
+  destination_post_hash: string;
+  moved_lines: string[];
+}
+
+/** One non-overlapping splice: delete `delete_lines` lines starting at
+ *  `start_line` (0-based) and insert `insert_lines` in their place.
+ *  Empty `insert_lines` with `delete_lines: 0` is a pure insertion. */
+export interface TaskLineChange {
+  start_line: number;
+  delete_lines: number;
+  insert_lines: string[];
+}
+
+/** Pure kernel result (`transform_task_draft`): `spawned_line_hint` is
+ *  the 0-based line, in the body AFTER applying `changes`, where a
+ *  spawned recurrence occurrence landed — null when the edit spawned
+ *  none (browser-mirror dispatches always report null; the mirror does
+ *  not track the hint). */
+export interface TaskDraftTransform {
+  changes: TaskLineChange[];
+  spawned_line_hint: number | null;
+}
+
+// --- Wire/mirror lockstep pins (compile-time only) ---------------------------
+// types.ts owns the wire contract; taskLine.ts owns the browser mirror.
+// Exported (not private) so `noUnusedLocals` never flags them; nothing
+// should import these. If either side drifts, these assertions fail the
+// build: every wire edit must stay acceptable input for the mirror's
+// `editFromJson` adapter, and every TaskLineChange must keep the exact
+// splice shape the mirror emits.
+
+/** Asserts `U ⊆ T` at compile time. */
+export type AssertSubset<T, U extends T> = U;
+
+/** `TaskEdit` (wire) must remain assignable to what `editFromJson`
+ *  accepts (`string | WireTaskEdit`). */
+export type WireEditFeedsMirror = AssertSubset<string | WireTaskEdit, TaskEdit>;
+
+/** `TaskLineChange` (wire) must accept the mirror's identical change
+ *  shape — same field names, same primitives. */
+export type LineChangeMatchesMirror = AssertSubset<MirrorLineChange, TaskLineChange>;

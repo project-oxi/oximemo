@@ -9,29 +9,44 @@
  * component is rendering + the commit path: prop cells edit through the
  * shared PropCellEditor and reconcile from the returned NoteDto, with the
  * displayed row order frozen while an editor is focused (spec §4).
+ *
+ * Plan C: rows are `BaseRow`s, keyed by the generation-scoped `row_id`
+ * (spec §4: `n:<memo_id>` for note rows, `t:<memo_id>:<line>` for task
+ * rows). Two task rows under one parent stay distinct by row_id; a
+ * freeze map keyed by note id would collapse them. Local patched/frozen
+ * state clears when `BasePage.result_key` changes — the new content may
+ * have reordered task rows or remapped line numbers, so the prior
+ * snapshot is no longer a valid index. Task cells (`task.*` columns) are
+ * editable through guarded `patch_task` (Task 6); the checkbox toggle
+ * commits `Toggle` per `row.task.task_ref`.
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Star } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { updateMemo } from "../../lib/api";
-import { isoToLocalDate } from "../../lib/dates";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { patchTask, updateMemo } from "../../lib/api";
+import { isoToLocalDate, todayLocalISO } from "../../lib/dates";
 import { useI18n } from "../../lib/i18n";
 import { propValueLabel } from "../../lib/propDisplay";
+import { dayTone, relativeDayLabel, useTodayKey } from "../../lib/relativeDay";
 import {
-  applyFrozenOrder, buildColumns, defaultSummaryFn, formatBaseValue, groupRows,
+  applyFrozenOrderByRowId, buildColumns, defaultSummaryFn, formatBaseValue, groupRows,
   reconcileRow, summarize, type SummaryFn, type TableColumn,
 } from "../../lib/tableModel";
-import type { BaseCell, FolderSchema, MemoSummary, PropMutation, PropValue } from "../../lib/types";
+import { editForCell } from "../../lib/taskCellCommit";
+import type { BaseCell, BaseRow, FolderSchema, MemoSummary, PropMutation, PropValue, TaskEdit, TaskDto } from "../../lib/types";
 import { useUI } from "../../stores/ui";
+import { TaskCellEditor } from "../TaskCellEditor";
+import { TaskCheckbox } from "../TaskCheckbox";
+import { TaskFieldChip } from "../TaskFieldChip";
 import { PropCellEditor } from "../propEditors";
 
 const GROUP_H = 28;
 const ROW_H = 34;
 
 export interface TableViewProps {
-  /** Latest listing rows (CardGrid `items`). */
-  items: MemoSummary[];
+  /** Latest listing rows (BaseRow[]; spec §4 row_id is the identity). */
+  items: BaseRow[];
   /** Folder → schema map (useSchemaInfo). Drives columns + per-row editors. */
   schemas: Record<string, FolderSchema | null>;
   /** Folder appearance order for column building (encounter order). */
@@ -53,11 +68,18 @@ export interface TableViewProps {
   summaryFns?: Record<string, SummaryFn>;
   labelFor?: (col: TableColumn) => string | undefined;
   onColumnsReordered?: (cols: TableColumn[]) => void;
+  /**
+   * Result-cache fingerprint from `BasePage.result_key`. When it changes,
+   * the new content may have reordered task rows or remapped line
+   * numbers — clear local patched/frozen state so the prior snapshot
+   * stops pointing at rows that may no longer exist (spec §4).
+   */
+  resultKey?: string;
 }
 
 type Entry =
   | { type: "group"; key: string; count: number }
-  | { type: "note"; row: MemoSummary };
+  | { type: "note"; row: BaseRow };
 
 export function TableView({
   items,
@@ -73,9 +95,12 @@ export function TableView({
   summaryFns,
   labelFor,
   onColumnsReordered,
+  resultKey,
 }: TableViewProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const qc = useQueryClient();
+  const setToast = useUI((s) => s.setToast);
+  const todayISO = useTodayKey();
 
   const built = useMemo(
     () => (columns !== undefined ? columns : buildColumns(schemas, folderOrder)),
@@ -100,29 +125,47 @@ export function TableView({
   const [groupBy, setGroupBy] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [frozenIds, setFrozenIds] = useState<string[] | null>(null);
+  /** row_id → patched MemoSummary from a returned `update_memo` NoteDto. */
   const [patched, setPatched] = useState<Record<string, MemoSummary>>({});
   // Column drag-reorder session state (spec §4: not persisted for folders).
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropEdge, setDropEdge] = useState<number | null>(null);
 
-  // Rows: server items overlaid with locally reconciled NoteDto patches,
-  // displayed in the frozen order while an editor is focused.
+  // Spec §4: clear local patched/frozen state when the result cache key
+  // changes — the new content may have reordered task rows or remapped
+  // line numbers, so the prior snapshot is no longer a valid index.
+  const resultKeyRef = useRef<string | undefined>(resultKey);
+  if (resultKey !== undefined && resultKey !== resultKeyRef.current) {
+    resultKeyRef.current = resultKey;
+    setPatched({});
+    setFrozenIds(null);
+  }
+
+  // Rows: server items overlaid with locally reconciled NoteDto patches
+  // (summary only — task content rides the unchanged BaseRow.task),
+  // displayed in the row_id-frozen order while an editor is focused.
   const rows = useMemo(() => {
-    const byId = new Map(items.map((r) => [r.id, r]));
-    for (const [id, p] of Object.entries(patched)) if (byId.has(id)) byId.set(id, p);
-    return applyFrozenOrder([...byId.values()], frozenIds);
+    const out: BaseRow[] = items.map((r) => {
+      const p = patched[r.row_id];
+      return p ? { ...r, summary: p } : r;
+    });
+    return applyFrozenOrderByRowId(out, frozenIds);
   }, [items, patched, frozenIds]);
 
-  const groups = useMemo(() => groupRows(rows, groupBy), [rows, groupBy]);
+  const rowsForGroup = useMemo(() => rows.map((r) => r.summary), [rows]);
+  const groups = useMemo(() => groupRows(rowsForGroup, groupBy), [rowsForGroup, groupBy]);
   const entries = useMemo(() => {
     const out: Entry[] = [];
     for (const g of groups) {
       if (groupBy !== null) out.push({ type: "group", key: g.key, count: g.rows.length });
       if (groupBy !== null && collapsed.has(g.key)) continue;
-      for (const r of g.rows) out.push({ type: "note", row: r });
+      const groupIds = new Set(g.rows.map((s) => s.id));
+      for (const r of rows) {
+        if (groupIds.has(r.summary.id)) out.push({ type: "note", row: r });
+      }
     }
     return out;
-  }, [groups, groupBy, collapsed]);
+  }, [groups, groupBy, collapsed, rows]);
 
   const virtualizer = useVirtualizer({
     count: entries.length,
@@ -156,23 +199,57 @@ export function TableView({
     return (scalar.length ? scalar : keys).map((k) => k.key);
   }, [schemas, folderOrder]);
 
-  const commitCell = async (row: MemoSummary, mutation: PropMutation) => {
+  /** Commit a note-prop edit through `update_memo`. The BaseRow's
+   *  `row_id` is the slot identity, not the memo id (task rows under
+   *  one parent share the memo id but live at distinct row_ids); the
+   *  previous `rows.find((r) => r.summary.id === row.id)?.row_id`
+   *  first-match lookup collapsed two tasks onto one slot, so the
+   *  row is now passed in directly. */
+  const commitCell = async (row: BaseRow, mutation: PropMutation) => {
     try {
-      const dto = await updateMemo(row.id, null, null, mutation);
-      setPatched((p) => ({ ...p, [row.id]: reconcileRow(p[row.id] ?? row, dto) }));
+      const dto = await updateMemo(row.summary.id, null, null, mutation);
+      setPatched((p) => ({ ...p, [row.row_id]: reconcileRow(p[row.row_id] ?? row.summary, dto) }));
       // Query-view result caches key on the index generation (spec §4).
       void qc.invalidateQueries({ queryKey: ["base"] });
     } catch (e) {
-      useUI.getState().setToast(String(e).split("\n")[0] ?? String(e));
+      setToast(String(e).split("\n")[0] ?? String(e));
     }
   };
-
-  const onPropCommit = (row: MemoSummary, key: string) => (next: string[] | null) =>
+  const onPropCommit = (row: BaseRow, key: string) => (next: string[] | null) =>
     void commitCell(row, next === null
       ? { sets: [], removes: [key] }
       : { sets: [[key, next.length === 1 ? { Str: next[0] } : { List: next }]], removes: [] });
-  const onPropBool = (row: MemoSummary, key: string) => (b: boolean) =>
+  const onPropBool = (row: BaseRow, key: string) => (b: boolean) =>
     void commitCell(row, { sets: [[key, { Bool: b }]], removes: [] });
+
+  /** Commit one task edit through guarded `patch_task`. The optimistic-
+   *  lock guard is the kernel's responsibility (TaskConflict surfaced
+   *  as a localized toast here). The wire serializes as
+   *  "task conflict: note ..." (Rust `CoreError::TaskConflict` display);
+   *  we match that prefix and use the i18n key from Task 3
+   *  (`task_conflict_reload`) plus an `["base"]` invalidate so the
+   *  view catches up. */
+  const commitTaskCell = async (row: BaseRow, edit: TaskEdit) => {
+    if (!row.task) return;
+    try {
+      await patchTask({ Exact: row.task.task_ref }, edit, todayLocalISO());
+      void qc.invalidateQueries({ queryKey: ["base"] });
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes("task conflict")) setToast(t.task_conflict_reload);
+      else setToast(msg.split("\n")[0] ?? msg);
+      void qc.invalidateQueries({ queryKey: ["base"] });
+    }
+  };
+  const onTaskEdit = (row: BaseRow, key: string) => (value: string | null) => {
+    const edit = editForCell(`task.${key}`, value);
+    if (edit === undefined) return;
+    void commitTaskCell(row, edit);
+  };
+  /** Checkbox toggle: send `Toggle` so the kernel resolves the next
+   *  symbol from its effective status table (no client-side `next`
+   *  resolution needed). */
+  const onTaskToggle = (row: BaseRow) => () => void commitTaskCell(row, "Toggle");
 
   const firstDef = (key: string) => {
     for (const f of folderOrder) {
@@ -188,19 +265,24 @@ export function TableView({
     return col.kind === "name" ? t.table_col_name
       : col.kind === "tags" ? t.table_col_tags
       : col.kind === "updated" ? t.prop_updated
+      : col.kind === "task" ? `task.${col.key}`
       : col.key;
   };
 
   const footerCell = (col: TableColumn): string | null => {
     if (col.kind === "name") return null;
     if (col.kind === "tags") {
-      return summarize(rows.flatMap((r) => (r.tags.length ? [{ List: r.tags } as PropValue] : [])), "unique");
+      return summarize(rowsForGroup.flatMap((r) => (r.tags.length ? [{ List: r.tags } as PropValue] : [])), "unique");
     }
     if (col.kind === "updated") {
-      return summarize(rows.map((r) => ({ Str: r.updated_at } as PropValue)), "filled");
+      return summarize(rowsForGroup.map((r) => ({ Str: r.updated_at } as PropValue)), "filled");
     }
+    // Task columns: footer stays empty (spec §4 reserves the slot for
+    // declared summaries, but task cells have no aggregate semantics —
+    // the kernel recomputes when the view re-runs).
+    if (col.kind === "task") return null;
     if (col.kind !== "prop") return null;
-    const vals = rows.map((r) => r.props?.[col.key]);
+    const vals = rowsForGroup.map((r) => r.props?.[col.key]);
     const declared =
       col.kind === "prop" ? summaryFns?.[col.key] ?? summaryFns?.[`note.${col.key}`] : undefined;
     return summarize(vals as PropValue[], declared ?? defaultSummaryFn(firstDef(col.key)));
@@ -245,10 +327,15 @@ export function TableView({
             const idx = i + 1;
             const isLast = idx === cols.length - 1;
             const isGroupKey = col.kind === "prop" && groupBy === col.key;
+            // Task columns are not groupable from the header — task
+            // grouping is a board-level construct (see BoardView's
+            // drag-handle commit; the table view doesn't drop on cells).
             const groupable = !baseMode && col.kind === "prop" && groupCandidates.includes(col.key);
             return (
               <div
-                key={col.kind === "prop" ? `p:${col.key}` : col.kind}
+                key={col.kind === "prop" ? `p:${col.key}`
+                  : col.kind === "task" ? `tk:${col.key}`
+                  : col.kind}
                 role="columnheader"
                 draggable={!isLast}
                 onDragStart={() => setDragFrom(idx)}
@@ -293,7 +380,7 @@ export function TableView({
        * editor is open; blur outside the table releases it (spec §4). */}
       <div
         onFocusCapture={() => {
-          if (frozenIds === null) setFrozenIds(rows.map((r) => r.id));
+          if (frozenIds === null) setFrozenIds(rows.map((r) => r.row_id));
         }}
         onBlurCapture={(e) => {
           const to = e.relatedTarget as Node | null;
@@ -343,7 +430,7 @@ export function TableView({
             const row = entry.row;
             return (
               <div
-                key={`n:${row.id}`}
+                key={row.row_id}
                 style={{ position: "absolute", top: 0, left: 0, transform: `translateY(${v.start}px)`, width: "100%", height: ROW_H }}
                 className="group/row"
               >
@@ -353,36 +440,20 @@ export function TableView({
                   style={{ gridTemplateColumns: gridTemplate }}
                 >
                   <div className="sticky left-0 z-10 flex min-w-0 items-center gap-1 bg-surface px-2">
-                    <button
-                      type="button"
-                      onClick={() => onSelect(row.id)}
-                      className="truncate text-left text-[12px] text-text hover:underline"
-                    >
-                      {row.title ?? row.path.split("/").pop()?.replace(/\.[^.]+$/, "")}
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="favorite"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleFavorite(row);
-                      }}
-                      className={`shrink-0 transition-opacity duration-150 ${
-                        row.favorite ? "opacity-100" : "opacity-0 group-hover/row:opacity-60"
-                      }`}
-                    >
-                      <Star
-                        size={11}
-                        aria-hidden
-                        className={row.favorite ? "fill-hue-amber text-hue-amber" : "text-text-subtle"}
-                      />
-                    </button>
+                    <TaskRowNameCell
+                      row={row}
+                      todayISO={todayISO}
+                      locale={locale}
+                      onSelect={onSelect}
+                      onToggleFavorite={onToggleFavorite}
+                      onToggleTask={onTaskToggle(row)}
+                    />
                   </div>
                   {cols.slice(1).map((col) => {
                     if (col.kind === "tags") {
                       return (
                         <div key={col.kind} className="flex min-w-0 items-center gap-1 overflow-hidden px-2">
-                          {row.tags.slice(0, 3).map((tag) => (
+                          {(row.task?.tags.length ? row.task.tags : row.summary.tags).slice(0, 3).map((tag) => (
                             <span key={tag} className="truncate rounded-[var(--tag-radius)] bg-surface-muted px-1 py-0.5 text-[10px] text-text-muted">
                               {tag}
                             </span>
@@ -393,12 +464,12 @@ export function TableView({
                     if (col.kind === "updated") {
                       return (
                         <div key={col.kind} className="truncate px-2 text-[11px] text-text-subtle tabular-nums">
-                          {isoToLocalDate(row.updated_at)}
+                          {isoToLocalDate(row.summary.updated_at)}
                         </div>
                       );
                     }
                     if (col.kind === "formula") {
-                      const cell = formulaCell?.(row.id, col.key);
+                      const cell = formulaCell?.(row.row_id, col.key);
                       return (
                         <div
                           key={`f:${col.key}`}
@@ -406,22 +477,44 @@ export function TableView({
                           className="flex min-w-0 items-center px-2 text-[12px] text-text-muted"
                         >
                           {cell?.error ? (
-                            <span className="text-status-error">⚠︎</span>
+                            <span className="text-status-error">�︎</span>
                           ) : (
                             <span className="truncate">{formatBaseValue(cell?.value ?? null)}</span>
                           )}
                         </div>
                       );
                     }
+                    // Task columns: typed task editor over `row.task`.
+                    // Note rows render empty (spec §4 "view-only on note
+                    // rows"; `row.task` is null and `editForCell` would
+                    // never be reached from the editor anyway).
+                    if (col.kind === "task") {
+                      if (!row.task) {
+                        return (
+                          <div key={`tk:${col.key}`} className="flex min-w-0 items-center px-2 text-[12px] text-text-subtle">
+                            —
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={`tk:${col.key}`} className="flex min-w-0 items-center px-1">
+                          <TaskCellEditor
+                            row={row}
+                            propKey={col.key}
+                            onChange={onTaskEdit(row, col.key)}
+                          />
+                        </div>
+                      );
+                    }
                     if (col.kind !== "prop") return null; // name never slices past index 0
-                    const def = schemas[row.folder]?.properties?.[col.key];
+                    const def = schemas[row.summary.folder]?.properties?.[col.key];
                     return (
                       <div key={`p:${col.key}`} className="flex min-w-0 items-center px-1">
                         <PropCellEditor
                           propKey={col.key}
                           def={def}
-                          stored={row.props?.[col.key]}
-                          preset={schemas[row.folder]?.meta?.preset ?? preset}
+                          stored={row.summary.props?.[col.key]}
+                          preset={schemas[row.summary.folder]?.meta?.preset ?? preset}
                           onCommit={onPropCommit(row, col.key)}
                           onBool={onPropBool(row, col.key)}
                         />
@@ -443,7 +536,9 @@ export function TableView({
           </div>
           {cols.slice(1).map((col) => (
             <div
-              key={col.kind === "prop" ? `p:${col.key}` : col.kind}
+              key={col.kind === "prop" ? `p:${col.key}`
+                : col.kind === "task" ? `tk:${col.key}`
+                : col.kind}
               className="truncate px-2 py-1 text-[10px] text-text-subtle tabular-nums"
             >
               {footerCell(col) ?? ""}
@@ -452,5 +547,120 @@ export function TableView({
         </div>
       </div>
     </div>
+  );
+}
+
+/** First-cell content: note rows show the note title + favorite star;
+ *  task rows show `TaskCheckbox` + task text + field chips + parent
+ *  breadcrumb (spec §7.0). The checkbox click commits `Toggle` via
+ *  guarded `patch_task` (Task 6 wires the click handler here). */
+function TaskRowNameCell({
+  row,
+  todayISO,
+  locale,
+  onSelect,
+  onToggleFavorite,
+  onToggleTask,
+}: {
+  row: BaseRow;
+  todayISO: string;
+  locale: "ko" | "en";
+  onSelect: (id: string) => void;
+  onToggleFavorite: (m: MemoSummary) => void;
+  onToggleTask: () => void;
+}) {
+  const emptyFallback = "—";
+  if (!row.task) {
+    const title = row.summary.title ?? row.summary.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? emptyFallback;
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => onSelect(row.summary.id)}
+          className="truncate text-left text-[12px] text-text hover:underline"
+        >
+          {title}
+        </button>
+        <button
+          type="button"
+          aria-label="favorite"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(row.summary);
+          }}
+          className={`shrink-0 transition-opacity duration-150 ${
+            row.summary.favorite ? "opacity-100" : "opacity-0 group-hover/row:opacity-60"
+          }`}
+        >
+          <Star
+            size={11}
+            aria-hidden
+            className={row.summary.favorite ? "fill-hue-amber text-hue-amber" : "text-text-subtle"}
+          />
+        </button>
+      </>
+    );
+  }
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <TaskCheckbox
+        statusType={row.task.status_type}
+        label={row.task.text}
+        onToggle={onToggleTask}
+      />
+      <button
+        type="button"
+        onClick={() => onSelect(row.summary.id)}
+        className="min-w-0 truncate text-left text-[12px] text-text hover:underline"
+        title={row.task.text}
+      >
+        {row.task.text || emptyFallback}
+      </button>
+      <TaskRowChips task={row.task} todayISO={todayISO} locale={locale} />
+      <span className="shrink-0 truncate text-[10px] text-text-subtle" title={row.summary.title ?? row.summary.path}>
+        @ {row.summary.title ?? row.summary.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? emptyFallback}
+      </span>
+    </div>
+  );
+}
+
+/** Field chips for one task row (spec §7.0). Only renders the chips whose
+ *  field is non-null; the locale-aware relative-day label is shared with
+ *  the CM6 widget (lib/relativeDay.ts). */
+function TaskRowChips({
+  task,
+  todayISO,
+  locale,
+}: {
+  task: TaskDto;
+  todayISO: string;
+  locale: "ko" | "en";
+}) {
+  const priorityField =
+    task.priority === "highest" ? "priority-highest"
+      : task.priority === "high" ? "priority-high"
+      : task.priority === "medium" ? "priority-medium"
+      : task.priority === "low" ? "priority-low"
+      : task.priority === "lowest" ? "priority-lowest"
+      : null;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+      {task.scheduled && (
+        <TaskFieldChip
+          field="scheduled"
+          value={relativeDayLabel(task.scheduled, todayISO, locale)}
+          tone={dayTone(task.scheduled, todayISO)}
+        />
+      )}
+      {task.due && (
+        <TaskFieldChip
+          field="due"
+          value={relativeDayLabel(task.due, todayISO, locale)}
+          tone={dayTone(task.due, todayISO)}
+        />
+      )}
+      {priorityField && <TaskFieldChip field={priorityField} value="" />}
+      {task.recurrence && <TaskFieldChip field="recurrence" value={task.recurrence} />}
+    </span>
   );
 }

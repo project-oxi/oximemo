@@ -186,3 +186,164 @@
 }
 .ox-query-embed-open:hover { color: var(--color-text); }
 .ox-query-embed-error .ox-query-embed-hdr { color: var(--color-status-error); }
+
+/* --- Task metadata chips + icon masks (tasks spec §7.0) ---
+ * CM6 widget DOM cannot mount React, so glyphs are static SVG masks
+ * inlined below with background-color: currentColor — the SAME pinned
+ * lucide-react 0.460.0 catalog the React path renders via components
+ * (lib/taskIcons.ts; parity asserted in lib/taskIcons.test.ts).
+ * SVG path data © lucide contributors, ISC license — lucide.dev */
+.ox-task-field {
+  display: inline-flex; align-items: center; gap: 0.3em;
+  color: var(--color-text-subtle);
+}
+.ox-task-field-overdue { color: var(--color-status-error); }
+.ox-task-field-today { color: var(--color-status-warning); }
+/* Inert checkbox box for card / chat preview task lines — a static
+ * square mirroring TaskCheckbox's visual (rounded square, state fill;
+ * no mark glyph: previews are non-interactive). */
+.ox-task-box {
+  display: inline-block; width: 0.85em; height: 0.85em;
+  vertical-align: -0.08em; margin-right: 0.4em; flex: none;
+  border: 1.5px solid var(--color-line-strong); border-radius: 3px;
+  background: transparent;
+}
+.ox-task-box.ox-task-done {
+  background: var(--color-status-success); border-color: var(--color-status-success);
+}
+.ox-task-box.ox-task-cancelled {
+  background: var(--color-text-muted); border-color: var(--color-text-muted);
+}
+.ox-task-box.ox-task-in-progress {
+  border-color: var(--color-status-info);
+  background: linear-gradient(90deg, var(--color-status-info) 50%, transparent 50%);
+}
+.ox-task-ic-created,
+.ox-task-ic-start,
+.ox-task-ic-scheduled,
+.ox-task-ic-due,
+.ox-task-ic-done,
+.ox-task-ic-cancelled,
+.ox-task-ic-recurrence,
+.ox-task-ic-priority-highest,
+.ox-task-ic-priority-high,
+.ox-task-ic-priority-medium,
+.ox-task-ic-priority-low,
+.ox-task-ic-priority-lowest,
+.ox-task-ic-invalid-date,
+.ox-task-ic-unsupported-recurrence {
+  display: inline-block; width: 1em; height: 1em; flex: none;
+  vertical-align: -0.125em;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain;
+}
+.ox-task-ic-created {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Cpath d=%22M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8%22/%3E%3Cpath d=%22M3 10h18%22/%3E%3Cpath d=%22M16 19h6%22/%3E%3Cpath d=%22M19 16v6%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Cpath d=%22M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8%22/%3E%3Cpath d=%22M3 10h18%22/%3E%3Cpath d=%22M16 19h6%22/%3E%3Cpath d=%22M19 16v6%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-start {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points=%226 3 20 12 6 21 6 3%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points=%226 3 20 12 6 21 6 3%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-scheduled {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M3 10h5%22/%3E%3Cpath d=%22M17.5 17.5 16 16.3V14%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%226%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M3 10h5%22/%3E%3Cpath d=%22M17.5 17.5 16 16.3V14%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%226%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-due {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Crect width=%2218%22 height=%2218%22 x=%223%22 y=%224%22 rx=%222%22/%3E%3Cpath d=%22M3 10h18%22/%3E%3Cpath d=%22M8 14h.01%22/%3E%3Cpath d=%22M12 14h.01%22/%3E%3Cpath d=%22M16 14h.01%22/%3E%3Cpath d=%22M8 18h.01%22/%3E%3Cpath d=%22M12 18h.01%22/%3E%3Cpath d=%22M16 18h.01%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Crect width=%2218%22 height=%2218%22 x=%223%22 y=%224%22 rx=%222%22/%3E%3Cpath d=%22M3 10h18%22/%3E%3Cpath d=%22M8 14h.01%22/%3E%3Cpath d=%22M12 14h.01%22/%3E%3Cpath d=%22M16 14h.01%22/%3E%3Cpath d=%22M8 18h.01%22/%3E%3Cpath d=%22M12 18h.01%22/%3E%3Cpath d=%22M16 18h.01%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-done {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Crect width=%2218%22 height=%2218%22 x=%223%22 y=%224%22 rx=%222%22/%3E%3Cpath d=%22M3 10h18%22/%3E%3Cpath d=%22m9 16 2 2 4-4%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Crect width=%2218%22 height=%2218%22 x=%223%22 y=%224%22 rx=%222%22/%3E%3Cpath d=%22M3 10h18%22/%3E%3Cpath d=%22m9 16 2 2 4-4%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-cancelled {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Crect width=%2218%22 height=%2218%22 x=%223%22 y=%224%22 rx=%222%22/%3E%3Cpath d=%22M3 10h18%22/%3E%3Cpath d=%22m14 14-4 4%22/%3E%3Cpath d=%22m10 14 4 4%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M8 2v4%22/%3E%3Cpath d=%22M16 2v4%22/%3E%3Crect width=%2218%22 height=%2218%22 x=%223%22 y=%224%22 rx=%222%22/%3E%3Cpath d=%22M3 10h18%22/%3E%3Cpath d=%22m14 14-4 4%22/%3E%3Cpath d=%22m10 14 4 4%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-recurrence {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m17 2 4 4-4 4%22/%3E%3Cpath d=%22M3 11v-1a4 4 0 0 1 4-4h14%22/%3E%3Cpath d=%22m7 22-4-4 4-4%22/%3E%3Cpath d=%22M21 13v1a4 4 0 0 1-4 4H3%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m17 2 4 4-4 4%22/%3E%3Cpath d=%22M3 11v-1a4 4 0 0 1 4-4h14%22/%3E%3Cpath d=%22m7 22-4-4 4-4%22/%3E%3Cpath d=%22M21 13v1a4 4 0 0 1-4 4H3%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-priority-highest {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m17 11-5-5-5 5%22/%3E%3Cpath d=%22m17 18-5-5-5 5%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m17 11-5-5-5 5%22/%3E%3Cpath d=%22m17 18-5-5-5 5%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-priority-high {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m18 15-6-6-6 6%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m18 15-6-6-6 6%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-priority-medium {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1=%225%22 x2=%2219%22 y1=%229%22 y2=%229%22/%3E%3Cline x1=%225%22 x2=%2219%22 y1=%2215%22 y2=%2215%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1=%225%22 x2=%2219%22 y1=%229%22 y2=%229%22/%3E%3Cline x1=%225%22 x2=%2219%22 y1=%2215%22 y2=%2215%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-priority-low {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m6 9 6 6 6-6%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m6 9 6 6 6-6%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-priority-lowest {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m7 6 5 5 5-5%22/%3E%3Cpath d=%22m7 13 5 5 5-5%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m7 6 5 5 5-5%22/%3E%3Cpath d=%22m7 13 5 5 5-5%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-invalid-date {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3%22/%3E%3Cpath d=%22M12 9v4%22/%3E%3Cpath d=%22M12 17h.01%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3%22/%3E%3Cpath d=%22M12 9v4%22/%3E%3Cpath d=%22M12 17h.01%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-unsupported-recurrence {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3Cline x1=%2212%22 x2=%2212%22 y1=%228%22 y2=%2212%22/%3E%3Cline x1=%2212%22 x2=%2212.01%22 y1=%2216%22 y2=%2216%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3Cline x1=%2212%22 x2=%2212%22 y1=%228%22 y2=%2212%22/%3E%3Cline x1=%2212%22 x2=%2212.01%22 y1=%2216%22 y2=%2216%22/%3E%3C/svg%3E");
+}
+
+/* --- Task-line widgets (tasks spec §7.1) — the CM6 live-preview row.
+ * Plain DOM inside the CM6 widget (no React): an interactive checkbox
+ * mirroring TaskCheckbox's visual (mark glyphs below are the pinned
+ * lucide Check/Minus paths as masks, stroke-width 3 matching the React
+ * control's strokeWidth), then body text, §7.0 field chips, tags. */
+.ox-taskline {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.45em;
+  padding: 0.1em 0; min-height: 1.45em;
+}
+.ox-taskline-text { min-width: 0; overflow-wrap: anywhere; color: var(--color-text); }
+.ox-taskline-tag { color: var(--color-text-subtle); font-size: 0.9em; }
+.ox-taskline-box {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 0.95em; height: 0.95em; flex: none; margin-top: 0.05em;
+  border: 1.5px solid var(--color-line-strong); border-radius: 4px;
+  background: transparent; padding: 0; cursor: pointer;
+}
+.ox-taskline-box:focus-visible {
+  outline: 2px solid var(--color-focus-ring); outline-offset: 2px;
+}
+.ox-taskline-box-done {
+  background: var(--color-status-success); border-color: var(--color-status-success);
+}
+.ox-taskline-box-cancelled {
+  background: var(--color-text-muted); border-color: var(--color-text-muted);
+}
+.ox-taskline-box-progress {
+  border-color: var(--color-status-info);
+  background: linear-gradient(90deg, var(--color-status-info) 50%, transparent 50%);
+}
+/* Check / Minus marks — lucide 0.460.0 path data, ISC license, same
+ * mask mechanism as the field icons above; stroke-width 3 mirrors
+ * TaskCheckbox's heavier mark. */
+.ox-task-ic-check,
+.ox-task-ic-minus {
+  display: inline-block; width: 0.7em; height: 0.7em; flex: none;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain;
+}
+.ox-task-ic-check {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M20 6 9 17l-5-5%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M20 6 9 17l-5-5%22/%3E%3C/svg%3E");
+}
+.ox-task-ic-minus {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M5 12h14%22/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d=%22M5 12h14%22/%3E%3C/svg%3E");
+}
+.ox-taskline-box-done .ox-task-ic-check { color: var(--color-status-success-subtle); }
+.ox-taskline-box-cancelled .ox-task-ic-minus { color: var(--color-surface); }

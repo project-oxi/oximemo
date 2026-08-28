@@ -18,17 +18,18 @@ import { EditorView, keymap, lineNumbers, type ViewUpdate } from "@codemirror/vi
 import { loadBase, runBase, saveBase } from "../lib/api";
 import { parseFilters, serializeFilters, type FilterNode } from "../lib/filterTree";
 import { useI18n } from "../lib/i18n";
-import type { BaseCell, BaseDef, BasePage, BaseViewDef, FolderDef, FolderEntry, MemoSummary, RunBaseReq } from "../lib/types";
+import type { BaseCell, BaseDef, BasePage, BaseRow, BaseViewDef, FolderDef, FolderEntry, RunBaseReq } from "../lib/types";
 import { type SummaryFn, type TableColumn } from "../lib/tableModel";
 import { useUI } from "../stores/ui";
 import { TableView } from "./views/TableView";
 import { BoardView } from "./views/BoardView";
 import { BaseCardsAdapter, BaseListAdapter } from "./views/BaseAdapters";
+import { TasksView } from "./views/TasksView";
 import { listFolders } from "../lib/api";
 import { FilterBuilder } from "./FilterBuilder";
 
 const PAGE = 100;
-const KNOWN_TYPES: Record<string, true | undefined> = { table: true, board: true, cards: true, list: true };
+const KNOWN_TYPES: Record<string, true | undefined> = { table: true, board: true, cards: true, list: true, tasks: true };
 
 interface Props {
   source: { path: string } | { inline: string };
@@ -61,11 +62,15 @@ function columnOf(id: string): TableColumn | null {
   if (id === "tags") return { kind: "tags" };
   if (id === "file.updated") return { kind: "updated" };
   if (id.startsWith("formula.")) return { kind: "formula", key: id.slice("formula.".length) };
+  if (id.startsWith("task.")) return { kind: "task", key: id.slice("task.".length) };
   if (id.startsWith("file.")) return null; // other core fields: not table columns
   return { kind: "prop", key: id.startsWith("note.") ? id.slice("note.".length) : id };
 }
 const columnId = (c: TableColumn): string =>
-  c.kind === "prop" ? c.key : c.kind === "formula" ? `formula.${c.key}` : c.kind;
+  c.kind === "prop" ? c.key
+    : c.kind === "task" ? `task.${c.key}`
+    : c.kind === "formula" ? `formula.${c.key}`
+    : c.kind;
 
 function tabNames(views: BaseViewDef[]): string[] {
   const seen = new Map<string, number>();
@@ -154,24 +159,25 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
     }
   }, [runQ.data]);
 
-  const rows: MemoSummary[] = useMemo(
-    () => runQ.data?.pages.flatMap((p) => p.rows.map((r) => r.summary)) ?? [],
+  /** BasePage.rows carries the generation-scoped `row_id` (spec §4); we
+   * feed TableView the raw BaseRow list and let it consume row_id directly. */
+  const rows: BaseRow[] = useMemo(
+    () => runQ.data?.pages.flatMap((p) => p.rows) ?? [],
     [runQ.data],
   );
-  // (rowId, formulaKey) → BaseCell, from positional cells over columnIds.
+  // Spec §4: the slot identity is `row_id` — two task rows under one
+  // parent share `summary.id` but stay distinct by `row_id`.
   const formulaCells = useMemo(() => {
     const map = new Map<string, Record<string, BaseCell>>();
-    for (const page of runQ.data?.pages ?? []) {
-      for (const row of page.rows) {
-        const byKey: Record<string, BaseCell> = {};
-        columnIds.forEach((id, i) => {
-          if (id.startsWith("formula.")) byKey[id.slice("formula.".length)] = row.cells[i];
-        });
-        map.set(row.summary.id, byKey);
-      }
+    for (const row of rows) {
+      const byKey: Record<string, BaseCell> = {};
+      columnIds.forEach((id, i) => {
+        if (id.startsWith("formula.")) byKey[id.slice("formula.".length)] = row.cells[i];
+      });
+      map.set(row.row_id, byKey);
     }
     return map;
-  }, [runQ.data, columnIds]);
+  }, [rows, columnIds]);
 
   // View-declared summaries (spec §1 `summaries`): "note.rating: Average"
   // → SummaryFn per column path.
@@ -225,7 +231,12 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
   const total = runQ.data?.pages[0]?.total ?? 0;
   const warnings = [...(runQ.data?.pages.flatMap((p) => p.warnings) ?? []), ...summaryWarnings];
   const parseError = "error" in parsed ? parsed.error : null;
-
+  // Spec §4: TableView's reset effect (`resultKeyRef`) clears local
+  // patched/frozen state when this key changes — the new content may
+  // have reordered task rows or remapped line numbers, so the prior
+  // snapshot is no longer a valid index. Without this prop, the
+  // generation-scoped reset silently never fires.
+  const resultKey = runQ.data?.pages[0]?.resultKey;
   return (
     <div className="flex min-h-full flex-col">
       {/* Base header: name + view tabs + 새 뷰 추가 + 코드 (spec §5). */}
@@ -349,6 +360,21 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
         />
       ) : view.type === "list" ? (
         <BaseListAdapter rows={runQ.data?.pages.flatMap((pg) => pg.rows) ?? []} onSelect={onSelect} />
+      ) : view.type === "tasks" ? (
+        <>
+          <TasksView rows={runQ.data?.pages.flatMap((pg) => pg.rows) ?? []} />
+          {runQ.hasNextPage && (
+            <div className="flex justify-center py-3">
+              <button
+                type="button"
+                onClick={() => void runQ.fetchNextPage()}
+                className="rounded-[var(--button-radius)] border border-line px-3 py-1.5 text-xs text-text-muted hover:bg-surface-muted"
+              >
+                {t.query_results_n.replace("{n}", String(total))}
+              </button>
+            </div>
+          )}
+        </>
       ) : runQ.isError ? (
         <div className="mt-16 flex flex-col items-center gap-3 px-6 text-center">
           <p className="text-sm font-medium text-status-error">{t.query_error_filter}</p>
@@ -372,6 +398,7 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
             summaryFns={summaryFns}
             labelFor={labelFor}
             onColumnsReordered={onColumnsReordered}
+            resultKey={resultKey}
             scrollerRef={scrollerRef}
             onLoadMore={() => {
               if (runQ.hasNextPage) void runQ.fetchNextPage();

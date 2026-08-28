@@ -649,6 +649,459 @@ pub fn cmd_base_restore(vault: &Vault, token: &str) -> Result<()> {
     Ok(())
 }
 
+// --- tasks (spec 2026-08-27) ---------------------------------------------
+
+use oximemo_core::tasks::{
+    AddTarget, DateField, Priority, StatusType, TaskEdit, TaskFields, TaskLineHash, TaskSelector,
+};
+
+/// Stale-write guard choice for the mutating `task` subcommands,
+/// resolved from `--hash H` (guarded) XOR `--force` (last-writer-wins)
+/// in `main::dispatch_task`.
+pub enum TaskGuard {
+    Hash(TaskLineHash),
+    Force,
+}
+
+/// `task list` flags (already-validated strings stay strings; parse
+/// errors surface as CLI errors here, close to the flag definition).
+pub struct TaskListArgs<'a> {
+    pub where_: Option<&'a str>,
+    pub note: Option<&'a str>,
+    pub folder: Option<&'a str>,
+    pub due: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub not_done: bool,
+    pub limit: usize,
+    pub format: &'a str,
+}
+
+/// `task add` flags.
+pub struct TaskAddArgs<'a> {
+    pub note: Option<&'a str>,
+    /// `--daily [DATE]`: `None` = flag absent, `Some("today")` = bare
+    /// flag, `Some(date)` = explicit.
+    pub daily: Option<&'a str>,
+    pub inbox: bool,
+    pub section: Option<&'a str>,
+    pub due: Option<&'a str>,
+    pub scheduled: Option<&'a str>,
+    pub start: Option<&'a str>,
+    pub priority: Option<&'a str>,
+    pub repeat: Option<&'a str>,
+    pub tags: &'a [String],
+}
+
+/// Shared shape of `task done|status|edit|rm`.
+pub struct TaskPatchArgs<'a> {
+    pub note_id: &'a str,
+    pub line: u32,
+    pub guard: TaskGuard,
+    pub edit: TaskEdit,
+}
+
+/// Parse the edit kind + optional value into a [`TaskEdit`]. Called
+/// from `dispatch_task` with the canonical kind strings.
+pub fn parse_task_edit(kind: &str, value: Option<&str>) -> Result<TaskEdit> {
+    Ok(match kind {
+        "toggle" => TaskEdit::Toggle,
+        "status" => {
+            let raw = value.ok_or_else(|| anyhow!("status requires a symbol"))?;
+            let mut chars = raw.chars();
+            let symbol = chars
+                .next()
+                .ok_or_else(|| anyhow!("status symbol must be one character"))?;
+            if chars.next().is_some() {
+                return Err(anyhow!("status symbol must be one character, got {raw:?}"));
+            }
+            TaskEdit::SetStatus(symbol)
+        }
+        "set-due" => TaskEdit::SetDate {
+            field: DateField::Due,
+            value: Some(parse_task_date(value.unwrap_or_default())?),
+        },
+        "clear-due" => TaskEdit::SetDate {
+            field: DateField::Due,
+            value: None,
+        },
+        "set-text" => TaskEdit::SetText(
+            value
+                .ok_or_else(|| anyhow!("--set-text requires TEXT"))?
+                .to_string(),
+        ),
+        "set-priority" => {
+            TaskEdit::SetPriority(parse_priority_word_cli(value.unwrap_or_default())?)
+        }
+        "set-repeat" => TaskEdit::SetRecurrence(Some(
+            value
+                .ok_or_else(|| anyhow!("--set-repeat requires RULE"))?
+                .to_string(),
+        )),
+        "clear-repeat" => TaskEdit::SetRecurrence(None),
+        "rm" => TaskEdit::Delete,
+        other => return Err(anyhow!("unknown task edit kind: {other}")),
+    })
+}
+
+/// Parse a 16-char lowercase-hex line hash (as printed by `task list`).
+pub fn parse_line_hash(s: &str) -> Result<TaskLineHash> {
+    let ok = s.len() == 16
+        && s.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
+    if !ok {
+        return Err(anyhow!(
+            "invalid --hash {s:?}: expected 16 lowercase hex chars"
+        ));
+    }
+    Ok(TaskLineHash(s.to_string()))
+}
+
+fn parse_task_date(s: &str) -> Result<time::Date> {
+    oximemo_core::template::parse_iso_date(s)
+        .ok_or_else(|| anyhow!("invalid date {s:?}: expected YYYY-MM-DD"))
+}
+
+fn parse_priority_word_cli(s: &str) -> Result<Priority> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "none" => Ok(Priority::None),
+        "lowest" => Ok(Priority::Lowest),
+        "low" => Ok(Priority::Low),
+        "medium" => Ok(Priority::Medium),
+        "high" => Ok(Priority::High),
+        "highest" => Ok(Priority::Highest),
+        other => Err(anyhow!(
+            "invalid priority {other:?}: expected none|lowest|low|medium|high|highest"
+        )),
+    }
+}
+
+/// Local "today" for task date semantics (date-only, local per spec §1).
+fn local_today() -> time::Date {
+    let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    time::OffsetDateTime::now_utc().to_offset(offset).date()
+}
+
+pub fn cmd_task_list(vault: &Vault, args: &TaskListArgs) -> Result<()> {
+    let out = task_list_dtos(vault, args)?;
+    match args.format {
+        "json" => println!("{}", serde_json::to_string_pretty(&out)?),
+        "md" => {
+            for dto in &out {
+                let memo = vault.get_memo(dto.task_ref.memo_id)?;
+                // Live re-read at print time: TaskRow deliberately
+                // stores no raw source text.
+                if let Some(raw) = memo.body.lines().nth(dto.task_ref.line as usize) {
+                    println!("{raw}");
+                }
+            }
+        }
+        _ => print!("{}", format::format_task_table(&out)),
+    }
+    Ok(())
+}
+
+/// Collect matching task DTOs (`cmd_task_list` minus the printing).
+pub fn task_list_dtos(
+    vault: &Vault,
+    args: &TaskListArgs,
+) -> Result<Vec<oximemo_core::tasks::TaskDto>> {
+    // Note-level `--where` runs through the expr engine against each
+    // candidate's NOTE record (RowData::from_record, no task scope).
+    // `task.*` does NOT resolve here: task-level expressions land with
+    // the query-engine plan (Plan B), which extends RowData with a
+    // task namespace. Until then --due/--status/--not-done are the
+    // dedicated task-level filters.
+    let note_expr = match args.where_ {
+        Some(src) => Some(
+            oximemo_core::expr::parser::parse_expr(src)
+                .map_err(|e| anyhow!("invalid --where: {e}"))?,
+        ),
+        None => None,
+    };
+    let note_id = match args.note {
+        Some(id) => Some(MemoId::parse(id).map_err(|e| anyhow!("invalid --note id: {e}"))?),
+        None => None,
+    };
+    let due_filter = match args.due {
+        Some(spec) => Some(parse_due_filter(spec)?),
+        None => None,
+    };
+    let status_filter = match args.status {
+        Some(s) => Some(parse_status_filter(s)?),
+        None => None,
+    };
+
+    let clock = oximemo_core::expr::eval::EvalClock {
+        now_utc: time::OffsetDateTime::now_utc(),
+        local: time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC),
+    };
+    let ctx = oximemo_core::expr::eval::EvalCtx {
+        clock: &clock,
+        depth: std::cell::Cell::new(0),
+    };
+    let no_formulas: std::collections::HashMap<
+        String,
+        Result<oximemo_core::expr::value::Value, oximemo_core::CoreError>,
+    > = std::collections::HashMap::new();
+
+    let snapshot = vault.snapshot()?;
+    let mut out: Vec<oximemo_core::tasks::TaskDto> = Vec::new();
+    'notes: for rec in snapshot.iter() {
+        if rec.deleted {
+            continue;
+        }
+        if let Some(id) = note_id
+            && rec.id != id
+        {
+            continue;
+        }
+        if let Some(prefix) = args.folder
+// folder prefix match: "novel" covers "novel/act1"
+            && !rec.path.starts_with(prefix)
+        {
+            continue;
+        }
+        if let Some(expr) = &note_expr {
+            let row = oximemo_core::expr::eval::RowData::from_record(rec, &no_formulas, None);
+            match oximemo_core::expr::eval::eval(expr, &row, &ctx) {
+                Ok(oximemo_core::expr::value::Value::Bool(true)) => {}
+                Ok(_) => continue 'notes,
+                // An expression that PARSED but fails to evaluate
+                // (type mismatch against a concrete note) must surface,
+                // not silently filter the note away — a mistyped
+                // comparison would otherwise quietly empty the list.
+                Err(e) => {
+                    return Err(anyhow!("--where failed on note {}: {e}", rec.id));
+                }
+            }
+        }
+        for task in &rec.tasks {
+            if out.len() >= args.limit {
+                break 'notes;
+            }
+            if args.not_done && task.status_type.is_done_family() {
+                continue;
+            }
+            if let Some(want) = status_filter
+                && task.status_type != want
+            {
+                continue;
+            }
+            if let Some(filter) = due_filter.as_ref()
+                && !filter.matches(task.due)
+            {
+                continue;
+            }
+            out.push(oximemo_core::tasks::TaskDto::from_row(rec.id, task));
+        }
+    }
+
+    Ok(out)
+}
+
+enum DueFilter {
+    Before(time::Date),
+    After(time::Date),
+    On(time::Date),
+}
+
+impl DueFilter {
+    fn matches(&self, due: Option<time::Date>) -> bool {
+        match (self, due) {
+            (_, None) => false,
+            (DueFilter::Before(d), Some(x)) => x < *d,
+            (DueFilter::After(d), Some(x)) => x > *d,
+            (DueFilter::On(d), Some(x)) => x == *d,
+        }
+    }
+}
+
+fn parse_due_filter(spec: &str) -> Result<DueFilter> {
+    let (op, date) = spec.split_once(':').ok_or_else(|| {
+        anyhow!("invalid --due {spec:?}: expected before:DATE|after:DATE|on:DATE")
+    })?;
+    let d = parse_task_date(date.trim())?;
+    match op.trim().to_ascii_lowercase().as_str() {
+        "before" => Ok(DueFilter::Before(d)),
+        "after" => Ok(DueFilter::After(d)),
+        "on" => Ok(DueFilter::On(d)),
+        other => Err(anyhow!("invalid --due op {other:?}: before|after|on")),
+    }
+}
+
+fn parse_status_filter(s: &str) -> Result<StatusType> {
+    let norm = s.trim().to_ascii_lowercase().replace('_', "");
+    match norm.as_str() {
+        "todo" => Ok(StatusType::Todo),
+        "inprogress" => Ok(StatusType::InProgress),
+        "onhold" => Ok(StatusType::OnHold),
+        "done" => Ok(StatusType::Done),
+        "cancelled" => Ok(StatusType::Cancelled),
+        other => Err(anyhow!(
+            "invalid --status {other:?}: todo|in_progress|on_hold|done|cancelled"
+        )),
+    }
+}
+
+/// `oximemo task add` — prints the created task DTO (pretty JSON).
+pub fn cmd_task_add(vault: &Vault, text: &str, args: &TaskAddArgs) -> Result<()> {
+    let provided = [args.note.is_some(), args.daily.is_some(), args.inbox]
+        .iter()
+        .filter(|&&b| b)
+        .count();
+    if provided > 1 {
+        return Err(anyhow!("only one of --note / --daily / --inbox"));
+    }
+    let target = if let Some(id) = args.note {
+        AddTarget::Note(MemoId::parse(id).map_err(|e| anyhow!("invalid --note id: {e}"))?)
+    } else if args.daily.is_some() {
+        let raw = args.daily.unwrap_or("today");
+        let date = if raw == "today" {
+            local_today()
+        } else {
+            parse_task_date(raw)?
+        };
+        AddTarget::Daily(date)
+    } else if args.inbox {
+        AddTarget::Inbox
+    } else {
+        // No flag: follow the configured capture routing.
+        match vault.with_config(|c| c.tasks.capture_target) {
+            oximemo_core::tasks::CaptureTarget::Daily => AddTarget::Daily(local_today()),
+            oximemo_core::tasks::CaptureTarget::Inbox => AddTarget::Inbox,
+        }
+    };
+    let result = if let Some(section) = args.section {
+        // One-shot heading override via the core's dedicated API —
+        // the persisted [tasks] config is never touched (an earlier
+        // swap-and-restore of the config here was crash-vulnerable:
+        // a failure between the two saves stranded the user's
+        // default_section modified).
+        vault.add_task_with_section(
+            target,
+            text.to_string(),
+            task_fields(args)?,
+            local_today(),
+            section,
+        )?
+    } else {
+        vault.add_task(target, text.to_string(), task_fields(args)?, local_today())?
+    };
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+fn task_fields(args: &TaskAddArgs) -> Result<TaskFields> {
+    Ok(TaskFields {
+        created: None,
+        start: args.start.map(parse_task_date).transpose()?,
+        scheduled: args.scheduled.map(parse_task_date).transpose()?,
+        due: args.due.map(parse_task_date).transpose()?,
+        priority: match args.priority {
+            Some(word) => parse_priority_word_cli(word)?,
+            None => Priority::None,
+        },
+        recurrence: args.repeat.map(str::to_string),
+        tags: args.tags.to_vec(),
+    })
+}
+
+/// Shared runner for `task done|status|edit|rm` — prints the
+/// `PatchTaskResult` pretty JSON on success.
+pub fn cmd_task_patch(vault: &Vault, args: &TaskPatchArgs) -> Result<()> {
+    let memo_id = MemoId::parse(args.note_id).map_err(|e| anyhow!("invalid note id: {e}"))?;
+    let selector = match &args.guard {
+        TaskGuard::Hash(h) => TaskSelector::Exact(oximemo_core::tasks::TaskRef {
+            memo_id,
+            line: args.line,
+            line_hash: h.clone(),
+        }),
+        TaskGuard::Force => TaskSelector::CurrentLine {
+            memo_id,
+            line: args.line,
+        },
+    };
+    let result = vault.patch_task(selector, args.edit.clone(), local_today())?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+/// `oximemo task rollover [--from DATE] [--to DATE] [--dry-run]` —
+/// move every not-done task from an older daily note into a newer
+/// one. A missing source daily note is zero candidates, not an error.
+pub fn cmd_task_rollover(
+    vault: &Vault,
+    from: Option<&str>,
+    to: Option<&str>,
+    dry_run: bool,
+) -> Result<()> {
+    let today = local_today();
+    let from_date = match from {
+        Some(s) => parse_task_date(s)?,
+        None => today.previous_day().unwrap_or(today),
+    };
+    let to_date = match to {
+        Some(s) => parse_task_date(s)?,
+        None => today,
+    };
+    if from_date == to_date {
+        return Err(anyhow!(
+            "--from and --to are the same date ({to_date}); rollover needs two different days"
+        ));
+    }
+
+    // Locate the source daily note by its canonical path (md or html).
+    let folder = vault.with_config(|c| c.daily.folder.trim_end_matches('/').to_string());
+    let md_path = format!("{folder}/{}.md", format_date_yyyy_mm_dd(from_date));
+    let html_path = format!("{folder}/{}.html", format_date_yyyy_mm_dd(from_date));
+    let snapshot = vault.snapshot()?;
+    let source_rec = snapshot
+        .iter()
+        .find(|r| !r.deleted && (r.path == md_path || r.path == html_path));
+
+    let candidates: Vec<oximemo_core::tasks::TaskRef> = match source_rec {
+        None => Vec::new(),
+        Some(rec) => rec
+            .tasks
+            .iter()
+            .filter(|t| !t.status_type.is_done_family())
+            .map(|t| oximemo_core::tasks::TaskRef {
+                memo_id: rec.id,
+                line: t.line,
+                line_hash: t.line_hash.clone(),
+            })
+            .collect(),
+    };
+
+    if dry_run {
+        let preview: Vec<&oximemo_core::tasks::TaskRef> = candidates.iter().collect();
+        println!("{}", serde_json::to_string_pretty(&preview)?);
+        return Ok(());
+    }
+    if candidates.is_empty() {
+        println!("[]");
+        return Ok(());
+    }
+    let source_id = source_rec.map(|r| r.id).unwrap();
+    let receipt = vault.move_tasks(
+        oximemo_core::tasks::MoveTasksRequest {
+            source: source_id,
+            tasks: candidates,
+            destination: AddTarget::Daily(to_date),
+            // Rollover always accepts today's current daily-note state
+            // (or its first creation).
+            expected_destination_hash: None,
+        },
+        today,
+    )?;
+    println!("{}", serde_json::to_string_pretty(&receipt)?);
+    Ok(())
+}
+
+fn format_date_yyyy_mm_dd(d: time::Date) -> String {
+    format!("{:04}-{:02}-{:02}", d.year(), u8::from(d.month()), d.day())
+}
+
 /// Read all of stdin, trimming a single trailing newline.
 fn read_stdin() -> Result<String> {
     use std::io::Read;
@@ -765,6 +1218,9 @@ mod tests {
         }
         fn v(&self) -> &Vault {
             &self.vault
+        }
+        fn dir(&self) -> &std::path::Path {
+            &self.dir
         }
     }
 
@@ -1103,9 +1559,11 @@ mod tests {
     }
 
     fn base_row(name: &str, cells: Vec<BaseCell>) -> BaseRow {
+        let id = MemoId::now();
         BaseRow {
+            row_id: format!("n:{id}"),
             summary: MemoSummary {
-                id: MemoId::now(),
+                id,
                 created_at: time::OffsetDateTime::UNIX_EPOCH,
                 updated_at: time::OffsetDateTime::UNIX_EPOCH,
                 hash: MemoHash::new(""),
@@ -1119,6 +1577,7 @@ mod tests {
             },
             folder: "notes".into(),
             format: "md".into(),
+            task: None,
             cells,
         }
     }
@@ -1326,5 +1785,570 @@ mod tests {
             out.contains("groups: reading 1 · (none) 1"),
             "real group counts render: {out}"
         );
+    }
+
+    // --- task subcommands (spec 2026-08-27) -----------------------------
+
+    use oximemo_core::tasks::TaskDto;
+
+    fn no_args<'a>() -> TaskListArgs<'a> {
+        TaskListArgs {
+            where_: None,
+            note: None,
+            folder: None,
+            due: None,
+            status: None,
+            not_done: false,
+            limit: 50,
+            format: "json",
+        }
+    }
+
+    fn add_args<'a>(note: Option<&'a str>, daily: Option<&'a str>, inbox: bool) -> TaskAddArgs<'a> {
+        TaskAddArgs {
+            note,
+            daily,
+            inbox,
+            section: None,
+            due: None,
+            scheduled: None,
+            start: None,
+            priority: None,
+            repeat: None,
+            tags: &[],
+        }
+    }
+
+    #[test]
+    fn task_add_then_list_json_round_trips_line_and_hash_as_hex_text() {
+        let t = TmpVault::new();
+        cmd_task_add(t.v(), "buy milk", &add_args(None, None, true)).unwrap();
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].text, "buy milk");
+        // Hash serializes as a JSON string, never a number (snake_case
+        // field names match every other core DTO — MemoSummary etc.):
+        let json = serde_json::to_value(&listed[0]).unwrap();
+        assert!(json["task_ref"]["line_hash"].is_string());
+        assert!(json["task_ref"]["line"].is_u64());
+    }
+
+    #[test]
+    fn task_done_requires_hash_unless_force() {
+        let t = TmpVault::new();
+        cmd_task_add(t.v(), "buy milk", &add_args(None, None, true)).unwrap();
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        let task_ref = listed[0].task_ref.clone();
+        // Correct hash succeeds:
+        cmd_task_patch(
+            t.v(),
+            &TaskPatchArgs {
+                note_id: &task_ref.memo_id.to_string(),
+                line: task_ref.line,
+                guard: TaskGuard::Hash(task_ref.line_hash.clone()),
+                edit: TaskEdit::Toggle,
+            },
+        )
+        .unwrap();
+        // Wrong hash fails as a conflict:
+        let bad = parse_line_hash("0123456789abcdef").unwrap();
+        let other = task_list_dtos(t.v(), &TaskListArgs { ..no_args() }).unwrap();
+        let other_ref = other[0].task_ref.clone();
+        let err = cmd_task_patch(
+            t.v(),
+            &TaskPatchArgs {
+                note_id: &other_ref.memo_id.to_string(),
+                line: other_ref.line,
+                guard: TaskGuard::Hash(bad),
+                edit: TaskEdit::Toggle,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("conflict") || err.to_string().contains("not found"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn task_not_done_filters_out_done_and_cancelled() {
+        let t = TmpVault::new();
+        cmd_task_add(t.v(), "a", &add_args(None, None, true)).unwrap();
+        cmd_task_add(t.v(), "b", &add_args(None, None, true)).unwrap();
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        // Snapshot order is newest-first; "a" was created first so it
+        // is the OLDER note — find tasks by text instead.
+        let a = listed.iter().find(|d| d.text == "a").unwrap();
+        cmd_task_patch(
+            t.v(),
+            &TaskPatchArgs {
+                note_id: &a.task_ref.memo_id.to_string(),
+                line: a.task_ref.line,
+                guard: TaskGuard::Hash(a.task_ref.line_hash.clone()),
+                edit: TaskEdit::Toggle,
+            },
+        )
+        .unwrap();
+        let not_done = task_list_dtos(
+            t.v(),
+            &TaskListArgs {
+                not_done: true,
+                ..no_args()
+            },
+        )
+        .unwrap();
+        assert_eq!(not_done.len(), 1);
+        assert_eq!(not_done[0].text, "b");
+    }
+
+    #[test]
+    fn task_rollover_dry_run_previews_without_mutating() {
+        let t = TmpVault::new();
+        let yesterday = local_today().previous_day().unwrap();
+        cmd_task_add(
+            t.v(),
+            "leftover",
+            &add_args(None, Some(yesterday.to_string().as_str()), false),
+        )
+        .unwrap();
+        cmd_task_rollover(t.v(), Some(&yesterday.to_string()), None, true).unwrap();
+        // dry-run: yesterday's note is untouched
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        assert_eq!(listed.len(), 1, "still only in the original note");
+    }
+
+    #[test]
+    fn task_rollover_moves_leftovers_into_today() {
+        let t = TmpVault::new();
+        let yesterday = local_today().previous_day().unwrap();
+        cmd_task_add(
+            t.v(),
+            "leftover",
+            &add_args(None, Some(yesterday.to_string().as_str()), false),
+        )
+        .unwrap();
+        cmd_task_rollover(t.v(), Some(&yesterday.to_string()), None, false).unwrap();
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        assert_eq!(listed.len(), 1);
+        let folder = t
+            .v()
+            .with_config(|c| c.daily.folder.trim_end_matches('/').to_string());
+        let today_path = format!("{folder}/{}.md", local_today());
+        assert_eq!(listed[0].task_ref.memo_id.to_string().is_empty(), false);
+        // The task now lives in today's daily note: verify via the
+        // source record path.
+        let snap = t.v().snapshot().unwrap();
+        let src = snap
+            .iter()
+            .find(|r| r.id == listed[0].task_ref.memo_id)
+            .unwrap();
+        assert_eq!(src.path, today_path);
+    }
+
+    #[test]
+    fn task_line_numbers_are_documented_zero_based_in_json() {
+        let t = TmpVault::new();
+        let id = make_memo(t.v(), "# N");
+        cmd_task_add(
+            t.v(),
+            "first",
+            &add_args(Some(&id.to_string()), None, false),
+        )
+        .unwrap();
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        let ours: Vec<&TaskDto> = listed.iter().filter(|d| d.text == "first").collect();
+        assert_eq!(ours.len(), 1);
+        assert!(ours[0].task_ref.line >= 2, "line lands under the heading");
+        let memo = t.v().get_memo(id).unwrap();
+        let raw = memo
+            .body
+            .lines()
+            .nth(ours[0].task_ref.line as usize)
+            .unwrap();
+        assert!(raw.contains("first"), "line indexes the raw source");
+    }
+
+    #[test]
+    fn task_list_where_filters_at_note_level() {
+        let t = TmpVault::new();
+        let id = make_memo(t.v(), "# Work");
+        t.v()
+            .update_note_with(
+                id,
+                None,
+                None,
+                Some(oximemo_core::props::PropMutation {
+                    sets: vec![(
+                        "area".to_string(),
+                        oximemo_core::PropValue::Str("work".into()),
+                    )],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+        cmd_task_add(
+            t.v(),
+            "work item",
+            &add_args(Some(&id.to_string()), None, false),
+        )
+        .unwrap();
+        cmd_task_add(t.v(), "home item", &add_args(None, None, true)).unwrap();
+        let hits = task_list_dtos(
+            t.v(),
+            &TaskListArgs {
+                where_: Some("area == \"work\""),
+                ..no_args()
+            },
+        )
+        .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].text, "work item");
+    }
+
+    #[test]
+    fn task_list_due_and_status_filters() {
+        let t = TmpVault::new();
+        cmd_task_add(
+            t.v(),
+            "urgent",
+            &TaskAddArgs {
+                due: Some("2030-01-01"),
+                ..add_args(None, None, true)
+            },
+        )
+        .unwrap();
+        cmd_task_add(t.v(), "whenever", &add_args(None, None, true)).unwrap();
+        let before = task_list_dtos(
+            t.v(),
+            &TaskListArgs {
+                due: Some("before:2031-01-01"),
+                ..no_args()
+            },
+        )
+        .unwrap();
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].text, "urgent");
+        let todo_only = task_list_dtos(
+            t.v(),
+            &TaskListArgs {
+                status: Some("todo"),
+                ..no_args()
+            },
+        )
+        .unwrap();
+        assert_eq!(todo_only.len(), 2);
+    }
+
+    #[test]
+    fn task_guard_hash_xor_force_validated_at_parse_level() {
+        assert!(parse_line_hash("XYZ").is_err());
+        assert!(parse_line_hash("0123456789abcdef").is_ok());
+        assert!(parse_line_hash("0123456789abcdef0").is_err(), "17 chars");
+        assert!(parse_task_edit("set-due", Some("2030-01-01")).is_ok());
+        assert!(parse_task_edit("set-due", Some("not-a-date")).is_err());
+        assert!(parse_task_edit("bogus", None).is_err());
+    }
+
+    /// Full lifecycle through the CLI surface alone (Plan A's
+    /// automated Definition-of-Done proof): add into a daily note,
+    /// edit a field, set an in-progress status, complete with the
+    /// guarded hash, complete a recurring task and see the spawned
+    /// occurrence, then roll an older day's leftovers into today.
+    #[test]
+    fn task_lifecycle_end_to_end() {
+        let t = TmpVault::new();
+        let today = local_today();
+        let yesterday = today.previous_day().unwrap();
+        let two_days_ago = yesterday.previous_day().unwrap();
+
+        // 1. add into yesterday's daily note.
+        cmd_task_add(
+            t.v(),
+            "write report",
+            &add_args(None, Some(yesterday.to_string().as_str()), false),
+        )
+        .unwrap();
+
+        // 2. list shows it.
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].text, "write report");
+        let r = listed[0].task_ref.clone();
+
+        // 3. edit --set-due.
+        cmd_task_patch(
+            t.v(),
+            &TaskPatchArgs {
+                note_id: &r.memo_id.to_string(),
+                line: r.line,
+                guard: TaskGuard::Hash(r.line_hash.clone()),
+                edit: parse_task_edit("set-due", Some("2030-01-15")).unwrap(),
+            },
+        )
+        .unwrap();
+
+        // 4. status -> in-progress (/).
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        let r = listed[0].task_ref.clone();
+        cmd_task_patch(
+            t.v(),
+            &TaskPatchArgs {
+                note_id: &r.memo_id.to_string(),
+                line: r.line,
+                guard: TaskGuard::Hash(r.line_hash.clone()),
+                edit: parse_task_edit("status", Some("/")).unwrap(),
+            },
+        )
+        .unwrap();
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        assert_eq!(listed[0].status_type, StatusType::InProgress);
+
+        // 5. done with the fresh (post-edit) hash.
+        let r = listed[0].task_ref.clone();
+        cmd_task_patch(
+            t.v(),
+            &TaskPatchArgs {
+                note_id: &r.memo_id.to_string(),
+                line: r.line,
+                guard: TaskGuard::Hash(r.line_hash.clone()),
+                edit: parse_task_edit("toggle", None).unwrap(),
+            },
+        )
+        .unwrap();
+
+        // 6. the note body on disk shows the completed line.
+        let memo = t.v().get_memo(r.memo_id).unwrap();
+        assert!(
+            memo.body.contains("[x] write report"),
+            "completed line on disk: {}",
+            memo.body
+        );
+
+        // 7. recurring task (default target = today's daily), done it.
+        cmd_task_add(
+            t.v(),
+            "water plants",
+            &TaskAddArgs {
+                due: Some("2030-02-01"),
+                repeat: Some("every week"),
+                ..add_args(None, None, false)
+            },
+        )
+        .unwrap();
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        let recurring = listed
+            .iter()
+            .find(|d| d.text == "water plants" && d.status_type == StatusType::Todo)
+            .expect("recurring task present")
+            .task_ref
+            .clone();
+        cmd_task_patch(
+            t.v(),
+            &TaskPatchArgs {
+                note_id: &recurring.memo_id.to_string(),
+                line: recurring.line,
+                guard: TaskGuard::Hash(recurring.line_hash.clone()),
+                edit: parse_task_edit("toggle", None).unwrap(),
+            },
+        )
+        .unwrap();
+
+        // 8. completed original AND spawned occurrence both listed.
+        let listed = task_list_dtos(t.v(), &no_args()).unwrap();
+        let water: Vec<&TaskDto> = listed.iter().filter(|d| d.text == "water plants").collect();
+        assert_eq!(water.len(), 2, "completed + spawned: {water:?}");
+        let completed = water
+            .iter()
+            .find(|d| d.status_type == StatusType::Done)
+            .expect("completed original");
+        let spawned = water
+            .iter()
+            .find(|d| d.status_type == StatusType::Todo)
+            .expect("spawned occurrence");
+        assert_eq!(
+            completed.task_ref.memo_id, spawned.task_ref.memo_id,
+            "spawn stays in the same note as the completed line"
+        );
+        assert!(
+            completed.task_ref.line > spawned.task_ref.line,
+            "Above insert places the spawn above the completed line"
+        );
+        assert_eq!(
+            spawned.due,
+            Some(time::Date::from_calendar_date(2030, time::Month::February, 8).unwrap()),
+            "spawned due = original due + 1 week"
+        );
+
+        // 9. dry-run rollover on yesterday: its only task is done, so
+        // the preview shows nothing and no state on disk moves.
+        let snapshot_before = t.v().snapshot().unwrap();
+        let before = serde_json::to_string(snapshot_before.as_ref()).unwrap();
+        let yrec = snapshot_before
+            .iter()
+            .find(|rec| rec.id == r.memo_id)
+            .unwrap();
+        assert!(
+            yrec.tasks
+                .iter()
+                .all(|task| task.status_type.is_done_family()),
+            "yesterday has no not-done tasks to roll"
+        );
+        cmd_task_rollover(t.v(), Some(&yesterday.to_string()), None, true).unwrap();
+        let after = serde_json::to_string(t.v().snapshot().unwrap().as_ref()).unwrap();
+        assert_eq!(before, after, "dry-run must not mutate the vault");
+
+        // 10. an older day with an unfinished task, rolled into today.
+        cmd_task_add(
+            t.v(),
+            "leftover chore",
+            &add_args(None, Some(two_days_ago.to_string().as_str()), false),
+        )
+        .unwrap();
+        cmd_task_rollover(t.v(), Some(&two_days_ago.to_string()), None, false).unwrap();
+
+        // 11. not-done list shows it under today's daily note.
+        let not_done = task_list_dtos(
+            t.v(),
+            &TaskListArgs {
+                not_done: true,
+                ..no_args()
+            },
+        )
+        .unwrap();
+        let chore = not_done
+            .iter()
+            .find(|d| d.text == "leftover chore")
+            .expect("rolled into today");
+        let folder = t
+            .v()
+            .with_config(|c| c.daily.folder.trim_end_matches('/').to_string());
+        let snap = t.v().snapshot().unwrap();
+        let src = snap
+            .iter()
+            .find(|rec| rec.id == chore.task_ref.memo_id)
+            .unwrap();
+        assert_eq!(
+            src.path,
+            format!("{folder}/{}.md", today),
+            "chore now lives in today's daily note"
+        );
+    }
+
+    /// Wire-contract pin for Plan B: `base run` over a hand-written
+    /// `.query` (`source: tasks`) must emit one row per indexed task,
+    /// each carrying a distinct `row_id` (`t:<memo>:<line>`) and a
+    /// `task` DTO with hex-text `line_hash`. The result is the JSON
+    /// shape Plan C's frontend adapter and the browser fixtures
+    /// consume -- the test pins the keys so a refactor that drops one
+    /// fails CI, not downstream code.
+    #[test]
+    fn base_run_json_exposes_task_rows_and_row_ids() {
+        let t = TmpVault::new();
+        // Build the daily-note content first: "demo task" lands in
+        // today's daily note, then a plain inbox task gives the query
+        // two rows to assert against.
+        cmd_task_add(
+            t.v(),
+            "demo task",
+            &TaskAddArgs {
+                due: Some("2030-01-01"),
+                ..add_args(None, None, false)
+            },
+        )
+        .unwrap();
+        cmd_task_add(t.v(), "second task", &add_args(None, None, true)).unwrap();
+
+        // Hand-written .query exactly as a user would type it.
+        let query = "source: tasks\nviews:\n  - type: tasks\n    filters: \"task.type != \\\"DONE\\\"\"\n    order:\n      - property: task.due\n        direction: asc\n";
+        let qdir = t.dir().join("queries");
+        std::fs::create_dir_all(&qdir).unwrap();
+        std::fs::write(qdir.join("todo.query"), query).unwrap();
+
+        let page = t
+            .v()
+            .run_base(
+                &BaseSource::Path("queries/todo.query".into()),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 10,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        let json = serde_json::to_value(&page).unwrap();
+        assert_eq!(
+            json["rows"].as_array().unwrap().len(),
+            2,
+            "two indexed tasks feed the rows: {}",
+            json["rows"]
+        );
+
+        let row = &json["rows"][0];
+        for key in ["row_id", "summary", "folder", "format", "task", "cells"] {
+            assert!(row.get(key).is_some(), "wire key {key} missing: {row}");
+        }
+        assert!(row["row_id"].as_str().unwrap().starts_with("t:"));
+        assert!(
+            row["task"]["task_ref"]["line_hash"].is_string(),
+            "line_hash stays hex text (snake_case + string): {}",
+            row["task"]["task_ref"]["line_hash"]
+        );
+        assert!(row["task"]["task_ref"]["memo_id"].is_string());
+        assert_eq!(row["task"]["text"], "demo task");
+
+        // Cache invalidation: completing the demo task must bump the
+        // snapshot generation so the next run_base re-evaluates and
+        // the filter (task.type != "DONE") drops the now-done row.
+        let first_key = json["result_key"].as_str().unwrap().to_string();
+        // Re-list without a where_ filter (task-list's --where runs at
+        // note level only; demo task's text isn't a note property).
+        let demo = task_list_dtos(t.v(), &no_args())
+            .unwrap()
+            .into_iter()
+            .find(|d| d.text == "demo task")
+            .expect("demo task in list");
+        cmd_task_patch(
+            t.v(),
+            &TaskPatchArgs {
+                note_id: &demo.task_ref.memo_id.to_string(),
+                line: demo.task_ref.line,
+                guard: TaskGuard::Hash(demo.task_ref.line_hash.clone()),
+                edit: TaskEdit::Toggle,
+            },
+        )
+        .unwrap();
+        let page2 = t
+            .v()
+            .run_base(
+                &BaseSource::Path("queries/todo.query".into()),
+                &RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 10,
+                    group: None,
+                    now_ms: None,
+                    local_offset_seconds: None,
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap();
+        let json2 = serde_json::to_value(&page2).unwrap();
+        let second_key = json2["result_key"].as_str().unwrap();
+        assert_ne!(first_key, second_key, "mutation must bump the result_key");
+        let rows2 = json2["rows"].as_array().unwrap();
+        assert_eq!(
+            rows2.len(),
+            1,
+            "filter excludes the now-done demo task: {rows2:?}"
+        );
+        assert_eq!(rows2[0]["task"]["text"], "second task");
     }
 }

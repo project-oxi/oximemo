@@ -102,6 +102,39 @@ oximemo stamp <ID>               # MetaHit JSON on stdin
   # source_url/cover_url when the schema declares them. Never
   # overwrites existing values. Ratings never map (user judgment).
 
+oximemo task list [--where EXPR] [--note ID] [--folder PATH]
+                 [--due before:DATE|after:DATE|on:DATE]
+                 [--status todo|in_progress|on_hold|done|cancelled]
+                 [--not-done] [--limit N] [--format table|json|md]
+  # All tasks across live notes. `--where` filters at the NOTE level
+  # (same grammar as `list --where`); `--due`/`--status`/`--not-done`
+  # filter task rows. Lines are 0-based and pair with the line hash
+  # for guarded mutations. `md` re-prints each task's raw source line.
+
+oximemo task add <TEXT> [--note ID | --daily [DATE] | --inbox]
+               [--due DATE] [--scheduled DATE] [--start DATE]
+               [--priority highest|high|medium|low|lowest]
+               [--repeat RULE] [--tag TAG]…
+  # Append a `- [ ]` task under the target note's `## <default
+  # section>` heading (created if absent; `[tasks] default_section` in
+  # oximemo.toml). No target flag = the configured capture_target
+  # (daily by default). Prints the new task's TaskRef JSON.
+
+oximemo task done <ID> <LINE> (--hash HASH | --force)
+oximemo task status <ID> <LINE> <SYMBOL> (--hash HASH | --force)
+oximemo task edit <ID> <LINE> (--hash HASH | --force)
+               (--set-due DATE | --clear-due | --set-text TEXT
+                | --set-priority WORD | --set-repeat RULE | --clear-repeat)
+oximemo task rm <ID> <LINE> (--hash HASH | --force)
+  # Guarded mutations. `--hash` is the 16-hex line hash from a fresh
+  # `task list --format json`; a mismatch aborts with a conflict
+  # (re-list and retry). `--force` skips the guard (last-writer-wins).
+  # `done` toggles; recurring tasks spawn their next occurrence.
+
+oximemo task rollover [--from DATE] [--to DATE] [--dry-run]
+  # Move not-done tasks from an older daily note (default: yesterday)
+  # into a newer one (default: today). Always `--dry-run` first.
+
 oximemo stats            # live memo counts as JSON
 
 oximemo export [--since RFC3339]
@@ -292,6 +325,44 @@ oximemo metadata search "듄" --domain movie --format ndjson | head -1 | oximemo
 - Empty result = metadata disabled or no keys configured for that
   domain (e.g. movie search is all-keyed). Fall back to asking the
   user or using well-established facts, and say which you did.
+
+
+## Tasks
+
+Extended-checkbox tasks (`- [ ]`, `- [x]`, `- [/]`, `- [-]`) are parsed
+out of every note into the index, so the `task` subcommands see them
+across the whole vault — never edit a task line by hand when a task
+command exists for it.
+
+- **TaskRef is the unit agents patch**: a note id + a **0-based** line
+  number + a 16-hex `line_hash` (from `task list --format json`). The
+  hash is a stale-write guard — mutating with a hash that no longer
+  matches aborts with a conflict; re-list and retry.
+- **`today` is caller-local.** The CLI derives dates from the local
+  system clock (`date_add`, due stamps, rollover defaults). There is no
+  server-side timezone guessing; if your host clock is wrong, task
+  dates follow it.
+- **Mutations take `--hash` by default.** Get it from a preceding
+  `task list --format json` in the same recipe. `--force`
+  (last-writer-wins) is an explicit escape hatch for when the user
+  says to override a conflict — never use it in normal flows.
+- **Recurrence**: completing a recurring task (`--repeat "every week"`,
+  optionally `… when done` to anchor on the completion date) stamps
+  `✅ today` and spawns the next occurrence above it by default.
+- **Rollover** moves yesterday's leftovers into today's daily note.
+  Always preview with `--dry-run` first:
+  ```bash
+  oximemo task rollover --dry-run          # preview candidates
+  oximemo task rollover                    # move them into today
+  ```
+
+Typical guarded flow:
+
+```bash
+oximemo task add "인보이스 정리" --inbox --due 2026-09-02 --priority high
+oximemo task list --not-done --format json      # read ID, line, line_hash
+oximemo task done 019f… 3 --hash 697c3e3e34e459e1
+```
 
 ## Quick recipes
 

@@ -45,7 +45,28 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 /// Indexed preview format version. Bump when `make_preview`'s output changes;
 /// [`Vault::migrate`] reindexes once per bump so cached card previews are
 /// regenerated. Stored in `<index_dir>/index-fmt`.
-const INDEX_FORMAT_VERSION: u32 = 4;
+const INDEX_FORMAT_VERSION: u32 = 5;
+
+/// Extraction-parser version for `IndexRecord.tasks` (spec §3/§6). Bump
+/// when `crate::tasks::parse_tasks`'s output would change for the same
+/// bytes + config, so [`Vault::migrate`] reindexes once to repopulate
+/// existing records.
+const TASKS_PARSER_VERSION: u32 = 1;
+
+/// Fingerprints the extraction-affecting subset of `[tasks]` config:
+/// parser version, `enabled`, `global_filter`, `statuses`.
+/// Presentation-only fields (`write_format`, `capture_target`,
+/// `recurrence_insert`, `default_section`) are deliberately excluded —
+/// changing them never changes what counts as a task. Stored in
+/// `<index_dir>/tasks-fingerprint`; [`Vault::migrate`] reindexes once
+/// per change.
+fn tasks_fingerprint(cfg: &crate::tasks::TasksConfig) -> String {
+    let canonical = format!(
+        "{}:{}:{}:{:?}",
+        TASKS_PARSER_VERSION, cfg.enabled, cfg.global_filter, cfg.statuses
+    );
+    blake3::hash(canonical.as_bytes()).to_hex().to_string()
+}
 
 /// Lifecycle status of an opened vault.
 ///
@@ -105,6 +126,41 @@ const SNAPSHOT_CACHE_CAP: usize = 50_000;
 /// swept with `--fix`. Generous vs an in-flight process's lock window;
 /// the GUI startup sweep uses a much larger 7-day floor.
 const STALE_NS_DOCTOR_MIN_AGE: Duration = Duration::from_secs(3600);
+/// Snapshot task-weight cap (spec §3/§6): when the summed
+/// `IndexRecord.tasks.len()` across the export exceeds this, we skip
+/// caching (same as [`SNAPSHOT_CACHE_CAP`]) even if the note count is
+/// under the cap — one note's `MAX_TASKS_PER_NOTE = 1000` cap bounds
+/// any single record, but many task-heavy notes could still sum to a
+/// multi-megabyte Arc. 50k notes * 4 average tasks fits comfortably.
+const SNAPSHOT_TASK_WEIGHT_CAP: usize = 200_000;
+
+/// Vault-relative path of the one-shot installed `할 일` base (tasks
+/// spec §7.4). A normal, user-ownable `.query` — never recreated after
+/// deliberate deletion (install-once marker semantics, like the inbox
+/// seed).
+const TASKS_BASE_REL: &str = "queries/할 일.query";
+
+/// The installed `할 일` base document (tasks spec §7.4): a
+/// vault-global task surface with views 오늘/예정/지연/전체. Unlike
+/// the §9 daily-note fence this is NOT scoped by `this.file.name` —
+/// `today()` pins each view to the wall clock. 오늘 includes overdue
+/// work (due/scheduled on or before today, guarded), 예정 is the
+/// future window, 지연 is strictly overdue by `due`, 전체 is
+/// unfiltered.
+const TASKS_BASE_MD: &str = r#"source: tasks
+views:
+  - type: tasks
+    name: 오늘
+    filters: '(task.due != null && task.due <= today()) || (task.scheduled != null && task.scheduled <= today())'
+  - type: tasks
+    name: 예정
+    filters: '(task.due != null && task.due > today()) || (task.scheduled != null && task.scheduled > today())'
+  - type: tasks
+    name: 지연
+    filters: 'task.due != null && task.due < today()'
+  - type: tasks
+    name: 전체
+"#;
 
 pub struct Vault {
     paths: Paths,
@@ -920,6 +976,108 @@ impl Vault {
         f(&idx, &search)
     }
 
+    /// Caller already holds `guard` for the whole operation (spec §5: one
+    /// exclusive lock across read -> verify -> rewrite -> upsert). This
+    /// function itself acquires no lock; `FileLock` has no type-level
+    /// Shared/Exclusive distinction, so the `debug_assert_eq!` below is
+    /// the only enforcement that callers hold the right kind — the
+    /// `&FileLock` parameter alone only proves "some lock is held".
+    #[allow(dead_code)]
+    fn with_redb_locked<R>(
+        &self,
+        guard: &FileLock,
+        f: impl FnOnce(&RedbIndex) -> Result<R>,
+    ) -> Result<R> {
+        debug_assert_eq!(guard.kind(), LockKind::Exclusive);
+        let idx = RedbIndex::open(&self.paths.meta_db_path())?;
+        f(&idx)
+    }
+
+    /// Exclusive-lock-holding variant of [`Self::with_redb_and_search`] for
+    /// callers already inside a held [`FileLock`] scope (spec §5/§6 task
+    /// mutations: one lock across read, verify, rewrite, upsert).
+    fn with_redb_and_search_locked<R>(
+        &self,
+        guard: &FileLock,
+        f: impl FnOnce(&RedbIndex, &TantivySearch) -> Result<R>,
+    ) -> Result<R> {
+        debug_assert_eq!(guard.kind(), LockKind::Exclusive);
+        let idx = RedbIndex::open(&self.paths.meta_db_path())?;
+        let search = TantivySearch::open(&self.paths.search_dir())?;
+        f(&idx, &search)
+    }
+
+    /// Read a note's current body + resolved file path for a task
+    /// mutation already running under a caller-held exclusive lock.
+    /// Mirrors [`Self::get_memo`]'s live→trash fallback but returns the
+    /// resolved vault-relative and absolute paths alongside the memo, so
+    /// the caller can hand both straight to
+    /// [`Self::write_file_and_upsert_locked`] without re-deriving them.
+    /// Acquires no lock itself — opens redb transiently, relying on the
+    /// caller's held [`FileLock`] for cross-process safety.
+    fn read_file_locked(&self, id: MemoId) -> Result<(Memo, String, PathBuf)> {
+        let idx = RedbIndex::open(&self.paths.meta_db_path())?;
+        let rec = idx
+            .get(id)?
+            .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+        let rel = rec.path;
+        let live = self.paths.vault.join(&rel);
+        if live.exists() {
+            let memo = self
+                .files
+                .read_memo(&live)?
+                .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+            return Ok((memo, rel, live));
+        }
+        let trash = self.paths.trash_path(&rel);
+        if trash.exists() {
+            let memo = self
+                .files
+                .read_memo(&trash)?
+                .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+            return Ok((memo, rel, trash));
+        }
+        Err(CoreError::NotFound(id.to_string()))
+    }
+
+    /// Atomically rewrite `path`'s body, re-read the resulting [`Memo`],
+    /// and upsert the index + search entry — all under the caller's
+    /// already-held exclusive `guard` (spec §5/§6: the single choke point
+    /// task mutations call after computing their new body text). Task
+    /// mutations never touch favorite/props/title-driven rename, so this
+    /// intentionally does not reimplement [`Self::update_note_with`]'s
+    /// rename branch — it is a plain in-place body rewrite.
+    fn write_file_and_upsert_locked(
+        &self,
+        guard: &FileLock,
+        path: &Path,
+        rel: &str,
+        new_body: &str,
+    ) -> Result<Memo> {
+        let now = OffsetDateTime::now_utc();
+        let fmt = crate::memo::NoteFormat::from_rel(rel);
+        let crate_fmt = to_crate_fmt(fmt);
+        write_document(
+            path,
+            new_body,
+            crate_fmt,
+            Mutation::default(),
+            Synthesize::No,
+            now,
+        )
+        .map_err(crate::store::files::frontmatter_error_to_core)?;
+        let note = self.files.read_memo(path)?.ok_or_else(|| {
+            CoreError::other("write_file_and_upsert_locked: re-read produced no memo")
+        })?;
+        let tasks_cfg = self.with_config(|c| c.tasks.clone());
+        let (sbody, stitle, saliases) = search_fields(fmt, &note);
+        self.with_redb_and_search_locked(guard, |idx, search| {
+            idx.upsert(&record_of(&note, rel, &tasks_cfg))?;
+            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+        })?;
+        Ok(note)
+    }
+
     // -- CRUD -------------------------------------------------------------
 
     /// Create a note in `folder` (empty = vault root) in the given format.
@@ -931,6 +1089,52 @@ impl Vault {
         body: String,
         fmt: crate::memo::NoteFormat,
     ) -> Result<Memo> {
+        self.create_note_core(folder, body, fmt, |note, rel| {
+            let (sbody, stitle, saliases) = search_fields(fmt, note);
+            let tasks_cfg = self.with_config(|c| c.tasks.clone());
+            self.with_redb_and_search(|idx, search| {
+                idx.upsert(&record_of(note, rel, &tasks_cfg))?;
+                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+            })
+        })
+        .map(|(memo, _rel, _abs)| memo)
+    }
+
+    /// `create_note` under a caller-held exclusive lock (Task 9:
+    /// `add_task`'s `AddTarget::Inbox`/adopt-or-create daily path).
+    /// Shares every step with `create_note` via `create_note_core`,
+    /// swapping only the upsert's lock usage — one implementation, two
+    /// entry points (spec §5/§6: no duplicated write logic).
+    fn create_note_locked(
+        &self,
+        guard: &FileLock,
+        folder: &str,
+        body: String,
+        fmt: crate::memo::NoteFormat,
+    ) -> Result<(Memo, String, PathBuf)> {
+        self.create_note_core(folder, body, fmt, |note, rel| {
+            let (sbody, stitle, saliases) = search_fields(fmt, note);
+            let tasks_cfg = self.with_config(|c| c.tasks.clone());
+            self.with_redb_and_search_locked(guard, |idx, search| {
+                idx.upsert(&record_of(note, rel, &tasks_cfg))?;
+                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+            })
+        })
+    }
+
+    /// Template application, file write, and identity read-back shared
+    /// by `create_note`/`create_note_locked`. `upsert` performs the
+    /// caller's locked-or-unlocked index+search upsert; the returned
+    /// vault-relative and absolute paths let `create_note_locked`'s
+    /// callers (e.g. daily/inbox adopt-or-create) reuse them without
+    /// re-deriving via `note_file_path` (which would re-acquire a lock).
+    fn create_note_core(
+        &self,
+        folder: &str,
+        body: String,
+        fmt: crate::memo::NoteFormat,
+        upsert: impl FnOnce(&Memo, &str) -> Result<()>,
+    ) -> Result<(Memo, String, PathBuf)> {
         self.ensure_initialized()?;
         // Template application (§6.1): a blank body takes the template's
         // body; a non-blank body keeps the captured text but still
@@ -984,12 +1188,8 @@ impl Vault {
             .read_memo(&path)?
             .ok_or_else(|| CoreError::other("write_document produced an unreadable file"))?;
         let rel = self.paths.relative_path(&path).unwrap_or_default();
-        let (sbody, stitle, saliases) = search_fields(fmt, &note);
-        self.with_redb_and_search(|idx, search| {
-            idx.upsert(&record_of(&note, &rel))?;
-            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
-        })?;
-        Ok(note)
+        upsert(&note, &rel)?;
+        Ok((note, rel, path))
     }
 
     /// Create a note whose format follows the folder's templates: a folder
@@ -1037,6 +1237,22 @@ impl Vault {
     /// can discard untouched fresh notes without ever deleting a file
     /// the user made themselves.
     pub fn open_daily(&self, date: &str) -> Result<(Memo, bool)> {
+        let guard = self.lock(LockKind::Exclusive)?;
+        let (memo, _rel, _abs, created) = self.open_or_create_daily_locked(&guard, date)?;
+        Ok((memo, created))
+    }
+
+    /// `open_daily`'s body, extracted to run under a caller-held
+    /// exclusive lock (Task 9: `add_task`'s `AddTarget::Daily`, which
+    /// must adopt-or-create the day's note inside the SAME lock scope
+    /// as its own append-and-write, not a freshly re-acquired one).
+    /// `open_daily` delegates here under its own lock — one
+    /// implementation, two entry points (spec §5/§6).
+    fn open_or_create_daily_locked(
+        &self,
+        guard: &FileLock,
+        date: &str,
+    ) -> Result<(Memo, String, PathBuf, bool)> {
         if crate::template::parse_iso_date(date).is_none() {
             return Err(CoreError::other("invalid date, expected YYYY-MM-DD"));
         }
@@ -1047,14 +1263,15 @@ impl Vault {
         }
         let md_path = format!("{folder}/{date}.md");
         let html_path = format!("{folder}/{date}.html");
-        let hit = self.with_redb(|idx| {
+        let hit = self.with_redb_locked(guard, |idx| {
             Ok(idx
                 .export_since(None)?
                 .into_iter()
                 .find(|r| !r.deleted && (r.path == md_path || r.path == html_path)))
         })?;
         if let Some(rec) = hit {
-            return Ok((self.get_memo(rec.id)?, false));
+            let (memo, rel, abs) = self.read_file_locked(rec.id)?;
+            return Ok((memo, rel, abs, false));
         }
         // Index miss does not mean the file is absent: the watcher may not
         // have ingested it yet (debounce / startup lag). Adopt a canonical
@@ -1110,11 +1327,12 @@ impl Vault {
                 }
             };
             let (sbody, stitle, saliases) = search_fields(fmt, &note);
-            self.with_redb_and_search(|idx, search| {
-                idx.upsert(&record_of(&note, rel))?;
+            let tasks_cfg = self.with_config(|c| c.tasks.clone());
+            self.with_redb_and_search_locked(guard, |idx, search| {
+                idx.upsert(&record_of(&note, rel, &tasks_cfg))?;
                 search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
             })?;
-            return Ok((note, false));
+            return Ok((note, rel.clone(), abs, false));
         }
         // Format follows the folder's templates (create_note_auto rule).
         let md_t =
@@ -1135,7 +1353,8 @@ impl Vault {
             }
             None => format!("# {date}\n"),
         };
-        self.create_note(folder, body, fmt).map(|memo| (memo, true))
+        let (memo, rel, abs) = self.create_note_locked(guard, folder, body, fmt)?;
+        Ok((memo, rel, abs, true))
     }
 
     /// Backward-compat alias: create a markdown note at vault root.
@@ -1219,6 +1438,7 @@ impl Vault {
         props: Option<crate::props::PropMutation>,
     ) -> Result<Memo> {
         let mut note = self.get_memo(id)?;
+        let tasks_cfg = self.with_config(|c| c.tasks.clone());
         let rec = self.with_redb(|idx| idx.get(id))?;
         let old_rel = rec.as_ref().map(|r| r.path.clone()).unwrap_or_default();
         let fmt = crate::memo::NoteFormat::from_rel(&old_rel);
@@ -1321,7 +1541,7 @@ impl Vault {
             let new_rel = self.paths.relative_path(&new_path).unwrap_or_default();
             let (sbody, stitle, saliases) = search_fields(fmt, &note);
             self.with_redb_and_search(|idx, search| {
-                idx.upsert(&record_of(&note, &new_rel))?;
+                idx.upsert(&record_of(&note, &new_rel, &tasks_cfg))?;
                 search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
             })?;
         } else {
@@ -1382,7 +1602,7 @@ impl Vault {
                 let rel = self.paths.relative_path(&p).unwrap_or_default();
                 let (sbody, stitle, saliases) = search_fields(fmt, &note);
                 self.with_redb_and_search(|idx, search| {
-                    idx.upsert(&record_of(&note, &rel))?;
+                    idx.upsert(&record_of(&note, &rel, &tasks_cfg))?;
                     search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
                 })?;
             } else {
@@ -1403,7 +1623,7 @@ impl Vault {
                 if !matches!(outcome, WriteOutcome::NoOp) {
                     let (sbody, stitle, saliases) = search_fields(fmt, &note);
                     self.with_redb_and_search(|idx, search| {
-                        idx.upsert(&record_of(&note, &old_rel))?;
+                        idx.upsert(&record_of(&note, &old_rel, &tasks_cfg))?;
                         search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
                     })?;
                 } else {
@@ -1478,7 +1698,7 @@ impl Vault {
             if !updates.is_empty() {
                 self.with_redb_and_search(|idx, search| {
                     for (n, p) in &updates {
-                        idx.upsert(&record_of(n, p))?;
+                        idx.upsert(&record_of(n, p, &tasks_cfg))?;
                         let (sbody, stitle, saliases) =
                             search_fields(crate::memo::NoteFormat::from_rel(p), n);
                         search.upsert(n.id, &sbody, stitle.as_deref(), &n.tags, &saliases)?;
@@ -1488,6 +1708,517 @@ impl Vault {
             }
         }
         Ok(note)
+    }
+
+    /// Apply one edit to a single task line under one exclusive lock
+    /// spanning read -> verify -> rewrite -> upsert (spec §5/§6). Unlike
+    /// `update_note_with`, this never renames the file or touches
+    /// favorite/props — task mutations only ever change body text.
+    pub fn patch_task(
+        &self,
+        selector: crate::tasks::TaskSelector,
+        edit: crate::tasks::TaskEdit,
+        today: time::Date,
+    ) -> Result<crate::tasks::PatchTaskResult> {
+        let guard = self.lock(LockKind::Exclusive)?;
+        let memo_id = match &selector {
+            crate::tasks::TaskSelector::Exact(r) => r.memo_id,
+            crate::tasks::TaskSelector::CurrentLine { memo_id, .. } => *memo_id,
+        };
+        let (memo, rel, abs_path) = self.read_file_locked(memo_id)?;
+        let cfg = self.with_config(|c| c.tasks.clone());
+        let eff = cfg.effective_statuses()?;
+        let target_line = match &selector {
+            crate::tasks::TaskSelector::Exact(r) => r.line,
+            crate::tasks::TaskSelector::CurrentLine { line, .. } => *line,
+        };
+        let lines: Vec<&str> = memo.body.lines().collect();
+        let raw = *lines
+            .get(target_line as usize)
+            .ok_or(CoreError::TaskNotFound {
+                memo_id,
+                line: target_line,
+            })?;
+        if crate::tasks::parse_task_line(raw, &eff).is_none() {
+            return Err(CoreError::TaskNotFound {
+                memo_id,
+                line: target_line,
+            });
+        }
+        if let crate::tasks::TaskSelector::Exact(r) = &selector {
+            let actual = crate::tasks::TaskLineHash::of_line(raw);
+            if actual != r.line_hash {
+                return Err(CoreError::TaskConflict { memo_id });
+            }
+        }
+        let transform =
+            crate::tasks::transform_task_draft(&memo.body, target_line, &edit, today, &cfg)?;
+        let new_body = crate::tasks::apply_line_changes_to_body(&memo.body, &transform.changes);
+        // Final whole-file hash recheck immediately before replacement
+        // (spec §5): re-read the file bytes fresh (not the `memo` read
+        // at the top of this function) and compare to `memo.hash`, so a
+        // non-cooperating external writer between the read above and
+        // this point surfaces as a conflict, not a silent overwrite.
+        let current_on_disk = self.files.read_memo(&abs_path)?;
+        let unchanged = current_on_disk
+            .as_ref()
+            .map(|m| m.hash == memo.hash)
+            .unwrap_or(false);
+        if !unchanged {
+            return Err(CoreError::TaskConflict { memo_id });
+        }
+        let updated_memo = self.write_file_and_upsert_locked(&guard, &abs_path, &rel, &new_body)?;
+        let reparsed = crate::tasks::parse_tasks(&updated_memo.body, &cfg);
+        // RecurrenceInsert::Above inserts the spawned occurrence BEFORE
+        // the completed line (spec §6), shifting the just-edited task
+        // down by one; `spawned_line_hint == Some(target_line)` can
+        // only happen in that exact case (Below's hint always lands
+        // strictly after target_line), so this is an unambiguous signal
+        // rather than a config-value guess.
+        let primary_line = if transform.spawned_line_hint == Some(target_line) {
+            target_line + 1
+        } else {
+            target_line
+        };
+        let task_row = reparsed
+            .tasks
+            .iter()
+            .find(|t| t.line == primary_line)
+            .ok_or(CoreError::TaskNotFound {
+                memo_id,
+                line: target_line,
+            })?;
+        let spawned = transform.spawned_line_hint.and_then(|hint| {
+            reparsed
+                .tasks
+                .iter()
+                .find(|t| t.line == hint)
+                .map(|t| crate::tasks::TaskDto::from_row(memo_id, t))
+        });
+        Ok(crate::tasks::PatchTaskResult {
+            note_hash: updated_memo.hash,
+            task: crate::tasks::TaskDto::from_row(memo_id, task_row),
+            spawned,
+            daily_recurrence_warning: false,
+        })
+    }
+
+    /// Resolve the preset-backed Inbox folder without a caller-held
+    /// [`FileLock`]. `folder_inventory()` takes its own Shared lock, so
+    /// this intentionally runs before `add_task`/`move_tasks` enter
+    /// their Exclusive scope; the locked target resolver below consumes
+    /// the stable string rather than ever nesting flock acquisition.
+    fn inbox_folder_for_add_target(
+        &self,
+        target: &crate::tasks::AddTarget,
+    ) -> Result<Option<String>> {
+        match target {
+            crate::tasks::AddTarget::Inbox => Ok(Some(
+                self.folder_inventory()?
+                    .into_iter()
+                    .find(|f| f.preset.as_deref() == Some("idea"))
+                    .map(|f| f.path)
+                    .unwrap_or_default(),
+            )),
+            _ => Ok(None),
+        }
+    }
+
+    /// Resolve any [`crate::tasks::AddTarget`] under a caller-held
+    /// Exclusive lock. Shared by `add_task` and `move_tasks`, so Inbox
+    /// adoption/creation has exactly one implementation (spec §7).
+    fn resolve_add_target_locked(
+        &self,
+        guard: &FileLock,
+        target: &crate::tasks::AddTarget,
+        cfg: &crate::tasks::TasksConfig,
+        inbox_folder: Option<&str>,
+    ) -> Result<(MemoId, Memo, String, PathBuf, bool)> {
+        match target {
+            crate::tasks::AddTarget::Note(id) => {
+                let (memo, rel, abs) = self.read_file_locked(*id)?;
+                Ok((*id, memo, rel, abs, false))
+            }
+            crate::tasks::AddTarget::Daily(date) => {
+                let (memo, rel, abs, created) =
+                    self.open_or_create_daily_locked(guard, &date.to_string())?;
+                Ok((memo.id, memo, rel, abs, created))
+            }
+            crate::tasks::AddTarget::Inbox => {
+                let (memo, rel, abs, created) = self.open_or_create_inbox_locked(
+                    guard,
+                    inbox_folder.unwrap_or_default(),
+                    &cfg.default_section,
+                )?;
+                Ok((memo.id, memo, rel, abs, created))
+            }
+        }
+    }
+    /// Append a new task line to `target` (spec §6/§7). `Note`/`Daily`
+    /// append under the `## {default_section}` heading (created if
+    /// absent); `Inbox` adopts-or-creates a fixed `{inbox
+    /// folder}/{default_section}.md` note and appends there. One
+    /// exclusive lock spans resolve-target -> compute-line -> append ->
+    /// write+upsert, matching `patch_task`'s shape.
+    pub fn add_task(
+        &self,
+        target: crate::tasks::AddTarget,
+        text: String,
+        fields: crate::tasks::TaskFields,
+        today: time::Date,
+    ) -> Result<crate::tasks::PatchTaskResult> {
+        self.add_task_inner(target, text, fields, today, None)
+    }
+
+    /// [`Self::add_task`] with a one-shot section heading override that
+    /// never touches the persisted `[tasks]` config (the CLI's
+    /// `--section` flag). The override affects only this call's
+    /// placement; the Inbox target still resolves its fixed note by the
+    /// CONFIGURED section so the note identity stays stable.
+    pub fn add_task_with_section(
+        &self,
+        target: crate::tasks::AddTarget,
+        text: String,
+        fields: crate::tasks::TaskFields,
+        today: time::Date,
+        section: &str,
+    ) -> Result<crate::tasks::PatchTaskResult> {
+        self.add_task_inner(target, text, fields, today, Some(section))
+    }
+
+    fn add_task_inner(
+        &self,
+        target: crate::tasks::AddTarget,
+        text: String,
+        fields: crate::tasks::TaskFields,
+        today: time::Date,
+        section_override: Option<&str>,
+    ) -> Result<crate::tasks::PatchTaskResult> {
+        let cfg = self.with_config(|c| c.tasks.clone());
+        // Auto-stamp the created date when the caller didn't already
+        // set one (spec §1 `created` field convention: new tasks record
+        // when they were added unless the caller overrides it).
+        let mut fields = fields;
+        if fields.created.is_none() {
+            fields.created = Some(today);
+        }
+        let line = crate::tasks::render_new_task(&text, &fields, &cfg)?;
+        let inbox_folder = self.inbox_folder_for_add_target(&target)?;
+        let guard = self.lock(LockKind::Exclusive)?;
+        let (memo_id, memo, rel, abs_path, _created) =
+            self.resolve_add_target_locked(&guard, &target, &cfg, inbox_folder.as_deref())?;
+        let section = section_override.unwrap_or(&cfg.default_section);
+        let new_body = append_task_line_under_section(&memo.body, &line, section);
+        let updated = self.write_file_and_upsert_locked(&guard, &abs_path, &rel, &new_body)?;
+        let reparsed = crate::tasks::parse_tasks(&updated.body, &cfg);
+        let appended = reparsed.tasks.last().ok_or_else(|| {
+            CoreError::other("add_task: appended line did not parse back as a task")
+        })?;
+        // Spec §9 anti-pattern signal: the appended line really carries a
+        // recurrence rule (re-parsed, not just requested) and it landed in
+        // a daily note. Advisory only — the caller toasts, never blocks.
+        let daily_recurrence_warning =
+            matches!(target, crate::tasks::AddTarget::Daily(_)) && appended.recurrence.is_some();
+        Ok(crate::tasks::PatchTaskResult {
+            note_hash: updated.hash,
+            task: crate::tasks::TaskDto::from_row(memo_id, appended),
+            spawned: None,
+            daily_recurrence_warning,
+        })
+    }
+
+    /// Adopt-or-create the fixed `{folder}/{filename_stem}.md` note
+    /// under a caller-held exclusive lock (`add_task`'s `AddTarget::Inbox`).
+    /// Simpler than `open_or_create_daily_locked`: no date-templated
+    /// filename, no HTML sibling, no folder template application on
+    /// create — the inbox note is a plain heading-only document that
+    /// `append_task_line_under_section` fills in.
+    fn open_or_create_inbox_locked(
+        &self,
+        guard: &FileLock,
+        folder: &str,
+        filename_stem: &str,
+    ) -> Result<(Memo, String, PathBuf, bool)> {
+        let folder = folder.trim_end_matches('/');
+        // The section name is arbitrary user config — slugify strips
+        // path separators and reserved characters so the fixed inbox
+        // filename can never escape the vault (`../../` in
+        // `default_section` would otherwise resolve outside it). The
+        // in-body heading below still uses the raw section text.
+        let stem = crate::memo::slugify(filename_stem);
+        let rel = if folder.is_empty() {
+            format!("{stem}.md")
+        } else {
+            format!("{folder}/{stem}.md")
+        };
+        let hit = self.with_redb_locked(guard, |idx| {
+            Ok(idx
+                .export_since(None)?
+                .into_iter()
+                .find(|r| !r.deleted && r.path == rel))
+        })?;
+        if let Some(rec) = hit {
+            let (memo, rel, abs) = self.read_file_locked(rec.id)?;
+            return Ok((memo, rel, abs, false));
+        }
+        let abs = self.paths.vault.join(&rel);
+        if abs.exists() {
+            // Unindexed file already on disk (watcher lag, manual file):
+            // adopt it in place rather than creating a colliding sibling
+            // (mirrors `open_or_create_daily_locked`'s adopt branch).
+            let note = match self.files.read_memo(&abs)? {
+                Some(note) => note,
+                None => {
+                    let ParsedFile::BodyOnly { body } = self.files.read(&abs)? else {
+                        return Err(CoreError::other(
+                            "[inbox] existing file has unexpected shape",
+                        ));
+                    };
+                    let now = OffsetDateTime::now_utc();
+                    write_document(
+                        &abs,
+                        &body,
+                        to_crate_fmt(crate::memo::NoteFormat::Markdown),
+                        Mutation::default(),
+                        Synthesize::Yes,
+                        now,
+                    )
+                    .map_err(crate::store::files::frontmatter_error_to_core)?;
+                    self.files
+                        .read_memo(&abs)?
+                        .ok_or_else(|| CoreError::other("[inbox] adoption re-read failed"))?
+                }
+            };
+            let fmt = crate::memo::NoteFormat::Markdown;
+            let (sbody, stitle, saliases) = search_fields(fmt, &note);
+            let tasks_cfg = self.with_config(|c| c.tasks.clone());
+            self.with_redb_and_search_locked(guard, |idx, search| {
+                idx.upsert(&record_of(&note, &rel, &tasks_cfg))?;
+                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+            })?;
+            return Ok((note, rel, abs, false));
+        }
+        // `create_note_locked` derives its filename from the body's H1,
+        // which this heading-only body has none of -- write directly at
+        // the already-computed fixed `abs` path instead.
+        if let Some(parent) = abs.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let body = format!("## {filename_stem}\n");
+        let now = OffsetDateTime::now_utc();
+        write_document(
+            &abs,
+            &body,
+            to_crate_fmt(crate::memo::NoteFormat::Markdown),
+            Mutation::default(),
+            Synthesize::Yes,
+            now,
+        )
+        .map_err(crate::store::files::frontmatter_error_to_core)?;
+        let note = self
+            .files
+            .read_memo(&abs)?
+            .ok_or_else(|| CoreError::other("[inbox] creation re-read failed"))?;
+        let fmt = crate::memo::NoteFormat::Markdown;
+        let (sbody, stitle, saliases) = search_fields(fmt, &note);
+        let tasks_cfg = self.with_config(|c| c.tasks.clone());
+        self.with_redb_and_search_locked(guard, |idx, search| {
+            idx.upsert(&record_of(&note, &rel, &tasks_cfg))?;
+            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+        })?;
+        Ok((note, rel, abs, true))
+    }
+
+    /// Move selected task subtrees from one note into another (spec §7).
+    /// One Exclusive lock covers source verification, destination
+    /// resolution, both writes, and the compensating rollback path.
+    pub fn move_tasks(
+        &self,
+        req: crate::tasks::MoveTasksRequest,
+        _today: time::Date,
+    ) -> Result<crate::tasks::MoveTasksReceipt> {
+        if req.tasks.is_empty() {
+            return Err(CoreError::other("move_tasks: tasks must not be empty"));
+        }
+        let destination_inbox_folder = self.inbox_folder_for_add_target(&req.destination)?;
+        let guard = self.lock(LockKind::Exclusive)?;
+        let (source_memo, source_rel, source_abs) = self.read_file_locked(req.source)?;
+        let cfg = self.with_config(|c| c.tasks.clone());
+        let eff = cfg.effective_statuses()?;
+        let source_lines: Vec<&str> = source_memo.body.lines().collect();
+
+        // Verify that every ref belongs to this source, still names a
+        // task line, and matches its stale-write guard.
+        for task in &req.tasks {
+            if task.memo_id != req.source {
+                return Err(CoreError::TaskConflict {
+                    memo_id: req.source,
+                });
+            }
+            let raw = source_lines
+                .get(task.line as usize)
+                .ok_or(CoreError::TaskNotFound {
+                    memo_id: req.source,
+                    line: task.line,
+                })?;
+            let Some((fields, _)) = crate::tasks::parse_task_line(raw, &eff) else {
+                return Err(CoreError::TaskNotFound {
+                    memo_id: req.source,
+                    line: task.line,
+                });
+            };
+            if fields.status_type == crate::tasks::StatusType::NonTask
+                || crate::tasks::TaskLineHash::of_line(raw) != task.line_hash
+            {
+                return Err(CoreError::TaskConflict {
+                    memo_id: req.source,
+                });
+            }
+        }
+
+        let roots = crate::tasks::dedup_covered_descendants(&source_lines, &req.tasks, &eff);
+        let mut moved_lines = Vec::new();
+        let mut removed_ranges: Vec<(usize, usize)> = Vec::with_capacity(roots.len());
+        for root in &roots {
+            let start = root.line as usize;
+            let base_indent = crate::tasks::indent_columns_of(source_lines[start]);
+            let mut end = start + 1;
+            while let Some(next) = source_lines.get(end) {
+                if crate::tasks::indent_columns_of(next) <= base_indent {
+                    break;
+                }
+                end += 1;
+            }
+            moved_lines.extend(
+                source_lines[start..end]
+                    .iter()
+                    .map(|raw| crate::tasks::dedent_line(raw, base_indent)),
+            );
+            removed_ranges.push((start, end));
+        }
+
+        let (destination, destination_memo, destination_rel, destination_abs, destination_created) =
+            self.resolve_add_target_locked(
+                &guard,
+                &req.destination,
+                &cfg,
+                destination_inbox_folder.as_deref(),
+            )?;
+        // Moving a note into itself would write the destination version
+        // and then overwrite it with the source-removal version, losing
+        // data. Reject explicitly before either write.
+        if destination == req.source {
+            return Err(CoreError::TaskConflict {
+                memo_id: req.source,
+            });
+        }
+        if let Some(expected) = &req.expected_destination_hash
+            && &destination_memo.hash != expected
+        {
+            return Err(CoreError::TaskConflict {
+                memo_id: destination,
+            });
+        }
+        let destination_pre_hash = (!destination_created).then(|| destination_memo.hash.clone());
+        let joined = moved_lines.join("\n");
+        let destination_new_body =
+            append_task_line_under_section(&destination_memo.body, &joined, &cfg.default_section);
+
+        let mut remaining = source_lines.clone();
+        removed_ranges.sort_by_key(|range| std::cmp::Reverse(range.0));
+        for (start, end) in &removed_ranges {
+            remaining.drain(*start..*end);
+        }
+        let source_new_body = remaining.join("\n") + "\n";
+
+        // Destination first, then source (spec §5). If source writing
+        // fails, restore the destination's original body before
+        // surfacing the source error; both writes remain inside this
+        // method's one held Exclusive lock.
+        let destination_updated = self.write_file_and_upsert_locked(
+            &guard,
+            &destination_abs,
+            &destination_rel,
+            &destination_new_body,
+        )?;
+        let source_updated = match self.write_file_and_upsert_locked(
+            &guard,
+            &source_abs,
+            &source_rel,
+            &source_new_body,
+        ) {
+            Ok(memo) => memo,
+            Err(error) => {
+                let _ = self.write_file_and_upsert_locked(
+                    &guard,
+                    &destination_abs,
+                    &destination_rel,
+                    &destination_memo.body,
+                );
+                return Err(error);
+            }
+        };
+
+        Ok(crate::tasks::MoveTasksReceipt {
+            source: req.source,
+            destination,
+            source_pre_hash: source_memo.hash,
+            source_post_hash: source_updated.hash,
+            destination_pre_hash,
+            destination_post_hash: destination_updated.hash,
+            moved_lines,
+        })
+    }
+
+    /// Guarded inverse of [`Self::move_tasks`]. Both notes must still
+    /// equal the receipt's post-move hashes; otherwise an intervening
+    /// edit wins and undo refuses to erase it (spec §7).
+    pub fn undo_move_tasks(&self, receipt: &crate::tasks::MoveTasksReceipt) -> Result<()> {
+        let guard = self.lock(LockKind::Exclusive)?;
+        let (source_memo, source_rel, source_abs) = self.read_file_locked(receipt.source)?;
+        let (destination_memo, destination_rel, destination_abs) =
+            self.read_file_locked(receipt.destination)?;
+        if source_memo.hash != receipt.source_post_hash
+            || destination_memo.hash != receipt.destination_post_hash
+        {
+            return Err(CoreError::TaskConflict {
+                memo_id: receipt.source,
+            });
+        }
+        let cfg = self.with_config(|c| c.tasks.clone());
+        let destination_restored = remove_appended_task_lines_under_section(
+            &destination_memo.body,
+            &receipt.moved_lines,
+            &cfg.default_section,
+        )
+        .ok_or(CoreError::TaskConflict {
+            memo_id: receipt.destination,
+        })?;
+        let joined = receipt.moved_lines.join("\n");
+        let source_restored = format!("{}\n{}\n", source_memo.body.trim_end(), joined);
+        // Destination first, then source — the same order as
+        // `move_tasks`, with the same compensation: if restoring the
+        // source fails after the destination write landed, put the
+        // destination back so the moved block is never silently lost
+        // from BOTH notes.
+        self.write_file_and_upsert_locked(
+            &guard,
+            &destination_abs,
+            &destination_rel,
+            &destination_restored,
+        )?;
+        if let Err(error) =
+            self.write_file_and_upsert_locked(&guard, &source_abs, &source_rel, &source_restored)
+        {
+            let _ = self.write_file_and_upsert_locked(
+                &guard,
+                &destination_abs,
+                &destination_rel,
+                &destination_memo.body,
+            );
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Backward-compat wrapper (category ignored).
@@ -1534,8 +2265,9 @@ impl Vault {
             )
             .map_err(crate::store::files::frontmatter_error_to_core)?;
         }
+        let tasks_cfg = self.with_config(|c| c.tasks.clone());
         self.with_redb_and_search(|idx, search| {
-            idx.upsert(&record_of(&note, &rel))?;
+            idx.upsert(&record_of(&note, &rel, &tasks_cfg))?;
             search.remove(note.id)
         })?;
         Ok(())
@@ -1570,8 +2302,9 @@ impl Vault {
             .map_err(crate::store::files::frontmatter_error_to_core)?;
         }
         let (sbody, stitle, saliases) = search_fields(fmt, &note);
+        let tasks_cfg = self.with_config(|c| c.tasks.clone());
         self.with_redb_and_search(|idx, search| {
-            idx.upsert(&record_of(&note, &rel))?;
+            idx.upsert(&record_of(&note, &rel, &tasks_cfg))?;
             search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
         })?;
         Ok(note)
@@ -1716,7 +2449,8 @@ impl Vault {
             let post = std::fs::metadata(self.paths.meta_db_path())?;
             ((recs), (post.modified()?, post.len()))
         };
-        if recs.len() > SNAPSHOT_CACHE_CAP {
+        let total_tasks: usize = recs.iter().map(|r| r.tasks.len()).sum();
+        if recs.len() > SNAPSHOT_CACHE_CAP || total_tasks > SNAPSHOT_TASK_WEIGHT_CAP {
             return Ok((std::sync::Arc::new(recs), post_gen));
         }
         let arc = std::sync::Arc::new(recs);
@@ -2003,11 +2737,7 @@ impl Vault {
     /// dropped from the entry. Any other string is stored verbatim without
     /// validation — a stale field name after a schema drop falls into the
     /// "날짜 없음" bucket instead of erroring.
-    pub fn set_folder_calendar_field(
-        &self,
-        path: &str,
-        field: Option<String>,
-    ) -> Result<()> {
+    pub fn set_folder_calendar_field(&self, path: &str, field: Option<String>) -> Result<()> {
         let mut cfg = self.config.write();
         let normalized = field.filter(|s| s != "created_at");
         match cfg.folders.items.iter_mut().find(|f| f.path == path) {
@@ -2120,6 +2850,14 @@ impl Vault {
         self.replace_section(|c, v| c.daily = v, v)
     }
 
+    /// `[tasks]` — the Tasks feature (spec 2026-08-27 §11). Validates the
+    /// status table before persisting: config load never validates
+    /// elsewhere in this codebase, but writes must reject bad input.
+    pub fn set_tasks_config(&self, value: crate::tasks::TasksConfig) -> Result<()> {
+        value.effective_statuses()?;
+        self.replace_section(|cfg, v| cfg.tasks = v, value)
+    }
+
     /// `[git]` — local vault versioning via the shared `oxi-vault-git`
     /// layer. Section setter mirrors the others.
     pub fn set_git_config(&self, v: crate::config::GitConfig) -> Result<()> {
@@ -2194,9 +2932,10 @@ impl Vault {
         }
 
         let new_rel = self.paths.relative_path(&new_path).unwrap_or_default();
+        let tasks_cfg = self.with_config(|c| c.tasks.clone());
         let (sbody, stitle, saliases) = search_fields(fmt, &note);
         self.with_redb_and_search(|idx, search| {
-            idx.upsert(&record_of(&note, &new_rel))?;
+            idx.upsert(&record_of(&note, &new_rel, &tasks_cfg))?;
             search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
         })?;
         Ok(note)
@@ -2323,6 +3062,7 @@ impl Vault {
     /// Rebuild the indexes from the source-of-truth files (§5.5, §9.1).
     pub fn reindex(&self) -> Result<IndexStats> {
         self.ensure_initialized()?;
+        let tasks_cfg = self.with_config(|c| c.tasks.clone());
         self.with_redb_and_search(|idx, search| {
             let mut stats = IndexStats::default();
             let mut search_owned: Vec<SearchRow> = Vec::new();
@@ -2333,14 +3073,19 @@ impl Vault {
                         let fmt = crate::memo::NoteFormat::from_rel(&rel);
                         let (sbody, stitle, saliases) = search_fields(fmt, &note);
                         let title = stitle;
-                        let rec = record_of(&note, &rel);
+                        let rec = record_of(&note, &rel, &tasks_cfg);
                         match idx.get(note.id)? {
                             None => {
                                 idx.upsert(&rec)?;
                                 search_owned.push((note.id, sbody, title, note.tags, saliases));
                                 stats.added += 1;
                             }
-                            Some(prev) if prev.hash == rec.hash && prev.preview == rec.preview => {
+                            Some(prev)
+                                if prev.hash == rec.hash
+                                    && prev.preview == rec.preview
+                                    && prev.tasks == rec.tasks
+                                    && prev.tasks_truncated == rec.tasks_truncated =>
+                            {
                                 stats.unchanged += 1;
                             }
                             Some(_) => {
@@ -2367,7 +3112,7 @@ impl Vault {
                         .unwrap_or_default();
                     let (sbody, stitle, saliases) =
                         search_fields(crate::memo::NoteFormat::from_rel(&rel), &note);
-                    let rec = record_of(&note, &rel);
+                    let rec = record_of(&note, &rel, &tasks_cfg);
                     idx.upsert(&rec)?;
                     search_owned.push((note.id, sbody, stitle, note.tags, saliases));
                     stats.trashed_memos += 1;
@@ -2401,16 +3146,33 @@ impl Vault {
         self.ensure_default_folders()?;
         let marker = self.paths.index_fmt_marker_path();
         let wants = INDEX_FORMAT_VERSION.to_string();
-        if std::fs::read_to_string(&marker)
+        let format_current = std::fs::read_to_string(&marker)
             .ok()
             .map(|s| s.trim() == wants)
-            .unwrap_or(false)
-        {
-            return Ok(());
+            .unwrap_or(false);
+        let mut reindexed = false;
+        if !format_current {
+            tracing::info!(version = INDEX_FORMAT_VERSION, "migrating index format");
+            self.reindex()?;
+            std::fs::write(&marker, &wants)?;
+            reindexed = true;
         }
-        tracing::info!(version = INDEX_FORMAT_VERSION, "migrating index format");
-        self.reindex()?;
-        std::fs::write(&marker, &wants)?;
+        // Tasks-extraction fingerprint (spec §3/§6): a change to
+        // `enabled`/`global_filter`/`statuses`, or a parser-version bump,
+        // changes what counts as a task — reindex once to pick it up.
+        // Skipped if the format-version bump above already reindexed.
+        let tasks_marker = self.paths.tasks_fingerprint_path();
+        let wants_tasks = tasks_fingerprint(&self.with_config(|c| c.tasks.clone()));
+        let tasks_current = std::fs::read_to_string(&tasks_marker)
+            .ok()
+            .map(|s| s.trim() == wants_tasks)
+            .unwrap_or(false);
+        if !tasks_current {
+            if !reindexed {
+                self.reindex()?;
+            }
+            std::fs::write(&tasks_marker, &wants_tasks)?;
+        }
         Ok(())
     }
 
@@ -2453,6 +3215,22 @@ impl Vault {
             }
             std::fs::write(&marker, b"1")?;
         }
+        // One-shot installed `할 일` base (tasks spec §7.4). Same
+        // ownership rule as the inbox seed above: the base is a
+        // user-ownable `.query`, so once the user deletes it we must
+        // NOT resurrect it on later migrate()s. Marker + absence check
+        // guard the first-ever seed and the "user moved/edited it"
+        // case — the write only happens when the file is missing.
+        let marker = self.paths.tasks_base_seed_marker_path();
+        if !marker.exists() {
+            if !self.paths.vault.join(TASKS_BASE_REL).exists() {
+                self.save_base(TASKS_BASE_REL, TASKS_BASE_MD, None)?;
+            }
+            if let Some(parent) = marker.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&marker, b"1")?;
+        }
         Ok(())
     }
 
@@ -2479,8 +3257,9 @@ impl Vault {
                 let rel = self.paths.relative_path(path).unwrap_or_default();
                 let fmt = crate::memo::NoteFormat::from_rel(&rel);
                 let (sbody, stitle, saliases) = search_fields(fmt, &note);
+                let tasks_cfg = self.with_config(|c| c.tasks.clone());
                 self.with_redb_and_search(|idx, search| {
-                    idx.upsert(&record_of(&note, &rel))?;
+                    idx.upsert(&record_of(&note, &rel, &tasks_cfg))?;
                     search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
                 })
             }
@@ -2972,9 +3751,12 @@ fn decode_query_origin(s: &str) -> Option<String> {
 }
 
 /// Build an [`IndexRecord`] from a [`Memo`] + its vault-relative path. The
-/// format is derived from the path's extension.
-fn record_of(n: &Memo, path: &str) -> IndexRecord {
+/// format is derived from the path's extension. `tasks_cfg` drives task
+/// extraction (spec §3/§6): callers hold it once per operation rather
+/// than re-locking `self.config` per call site.
+fn record_of(n: &Memo, path: &str, tasks_cfg: &crate::tasks::TasksConfig) -> IndexRecord {
     let fmt = crate::memo::NoteFormat::from_rel(path);
+    let parsed = crate::tasks::parse_tasks(&n.body, tasks_cfg);
     IndexRecord {
         id: n.id,
         created_at: n.created_at,
@@ -2988,7 +3770,83 @@ fn record_of(n: &Memo, path: &str) -> IndexRecord {
         deleted_at: n.deleted_at,
         preview: preview_of(fmt, &n.body),
         props: n.props.clone(),
+        tasks: parsed.tasks,
+        tasks_truncated: parsed.truncated,
     }
+}
+
+/// Append `line` under the `## {section}` heading in `body` (spec
+/// §6/§7): the task becomes the section's last line, everything else
+/// preserved untouched. When the heading is absent, append a blank
+/// separator, the heading, then the line, at the end of the body.
+/// `Vault::add_task`'s `Note`/`Daily`/`Inbox` paths all funnel through
+/// this one function.
+fn append_task_line_under_section(body: &str, line: &str, section: &str) -> String {
+    let heading = format!("## {section}");
+    let lines: Vec<&str> = body.lines().collect();
+    if let Some(start) = lines.iter().position(|l| l.trim_end() == heading) {
+        // The section runs until the next heading (any level) or EOF;
+        // insert the new line as the section's last line, i.e.
+        // immediately before that boundary.
+        let mut end = start + 1;
+        while end < lines.len() && !lines[end].trim_start().starts_with('#') {
+            end += 1;
+        }
+        let mut out: Vec<&str> = lines[..end].to_vec();
+        out.push(line);
+        out.extend(&lines[end..]);
+        let mut result = out.join("\n");
+        result.push('\n');
+        result
+    } else {
+        let mut result = body.to_string();
+        if !result.is_empty() && !result.ends_with('\n') {
+            result.push('\n');
+        }
+        if !result.is_empty() {
+            result.push('\n');
+        }
+        result.push_str(&heading);
+        result.push('\n');
+        result.push_str(line);
+        result.push('\n');
+        result
+    }
+}
+
+/// Inverse of `append_task_line_under_section` for a known
+/// just-appended multi-line task block. The block must occupy the final
+/// lines of the named section; otherwise return `None` rather than
+/// deleting an earlier identical occurrence during guarded undo.
+fn remove_appended_task_lines_under_section(
+    body: &str,
+    moved_lines: &[String],
+    section: &str,
+) -> Option<String> {
+    if moved_lines.is_empty() {
+        return None;
+    }
+    let heading = format!("## {section}");
+    let lines: Vec<&str> = body.lines().collect();
+    let start = lines.iter().position(|line| line.trim_end() == heading)?;
+    let mut end = start + 1;
+    while end < lines.len() && !lines[end].trim_start().starts_with('#') {
+        end += 1;
+    }
+    let block_start = end.checked_sub(moved_lines.len())?;
+    if block_start < start + 1
+        || lines[block_start..end]
+            .iter()
+            .zip(moved_lines)
+            .any(|(actual, expected)| *actual != expected)
+    {
+        return None;
+    }
+    let mut out: Vec<&str> = lines[..block_start].to_vec();
+    out.extend(&lines[end..]);
+    let mut result = out.join("\n");
+    result.push('\n');
+    Some(result)
 }
 
 /// Derived search-index fields for a note: the searchable body text and the
@@ -3657,6 +4515,699 @@ watcher_retry_interval_ms = 200
 "#;
         let parsed: crate::config::VaultConfig = toml::from_str(legacy).unwrap();
         assert_eq!(parsed.index.watcher_debounce_ms, 300);
+    }
+
+    #[test]
+    fn set_tasks_config_rejects_invalid_statuses() {
+        let (dir, v) = tmp_vault();
+
+        // Two configured entries collide after X-normalization ("X" maps
+        // onto the configured "x") — a true duplicate, rejected.
+        let mut bad = crate::tasks::TasksConfig::default();
+        bad.statuses.push(crate::tasks::TaskStatusDef {
+            symbol: "x".into(),
+            name: Some("Custom done".into()),
+            next: " ".into(),
+            r#type: crate::tasks::StatusType::Done,
+        });
+        bad.statuses.push(crate::tasks::TaskStatusDef {
+            symbol: "X".into(),
+            name: None,
+            next: " ".into(),
+            r#type: crate::tasks::StatusType::Done,
+        });
+        assert!(v.set_tasks_config(bad).is_err());
+
+        // On-disk config unchanged: re-open the vault and check the
+        // pre-call defaults survived.
+        let re = Vault::open(Some(dir.path())).unwrap();
+        re.with_config(|c| assert_eq!(c.tasks, crate::tasks::TasksConfig::default()));
+    }
+
+    #[test]
+    fn parsed_tasks_ride_the_existing_index_without_a_second_store() {
+        let (_t, v) = tmp_vault();
+        v.create_memo("- [ ] buy milk 📅 2026-08-30".into(), None)
+            .unwrap();
+        let recs = v.snapshot().unwrap();
+        let rec = recs.iter().find(|r| !r.deleted).unwrap();
+        assert_eq!(rec.tasks.len(), 1);
+        assert_eq!(rec.tasks[0].text, "buy milk");
+        assert!(!rec.tasks_truncated);
+    }
+
+    #[test]
+    fn note_with_more_than_1000_tasks_sets_truncated_flag() {
+        let (_t, v) = tmp_vault();
+        let mut body = String::new();
+        for i in 0..1001 {
+            body.push_str(&format!("- [ ] task {i}\n"));
+        }
+        v.create_memo(body, None).unwrap();
+        let recs = v.snapshot().unwrap();
+        let rec = recs.iter().find(|r| !r.deleted).unwrap();
+        assert_eq!(rec.tasks.len(), 1000);
+        assert!(rec.tasks_truncated);
+    }
+
+    #[test]
+    fn editing_note_body_updates_its_tasks_on_reindex() {
+        let (_t, v) = tmp_vault();
+        let memo = v.create_memo("- [ ] first".into(), None).unwrap();
+        v.update_note(memo.id, Some("- [ ] first\n- [ ] second".into()), None)
+            .unwrap();
+        let recs = v.snapshot().unwrap();
+        let rec = recs.iter().find(|r| r.id == memo.id).unwrap();
+        assert_eq!(rec.tasks.len(), 2);
+    }
+
+    #[test]
+    fn changing_global_filter_triggers_reindex_via_fingerprint() {
+        let (dir, v) = tmp_vault();
+        // Under the default config (no filter configured) this line is
+        // extracted as a task even though it carries no "#task" marker.
+        v.create_memo("- [ ] no filter token".into(), None).unwrap();
+        let before = v.snapshot().unwrap();
+        assert_eq!(before.iter().find(|r| !r.deleted).unwrap().tasks.len(), 1);
+
+        let mut tasks_cfg = v.with_config(|c| c.tasks.clone());
+        tasks_cfg.global_filter = "#task".into();
+        v.set_tasks_config(tasks_cfg).unwrap();
+        // Re-open (migrate() runs the fingerprint check) to simulate the
+        // next app launch picking up the config-driven reindex, matching
+        // how INDEX_FORMAT_VERSION bumps are picked up today. Without the
+        // fingerprint check, the stale IndexRecord.tasks from before the
+        // config change would still show 1 task.
+        let reopened = Vault::open(Some(dir.path())).unwrap();
+        reopened.migrate().unwrap();
+        let recs = reopened.snapshot().unwrap();
+        let rec = recs.iter().find(|r| !r.deleted).unwrap();
+        assert_eq!(
+            rec.tasks.len(),
+            0,
+            "no #task token present, now correctly excluded by the new filter"
+        );
+    }
+
+    #[test]
+    fn snapshot_task_weight_cap_prevents_caching_oversized_task_vectors() {
+        let (_t, v) = tmp_vault();
+        // 250 notes * ~900 tasks each > SNAPSHOT_TASK_WEIGHT_CAP (200_000),
+        // while staying well under SNAPSHOT_CACHE_CAP (50_000 notes) so
+        // the note-count cap alone would not trigger the uncached path.
+        let mut body = String::new();
+        for i in 0..900 {
+            body.push_str(&format!("- [ ] task {i}\n"));
+        }
+        for _ in 0..250 {
+            v.create_memo(body.clone(), None).unwrap();
+        }
+        let first = v.snapshot().unwrap();
+        let second = v.snapshot().unwrap();
+        assert!(!first.is_empty());
+        assert!(!second.is_empty());
+    }
+
+    #[test]
+    fn locked_helpers_do_not_change_update_note_with_behavior() {
+        let (_t, v) = tmp_vault();
+        let memo = v.create_memo("before".into(), None).unwrap();
+        let updated = v
+            .update_note_with(memo.id, Some("after".into()), None, None)
+            .unwrap();
+        assert_eq!(updated.body, "after");
+        let refetched = v.get_memo(memo.id).unwrap();
+        assert_eq!(refetched.body, "after");
+    }
+
+    #[test]
+    fn concurrent_readers_do_not_deadlock_against_a_held_write_lock_scope() {
+        // With the new locked helpers in place, a normal with_redb
+        // (shared) call from another thread must still succeed promptly
+        // once the exclusive scope releases -- i.e. we have not
+        // introduced a lock that outlives its intended scope.
+        let (_t, v) = tmp_vault();
+        let v = std::sync::Arc::new(v);
+        let memo = v.create_memo("x".into(), None).unwrap();
+        let v2 = v.clone();
+        let handle = std::thread::spawn(move || v2.get_memo(memo.id));
+        let result = handle.join().unwrap();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn patch_task_toggle_by_exact_ref_succeeds() {
+        let (_t, v) = tmp_vault();
+        let memo = v.create_memo("- [ ] buy milk".into(), None).unwrap();
+        let hash = crate::tasks::TaskLineHash::of_line("- [ ] buy milk");
+        let today = time::macros::date!(2026 - 08 - 27);
+        let result = v
+            .patch_task(
+                crate::tasks::TaskSelector::Exact(crate::tasks::TaskRef {
+                    memo_id: memo.id,
+                    line: 0,
+                    line_hash: hash,
+                }),
+                crate::tasks::TaskEdit::Toggle,
+                today,
+            )
+            .unwrap();
+        assert_eq!(result.task.status_type, crate::tasks::StatusType::Done);
+        let refetched = v.get_memo(memo.id).unwrap();
+        assert!(refetched.body.starts_with("- [x]"));
+    }
+
+    #[test]
+    fn patch_task_rejects_stale_hash() {
+        let (_t, v) = tmp_vault();
+        let memo = v.create_memo("- [ ] buy milk".into(), None).unwrap();
+        let stale_hash = crate::tasks::TaskLineHash::of_line("- [ ] wrong original text");
+        let today = time::macros::date!(2026 - 08 - 27);
+        let err = v
+            .patch_task(
+                crate::tasks::TaskSelector::Exact(crate::tasks::TaskRef {
+                    memo_id: memo.id,
+                    line: 0,
+                    line_hash: stale_hash,
+                }),
+                crate::tasks::TaskEdit::Toggle,
+                today,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            CoreError::TaskConflict { .. } | CoreError::TaskNotFound { .. }
+        ));
+    }
+
+    #[test]
+    fn patch_task_current_line_ignores_hash_and_targets_whatever_is_there() {
+        let (_t, v) = tmp_vault();
+        let memo = v.create_memo("- [ ] buy milk".into(), None).unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let result = v
+            .patch_task(
+                crate::tasks::TaskSelector::CurrentLine {
+                    memo_id: memo.id,
+                    line: 0,
+                },
+                crate::tasks::TaskEdit::Toggle,
+                today,
+            )
+            .unwrap();
+        assert_eq!(result.task.status_type, crate::tasks::StatusType::Done);
+    }
+
+    #[test]
+    fn patch_task_out_of_range_line_is_task_not_found() {
+        let (_t, v) = tmp_vault();
+        let memo = v.create_memo("- [ ] buy milk".into(), None).unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let err = v
+            .patch_task(
+                crate::tasks::TaskSelector::CurrentLine {
+                    memo_id: memo.id,
+                    line: 99,
+                },
+                crate::tasks::TaskEdit::Toggle,
+                today,
+            )
+            .unwrap_err();
+        assert!(matches!(err, CoreError::TaskNotFound { .. }));
+    }
+
+    #[test]
+    fn two_vault_instances_patch_different_lines_concurrently_without_lost_update() {
+        let (tmp, vault_a) = tmp_vault();
+        vault_a
+            .create_memo("- [ ] first\n- [ ] second".into(), None)
+            .unwrap();
+        let memo = vault_a
+            .snapshot()
+            .unwrap()
+            .iter()
+            .find(|r| !r.deleted)
+            .unwrap()
+            .clone();
+        let vault_b = Vault::open(Some(tmp.path())).unwrap();
+        let hash0 = crate::tasks::TaskLineHash::of_line("- [ ] first");
+        let hash1 = crate::tasks::TaskLineHash::of_line("- [ ] second");
+        let today = time::macros::date!(2026 - 08 - 27);
+        vault_a
+            .patch_task(
+                crate::tasks::TaskSelector::Exact(crate::tasks::TaskRef {
+                    memo_id: memo.id,
+                    line: 0,
+                    line_hash: hash0,
+                }),
+                crate::tasks::TaskEdit::Toggle,
+                today,
+            )
+            .unwrap();
+        vault_b
+            .patch_task(
+                crate::tasks::TaskSelector::Exact(crate::tasks::TaskRef {
+                    memo_id: memo.id,
+                    line: 1,
+                    line_hash: hash1,
+                }),
+                crate::tasks::TaskEdit::Toggle,
+                today,
+            )
+            .unwrap();
+        let refetched = vault_a.get_memo(memo.id).unwrap();
+        assert!(refetched.body.contains("- [x] first"));
+        assert!(refetched.body.contains("- [x] second"));
+    }
+
+    #[test]
+    fn patch_task_recheck_detects_a_non_cooperating_external_write() {
+        let (_t, v) = tmp_vault();
+        let memo = v.create_memo("- [ ] buy milk".into(), None).unwrap();
+        let hash = crate::tasks::TaskLineHash::of_line("- [ ] buy milk");
+        let today = time::macros::date!(2026 - 08 - 27);
+        // An ordinary vault-mediated edit changes the file first; this
+        // exercises the same code path a non-cooperating external
+        // writer's change would hit at patch_task's recheck step,
+        // without needing to race threads in a synchronous test.
+        v.update_note(memo.id, Some("- [ ] buy milk (edited)".into()), None)
+            .unwrap();
+        let err = v
+            .patch_task(
+                crate::tasks::TaskSelector::Exact(crate::tasks::TaskRef {
+                    memo_id: memo.id,
+                    line: 0,
+                    line_hash: hash,
+                }),
+                crate::tasks::TaskEdit::Toggle,
+                today,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            CoreError::TaskConflict { .. } | CoreError::TaskNotFound { .. }
+        ));
+    }
+
+    #[test]
+    fn patch_task_toggle_of_recurring_task_reports_the_completed_task_not_the_spawn() {
+        // Default config uses RecurrenceInsert::Above: the spawned
+        // occurrence is inserted BEFORE the completed line, so the
+        // completed task's own line shifts down by one. patch_task must
+        // still report the COMPLETED task as `result.task` (not the
+        // newly spawned Todo that now occupies the original line index).
+        let (_t, v) = tmp_vault();
+        let memo = v
+            .create_memo(
+                "- [ ] water plants 🔁 every week 📅 2026-08-30".into(),
+                None,
+            )
+            .unwrap();
+        let hash =
+            crate::tasks::TaskLineHash::of_line("- [ ] water plants 🔁 every week 📅 2026-08-30");
+        let today = time::macros::date!(2026 - 08 - 27);
+        let result = v
+            .patch_task(
+                crate::tasks::TaskSelector::Exact(crate::tasks::TaskRef {
+                    memo_id: memo.id,
+                    line: 0,
+                    line_hash: hash,
+                }),
+                crate::tasks::TaskEdit::Toggle,
+                today,
+            )
+            .unwrap();
+        assert_eq!(
+            result.task.status_type,
+            crate::tasks::StatusType::Done,
+            "result.task must be the just-completed task, not the spawned Todo"
+        );
+        assert_eq!(result.task.text, "water plants");
+        let spawned = result
+            .spawned
+            .expect("recurrence must spawn a new occurrence");
+        assert_eq!(spawned.status_type, crate::tasks::StatusType::Todo);
+        assert_eq!(spawned.due, Some(time::macros::date!(2026 - 09 - 06)));
+    }
+
+    #[test]
+    fn add_task_to_existing_note_appends_a_line_with_global_filter() {
+        let (_t, v) = tmp_vault();
+        let memo = v
+            .create_note("", "# Notes".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let mut tasks_cfg = v.with_config(|c| c.tasks.clone());
+        tasks_cfg.global_filter = "#task".into();
+        v.set_tasks_config(tasks_cfg).unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let result = v
+            .add_task(
+                crate::tasks::AddTarget::Note(memo.id),
+                "buy milk".into(),
+                crate::tasks::TaskFields::default(),
+                today,
+            )
+            .unwrap();
+        assert_eq!(result.task.text, "buy milk");
+        let refetched = v.get_memo(memo.id).unwrap();
+        assert!(refetched.body.contains("- [ ] buy milk #task"));
+    }
+
+    #[test]
+    fn add_task_daily_creates_todays_note_with_default_section() {
+        let (_t, v) = tmp_vault();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let result = v
+            .add_task(
+                crate::tasks::AddTarget::Daily(today),
+                "call mom".into(),
+                crate::tasks::TaskFields::default(),
+                today,
+            )
+            .unwrap();
+        assert_eq!(result.task.text, "call mom");
+    }
+
+    #[test]
+    fn add_task_daily_is_idempotent_on_the_note_creation_side() {
+        let (_t, v) = tmp_vault();
+        let today = time::macros::date!(2026 - 08 - 27);
+        v.add_task(
+            crate::tasks::AddTarget::Daily(today),
+            "first".into(),
+            crate::tasks::TaskFields::default(),
+            today,
+        )
+        .unwrap();
+        let result = v
+            .add_task(
+                crate::tasks::AddTarget::Daily(today),
+                "second".into(),
+                crate::tasks::TaskFields::default(),
+                today,
+            )
+            .unwrap();
+        assert_eq!(result.task.text, "second");
+        // Both tasks landed in the SAME note, not two competing daily notes.
+        let (daily, _created) = v.open_daily(&today.to_string()).unwrap();
+        assert!(daily.body.contains("first") && daily.body.contains("second"));
+    }
+
+    #[test]
+    fn add_task_creates_default_section_heading_when_absent() {
+        let (_t, v) = tmp_vault();
+        let memo = v
+            .create_note(
+                "",
+                "# Notes\nsome text".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        v.add_task(
+            crate::tasks::AddTarget::Note(memo.id),
+            "task one".into(),
+            crate::tasks::TaskFields::default(),
+            today,
+        )
+        .unwrap();
+        let refetched = v.get_memo(memo.id).unwrap();
+        let default_section = v.with_config(|c| c.tasks.default_section.clone());
+        assert!(refetched.body.contains(&format!("## {default_section}")));
+    }
+
+    #[test]
+    fn add_task_rejects_newline_in_text() {
+        let (_t, v) = tmp_vault();
+        let memo = v
+            .create_note("", "# Notes".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let err = v
+            .add_task(
+                crate::tasks::AddTarget::Note(memo.id),
+                "bad\ntext".into(),
+                crate::tasks::TaskFields::default(),
+                today,
+            )
+            .unwrap_err();
+        assert!(matches!(err, CoreError::InvalidTasksConfig(_)));
+    }
+
+    #[test]
+    fn add_task_to_inbox_adopts_or_creates_the_fixed_note() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap(); // seeds the default Inbox (idea preset).
+        let today = time::macros::date!(2026 - 08 - 27);
+        let default_section = v.with_config(|c| c.tasks.default_section.clone());
+        let first = v
+            .add_task(
+                crate::tasks::AddTarget::Inbox,
+                "first".into(),
+                crate::tasks::TaskFields::default(),
+                today,
+            )
+            .unwrap();
+        let second = v
+            .add_task(
+                crate::tasks::AddTarget::Inbox,
+                "second".into(),
+                crate::tasks::TaskFields::default(),
+                today,
+            )
+            .unwrap();
+        // Both appends land in the same note (adopt-not-recreate).
+        let refetched = v.get_memo(first.task.task_ref.memo_id).unwrap();
+        assert_eq!(first.task.task_ref.memo_id, second.task.task_ref.memo_id);
+        assert!(refetched.body.contains("first") && refetched.body.contains("second"));
+        assert!(refetched.body.contains(&format!("## {default_section}")));
+    }
+
+    #[test]
+    fn add_task_warns_when_recurring_task_targets_daily_note() {
+        let (_t, v) = tmp_vault();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let recurring = crate::tasks::TaskFields {
+            recurrence: Some("every week".into()),
+            ..Default::default()
+        };
+        // Daily + recurrence: the §9 anti-pattern signal fires.
+        let daily = v
+            .add_task(
+                crate::tasks::AddTarget::Daily(today),
+                "call mom".into(),
+                recurring.clone(),
+                today,
+            )
+            .unwrap();
+        assert!(daily.daily_recurrence_warning);
+        assert_eq!(daily.task.recurrence.as_deref(), Some("every week"));
+        // The line really recurs in the note — the flag reflects the
+        // written bytes, not just the request.
+        let (note, _created) = v.open_daily(&today.to_string()).unwrap();
+        assert!(note.body.contains("🔁 every week"));
+
+        // Same fields, non-daily target: no warning.
+        let inbox = v
+            .add_task(
+                crate::tasks::AddTarget::Inbox,
+                "call mom".into(),
+                recurring,
+                today,
+            )
+            .unwrap();
+        assert!(!inbox.daily_recurrence_warning);
+
+        // Daily target without a rule: no warning.
+        let plain = v
+            .add_task(
+                crate::tasks::AddTarget::Daily(today),
+                "one-off".into(),
+                crate::tasks::TaskFields::default(),
+                today,
+            )
+            .unwrap();
+        assert!(!plain.daily_recurrence_warning);
+    }
+
+    #[test]
+    fn move_tasks_moves_full_subtree_to_destination_and_removes_from_source() {
+        let (_t, v) = tmp_vault();
+        let source = v
+            .create_memo("- [ ] parent\n  - [ ] child\n- [ ] unrelated".into(), None)
+            .unwrap();
+        let destination = v.create_memo("# Dest\n## 할 일\n".into(), None).unwrap();
+        let parent_hash = crate::tasks::TaskLineHash::of_line("- [ ] parent");
+        let today = time::macros::date!(2026 - 08 - 27);
+        let receipt = v
+            .move_tasks(
+                crate::tasks::MoveTasksRequest {
+                    source: source.id,
+                    tasks: vec![crate::tasks::TaskRef {
+                        memo_id: source.id,
+                        line: 0,
+                        line_hash: parent_hash,
+                    }],
+                    destination: crate::tasks::AddTarget::Note(destination.id),
+                    expected_destination_hash: None,
+                },
+                today,
+            )
+            .unwrap();
+        let source_after = v.get_memo(source.id).unwrap();
+        assert!(!source_after.body.contains("parent"));
+        assert!(!source_after.body.contains("child"));
+        assert!(source_after.body.contains("unrelated"));
+        let destination_after = v.get_memo(destination.id).unwrap();
+        assert!(destination_after.body.contains("parent"));
+        assert!(destination_after.body.contains("child"));
+        assert_eq!(receipt.source, source.id);
+        assert_eq!(receipt.destination, destination.id);
+        assert_eq!(
+            receipt.moved_lines,
+            vec!["- [ ] parent".to_string(), "  - [ ] child".to_string()],
+            "the root is re-based to column zero while child indentation stays relative"
+        );
+    }
+
+    #[test]
+    fn move_tasks_deduplicates_descendant_selections_covered_by_an_ancestor() {
+        let (_t, v) = tmp_vault();
+        let source = v
+            .create_memo("- [ ] parent\n  - [ ] child".into(), None)
+            .unwrap();
+        let destination = v.create_memo("# Dest\n## 할 일\n".into(), None).unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        v.move_tasks(
+            crate::tasks::MoveTasksRequest {
+                source: source.id,
+                tasks: vec![
+                    crate::tasks::TaskRef {
+                        memo_id: source.id,
+                        line: 0,
+                        line_hash: crate::tasks::TaskLineHash::of_line("- [ ] parent"),
+                    },
+                    crate::tasks::TaskRef {
+                        memo_id: source.id,
+                        line: 1,
+                        line_hash: crate::tasks::TaskLineHash::of_line("  - [ ] child"),
+                    },
+                ],
+                destination: crate::tasks::AddTarget::Note(destination.id),
+                expected_destination_hash: None,
+            },
+            today,
+        )
+        .unwrap();
+        let destination_after = v.get_memo(destination.id).unwrap();
+        assert_eq!(destination_after.body.matches("child").count(), 1);
+    }
+
+    #[test]
+    fn move_tasks_verifies_expected_destination_hash() {
+        let (_t, v) = tmp_vault();
+        let source = v.create_memo("- [ ] task".into(), None).unwrap();
+        let destination = v.create_memo("# Dest".into(), None).unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let err = v
+            .move_tasks(
+                crate::tasks::MoveTasksRequest {
+                    source: source.id,
+                    tasks: vec![crate::tasks::TaskRef {
+                        memo_id: source.id,
+                        line: 0,
+                        line_hash: crate::tasks::TaskLineHash::of_line("- [ ] task"),
+                    }],
+                    destination: crate::tasks::AddTarget::Note(destination.id),
+                    expected_destination_hash: Some(crate::memo::MemoHash::new("wrong")),
+                },
+                today,
+            )
+            .unwrap_err();
+        assert!(matches!(err, CoreError::TaskConflict { .. }));
+    }
+
+    #[test]
+    fn move_tasks_receipt_supports_undo_while_hashes_still_match() {
+        let (_t, v) = tmp_vault();
+        let source = v.create_memo("- [ ] task".into(), None).unwrap();
+        let destination = v.create_memo("# Dest\n## 할 일\n".into(), None).unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let receipt = v
+            .move_tasks(
+                crate::tasks::MoveTasksRequest {
+                    source: source.id,
+                    tasks: vec![crate::tasks::TaskRef {
+                        memo_id: source.id,
+                        line: 0,
+                        line_hash: crate::tasks::TaskLineHash::of_line("- [ ] task"),
+                    }],
+                    destination: crate::tasks::AddTarget::Note(destination.id),
+                    expected_destination_hash: None,
+                },
+                today,
+            )
+            .unwrap();
+        v.undo_move_tasks(&receipt).unwrap();
+        let source_after = v.get_memo(source.id).unwrap();
+        assert!(source_after.body.contains("task"));
+        let destination_after = v.get_memo(destination.id).unwrap();
+        assert!(!destination_after.body.contains("- [ ] task"));
+    }
+
+    #[test]
+    fn move_tasks_undo_rejects_intervening_edits() {
+        let (_t, v) = tmp_vault();
+        let source = v.create_memo("- [ ] task".into(), None).unwrap();
+        let destination = v.create_memo("# Dest\n## 할 일\n".into(), None).unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let receipt = v
+            .move_tasks(
+                crate::tasks::MoveTasksRequest {
+                    source: source.id,
+                    tasks: vec![crate::tasks::TaskRef {
+                        memo_id: source.id,
+                        line: 0,
+                        line_hash: crate::tasks::TaskLineHash::of_line("- [ ] task"),
+                    }],
+                    destination: crate::tasks::AddTarget::Note(destination.id),
+                    expected_destination_hash: None,
+                },
+                today,
+            )
+            .unwrap();
+        v.update_note(
+            destination.id,
+            Some("# Dest\n## 할 일\n- [ ] task\nintervening edit".into()),
+            None,
+        )
+        .unwrap();
+        let err = v.undo_move_tasks(&receipt).unwrap_err();
+        assert!(matches!(err, CoreError::TaskConflict { .. }));
+    }
+
+    #[test]
+    fn move_tasks_rejects_source_equal_to_destination_before_writing() {
+        let (_t, v) = tmp_vault();
+        let source = v.create_memo("- [ ] task".into(), None).unwrap();
+        let today = time::macros::date!(2026 - 08 - 27);
+        let err = v
+            .move_tasks(
+                crate::tasks::MoveTasksRequest {
+                    source: source.id,
+                    tasks: vec![crate::tasks::TaskRef {
+                        memo_id: source.id,
+                        line: 0,
+                        line_hash: crate::tasks::TaskLineHash::of_line("- [ ] task"),
+                    }],
+                    destination: crate::tasks::AddTarget::Note(source.id),
+                    expected_destination_hash: None,
+                },
+                today,
+            )
+            .unwrap_err();
+        assert!(matches!(err, CoreError::TaskConflict { .. }));
+        assert_eq!(v.get_memo(source.id).unwrap().body, "- [ ] task");
     }
 
     #[test]
@@ -4397,7 +5948,7 @@ watcher_retry_interval_ms = 200
                 .iter()
                 .all(|f| f.path != "book")
         );
-}
+    }
 
     #[test]
     fn set_folder_view_persists_calendar() {
@@ -5221,6 +6772,88 @@ watcher_retry_interval_ms = 200
             Some(&crate::props::PropValue::Str("daily".into()))
         );
         assert_eq!(m.body.lines().next(), Some("# 2026-08-23"));
+    }
+
+    /// Tasks spec §9 end-to-end: the query fence shipped in the daily
+    /// template runs as an embedded query (`this_id`) against the day's
+    /// note and yields exactly the tasks due on or before the note's own
+    /// ISO filename — due-today passes; due-tomorrow and undated drop.
+    #[test]
+    fn daily_template_fence_lists_only_tasks_due_today() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        v.create_memo(
+            "# 업무\n\n- [ ] 오늘 마감 📅 2026-08-29\n- [ ] 내일 마감 📅 2026-08-30\n- [ ] 기한 없음\n"
+                .to_string(),
+            None,
+        )
+        .unwrap();
+        let (daily, created) = v.open_daily("2026-08-29").unwrap();
+        assert!(created, "fresh vault mints today's note from the template");
+        // Run the fence embedded in the note itself, not a hand-built def.
+        let start = daily
+            .body
+            .find("```query\n")
+            .expect("daily note carries the §9 fence")
+            + "```query\n".len();
+        let end = daily.body[start..].find("\n```").expect("fence closes") + start;
+        let def = crate::base::parse_base(&daily.body[start..end]).unwrap();
+        let page = v
+            .run_base(
+                &crate::base::BaseSource::Inline(def),
+                &crate::base::RunBaseReq {
+                    view_index: 0,
+                    offset: 0,
+                    limit: 50,
+                    group: None,
+                    // Pinned clock: the filter never calls now()/today(),
+                    // and UTC makes due-today == this.file.name midnight.
+                    now_ms: Some(1_767_225_600_000),
+                    local_offset_seconds: Some(0),
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: Some(daily.id),
+                },
+            )
+            .unwrap();
+        assert_eq!(page.total, 1, "only the due-today task: {page:?}");
+        let task = page.rows[0].task.as_ref().expect("task row carries a DTO");
+        assert_eq!(task.text, "오늘 마감");
+        assert_ne!(
+            page.rows[0].summary.id, daily.id,
+            "the row is the indexed task, not the daily note itself"
+        );
+    }
+
+    /// §9 install semantics: `apply_preset` is skip-if-exists, so a
+    /// user-owned TEMPLATE.md survives `migrate` byte-identical and a
+    /// pre-existing daily note is adopted verbatim — the new 할 일 fence
+    /// is stamped only into notes created AFTER the template lands.
+    #[test]
+    fn daily_preset_never_rewrites_existing_template_or_notes() {
+        let (_t, v) = tmp_vault();
+        v.ensure_initialized().unwrap();
+        std::fs::create_dir_all(v.paths().vault.join("daily")).unwrap();
+        let custom = "# {{date}}\n\n내 템플릿\n";
+        std::fs::write(v.paths().vault.join("daily/TEMPLATE.md"), custom).unwrap();
+        v.migrate().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(v.paths().vault.join("daily/TEMPLATE.md")).unwrap(),
+            custom,
+            "existing TEMPLATE.md is never overwritten"
+        );
+        std::fs::write(
+            v.paths().vault.join("daily/2026-08-29.md"),
+            "# 2026-08-29\n\n직접 쓴 하루\n",
+        )
+        .unwrap();
+        let (m, created) = v.open_daily("2026-08-29").unwrap();
+        assert!(!created, "adopts the existing file");
+        assert_eq!(m.body, "# 2026-08-29\n\n직접 쓴 하루\n");
+        assert!(
+            !m.body.contains("## 할 일"),
+            "existing daily notes are never rewritten"
+        );
     }
     /// Design §6.1/§6.3 end-to-end: the knowledge preset stamps
     /// `status: stub` on captures (blank AND non-blank bodies), the
@@ -6128,6 +7761,86 @@ watcher_retry_interval_ms = 200
         );
     }
 
+    // -- installed `할 일` base seed (tasks spec 2026-08-27 §7.4) ----
+
+    #[test]
+    fn tasks_base_seeds_once_and_is_never_recreated_after_delete() {
+        let (t, v) = tmp_vault();
+        v.migrate().unwrap();
+        let abs = v.paths().vault.join(TASKS_BASE_REL);
+        assert!(abs.exists(), "fresh vault must install the 할 일 base");
+        // The seeded document is a valid tasks base: task source, four
+        // `tasks`-type views named 오늘/예정/지연/전체, no warnings.
+        let yaml = std::fs::read_to_string(&abs).unwrap();
+        assert_eq!(yaml, TASKS_BASE_MD);
+        let def = crate::base::parse_base(&yaml).unwrap();
+        assert!(matches!(def.source, crate::base::BaseSourceKind::Tasks));
+        assert!(crate::base::validate(&def).unwrap().is_empty());
+        let names: Vec<&str> = def
+            .views
+            .iter()
+            .map(|view| view.name.as_deref().unwrap_or(""))
+            .collect();
+        assert_eq!(names, ["오늘", "예정", "지연", "전체"]);
+        assert!(def.views.iter().all(|view| view.r#type == "tasks"));
+        assert!(v.paths().tasks_base_seed_marker_path().exists());
+        // End-to-end: the seeded views actually execute. Pinned clock
+        // 2026-08-29T12:00Z (offset 0) → today() = 2026-08-29.
+        v.create_memo(
+            "# 업무\n\n- [ ] 지연 항목 📅 2026-08-27\n- [ ] 오늘 항목 📅 2026-08-29\n- [ ] 예정 항목 ⏳ 2026-09-02\n- [ ] 기한 없음\n"
+                .to_string(),
+            None,
+        )
+        .unwrap();
+        let run_view = |index: usize| {
+            v.run_base(
+                &crate::base::BaseSource::Path(TASKS_BASE_REL.to_string()),
+                &crate::base::RunBaseReq {
+                    view_index: index,
+                    offset: 0,
+                    limit: 50,
+                    group: None,
+                    now_ms: Some(1_788_004_800_000),
+                    local_offset_seconds: Some(0),
+                    include_group_counts: false,
+                    include_summaries: false,
+                    this_id: None,
+                },
+            )
+            .unwrap()
+        };
+        assert_eq!(run_view(0).total, 2, "오늘: overdue + due-today");
+        assert_eq!(run_view(1).total, 1, "예정: future scheduled only");
+        assert_eq!(run_view(2).total, 1, "지연: strictly-overdue due only");
+        assert_eq!(run_view(3).total, 4, "전체: every indexed task");
+        // Deliberate deletion is permanent: the marker suppresses the
+        // reseed on every later migrate().
+        std::fs::remove_file(&abs).unwrap();
+        v.migrate().unwrap();
+        assert!(!abs.exists(), "deleted base must not be resurrected");
+        assert!(v.paths().tasks_base_seed_marker_path().exists());
+        drop(t);
+    }
+
+    #[test]
+    fn tasks_base_seed_never_overwrites_user_edits() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        // The user edits the base after the seed, then the marker is
+        // lost (e.g. a partial index-dir wipe): the re-run must NOT
+        // clobber the user's file — the absence check guards the write.
+        let edited = "source: tasks\nviews:\n  - type: tasks\n    name: Mine\n";
+        v.save_base(TASKS_BASE_REL, edited, None).unwrap();
+        std::fs::remove_file(v.paths().tasks_base_seed_marker_path()).unwrap();
+        v.migrate().unwrap();
+        let yaml = std::fs::read_to_string(v.paths().vault.join(TASKS_BASE_REL)).unwrap();
+        assert_eq!(yaml, edited);
+        assert!(
+            v.paths().tasks_base_seed_marker_path().exists(),
+            "marker is (re)written exactly when the seed check ran"
+        );
+    }
+
     // -- .query base file CRUD (task 7) -------------------------------
 
     /// Minimal valid `.query` document used by the round-trip / parse-validate tests.
@@ -6498,7 +8211,10 @@ watcher_retry_interval_ms = 200
                 .unwrap(),
             1
         );
-        assert!(!root.join("locked").exists(), "unlocked after release: swept");
+        assert!(
+            !root.join("locked").exists(),
+            "unlocked after release: swept"
+        );
     }
 
     #[test]
@@ -6509,10 +8225,8 @@ watcher_retry_interval_ms = 200
         let d = root.join("oldns");
         std::fs::create_dir_all(&d).unwrap();
         let f = std::fs::File::create(d.join(crate::paths::META_DB_NAME)).unwrap();
-        f.set_modified(
-            std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600),
-        )
-        .unwrap();
+        f.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600))
+            .unwrap();
 
         let (_t, v) = tmp_vault();
         // Report-only: counts, does not delete.

@@ -34,6 +34,29 @@ describe("locale parity (ko/en)", () => {
     expect(en.calendar_no_date).toContain("{n}");
   });
 
+  test("both locales expose the rollover keys (Plan E Task 4)", () => {
+    const ROLLOVER_KEYS = [
+      "task_rollover",
+      "task_rollover_confirm",
+      "task_rollover_commit",
+      "task_rollover_none",
+      "task_rollover_done",
+      "task_rollover_conflict",
+      "task_rollover_undo",
+    ] as const;
+    for (const key of ROLLOVER_KEYS) {
+      expect(typeof ko[key]).toBe("string");
+      expect(typeof en[key]).toBe("string");
+      expect(ko[key]).not.toBe("");
+      expect(en[key]).not.toBe("");
+    }
+    // Count-bearing messages keep their {n} placeholder.
+    expect(ko.task_rollover_confirm).toContain("{n}");
+    expect(en.task_rollover_confirm).toContain("{n}");
+    expect(ko.task_rollover_done).toContain("{n}");
+    expect(en.task_rollover_done).toContain("{n}");
+  });
+
   test("en.ts has no keys outside the ko.ts keyset", () => {
     // Compile-time `Record<keyof typeof ko, string>` already blocks this,
     // but we re-check at runtime in case the constraint ever loosens.

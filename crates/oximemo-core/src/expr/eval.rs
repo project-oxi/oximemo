@@ -31,6 +31,7 @@ use crate::expr::value::{
 use crate::memo::NoteFormat;
 use crate::props::PropValue;
 use crate::store::index::IndexRecord;
+use crate::tasks::{Priority, StatusType, TaskRow, TaskWarningKind};
 
 /// Maximum AST depth one evaluation may descend before erroring (spec §2:
 /// "call depth capped"). Also bounds `formula.*` fan-in re-entry; the
@@ -52,6 +53,14 @@ pub struct EvalCtx<'a> {
     pub depth: Cell<u32>,
 }
 
+/// What one row of a base dataset is (spec §4): a whole note, or a
+/// single indexed task inside one. `file.*`/`note.*` always serve the
+/// parent note record; only `task.*` depends on the subject.
+pub enum RowSubject<'a> {
+    Note,
+    Task(&'a TaskRow),
+}
+
 /// Per-row resolution scope (spec §1 "Identifier resolution"). Borrows the
 /// indexed record, the pre-computed formula results, and — for embeds —
 /// the embedding note's scope. `folder`/`format`/`name` are derived once
@@ -68,8 +77,10 @@ pub struct RowData<'a> {
     /// itself, not a note — `file.*` serves only the five synthesized
     /// keys and every note-ish namespace resolves Null.
     query_file: bool,
+    /// What this row is (spec §4): the whole note, or one indexed task
+    /// inside it. Only the `task.*` namespace consults it.
+    subject: RowSubject<'a>,
 }
-
 impl<'a> RowData<'a> {
     /// Build a row scope. `formulas` holds the memoized results for the
     /// `formula.*` namespace (`Err` entries are re-raised as cell errors
@@ -97,6 +108,7 @@ impl<'a> RowData<'a> {
             format,
             name,
             query_file: false,
+            subject: RowSubject::Note,
         }
     }
 
@@ -114,6 +126,20 @@ impl<'a> RowData<'a> {
         Self {
             query_file: true,
             ..Self::from_record(rec, formulas, None)
+        }
+    }
+
+    /// Task-subject row scope (spec §4): `file.*`/`note.*` resolve
+    /// against the parent note record; `task.*` against `task`.
+    pub fn from_task(
+        rec: &'a IndexRecord,
+        task: &'a TaskRow,
+        formulas: &'a HashMap<String, Result<Value, CoreError>>,
+        this: Option<&'a RowData<'a>>,
+    ) -> Self {
+        Self {
+            subject: RowSubject::Task(task),
+            ..Self::from_record(rec, formulas, this)
         }
     }
 
@@ -154,7 +180,7 @@ fn file_stem(path: &str) -> String {
 /// caller sees in `today()`/`format(...)`. Stored timestamps remain
 /// UTC; the offset is applied at extraction time only.
 pub fn resolve(path: &[String], row: &RowData, local: UtcOffset) -> Result<Value, CoreError> {
-    if let Some(v) = resolve_standard(path, row)? {
+    if let Some(v) = resolve_standard(path, row, local)? {
         return Ok(v);
     }
     // Date-member fallback: try progressively shorter prefixes and apply
@@ -162,7 +188,7 @@ pub fn resolve(path: &[String], row: &RowData, local: UtcOffset) -> Result<Value
     // Longest prefix wins so `file.created.year` (head `file.created`)
     // overrides a hypothetical single-segment `file.year`.
     for split in (1..path.len()).rev() {
-        let head = match resolve_standard(&path[..split], row)? {
+        let head = match resolve_standard(&path[..split], row, local)? {
             Some(v) => v,
             None => continue,
         };
@@ -181,11 +207,15 @@ pub fn resolve(path: &[String], row: &RowData, local: UtcOffset) -> Result<Value
 }
 
 /// Standard identifier walk: `id`, `file.*`, `note.*`, `formula.*`,
-/// bare props, and `this.*`. Returns `Ok(None)` when the path cannot be
-/// resolved through any namespace — a signal to try the date-member
-/// fallback in [`resolve`]. The only `Err` path is a stored formula
-/// error.
-fn resolve_standard(path: &[String], row: &RowData) -> Result<Option<Value>, CoreError> {
+/// `task.*`, bare props, and `this.*`. Returns `Ok(None)` when the path
+/// cannot be resolved through any namespace — a signal to try the
+/// date-member fallback in [`resolve`]. The only `Err` path is a stored
+/// formula error. `local` feeds `task.*` date lifting.
+fn resolve_standard(
+    path: &[String],
+    row: &RowData,
+    local: UtcOffset,
+) -> Result<Option<Value>, CoreError> {
     match path {
         [k] if k == "id" => Ok(Some(if row.query_file {
             Value::Null
@@ -196,8 +226,9 @@ fn resolve_standard(path: &[String], row: &RowData) -> Result<Option<Value>, Cor
             "file" if rest.len() <= 1 => Ok(Some(resolve_file(rest, row)?)),
             "note" if rest.len() <= 1 => Ok(Some(resolve_note(rest, row)?)),
             "formula" if rest.len() <= 1 => Ok(Some(resolve_formula(rest, row)?)),
+            "task" if rest.len() <= 1 => Ok(Some(resolve_task(rest, row, local)?)),
             "this" => match (row.this, rest.is_empty()) {
-                (Some(this), false) => resolve_standard(rest, this),
+                (Some(this), false) => resolve_standard(rest, this, local),
                 _ => Ok(Some(Value::Null)),
             },
             _ if path.len() == 1 => Ok(Some(resolve_note(path, row)?)),
@@ -311,6 +342,85 @@ fn resolve_formula(rest: &[String], row: &RowData) -> Result<Value, CoreError> {
             None => Ok(Value::Null),
         },
         _ => Ok(Value::Null),
+    }
+}
+
+/// `task.*` (Tasks spec §4 identifier table). Only resolves on a task
+/// subject; a note subject yields Null for every key so shared filters
+/// stay valid across sources. Dates lift to local midnight in the
+/// pinned offset; `Priority::None` maps to Null (absent, not zero).
+fn resolve_task(rest: &[String], row: &RowData, local: UtcOffset) -> Result<Value, CoreError> {
+    let RowSubject::Task(t) = &row.subject else {
+        return Ok(Value::Null);
+    };
+    let date = |d: Option<time::Date>| {
+        d.map(|d| Value::Date(d.midnight().assume_offset(local)))
+            .unwrap_or(Value::Null)
+    };
+    let v = match rest {
+        [k] => match k.as_str() {
+            "status" => Value::Str(t.symbol.to_string()),
+            "type" => Value::Str(status_type_name(t.status_type).into()),
+            "text" => Value::Str(t.text.clone()),
+            "tags" => Value::List(t.tags.iter().map(|s| Value::Str(s.clone())).collect()),
+            "section" => t.section.clone().map(Value::Str).unwrap_or(Value::Null),
+            "line" => Value::Num(t.line as f64),
+            "created" => date(t.created),
+            "start" => date(t.start),
+            "scheduled" => date(t.scheduled),
+            "due" => date(t.due),
+            "done" => date(t.done),
+            "cancelled" => date(t.cancelled),
+            "priority" => priority_num(t.priority),
+            "recurring" => Value::Bool(t.recurrence.is_some()),
+            "invalid" => Value::Bool(!t.warnings.is_empty()),
+            "warnings" => Value::List(
+                t.warnings
+                    .iter()
+                    .map(|w| Value::Str(format!("{}: {}", warning_kind_name(w.kind), w.raw)))
+                    .collect(),
+            ),
+            _ => Value::Null,
+        },
+        _ => Value::Null,
+    };
+    Ok(v)
+}
+
+/// SCREAMING_SNAKE variant names, matching `StatusType`'s serde rename.
+/// `NON_TASK` cannot appear on an indexed `TaskRow` (spec §2 excludes
+/// those lines), but the mapping stays total.
+fn status_type_name(t: StatusType) -> &'static str {
+    match t {
+        StatusType::Todo => "TODO",
+        StatusType::InProgress => "IN_PROGRESS",
+        StatusType::OnHold => "ON_HOLD",
+        StatusType::Done => "DONE",
+        StatusType::Cancelled => "CANCELLED",
+        StatusType::NonTask => "NON_TASK",
+    }
+}
+
+/// 5-level priority scale → −2…2. `Priority::None` maps to Null
+/// (absent, not zero) so `task.priority == 0` still means "Medium".
+fn priority_num(p: Priority) -> Value {
+    match p {
+        Priority::Lowest => Value::Num(-2.0),
+        Priority::Low => Value::Num(-1.0),
+        Priority::None => Value::Null,
+        Priority::Medium => Value::Num(0.0),
+        Priority::High => Value::Num(1.0),
+        Priority::Highest => Value::Num(2.0),
+    }
+}
+
+/// camelCase warning-kind names, matching `TaskWarningKind`'s serde
+/// rename.
+fn warning_kind_name(k: TaskWarningKind) -> &'static str {
+    match k {
+        TaskWarningKind::InvalidValue => "invalidValue",
+        TaskWarningKind::Duplicate => "duplicate",
+        TaskWarningKind::UnsupportedRule => "unsupportedRule",
     }
 }
 
@@ -760,6 +870,8 @@ mod tests {
             deleted: false,
             deleted_at: None,
             preview: String::new(),
+            tasks: Vec::new(),
+            tasks_truncated: false,
         }
     }
 
@@ -1085,6 +1197,166 @@ mod tests {
         );
         assert_eq!(
             resolve(&["this".into()], &inner, time::UtcOffset::UTC).unwrap(),
+            Value::Null
+        );
+    }
+
+    // ---- task.* namespace (Tasks spec §4) --------------------------------
+
+    #[test]
+    fn task_namespace_resolves_every_spec_field() {
+        let mut r = rec(&[]);
+        r.path = "daily/2026-08-27.md".into();
+        let task = crate::tasks::TaskRow {
+            line: 4,
+            indent_columns: 0,
+            parent: None,
+            symbol: '/',
+            status_type: crate::tasks::StatusType::InProgress,
+            text: "ship plan b".into(),
+            tags: vec!["oss".into()],
+            section: Some("Today".into()),
+            created: Some(time::macros::date!(2026 - 08 - 20)),
+            start: None,
+            scheduled: None,
+            due: Some(time::macros::date!(2026 - 08 - 30)),
+            done: None,
+            cancelled: None,
+            priority: crate::tasks::Priority::High,
+            recurrence: Some("every week".into()),
+            warnings: vec![],
+            line_hash: crate::tasks::TaskLineHash::of_line("- [/] ship plan b"),
+        };
+        let row = RowData::from_task(&r, &task, &NO_FORMULAS, None);
+        let v = |p: &str| eval(&parse_expr(p).unwrap(), &row, &test_ctx()).unwrap();
+        assert_eq!(v("task.status"), Value::Str("/".into()));
+        assert_eq!(v("task.type"), Value::Str("IN_PROGRESS".into()));
+        assert_eq!(v("task.text"), Value::Str("ship plan b".into()));
+        assert_eq!(v("task.tags"), Value::List(vec![Value::Str("oss".into())]));
+        assert_eq!(v("task.line"), Value::Num(4.0));
+        assert_eq!(
+            v("task.priority"),
+            Value::Num(1.0),
+            "High is +1 on the -2..2 scale"
+        );
+        assert_eq!(v("task.recurring"), Value::Bool(true));
+        assert_eq!(v("task.invalid"), Value::Bool(false));
+        assert_eq!(v("task.warnings"), Value::List(vec![]));
+        assert_eq!(
+            v("task.due"),
+            Value::Date(datetime!(2026-08-30 0:00).assume_utc())
+        );
+        assert_eq!(
+            v("task.created"),
+            Value::Date(datetime!(2026-08-20 0:00).assume_utc())
+        );
+        // Dates lift to midnight in the pinned local offset, not UTC.
+        let kst_clock = EvalClock {
+            now_utc: OffsetDateTime::UNIX_EPOCH,
+            local: UtcOffset::from_hms(9, 0, 0).unwrap(),
+        };
+        let kst_ctx = EvalCtx {
+            clock: &kst_clock,
+            depth: Cell::new(0),
+        };
+        assert_eq!(
+            eval(&parse_expr("task.due").unwrap(), &row, &kst_ctx).unwrap(),
+            Value::Date(datetime!(2026-08-30 0:00 +9))
+        );
+        assert_eq!(v("task.start"), Value::Null);
+        assert_eq!(v("task.scheduled"), Value::Null);
+        assert_eq!(v("task.done"), Value::Null);
+        assert_eq!(v("task.cancelled"), Value::Null);
+        assert_eq!(v("task.section"), Value::Str("Today".into()));
+        assert_eq!(v("task.bogus"), Value::Null);
+        // Parent-note namespaces still serve the parent record.
+        assert_eq!(v("file.folder"), Value::Str("daily".into()));
+        assert_eq!(v("file.path"), Value::Str("daily/2026-08-27.md".into()));
+
+        // Warnings render as "<kind>: <raw>" with camelCase kinds, and a
+        // missing section is Null.
+        let mut warned = task.clone();
+        warned.section = None;
+        warned.warnings = vec![
+            crate::tasks::TaskWarning {
+                field: Some(crate::tasks::TaskField::Due),
+                raw: "bogus-date".into(),
+                kind: crate::tasks::TaskWarningKind::InvalidValue,
+            },
+            crate::tasks::TaskWarning {
+                field: None,
+                raw: "every fortnight".into(),
+                kind: crate::tasks::TaskWarningKind::UnsupportedRule,
+            },
+        ];
+        let warned_row = RowData::from_task(&r, &warned, &NO_FORMULAS, None);
+        let w = |p: &str| eval(&parse_expr(p).unwrap(), &warned_row, &test_ctx()).unwrap();
+        assert_eq!(
+            w("task.warnings"),
+            Value::List(vec![
+                Value::Str("invalidValue: bogus-date".into()),
+                Value::Str("unsupportedRule: every fortnight".into()),
+            ])
+        );
+        assert_eq!(w("task.invalid"), Value::Bool(true));
+        assert_eq!(w("task.section"), Value::Null);
+    }
+
+    #[test]
+    fn task_priority_scale_maps_none_to_null() {
+        // Lowest -2, Low -1, None -> Null, Medium 0, High 1, Highest 2.
+        let mut r = rec(&[]);
+        r.path = "daily/2026-08-27.md".into();
+        let mut task = crate::tasks::TaskRow {
+            line: 0,
+            indent_columns: 0,
+            parent: None,
+            symbol: ' ',
+            status_type: crate::tasks::StatusType::Todo,
+            text: "t".into(),
+            tags: vec![],
+            section: None,
+            created: None,
+            start: None,
+            scheduled: None,
+            due: None,
+            done: None,
+            cancelled: None,
+            priority: crate::tasks::Priority::None,
+            recurrence: None,
+            warnings: vec![],
+            line_hash: crate::tasks::TaskLineHash::of_line("- [ ] t"),
+        };
+        let cases = [
+            (crate::tasks::Priority::Lowest, Value::Num(-2.0)),
+            (crate::tasks::Priority::Low, Value::Num(-1.0)),
+            (crate::tasks::Priority::None, Value::Null),
+            (crate::tasks::Priority::Medium, Value::Num(0.0)),
+            (crate::tasks::Priority::High, Value::Num(1.0)),
+            (crate::tasks::Priority::Highest, Value::Num(2.0)),
+        ];
+        for (p, want) in cases {
+            task.priority = p;
+            let row = RowData::from_task(&r, &task, &NO_FORMULAS, None);
+            assert_eq!(
+                resolve(&["task".into(), "priority".into()], &row, UtcOffset::UTC).unwrap(),
+                want,
+                "{p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn task_namespace_is_null_for_note_subjects() {
+        let r = rec(&[]);
+        let row = RowData::from_record(&r, &NO_FORMULAS, None);
+        assert_eq!(
+            resolve(&["task".into(), "text".into()], &row, UtcOffset::UTC).unwrap(),
+            Value::Null
+        );
+        // Through the full eval path too: Null, never an error.
+        assert_eq!(
+            eval(&parse_expr("task.text").unwrap(), &row, &test_ctx()).unwrap(),
             Value::Null
         );
     }

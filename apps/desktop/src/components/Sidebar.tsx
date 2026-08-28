@@ -6,7 +6,7 @@
  * the main area; the 볼트 row enters it at the root.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
+import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
@@ -27,6 +27,10 @@ import type { FolderDef } from "../lib/types";
 /** Static preset-id → icon table (drives 위치 collection rows). */
 const PRESET_ICON: Record<string, (typeof COLLECTION_CATALOG)[number]["icon"]> =
   Object.fromEntries(COLLECTION_CATALOG.map((c) => [c.id, c.icon]));
+
+/** The one-shot installed `할 일` base (tasks spec §7.4) — must match
+ *  the Rust `TASKS_BASE_REL` seed path in vault.rs. */
+const TASKS_BASE_PATH = "queries/할 일.query";
 
 const STATE_CLASS: Record<TagState, string> = {
   off: "bg-surface-muted text-text-muted hover:bg-surface-muted/80",
@@ -225,6 +229,12 @@ export function Sidebar({
   const dailyCfg = configQ.data?.daily;
   const dailyEnabled = dailyCfg?.enabled !== false;
   const dailyFolder = dailyCfg?.folder || "daily";
+  // Tasks surface (spec 2026-08-27 §7.4/§11): the installed `할 일`
+  // base entry is gated by `[tasks] enabled` (absent = enabled, like
+  // daily) and by the base file existing — deliberate deletion is
+  // permanent, so the entry disappears with it.
+  const tasksEnabled = configQ.data?.tasks?.enabled !== false;
+  const hasTasksBase = bases.some((b) => b.path === TASKS_BASE_PATH);
   const dailyQ = useQuery({
     queryKey: ["memos", "daily", dailyFolder],
     queryFn: () => listMemos(null, 500, { folder: dailyFolder }),
@@ -348,6 +358,23 @@ export function Sidebar({
           <Plus size={12} />
         </button>
       </div>
+      {tasksEnabled && hasTasksBase && (
+        <button
+          type="button"
+          onClick={() => {
+            setView("memos");
+            openBase({ path: TASKS_BASE_PATH });
+          }}
+          className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
+            location.kind === "base" && "path" in location.source && location.source.path === TASKS_BASE_PATH
+              ? "bg-surface-muted font-semibold text-text"
+              : "text-text-muted hover:bg-surface-muted"
+          }`}
+        >
+          <ListChecks size={14} className="shrink-0" />
+          <span className="truncate">{t.view_tasks}</span>
+        </button>
+      )}
       {basesQ.isError ? (
         <div className="mx-2 px-2 py-1 text-[11px] text-text-subtle">{t.query_unavailable}</div>
       ) : bases.length === 0 ? (

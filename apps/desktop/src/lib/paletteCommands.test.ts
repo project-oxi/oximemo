@@ -173,6 +173,29 @@ describe("buildCommands", () => {
     expect(buildCommands(deps({ dailyEnabled: false })).some((c) => c.id === "nav.today")).toBe(false);
   });
 
+  test("rollover command: present with callback + daily, localized both ways", () => {
+    const withRollover = deps({ callbacks: { ...cbs(), rolloverTasks: () => {} } });
+    const koCmd = buildCommands(withRollover).find((c) => c.id === "task.rollover");
+    expect(koCmd).toBeDefined();
+    expect(koCmd!.title).toBe("어제의 미완료 이월");
+    expect(koCmd!.alias).toBe("Carry over yesterday's tasks");
+    expect(koCmd!.group).toBe("action");
+    const enCmd = buildCommands({ ...withRollover, locale: "en" }).find(
+      (c) => c.id === "task.rollover",
+    );
+    expect(enCmd!.title).toBe("Carry over yesterday's tasks");
+    expect(enCmd!.alias).toBe("어제의 미완료 이월");
+  });
+
+  test("rollover command absent without callback or when daily disabled", () => {
+    expect(buildCommands(deps()).some((c) => c.id === "task.rollover")).toBe(false);
+    expect(
+      buildCommands(
+        deps({ dailyEnabled: false, callbacks: { ...cbs(), rolloverTasks: () => {} } }),
+      ).some((c) => c.id === "task.rollover"),
+    ).toBe(false);
+  });
+
   test("folders: root skipped, full-path commands with counts", () => {
     const cmds = buildCommands(deps());
     const w = cmds.find((c) => c.id === "folder:work/2026");

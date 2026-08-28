@@ -157,7 +157,10 @@ pub fn run() {
                 std::thread::spawn(move || {
                     match v.gc_stale_namespaces(Duration::from_secs(7 * 24 * 3600)) {
                         Ok(n) if n > 0 => {
-                            tracing::info!(namespaces = n, "gc: removed stale by-vault index namespaces");
+                            tracing::info!(
+                                namespaces = n,
+                                "gc: removed stale by-vault index namespaces"
+                            );
                         }
                         Ok(_) => {}
                         Err(e) => tracing::warn!(error = %e, "gc: by-vault namespace sweep failed"),
@@ -335,6 +338,13 @@ pub fn run() {
             commands::copilot_set_model,
             commands::copilot_send,
             commands::copilot_cancel,
+            commands::list_tasks,
+            commands::resolve_task_line,
+            commands::patch_task,
+            commands::add_task,
+            commands::move_tasks,
+            commands::undo_move_tasks,
+            commands::transform_task_draft,
         ])
         .build(tauri::generate_context!())
         .expect("error while building oximemo desktop app")
@@ -698,8 +708,12 @@ mod commands {
     use oximemo_core::base::{
         BasePage, BaseRow, BaseSource, EvalClockDto, GroupCount, RunBaseReq, SummaryValue,
     };
-    use oximemo_core::memo::{Cursor, MemoFilter, MemoId};
+    use oximemo_core::memo::{Cursor, MemoFilter, MemoHash, MemoId};
     use oximemo_core::sync::ManifestRecord;
+    use oximemo_core::tasks::{
+        self, AddTarget, DateField, MoveTasksReceipt, PatchTaskResult, Priority, TaskDto, TaskEdit,
+        TaskFields, TaskLineHash, TaskRef, TaskSelector,
+    };
     use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -2345,6 +2359,396 @@ mod commands {
         }
     }
 
+    // --- Tasks (spec 2026-08-27) --------------------------------------------
+    //
+    // Wire mirrors. The kernel types in `oximemo_core::tasks` carry no
+    // serde derives (Task 1: the kernel never crosses the wire on its
+    // own), so this command layer owns their JSON shapes. They match the
+    // golden fixture corpus byte-for-byte (apps/desktop/src/lib/
+    // taskFixtures.json, read by taskLine.ts's adapters): externally
+    // tagged variants with PascalCase names, `SetDate`'s field word and
+    // `SetPriority`'s word PascalCase ("Due", "High"), struct fields
+    // snake_case. Types that DO derive serde in core (TaskRef, TaskDto,
+    // PatchTaskResult, MoveTasksReceipt) are reused verbatim — their own
+    // serde attributes apply (camelCase enum words, SCREAMING_SNAKE_CASE
+    // StatusType, dates as "YYYY-MM-DD" via time's human-readable serde).
+
+    /// Wire word for a `TaskEdit::SetDate` target — PascalCase, matching
+    /// the fixture corpus (NOT core `DateField`'s camelCase serde form).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub enum DateFieldWord {
+        Created,
+        Start,
+        Scheduled,
+        Due,
+        Done,
+        Cancelled,
+    }
+
+    impl From<DateFieldWord> for DateField {
+        fn from(w: DateFieldWord) -> Self {
+            match w {
+                DateFieldWord::Created => DateField::Created,
+                DateFieldWord::Start => DateField::Start,
+                DateFieldWord::Scheduled => DateField::Scheduled,
+                DateFieldWord::Due => DateField::Due,
+                DateFieldWord::Done => DateField::Done,
+                DateFieldWord::Cancelled => DateField::Cancelled,
+            }
+        }
+    }
+
+    /// Wire word for a priority on the WRITE side (TaskEdit::SetPriority,
+    /// TaskFields) — PascalCase per the fixture corpus. The READ side
+    /// (TaskDto.priority) serializes core `Priority` camelCase ("high");
+    /// the asymmetry is locked by the golden corpus.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub enum PriorityWord {
+        Highest,
+        High,
+        Medium,
+        Low,
+        Lowest,
+        None,
+    }
+
+    impl From<PriorityWord> for Priority {
+        fn from(w: PriorityWord) -> Self {
+            match w {
+                PriorityWord::Highest => Priority::Highest,
+                PriorityWord::High => Priority::High,
+                PriorityWord::Medium => Priority::Medium,
+                PriorityWord::Low => Priority::Low,
+                PriorityWord::Lowest => Priority::Lowest,
+                PriorityWord::None => Priority::None,
+            }
+        }
+    }
+
+    /// Wire form of `tasks::TaskEdit` (externally tagged, fixture corpus).
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub enum TaskEditJson {
+        Toggle,
+        SetStatus(String),
+        SetDate {
+            field: DateFieldWord,
+            value: Option<time::Date>,
+        },
+        SetPriority(PriorityWord),
+        SetText(String),
+        SetRecurrence(Option<String>),
+        Delete,
+    }
+
+    impl TaskEditJson {
+        /// Decode into the kernel type. `SetStatus` demands exactly one
+        /// char (`char` cannot be serde'd directly from arbitrary JSON
+        /// strings without a container).
+        fn into_core(self) -> Result<TaskEdit, String> {
+            Ok(match self {
+                TaskEditJson::Toggle => TaskEdit::Toggle,
+                TaskEditJson::SetStatus(s) => {
+                    let mut chars = s.chars();
+                    let c = chars
+                        .next()
+                        .filter(|_| chars.next().is_none())
+                        .ok_or_else(|| format!("SetStatus expects one char, got {s:?}"))?;
+                    TaskEdit::SetStatus(c)
+                }
+                TaskEditJson::SetDate { field, value } => TaskEdit::SetDate {
+                    field: field.into(),
+                    value,
+                },
+                TaskEditJson::SetPriority(p) => TaskEdit::SetPriority(p.into()),
+                TaskEditJson::SetText(s) => TaskEdit::SetText(s),
+                TaskEditJson::SetRecurrence(r) => TaskEdit::SetRecurrence(r),
+                TaskEditJson::Delete => TaskEdit::Delete,
+            })
+        }
+    }
+
+    /// Wire form of `tasks::TaskSelector` (externally tagged). `TaskRef`
+    /// derives serde in core and is reused verbatim.
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub enum TaskSelectorJson {
+        Exact(TaskRef),
+        CurrentLine { memo_id: MemoId, line: u32 },
+    }
+
+    impl From<TaskSelectorJson> for TaskSelector {
+        fn from(s: TaskSelectorJson) -> Self {
+            match s {
+                TaskSelectorJson::Exact(r) => TaskSelector::Exact(r),
+                TaskSelectorJson::CurrentLine { memo_id, line } => {
+                    TaskSelector::CurrentLine { memo_id, line }
+                }
+            }
+        }
+    }
+
+    /// Wire form of `tasks::AddTarget` (externally tagged; `Daily` is a
+    /// "YYYY-MM-DD" string, `Note` a memo-id string).
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub enum AddTargetJson {
+        Note(MemoId),
+        Daily(time::Date),
+        Inbox,
+    }
+
+    impl From<AddTargetJson> for AddTarget {
+        fn from(t: AddTargetJson) -> Self {
+            match t {
+                AddTargetJson::Note(id) => AddTarget::Note(id),
+                AddTargetJson::Daily(d) => AddTarget::Daily(d),
+                AddTargetJson::Inbox => AddTarget::Inbox,
+            }
+        }
+    }
+
+    /// Wire form of `tasks::TaskFields` (add_task input, snake_case).
+    /// Dates are "YYYY-MM-DD" strings; `priority` uses the WRITE-side
+    /// PascalCase word.
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub struct TaskFieldsJson {
+        pub created: Option<time::Date>,
+        pub start: Option<time::Date>,
+        pub scheduled: Option<time::Date>,
+        pub due: Option<time::Date>,
+        pub priority: PriorityWord,
+        pub recurrence: Option<String>,
+        pub tags: Vec<String>,
+    }
+
+    impl From<TaskFieldsJson> for TaskFields {
+        fn from(f: TaskFieldsJson) -> Self {
+            TaskFields {
+                created: f.created,
+                start: f.start,
+                scheduled: f.scheduled,
+                due: f.due,
+                priority: f.priority.into(),
+                recurrence: f.recurrence,
+                tags: f.tags,
+            }
+        }
+    }
+
+    /// Wire form of `tasks::MoveTasksRequest` (snake_case fields).
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub struct MoveTasksRequestJson {
+        pub source: MemoId,
+        pub tasks: Vec<TaskRef>,
+        pub destination: AddTargetJson,
+        pub expected_destination_hash: Option<MemoHash>,
+    }
+
+    impl From<MoveTasksRequestJson> for tasks::MoveTasksRequest {
+        fn from(r: MoveTasksRequestJson) -> Self {
+            tasks::MoveTasksRequest {
+                source: r.source,
+                tasks: r.tasks,
+                destination: r.destination.into(),
+                expected_destination_hash: r.expected_destination_hash,
+            }
+        }
+    }
+
+    /// Wire form of `tasks::TaskLineChange` (snake_case, matching the
+    /// fixture corpus's hand-emitted change rows).
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub struct TaskLineChangeJson {
+        pub start_line: u32,
+        pub delete_lines: u32,
+        pub insert_lines: Vec<String>,
+    }
+
+    /// Wire form of `tasks::TaskDraftTransform`.
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub struct TaskDraftTransformJson {
+        pub changes: Vec<TaskLineChangeJson>,
+        pub spawned_line_hint: Option<u32>,
+    }
+
+    impl TaskDraftTransformJson {
+        fn from_core(t: &tasks::TaskDraftTransform) -> Self {
+            Self {
+                changes: t
+                    .changes
+                    .iter()
+                    .map(|c| TaskLineChangeJson {
+                        start_line: c.start_line,
+                        delete_lines: c.delete_lines,
+                        insert_lines: c.insert_lines.clone(),
+                    })
+                    .collect(),
+                spawned_line_hint: t.spawned_line_hint,
+            }
+        }
+    }
+
+    /// Parse the `today` argument ("YYYY-MM-DD") with the same strict
+    /// parser the CLI uses (`template::parse_iso_date`) — one date
+    /// grammar, no second format string.
+    pub fn parse_today(s: &str) -> Result<time::Date, String> {
+        oximemo_core::template::parse_iso_date(s)
+            .ok_or_else(|| format!("invalid today {s:?}: expected YYYY-MM-DD"))
+    }
+
+    /// All indexed task rows across live notes (snapshot-based: deleted
+    /// notes are skipped). `note_id` narrows the listing to one note.
+    /// Rows come straight from `IndexRecord.tasks`, mapped through
+    /// `TaskDto::from_row`.
+    #[tauri::command]
+    pub fn list_tasks(
+        state: State<'_, AppState>,
+        note_id: Option<String>,
+    ) -> Result<Vec<TaskDto>, String> {
+        let filter = match &note_id {
+            Some(s) => Some(MemoId::parse(s).map_err(|e| e.to_string())?),
+            None => None,
+        };
+        let recs = state.vault.snapshot().map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for rec in recs.iter() {
+            if rec.deleted || rec.tasks.is_empty() {
+                continue;
+            }
+            if filter.is_some_and(|id| rec.id != id) {
+                continue;
+            }
+            out.extend(rec.tasks.iter().map(|row| TaskDto::from_row(rec.id, row)));
+        }
+        Ok(out)
+    }
+
+    /// Hash-repair lookup for `openTask`: which line now holds the task
+    /// the caller saw at `line` with `line_hash`. Returns `line` itself
+    /// early when its bytes still hash to `line_hash`; otherwise the
+    /// UNIQUE line whose `TaskLineHash::of_line` matches wins; absent or
+    /// ambiguous → `None`.
+    #[tauri::command]
+    pub fn resolve_task_line(
+        state: State<'_, AppState>,
+        note_id: String,
+        line: u32,
+        line_hash: String,
+    ) -> Result<Option<u32>, String> {
+        let id = MemoId::parse(&note_id).map_err(|e| e.to_string())?;
+        let memo = state.vault.get_memo(id).map_err(|e| e.to_string())?;
+        let lines: Vec<&str> = memo.body.lines().collect();
+        let matches = |raw: &str| TaskLineHash::of_line(raw).0 == line_hash;
+        if lines.get(line as usize).is_some_and(|raw| matches(raw)) {
+            return Ok(Some(line));
+        }
+        let mut hit: Option<u32> = None;
+        for (idx, raw) in lines.iter().enumerate() {
+            if matches(raw) {
+                if hit.is_some() {
+                    return Ok(None); // ambiguous — more than one candidate
+                }
+                hit = Some(idx as u32);
+            }
+        }
+        Ok(hit)
+    }
+
+    /// Apply one guarded edit to a persisted task line (spec §5). The
+    /// vault takes one exclusive lock across read → verify hash →
+    /// rewrite → upsert.
+    #[tauri::command]
+    pub fn patch_task(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        selector: TaskSelectorJson,
+        edit: TaskEditJson,
+        today: String,
+    ) -> Result<PatchTaskResult, String> {
+        let today = parse_today(&today)?;
+        let edit = edit.into_core()?;
+        let result = state
+            .vault
+            .patch_task(selector.into(), edit, today)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(result)
+    }
+
+    /// Append a new task line under the target's configured section
+    /// (spec §6/§7): a note, today's daily note, or the Inbox.
+    #[tauri::command]
+    pub fn add_task(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        target: AddTargetJson,
+        text: String,
+        fields: TaskFieldsJson,
+        today: String,
+    ) -> Result<PatchTaskResult, String> {
+        let today = parse_today(&today)?;
+        let result = state
+            .vault
+            .add_task(target.into(), text, fields.into(), today)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(result)
+    }
+
+    /// Atomically move task subtrees between notes (spec §7). One
+    /// exclusive lock covers verification, both writes, and rollback.
+    #[tauri::command]
+    pub fn move_tasks(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        request: MoveTasksRequestJson,
+        today: String,
+    ) -> Result<MoveTasksReceipt, String> {
+        let today = parse_today(&today)?;
+        let receipt = state
+            .vault
+            .move_tasks(request.into(), today)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(receipt)
+    }
+
+    /// Guarded inverse of `move_tasks` (spec §7): proceeds only while
+    /// both notes still equal the receipt's post-move hashes; otherwise
+    /// an intervening edit wins and undo refuses to erase it.
+    #[tauri::command]
+    pub fn undo_move_tasks(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        receipt: MoveTasksReceipt,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .undo_move_tasks(&receipt)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(())
+    }
+
+    /// Pure task-edit kernel on an arbitrary body — no lock, no disk
+    /// (spec §5/§6). The CM6 editor calls this on the unsaved buffer;
+    /// the vault's `patch_task` runs the same kernel under its own lock.
+    /// The tasks config is read live from the vault, exactly like
+    /// `patch_task` does.
+    #[tauri::command]
+    pub fn transform_task_draft(
+        state: State<'_, AppState>,
+        body: String,
+        line: u32,
+        edit: TaskEditJson,
+        today: String,
+    ) -> Result<TaskDraftTransformJson, String> {
+        let today = parse_today(&today)?;
+        let edit = edit.into_core()?;
+        let cfg = state.vault.with_config(|c| c.tasks.clone());
+        let t = tasks::transform_task_draft(&body, line, &edit, today, &cfg)
+            .map_err(|e| e.to_string())?;
+        Ok(TaskDraftTransformJson::from_core(&t))
+    }
+
     /// Run a shell snippet with administrator privileges via osascript. macOS
     /// shows its standard auth dialog once; cancelling surfaces as an error.
     fn run_admin(shell_script: &str) -> Result<(), String> {
@@ -2381,6 +2785,110 @@ mod commands {
 #[cfg(test)]
 mod tests {
     use super::commands::ListFolderResult;
+    use super::commands::{
+        AddTargetJson, MoveTasksRequestJson, TaskEditJson, TaskSelectorJson, parse_today,
+    };
+    use oximemo_core::tasks::TaskRef;
+
+    /// The task-command wire forms are pinned to the golden fixture
+    /// corpus (taskFixtures.json / taskLine.ts adapters): externally
+    /// tagged PascalCase variants, PascalCase words inside SetDate and
+    /// SetPriority, snake_case struct fields, dates as YYYY-MM-DD.
+    /// TaskDto.priority READS camelCase — the asymmetry is deliberate.
+    #[test]
+    fn task_edit_wire_matches_fixture_corpus() {
+        let d = time::macros::date!(2026 - 08 - 30);
+        let cases: Vec<(TaskEditJson, serde_json::Value)> = vec![
+            (TaskEditJson::Toggle, serde_json::json!("Toggle")),
+            (
+                TaskEditJson::SetStatus("x".into()),
+                serde_json::json!({ "SetStatus": "x" }),
+            ),
+            (
+                TaskEditJson::SetDate {
+                    field: super::commands::DateFieldWord::Due,
+                    value: Some(d),
+                },
+                serde_json::json!({ "SetDate": { "field": "Due", "value": "2026-08-30" } }),
+            ),
+            (
+                TaskEditJson::SetDate {
+                    field: super::commands::DateFieldWord::Cancelled,
+                    value: None,
+                },
+                serde_json::json!({ "SetDate": { "field": "Cancelled", "value": null } }),
+            ),
+            (
+                TaskEditJson::SetPriority(super::commands::PriorityWord::High),
+                serde_json::json!({ "SetPriority": "High" }),
+            ),
+            (
+                TaskEditJson::SetText("new text".into()),
+                serde_json::json!({ "SetText": "new text" }),
+            ),
+            (
+                TaskEditJson::SetRecurrence(Some("every week".into())),
+                serde_json::json!({ "SetRecurrence": "every week" }),
+            ),
+            (TaskEditJson::Delete, serde_json::json!("Delete")),
+        ];
+        for (edit, want) in cases {
+            let got = serde_json::to_value(&edit).expect("serialize");
+            assert_eq!(got, want, "wire form of {edit:?}");
+            let back: TaskEditJson = serde_json::from_value(got).expect("round-trip");
+            assert_eq!(serde_json::to_value(&back).unwrap(), want);
+        }
+    }
+
+    /// Selector/target/request wire forms: externally tagged, TaskRef
+    /// snake_case, MemoId/MemoHash as bare strings.
+    #[test]
+    fn task_request_wire_shapes() {
+        let id = MemoId::parse("01999999-9999-7999-9999-999999999999").unwrap();
+        let r#ref = TaskRef {
+            memo_id: id,
+            line: 3,
+            line_hash: oximemo_core::tasks::TaskLineHash("0123456789abcdef".into()),
+        };
+        let sel = TaskSelectorJson::Exact(r#ref.clone());
+        assert_eq!(
+            serde_json::to_value(&sel).unwrap(),
+            serde_json::json!({ "Exact": {
+                "memo_id": "01999999-9999-7999-9999-999999999999",
+                "line": 3,
+                "line_hash": "0123456789abcdef",
+            } })
+        );
+        let req = MoveTasksRequestJson {
+            source: id,
+            tasks: vec![r#ref],
+            destination: AddTargetJson::Daily(time::macros::date!(2026 - 08 - 28)),
+            expected_destination_hash: Some(MemoHash("b3:deadbeef".into())),
+        };
+        assert_eq!(
+            serde_json::to_value(&req).unwrap(),
+            serde_json::json!({
+                "source": "01999999-9999-7999-9999-999999999999",
+                "tasks": [{ "memo_id": "01999999-9999-7999-9999-999999999999",
+                            "line": 3, "line_hash": "0123456789abcdef" }],
+                "destination": { "Daily": "2026-08-28" },
+                "expected_destination_hash": "b3:deadbeef",
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(AddTargetJson::Inbox).unwrap(),
+            serde_json::json!("Inbox")
+        );
+    }
+
+    /// `parse_today` mirrors the CLI's strict YYYY-MM-DD grammar.
+    #[test]
+    fn parse_today_strict() {
+        assert!(parse_today("2026-08-28").is_ok());
+        assert!(parse_today("2026-8-28").is_err());
+        assert!(parse_today("2026-02-30").is_err());
+        assert!(parse_today("").is_err());
+    }
 
     /// `list_folders` must serialize as `[{"path":"…","note_count":N}]`, NOT
     /// `[["…",N]]`. The JS side reaches `entry.path` directly; a tuple-as-array
@@ -2451,9 +2959,11 @@ mod tests {
     fn page_fixture() -> BasePage {
         BasePage {
             rows: vec![BaseRow {
+                row_id: "n:019282e5-1234-7000-8000-000000000001".into(),
                 summary: summary_fixture(),
                 folder: "inbox".into(),
                 format: "markdown".into(),
+                task: None,
                 cells: vec![
                     BaseCell {
                         value: Some(Value::Duration(DurationSpec {

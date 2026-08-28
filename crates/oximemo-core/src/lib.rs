@@ -24,6 +24,7 @@ pub mod paths;
 pub mod props;
 pub mod schema;
 pub mod tags;
+pub mod tasks;
 pub mod template;
 pub mod wiki;
 

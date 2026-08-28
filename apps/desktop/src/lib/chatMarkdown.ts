@@ -18,6 +18,7 @@
  */
 import DOMPurify from "dompurify";
 import { Marked } from "marked";
+import { preprocessTaskMarkdown } from "./taskPreview";
 
 function escapeHtml(s: string): string {
   return s
@@ -48,7 +49,7 @@ export function renderChatMarkdownHtml(text: string, copyLabel: string): string 
       },
     },
   });
-  return marked.parse(trimmed, { async: false }) as string;
+  return marked.parse(preprocessTaskMarkdown(trimmed), { async: false }) as string;
 }
 
 /** Sanitized chat markdown — the only production entry point. */

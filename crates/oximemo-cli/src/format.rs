@@ -267,6 +267,35 @@ pub fn format_base_list_table(bases: &[oximemo_core::base::BaseInfo]) -> String 
     out
 }
 
+/// `oximemo task list` table renderer (pure): `LINE  STATUS  DUE
+/// TEXT`. Lines are 0-based (they index straight back into the note
+/// for `task done/status/edit/rm`).
+pub fn format_task_table(tasks: &[oximemo_core::tasks::TaskDto]) -> String {
+    const TEXT_MAX: usize = 48;
+    let mut out = String::new();
+    if tasks.is_empty() {
+        out.push_str("(no tasks)\n");
+        return out;
+    }
+    out.push_str("LINE  STATUS  DUE          TEXT\n");
+    out.push_str("----  ------  -----------  ----\n");
+    for t in tasks {
+        let status = format!("[{}]", t.symbol);
+        let due = t
+            .due
+            .map(|d| format!("{:04}-{:02}-{:02}", d.year(), u8::from(d.month()), d.day()))
+            .unwrap_or_else(|| "-".into());
+        out.push_str(&format!(
+            "{:>4}  {:<6}  {:<11}  {}\n",
+            t.task_ref.line,
+            status,
+            due,
+            ellipsize(&t.text, TEXT_MAX)
+        ));
+    }
+    out
+}
+
 /// Cap `s` at `max` characters, appending `…` when truncated.
 fn ellipsize(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
