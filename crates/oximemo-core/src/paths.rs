@@ -73,6 +73,23 @@ impl Paths {
                 Self { vault, index_dir }
             }
             Some(v) => {
+                // An explicitly-passed default vault (the GUI watcher
+                // opens `Some(paths().vault)` on every fs event) must
+                // share the top-level index: a by-vault namespace here
+                // forks the index, and watcher reindexes land in a copy
+                // that open(None) — the app's read path — never reads.
+                // Lexical comparison (no fs access): both sides derive
+                // from the same `$HOME` string, so normalization is
+                // exact for the cases that matter (trailing slash, `.`,
+                // `..`); a symlinked variant still namespaces, same as
+                // it always has.
+                if lexical_abs(v) == lexical_abs(&default_vault_dir()) {
+                    let vault = default_vault_dir();
+                    return Self {
+                        vault,
+                        index_dir: support.join(INDEX_SUBDIR),
+                    };
+                }
                 let index_dir = support
                     .join(INDEX_SUBDIR)
                     .join(BY_VAULT_SUBDIR)
@@ -203,6 +220,30 @@ fn vault_namespace(vault: &Path) -> String {
     hex.as_str()[..16].to_string()
 }
 
+
+/// Lexically absolutize and normalize `p` without touching the
+/// filesystem: relative paths resolve against the CWD, `.` components
+/// drop, and `..` collapses against the previous component. Symlinks
+/// are NOT resolved — [`Paths::resolve`]'s default-vault comparison
+/// feeds both sides through this, so lexical equality is exact.
+fn lexical_abs(p: &Path) -> PathBuf {
+    let abs = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(p)
+    };
+    let mut out = PathBuf::new();
+    for c in abs.components() {
+        match c {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
 /// `~/.oxi/vault` — the shared ecosystem default vault (design
 /// 2026-08-20 §5.1). The derived index still lives under application
 /// support (see [`Paths::resolve`]) so a vault synced through a cloud
@@ -282,5 +323,38 @@ mod tests {
             p.trash_path("novel/act1/old.md"),
             PathBuf::from("/tmp/v/.trash/novel/act1/old.md")
         );
+    }
+
+    #[test]
+    fn explicit_default_vault_shares_top_level_index() {
+        // The GUI watcher opens Vault::open(Some(<default vault>)) on
+        // every fs event; that must map to the SAME index the app reads
+        // via open(None), or watcher reindexes land in an index nobody
+        // reads (fix for the 2026-08-28 index-fork finding).
+        let none = Paths::resolve(None);
+        let explicit = Paths::resolve(Some(&default_vault_dir()));
+        assert_eq!(explicit.index_dir, none.index_dir);
+        assert_eq!(explicit.vault, none.vault);
+
+        // Lexical variants of the same path must not fork a namespace.
+        let trailing = PathBuf::from(format!("{}/", default_vault_dir().display()));
+        assert_eq!(Paths::resolve(Some(&trailing)).index_dir, none.index_dir);
+        let mut dotted = default_vault_dir();
+        dotted.push(".");
+        dotted.push("..");
+        dotted.push(VAULT_DEFAULT_SUBDIR);
+        assert_eq!(Paths::resolve(Some(&dotted)).index_dir, none.index_dir);
+    }
+
+    #[test]
+    fn custom_vaults_still_get_hash_namespaces() {
+        let a = Paths::resolve(Some(Path::new("/tmp/some-other-vault")));
+        let none = Paths::resolve(None);
+        assert!(a
+            .index_dir
+            .parent()
+            .is_some_and(|p| p.ends_with(BY_VAULT_SUBDIR)));
+        assert_ne!(a.index_dir, none.index_dir);
+        assert_eq!(a.vault, PathBuf::from("/tmp/some-other-vault"));
     }
 }
