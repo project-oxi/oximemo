@@ -100,6 +100,12 @@ type SearchRow = (MemoId, String, Option<String>, Vec<String>, String);
 /// without caching, so the cache never holds a multi-megabyte Arc.
 const SNAPSHOT_CACHE_CAP: usize = 50_000;
 
+/// doctor's stale-namespace threshold (2026-08-28 index-explosion fix):
+/// `by-vault/<hash>` namespaces idle longer than this are reported, and
+/// swept with `--fix`. Generous vs an in-flight process's lock window;
+/// the GUI startup sweep uses a much larger 7-day floor.
+const STALE_NS_DOCTOR_MIN_AGE: Duration = Duration::from_secs(3600);
+
 pub struct Vault {
     paths: Paths,
     status: VaultStatus,
@@ -793,6 +799,13 @@ impl Vault {
     /// (count of removed entries). Callers: GUI startup (7-day age) and
     /// `doctor --fix` (1-hour age) — never a hot path.
     pub fn gc_stale_namespaces(&self, min_age: std::time::Duration) -> Result<u64> {
+        self.sweep_stale_namespaces(min_age, true)
+    }
+
+    /// Count (`delete = false`) or sweep (`delete = true`) stale
+    /// namespaces; [`Self::doctor`] reports the count and fixes with the
+    /// same threshold so a report-then-fix pair is consistent.
+    fn sweep_stale_namespaces(&self, min_age: std::time::Duration, delete: bool) -> Result<u64> {
         let root = crate::paths::by_vault_root();
         let entries = match std::fs::read_dir(&root) {
             Ok(e) => e,
@@ -829,6 +842,10 @@ impl Vault {
                 continue;
             };
             drop(_guard);
+            if !delete {
+                removed += 1;
+                continue;
+            }
             match std::fs::remove_dir_all(&dir) {
                 Ok(()) => removed += 1,
                 Err(e) => tracing::warn!(
@@ -2541,6 +2558,14 @@ impl Vault {
             }
         }
 
+        // Stale by-vault namespaces (2026-08-28 index-explosion fix):
+        // report the count; `--fix` sweeps with the same threshold so a
+        // report-then-fix pair stays consistent. One hour is generous
+        // vs an in-flight process's lock window and far below the GUI's
+        // 7-day startup sweep.
+        report.stale_index_namespaces =
+            self.sweep_stale_namespaces(STALE_NS_DOCTOR_MIN_AGE, fix)?;
+
         report.vault_ok = self.paths.vault.is_dir();
         Ok(report)
     }
@@ -3040,6 +3065,9 @@ pub struct DoctorReport {
     /// never rewrites files. Retained for the serialized report API.
     pub hash_repair_failed: u64,
     pub index_locked: bool,
+    /// Stale `by-vault/<hash>` index namespaces found by this run; with
+    /// `fix` these were swept (2026-08-28 index-explosion fix).
+    pub stale_index_namespaces: u64,
     pub trash_expiring: u64,
     pub vault_ok: bool,
 }
@@ -6400,5 +6428,28 @@ watcher_retry_interval_ms = 200
             1
         );
         assert!(!root.join("locked").exists(), "unlocked after release: swept");
+    }
+
+    #[test]
+    fn doctor_reports_and_sweeps_stale_namespaces() {
+        let _ = crate::paths::isolate_index_root_for_tests();
+        let root = crate::paths::by_vault_root();
+        std::fs::create_dir_all(&root).unwrap();
+        let d = root.join("oldns");
+        std::fs::create_dir_all(&d).unwrap();
+        let f = std::fs::File::create(d.join(crate::paths::META_DB_NAME)).unwrap();
+        f.set_modified(
+            std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600),
+        )
+        .unwrap();
+
+        let (_t, v) = tmp_vault();
+        // Report-only: counts, does not delete.
+        assert_eq!(v.doctor(false).unwrap().stale_index_namespaces, 1);
+        assert!(d.exists(), "report mode must not delete");
+        // --fix: sweeps and reports the swept count.
+        assert_eq!(v.doctor(true).unwrap().stale_index_namespaces, 1);
+        assert!(!d.exists(), "fix mode must sweep");
+        assert_eq!(v.doctor(false).unwrap().stale_index_namespaces, 0);
     }
 }
