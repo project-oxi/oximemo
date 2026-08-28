@@ -179,6 +179,7 @@ interface UIState {
 
 const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
 const QUERY_VIEW_KEY = "oximemo.queryView";
+const CALENDAR_FIELD_KEY = "oximemo.calendarField";
 
 function loadCollapsed(): boolean {
   if (typeof window === "undefined") return false;
@@ -192,8 +193,11 @@ export function loadQueryView(): ViewMode {
   if (typeof window === "undefined") return "grid";
   const v = window.localStorage.getItem(QUERY_VIEW_KEY);
   // table is available in query mode: the vault-wide cross-schema table is
-  // the point of per-row schema selection (query views spec §4).
-  return v === "list" || v === "timeline" || v === "graph" || v === "table" ? v : "grid";
+  // the point of per-row schema selection (query views spec §4); calendar
+  // mirrors the folder ladder in query mode.
+  return v === "list" || v === "timeline" || v === "graph" || v === "table" || v === "calendar"
+    ? v
+    : "grid";
 }
 
 /** Single writer for the location trio: `location` is authoritative;
@@ -205,6 +209,24 @@ function applyLocation(set: (partial: Partial<UIState>) => void, loc: Location) 
     folderFilter: loc.kind === "folder" ? loc.path : null,
     favoritesOnly: loc.kind === "favorites",
   });
+}
+
+/** Persisted calendar date-field override for the query-mode smart
+ * collection. Folder browse reads/writes the per-folder pin from the
+ * backend config (FolderDef.calendar_date_field) instead; this only
+ * covers the folder-less query case. Defaults to `"created_at"` — same
+ * default as the FolderDef branch — when no value has been persisted yet. */
+export function loadCalendarFieldQuery(): string {
+  if (typeof window === "undefined") return "created_at";
+  return window.localStorage.getItem(CALENDAR_FIELD_KEY) ?? "created_at";
+}
+
+/** Persist the calendar date-field override for query mode. Folder mode
+ * persists via `setFolderCalendarField` (backend config) and never
+ * touches this key. */
+export function saveCalendarFieldQuery(value: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(CALENDAR_FIELD_KEY, value);
 }
 
 export const useUI = create<UIState>((set) => ({

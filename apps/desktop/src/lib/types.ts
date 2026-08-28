@@ -214,13 +214,21 @@ export interface FolderCard {
   recent: FolderRecent[];
 }
 
-export type ViewMode = "grid" | "list" | "timeline" | "graph" | "shelf" | "table";
+export type ViewMode =
+  | "grid"
+  | "list"
+  | "timeline"
+  | "graph"
+  | "shelf"
+  | "table"
+  | "calendar";
 
 export interface FolderDef {
   path: string;
   view?: ViewMode;
   color?: string;
   pinned?: boolean;
+  calendar_date_field?: string;
 }
 
 export interface Config {

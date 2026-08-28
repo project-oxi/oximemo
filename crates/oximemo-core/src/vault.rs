@@ -1953,6 +1953,7 @@ impl Vault {
                         path: path.to_string(),
                         view: Some(v),
                         color: None,
+                        calendar_date_field: None,
                         pinned: None,
                     });
                 }
@@ -1960,8 +1961,9 @@ impl Vault {
             None => {
                 if let Some(f) = cfg.folders.items.iter_mut().find(|f| f.path == path) {
                     f.view = None;
-                    // Drop the entry if it has no color or pin either (clean config).
-                    if f.color.is_none() && f.pinned.is_none() {
+                    // Drop the entry if it has no color, pin, or calendar
+                    // field either (clean config).
+                    if f.color.is_none() && f.pinned.is_none() && f.calendar_date_field.is_none() {
                         cfg.folders.items.retain(|f| f.path != path);
                     }
                 }
@@ -1982,14 +1984,41 @@ impl Vault {
                     path: path.to_string(),
                     view: None,
                     color: None,
+                    calendar_date_field: None,
                     pinned: Some(true),
                 });
             }
         } else if let Some(f) = cfg.folders.items.iter_mut().find(|f| f.path == path) {
             f.pinned = None;
-            if f.view.is_none() && f.color.is_none() {
+            if f.view.is_none() && f.color.is_none() && f.calendar_date_field.is_none() {
                 cfg.folders.items.retain(|f| f.path != path);
             }
+        }
+        cfg.save(&self.paths)?;
+        Ok(())
+    }
+
+    /// Set a folder's calendar bucket field, persisted to `oximemo.toml`.
+    /// Treats `None` and `Some("created_at")` equivalently: the field is
+    /// dropped from the entry. Any other string is stored verbatim without
+    /// validation — a stale field name after a schema drop falls into the
+    /// "날짜 없음" bucket instead of erroring.
+    pub fn set_folder_calendar_field(
+        &self,
+        path: &str,
+        field: Option<String>,
+    ) -> Result<()> {
+        let mut cfg = self.config.write();
+        let normalized = field.filter(|s| s != "created_at");
+        match cfg.folders.items.iter_mut().find(|f| f.path == path) {
+            Some(f) => f.calendar_date_field = normalized,
+            None => cfg.folders.items.push(crate::config::FolderDef {
+                path: path.to_string(),
+                view: None,
+                color: None,
+                calendar_date_field: normalized,
+                pinned: None,
+            }),
         }
         cfg.save(&self.paths)?;
         Ok(())
@@ -4368,6 +4397,48 @@ watcher_retry_interval_ms = 200
                 .iter()
                 .all(|f| f.path != "book")
         );
+}
+
+    #[test]
+    fn set_folder_view_persists_calendar() {
+        let (_t, v) = tmp_vault();
+        v.set_folder_view("novel", Some(crate::config::ViewMode::Calendar))
+            .unwrap();
+        let json = v.config_json();
+        let folders = json["folders"].as_array().unwrap();
+        let entry = folders.iter().find(|f| f["path"] == "novel").unwrap();
+        assert_eq!(
+            entry["view"], "calendar",
+            "Calendar view must persist as 'calendar' in JSON"
+        );
+
+        v.set_folder_view("novel", None).unwrap();
+        let json2 = v.config_json();
+        let folders2 = json2["folders"].as_array().unwrap();
+        assert!(folders2.iter().all(|f| f["path"] != "novel"));
+    }
+
+    #[test]
+    fn set_folder_calendar_field_persists_and_clears() {
+        let (_t, v) = tmp_vault();
+        v.set_folder_calendar_field("novel", Some("watched_at".into()))
+            .unwrap();
+        let folders = v.config_json()["folders"].as_array().unwrap().clone();
+        let entry = folders.iter().find(|f| f["path"] == "novel").unwrap();
+        assert_eq!(entry["calendar_date_field"], "watched_at");
+
+        // Cleared field drops the JSON key (skip_serializing_if Option::is_none)
+        v.set_folder_calendar_field("novel", None).unwrap();
+        let folders2 = v.config_json()["folders"].as_array().unwrap().clone();
+        let entry2 = folders2.iter().find(|f| f["path"] == "novel").unwrap();
+        assert!(entry2.get("calendar_date_field").is_none());
+
+        // Setting back to default ("created_at") also drops the key
+        v.set_folder_calendar_field("novel", Some("created_at".into()))
+            .unwrap();
+        let folders3 = v.config_json()["folders"].as_array().unwrap().clone();
+        let entry3 = folders3.iter().find(|f| f["path"] == "novel").unwrap();
+        assert!(entry3.get("calendar_date_field").is_none());
     }
 
     #[test]

@@ -299,6 +299,7 @@ pub fn run() {
             commands::graph_data,
             commands::get_config,
             commands::set_folder_view,
+            commands::set_folder_calendar_field,
             commands::set_folder_pinned,
             commands::set_pin_order,
             commands::rename_tag,
@@ -1366,6 +1367,18 @@ mod commands {
         state
             .vault
             .set_folder_view(&path, view)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn set_folder_calendar_field(
+        state: State<'_, AppState>,
+        path: String,
+        field: Option<String>,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_folder_calendar_field(&path, field)
             .map_err(|e| e.to_string())
     }
 

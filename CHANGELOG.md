@@ -129,6 +129,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     displays as 인박스/Inbox wherever its name surfaces (sidebar,
     capture overlay, palette, settings); the stale
     `doc/CAPTURE_SLASH_PALETTE.md` spec is removed.
+- **Calendar view (spec 2026-08-25)** — Notion-style month-grid as a 6th
+  option alongside grid/list/timeline/graph/shelf. Available on every
+  folder and on the smart collections (전체 메모/즐겨찾기); empty days are
+  no-ops for non-daily folders, daily folders keep their click-to-create
+  behavior. Default bucket is `created_at`; switchable per folder to
+  `updated_at` or any schema `date`-typed property (`watched_at`,
+  `published_at`, …) via a small dropdown next to the Calendar button
+  (query mode surfaces only the two core date fields). Multi-note days
+  show up to 3 titles with a "+{n}더" popover for the rest; notes missing
+  the bucket date surface in a collapsible "날짜 없음" strip rather than
+  silently dropping:
+  1. **Core** — `ViewMode::Calendar` joins the enum; `FolderDef`
+     gains a `calendar_date_field` (per-folder bucket, persisted via
+     `set_folder_calendar_field` with a round-trip clear) and the
+     `set_folder_view` setter now persists calendar view mode too.
+  2. **Dedicated bounded fetch** — `CardGrid` issues a one-shot
+     `query_notes`-shaped load (limit 2000, offset 0) decoupled from
+     the Grid/List infinite-scroll cursor so the calendar never
+     silently truncates a real vault and never re-fires on scroll.
+  3. **IPC + browser fallback** — new `set_folder_calendar_field`
+     Tauri command with TS bindings; the fallback allowlists the
+     same call for query-mode folders and round-trips through the
+     in-memory schema registry.
+  4. **Locale parity** — 6 new keys (`view_calendar`,
+     `calendar_field_created`, `calendar_field_updated`,
+     `calendar_today`, `calendar_more`, `calendar_no_date`) wired
+     into both `ko.ts` and `en.ts` and pinned by `locales.test.ts`;
+     the grid is fully ko/en-localized.
 
 ### Added (copilot schema-awareness, spec 2026-08-24)
 

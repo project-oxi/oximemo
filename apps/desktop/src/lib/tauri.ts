@@ -93,6 +93,21 @@ function loadViews(): FolderViews {
   }
 }
 
+/** Per-folder calendar date field (mirrors `set_folder_view`'s layout). */
+const CALENDAR_FIELD_KEY = "oximemo:foldercalendarfields:v1";
+
+function loadCalendarFields(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(CALENDAR_FIELD_KEY) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function saveCalendarFields(map: Record<string, string>): void {
+  localStorage.setItem(CALENDAR_FIELD_KEY, JSON.stringify(map));
+}
+
 /** Folder paths the user has pinned to the sidebar favorites. */
 function loadPins(): string[] {
   try {
@@ -1143,6 +1158,19 @@ async function browserFallback(
       if (view) views[path] = view;
       else delete views[path];
       localStorage.setItem(VIEW_KEY, JSON.stringify(views));
+      return null;
+    }
+
+    case "set_folder_calendar_field": {
+      const map = loadCalendarFields();
+      const path = (args?.path as string | undefined) ?? "";
+      const field = (args?.field as string | null | undefined) ?? null;
+      if (field === null || field === "created_at") {
+        delete map[path];
+      } else {
+        map[path] = field;
+      }
+      saveCalendarFields(map);
       return null;
     }
 

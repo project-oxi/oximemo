@@ -249,6 +249,7 @@ pub enum ViewMode {
     /// Spreadsheet-style property table (query views spec §4). Shared by
     /// folder browse and query collections.
     Table,
+    Calendar,
 }
 
 /// A user-configured folder: path, optional locked view, optional color.
@@ -263,6 +264,13 @@ pub struct FolderDef {
     /// OKLCH color for sidebar dot / card accent. `None` = no tint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// Bucket field for the Calendar view: `"created_at"`, `"updated_at"`,
+    /// or a schema `date`-typed property key. `None` = `created_at`.
+    /// Stored as a plain string — if a schema later drops the prop, this
+    /// value becomes stale and the corresponding notes fall into the
+    /// "날짜 없음" bucket instead of erroring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_date_field: Option<String>,
     /// Pinned to the sidebar favorites section. `None` = not pinned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned: Option<bool>,
@@ -472,9 +480,9 @@ unknown_future_field = true
             path: "novel".into(),
             view: Some(ViewMode::List),
             color: Some("oklch(0.7 0.1 200)".into()),
+            calendar_date_field: None,
             pinned: None,
         });
-
         cfg.save(&paths).unwrap();
         let reloaded = VaultConfig::load(&paths);
         assert!(reloaded.folders.items.iter().any(|f| f.path == "novel"));

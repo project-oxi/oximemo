@@ -12,6 +12,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
+  Calendar,
   Clock,
   Clapperboard,
   CodeXml,
@@ -51,6 +52,7 @@ import {
   renameFolder,
   searchMemos,
   setAppearanceConfig,
+  setFolderCalendarField,
   setFolderPinned,
   setFolderView,
   showCaptureWindow,
@@ -66,7 +68,12 @@ import { todayLocalISO } from "../lib/dates";
 import { useFolderNames, useSchemaInfo, schemaDisplayName } from "../lib/folders";
 import { propKeyLabel, propValueLabel, badgeTone } from "../lib/propDisplay";
 import { PropSelect } from "./PropSelect";
-import { useUI, loadQueryView } from "../stores/ui";
+import {
+  useUI,
+  loadQueryView,
+  loadCalendarFieldQuery,
+  saveCalendarFieldQuery,
+} from "../stores/ui";
 import type { FolderCard, MemoSummary, ViewMode } from "../lib/types";
 
 import { MemoDetail } from "./MemoDetail";
@@ -84,6 +91,7 @@ import { ListView } from "./views/ListView";
 import { TableView } from "./views/TableView";
 import { BaseView } from "./BaseView";
 import { TimelineView } from "./views/TimelineView";
+import { CalendarView } from "./views/CalendarView";
 import { GraphView } from "./views/GraphView";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { MetadataAddDialog } from "./MetadataAddDialog";
@@ -95,7 +103,7 @@ const ROW_GAP = 12;
 const ROW_H = CARD_H + ROW_GAP;
 
 export function CardGrid() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const displayFolder = useFolderNames().displayName;
   const search = useUI((s) => s.search);
   const setSearch = useUI((s) => s.setSearch);
@@ -187,6 +195,33 @@ export function CardGrid() {
     },
     [folderFilter, qc, setNoteView, setToast],
   );
+  // Dedicated bounded query for the calendar view (T5 §5.2). Independent
+  // of the cursor-paged listing below: the calendar needs every memo in
+  // scope (limit 2000, no cursor) and recursive (`immediate: false`) so
+  // folder subtrees show up the same way Timeline/Graph do. `enabled`
+  // gates the fetch on the active view — no IPC traffic when the user is
+  // on grid/list/timeline/graph.
+  const calendarMemosQuery = useQuery({
+    queryKey: [
+      "memos",
+      "calendar",
+      folderFilter,
+      includeTags,
+      excludeTags,
+      matchAll,
+      favoritesOnly,
+    ],
+    enabled: noteView === "calendar",
+    queryFn: () =>
+      listMemos(null, 2000, {
+        include_tags: includeTags,
+        exclude_tags: excludeTags,
+        match_all: matchAll,
+        folder: folderFilter,
+        favorites_only: favoritesOnly,
+        immediate: false, // recursive — same scope as Timeline/Graph
+      }),
+  });
   const listing = useInfiniteQuery({
     queryKey: ["memos", includeTags, excludeTags, matchAll, folderFilter, favoritesOnly, noteView],
     queryFn: ({ pageParam }) =>
@@ -1161,6 +1196,22 @@ export function CardGrid() {
     folderFilter !== null &&
     !!folders.find((f) => f.path === folderFilter)?.view;
 
+  // Calendar view (T5 §5.3–§5.4): date-field resolution + daily-note
+  // config. Folder mode reads FolderDef.calendar_date_field (default
+  // "created_at"); query mode persists its own choice in localStorage
+  // so the smart collection has a stable preference across reloads.
+  // Daily-note creation is gated on config.daily.{enabled, folder} — the
+  // same fields the sidebar's Today button checks.
+  const folderCalendarField: string = useMemo(() => {
+    const def =
+      folderFilter !== null ? folders.find((f) => f.path === folderFilter) : null;
+    return def?.calendar_date_field ?? "created_at";
+  }, [folderFilter, folders]);
+  const currentQueryCalendarField =
+    folderFilter === null ? loadCalendarFieldQuery() : folderCalendarField;
+  const dailyFolder = configQ.data?.daily?.folder ?? null;
+  const dailyEnabled = configQ.data?.daily?.enabled ?? true;
+
   // Shelf (media wall) only exists for cover-bearing collections —
   // the schema must declare cover_url and map to a book/movie domain.
   const shelfAvailable = !!schema?.properties?.cover_url && metadataDomainOf(schema) !== null;
@@ -1176,6 +1227,7 @@ export function CardGrid() {
         { v: "table", Icon: Table2 },
         { v: "timeline", Icon: Clock },
         { v: "graph", Icon: Network },
+        { v: "calendar", Icon: Calendar },
       ] as const).map(({ v, Icon }) => (
         <button
           type="button"
@@ -1192,6 +1244,30 @@ export function CardGrid() {
           <Icon size={13} strokeWidth={2} />
         </button>
       ))}
+      {noteView === "calendar" && (
+        <PropSelect
+          label=""
+          value={currentQueryCalendarField}
+          options={[
+            { value: "created_at", label: t.calendar_field_created },
+            { value: "updated_at", label: t.calendar_field_updated },
+            ...(folderFilter !== null && schema?.properties
+              ? Object.entries(schema.properties)
+                  .filter(([, d]) => d.prop_type === "date")
+                  .map(([k]) => ({ value: k, label: propKeyLabel(k, t) }))
+              : []),
+          ]}
+          onChange={(value) => {
+            if (folderFilter === null) {
+              saveCalendarFieldQuery(value);
+            } else {
+              void setFolderCalendarField(folderFilter, value === "created_at" ? null : value)
+                .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
+                .catch((e) => setToast(String(e).split("\n")[0]));
+            }
+          }}
+        />
+      )}
       {shelfAvailable && (
         <button
           type="button"
@@ -1695,6 +1771,27 @@ export function CardGrid() {
                 }}
                 onSelect={select}
                 onToggleFavorite={(m) => onToggleFavorite(m.id, m.favorite)}
+              />
+            ) : noteView === "calendar" ? (
+              <CalendarView
+                memos={calendarMemosQuery.data?.items ?? []}
+                dateField={currentQueryCalendarField}
+                folders={folders}
+                onSelect={select}
+                today={todayLocalISO()}
+                locale={locale}
+                dailyFolder={dailyFolder}
+                dailyEnabled={dailyEnabled}
+                onOpenDailyNote={(date) => {
+                  void openDailyNote(date)
+                    .then(({ memo, created }) => {
+                      select(memo.id);
+                      // Fresh daily note: closing it untouched discards it
+                      // (mirrors Sidebar's openDaily flow).
+                      if (created) setDraftId(memo.id, memo.body);
+                    })
+                    .catch((e) => setToast(String(e).split("\n")[0]));
+                }}
               />
             ) : (
               <GraphView
