@@ -87,8 +87,45 @@ pub fn set_last_space(name: &str) -> Result<()> {
     let text = serde_json::to_string_pretty(&AppSettings {
         last_space: Some(name.to_string()),
     })?;
-    Ok(oxi_frontmatter::atomic_write(&path, text.as_bytes())
-        .map_err(|e| CoreError::other(e.to_string()))?)
+    oxi_frontmatter::atomic_write(&path, text.as_bytes())
+        .map_err(|e| CoreError::other(e.to_string()))
+}
+
+/// How a vault was selected. Space identity is the directory name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VaultSpec {
+    /// Explicit path (`--vault` / `OXIMEMO_VAULT`). Tests and custom setups.
+    Explicit(PathBuf),
+    /// A space directory: `~/.oxi/vault/<name>/`.
+    Space(String),
+}
+
+/// Resolve which vault to open (spec §1 precedence):
+/// 1. explicit path → `Explicit`
+/// 2. space flag → `Space(name)`
+/// 3. app-local `last_space` → `Space(name)` — only when its directory exists
+/// 4. default → `Space("personal")`
+///
+/// `explicit` and `space` together is a usage error (spec §4).
+pub fn resolve_vault_spec(explicit: Option<&Path>, space: Option<&str>) -> Result<VaultSpec> {
+    if let Some(p) = explicit {
+        if space.is_some() {
+            return Err(CoreError::Other(
+                "--vault and --space are mutually exclusive".to_string(),
+            ));
+        }
+        return Ok(VaultSpec::Explicit(p.to_path_buf()));
+    }
+    if let Some(raw) = space {
+        return Ok(VaultSpec::Space(validate_space_name(raw)?));
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    if let Some(name) = last_space()
+        && space_dir(Path::new(&home), &name).is_dir()
+    {
+        return Ok(VaultSpec::Space(name));
+    }
+    Ok(VaultSpec::Space(DEFAULT_SPACE_NAME.to_string()))
 }
 
 #[cfg(test)]
@@ -151,5 +188,61 @@ mod tests {
             space_dir(Path::new("/h"), "work"),
             PathBuf::from("/h/.oxi/vault/work")
         );
+    }
+
+    // -- resolve_vault_spec precedence (spec §1) --
+
+    #[test]
+    fn explicit_path_wins() {
+        let s = resolve_vault_spec(Some(Path::new("/tmp/v")), None).unwrap();
+        assert!(matches!(s, VaultSpec::Explicit(ref p) if p == Path::new("/tmp/v")));
+    }
+
+    #[test]
+    fn vault_and_space_flags_are_mutually_exclusive() {
+        // The desktop/CLI arg layer rejects the pair before calling in,
+        // but resolution defends the same contract for any other caller.
+        let s = resolve_vault_spec(Some(Path::new("/tmp/v")), Some("work"));
+        assert!(s.is_err());
+    }
+
+    #[test]
+    fn space_flag_beats_last_space_setting() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            set_last_space("work").unwrap();
+            let s = resolve_vault_spec(None, Some("other")).unwrap();
+            assert!(matches!(s, VaultSpec::Space(ref n) if n == "other"));
+        });
+    }
+
+    #[test]
+    fn last_space_used_only_when_its_directory_exists() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            // Recorded but the dir was deleted → fall through to default.
+            set_last_space("gone").unwrap();
+            let s = resolve_vault_spec(None, None).unwrap();
+            assert!(matches!(s, VaultSpec::Space(ref n) if n == "personal"));
+            // Directory exists → selected.
+            std::fs::create_dir_all(space_dir(&home, "gone")).unwrap();
+            let s = resolve_vault_spec(None, None).unwrap();
+            assert!(matches!(s, VaultSpec::Space(ref n) if n == "gone"));
+        });
+    }
+
+    #[test]
+    fn default_is_personal() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            let s = resolve_vault_spec(None, None).unwrap();
+            assert!(matches!(s, VaultSpec::Space(ref n) if n == DEFAULT_SPACE_NAME));
+        });
+    }
+
+    #[test]
+    fn invalid_space_flag_rejected() {
+        assert!(resolve_vault_spec(None, Some("not/ok")).is_err());
+        assert!(resolve_vault_spec(None, Some("")).is_err());
     }
 }
