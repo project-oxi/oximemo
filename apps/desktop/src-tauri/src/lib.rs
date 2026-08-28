@@ -2699,6 +2699,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let vault_path = dir.path().join("vault");
         std::fs::create_dir_all(&vault_path).unwrap();
+        let _ = oximemo_core::paths::isolate_index_root_for_tests();
         let vault = std::sync::Arc::new(oximemo_core::Vault::open(Some(&vault_path)).unwrap());
         vault.ensure_initialized().unwrap();
         // Default `[git].auto_commit = true`.
@@ -2784,6 +2785,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let vault_path = dir.path().join("vault");
         std::fs::create_dir_all(&vault_path).unwrap();
+        let _ = oximemo_core::paths::isolate_index_root_for_tests();
         let vault = std::sync::Arc::new(oximemo_core::Vault::open(Some(&vault_path)).unwrap());
         vault.ensure_initialized().unwrap();
         let git = std::sync::Arc::new(

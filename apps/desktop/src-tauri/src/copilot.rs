@@ -2005,6 +2005,7 @@ pid_file = "/x"
                 .as_nanos()
         ));
         let _ = std::fs::remove_dir_all(&dir);
+        let _ = oximemo_core::paths::isolate_index_root_for_tests();
         let vault = oximemo_core::Vault::open(Some(&dir)).unwrap();
         vault.ensure_initialized().unwrap();
         vault.migrate().unwrap();
