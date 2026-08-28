@@ -780,6 +780,67 @@ impl Vault {
         Ok(removed)
     }
 
+    /// Delete stale `by-vault/<hash>` index namespaces under the
+    /// application-support index root. A namespace is stale when all of:
+    /// - it is not the namespace this `Vault` resolves to,
+    /// - its `meta.redb` mtime (dir mtime fallback) is older than
+    ///   `min_age`, and
+    /// - its `meta.redb.lock` flock can be taken `Exclusive` right now —
+    ///   a live GUI/CLI mid-open holds it, so skip rather than fight.
+    ///
+    /// Namespaces are derived data only: deleting one loses nothing a
+    /// reindex cannot rebuild. Mirrors [`Self::gc_assets`] semantics
+    /// (count of removed entries). Callers: GUI startup (7-day age) and
+    /// `doctor --fix` (1-hour age) — never a hot path.
+    pub fn gc_stale_namespaces(&self, min_age: std::time::Duration) -> Result<u64> {
+        let root = crate::paths::by_vault_root();
+        let entries = match std::fs::read_dir(&root) {
+            Ok(e) => e,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(e) => return Err(e.into()),
+        };
+        let now = std::time::SystemTime::now();
+        let mut removed = 0u64;
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            // Never delete the namespace this Vault resolves to.
+            if dir == self.paths.index_dir {
+                continue;
+            }
+            let mtime = std::fs::metadata(dir.join(crate::paths::META_DB_NAME))
+                .or_else(|_| entry.metadata())
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            let Ok(age) = now.duration_since(mtime) else {
+                continue; // future-dated mtime: treat as fresh
+            };
+            if age < min_age {
+                continue;
+            }
+            // In-flight guard. `acquire` creates the lock file (removed
+            // with the dir); any acquire error means "maybe in use".
+            let lock_path = dir.join(crate::paths::META_LOCK_NAME);
+            let Ok(_guard) =
+                crate::lock::acquire(&lock_path, LockKind::Exclusive, std::time::Duration::ZERO)
+            else {
+                continue;
+            };
+            drop(_guard);
+            match std::fs::remove_dir_all(&dir) {
+                Ok(()) => removed += 1,
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    dir = %dir.display(),
+                    "gc: stale namespace removal failed"
+                ),
+            }
+        }
+        Ok(removed)
+    }
+
     /// Collect every `oximg://<name>` referenced across all live memo bodies.
     fn asset_refs_in_bodies(&self) -> Result<std::collections::HashSet<String>> {
         let mut live = std::collections::HashSet::new();
@@ -6280,5 +6341,64 @@ watcher_retry_interval_ms = 200
             token_path.exists(),
             "trash file must remain after rejected restore"
         );
+    }
+
+    #[test]
+    fn gc_stale_namespaces_removes_only_old_unlocked_foreign_ones() {
+        let _ = crate::paths::isolate_index_root_for_tests(); // FIRST: the root must be the override, never the real App Support
+        let root = crate::paths::by_vault_root();
+        std::fs::create_dir_all(&root).unwrap();
+
+        let mk = |name: &str, age: std::time::Duration| {
+            let d = root.join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            let f = std::fs::File::create(d.join(crate::paths::META_DB_NAME)).unwrap();
+            f.set_modified(std::time::SystemTime::now() - age).unwrap();
+        };
+
+        // Self-exclusion setup: create this Vault's own index and age it
+        // far beyond the threshold — GC must still never delete it.
+        let (_t, v) = tmp_vault();
+        v.create_note("", "# own".into(), crate::memo::NoteFormat::Markdown)
+            .unwrap();
+        let own_db = v.paths().meta_db_path();
+        assert!(own_db.exists(), "fixture: own index must exist");
+        std::fs::File::open(&own_db)
+            .unwrap()
+            .set_modified(
+                std::time::SystemTime::now() - std::time::Duration::from_secs(90 * 24 * 3600),
+            )
+            .unwrap();
+
+        mk("stale", std::time::Duration::from_secs(2 * 3600));
+        mk("fresh", std::time::Duration::from_secs(60));
+        mk("locked", std::time::Duration::from_secs(2 * 3600));
+        let guard = crate::lock::acquire(
+            &root.join("locked").join(crate::paths::META_LOCK_NAME),
+            LockKind::Exclusive,
+            std::time::Duration::from_secs(1),
+        )
+        .unwrap();
+
+        assert_eq!(
+            v.gc_stale_namespaces(std::time::Duration::from_secs(3600))
+                .unwrap(),
+            1
+        );
+        assert!(!root.join("stale").exists(), "stale namespace removed");
+        assert!(root.join("fresh").exists(), "young namespace kept");
+        assert!(
+            root.join("locked").exists(),
+            "in-flight (locked) namespace skipped"
+        );
+        assert!(own_db.exists(), "own namespace never deleted");
+
+        drop(guard);
+        assert_eq!(
+            v.gc_stale_namespaces(std::time::Duration::from_secs(3600))
+                .unwrap(),
+            1
+        );
+        assert!(!root.join("locked").exists(), "unlocked after release: swept");
     }
 }
