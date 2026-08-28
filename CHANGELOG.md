@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+### Fixed
+
+- **Unbounded `by-vault` index accumulation** — custom `--vault` opens
+  (and, before this fix, every vault-opening unit test) created a
+  permanent `index/by-vault/<hash>/meta.redb` namespace that nothing
+  ever cleaned; the dev machine had accumulated 267 namespaces / 365 MB
+  in a single day. Three-part fix: an explicitly-passed default vault
+  now maps to the top-level index (the GUI watcher previously
+  reindexed into a copy the app never read, leaving raw external edits
+  invisible until a manual reindex); test binaries namespace under a
+  per-process tempdir instead of the real Application Support; and
+  stale namespaces are swept by age — GUI startup (7-day floor) and
+  `oximemo doctor [--fix]` (1-hour floor, in-flight flock guarded).
+  `DoctorReport` gains `stale_index_namespaces`.
+
 ## [0.10.1] — 2026-08-27
 
 ### Fixed

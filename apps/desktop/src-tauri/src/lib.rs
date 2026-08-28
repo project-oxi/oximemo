@@ -148,6 +148,22 @@ pub fn run() {
                 vault.paths().vault.clone(),
                 git_rx,
             );
+            // by-vault index GC (2026-08-28 index-explosion fix):
+            // custom-vault namespaces idle >7 days are derived debris
+            // (one-off --vault opens, pre-isolation test leaks); sweep
+            // best-effort off the startup path.
+            {
+                let v = vault.clone();
+                std::thread::spawn(move || {
+                    match v.gc_stale_namespaces(Duration::from_secs(7 * 24 * 3600)) {
+                        Ok(n) if n > 0 => {
+                            tracing::info!(namespaces = n, "gc: removed stale by-vault index namespaces");
+                        }
+                        Ok(_) => {}
+                        Err(e) => tracing::warn!(error = %e, "gc: by-vault namespace sweep failed"),
+                    }
+                });
+            }
             app.manage(AppState::new(vault, git, git_tx));
             let wstate = app.state::<AppState>();
             spawn_watcher(&wstate, app.handle());
