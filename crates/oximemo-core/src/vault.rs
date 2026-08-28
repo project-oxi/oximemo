@@ -3102,6 +3102,9 @@ mod tests {
     use tempfile::TempDir;
 
     fn tmp_vault() -> (TempDir, Vault) {
+        // Custom-vault namespaces must never land in the real
+        // Application Support (2026-08-28 index-explosion fix).
+        let _ = crate::paths::isolate_index_root_for_tests();
         let dir = TempDir::new().unwrap();
         let v = Vault::open(Some(dir.path())).unwrap();
         (dir, v)

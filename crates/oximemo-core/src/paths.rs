@@ -19,6 +19,7 @@
 //! pre-unification application-support path.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub const APP_SUPPORT_SUBDIR: &str = "com.oximemo.app";
 pub const VAULT_DEFAULT_SUBDIR: &str = "vault";
@@ -90,7 +91,7 @@ impl Paths {
                         index_dir: support.join(INDEX_SUBDIR),
                     };
                 }
-                let index_dir = support
+                let index_dir = custom_index_support()
                     .join(INDEX_SUBDIR)
                     .join(BY_VAULT_SUBDIR)
                     .join(vault_namespace(v));
@@ -202,6 +203,48 @@ pub fn app_support_dir() -> PathBuf {
         .join(APP_SUPPORT_SUBDIR)
 }
 
+/// Process-global override consulted ONLY by the custom-vault branch of
+/// [`Paths::resolve`] (and [`by_vault_root`]). Test binaries call
+/// [`isolate_index_root_for_tests`] once so `Vault::open(Some(temp))`
+/// namespaces land under a per-process tempdir instead of the real
+/// `~/Library/Application Support` — without it every vault-opening test
+/// leaks one redb namespace per run into the user's real index dir (the
+/// 2026-08-28 explosion: 267 dirs / 365 MB in a day). Production never
+/// sets it, and the `resolve(None)` branch is deliberately unaffected
+/// because migrate-vault tests swap `HOME` and assert default placement.
+static TEST_INDEX_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
+/// # Test-only
+/// Redirect custom-vault index namespaces into
+/// `$TMPDIR/oximemo-test-index-<pid>`. Idempotent; the first call wins
+/// and later calls return the same root. The dir is intentionally NOT
+/// cleaned on exit — the OS temp reaper owns `$TMPDIR` reclamation.
+#[doc(hidden)]
+pub fn isolate_index_root_for_tests() -> PathBuf {
+    TEST_INDEX_ROOT
+        .get_or_init(|| {
+            let root = std::env::temp_dir()
+                .join(format!("oximemo-test-index-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&root);
+            root
+        })
+        .clone()
+}
+
+/// App-support root for CUSTOM-vault index namespaces. Honors the
+/// test override for the same reason the `Some` branch does.
+fn custom_index_support() -> PathBuf {
+    TEST_INDEX_ROOT.get().cloned().unwrap_or_else(app_support_dir)
+}
+
+/// Root holding per-custom-vault index namespaces (`index/by-vault`).
+/// The GC target ([`crate::vault::Vault::gc_stale_namespaces`]); honors
+/// the test override so GC tests run against fixtures, not the user's
+/// real index.
+pub fn by_vault_root() -> PathBuf {
+    custom_index_support().join(INDEX_SUBDIR).join(BY_VAULT_SUBDIR)
+}
+
 /// Stable, collision-resistant namespace for a custom vault's index dir.
 ///
 /// Derived from the absolute path so the same vault always maps to the same
@@ -259,12 +302,15 @@ mod tests {
 
     #[test]
     fn custom_vault_index_lives_outside_vault() {
+        // Ordering-proof: the override may already be set by whichever
+        // test ran first; assert against the override-aware root.
+        let _ = isolate_index_root_for_tests();
         let p = Paths::resolve(Some(Path::new("/tmp/some-vault")));
         assert!(
             !p.index_dir.starts_with(&p.vault),
             "index must not be inside the vault"
         );
-        assert!(p.index_dir.starts_with(app_support_dir()));
+        assert!(p.index_dir.starts_with(custom_index_support()));
     }
 
     /// The default vault lives at `~/.oxi/vault` (shared ecosystem
@@ -356,5 +402,21 @@ mod tests {
             .is_some_and(|p| p.ends_with(BY_VAULT_SUBDIR)));
         assert_ne!(a.index_dir, none.index_dir);
         assert_eq!(a.vault, PathBuf::from("/tmp/some-other-vault"));
+    }
+
+    #[test]
+    fn test_override_redirects_custom_vault_namespaces_only() {
+        // First setter wins; whichever test sets it, this contract holds.
+        let root = isolate_index_root_for_tests();
+        let custom = Paths::resolve(Some(Path::new("/tmp/leak-check-vault")));
+        assert!(
+            custom.index_dir.starts_with(&root),
+            "custom-vault namespace must land under the test override root"
+        );
+        // The None branch stays HOME-based: migrate tests swap HOME and
+        // assert default placement against app_support_dir().
+        let none = Paths::resolve(None);
+        assert_eq!(none.index_dir, app_support_dir().join(INDEX_SUBDIR));
+        assert!(!none.index_dir.starts_with(&root));
     }
 }
