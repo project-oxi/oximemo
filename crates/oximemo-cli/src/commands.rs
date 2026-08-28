@@ -220,6 +220,34 @@ pub fn cmd_vault_path(vault: &Vault) -> Result<()> {
     Ok(())
 }
 
+/// `oximemo space list` — validated space dirs, `*` marks the active one.
+pub fn cmd_space_list() -> Result<()> {
+    let names = oximemo_core::spaces::list_spaces();
+    let active = match oximemo_core::spaces::resolve_vault_spec(None, None)? {
+        oximemo_core::spaces::VaultSpec::Space(n) => n,
+        oximemo_core::spaces::VaultSpec::Explicit(_) => String::new(),
+    };
+    for n in names {
+        let marker = if n == active { "* " } else { "  " };
+        println!("{marker}{n}");
+    }
+    Ok(())
+}
+
+/// `oximemo space add <name>` — create (idempotent) + scaffold.
+pub fn cmd_space_add(name: &str) -> Result<()> {
+    let dir = oximemo_core::spaces::create_space(name)?;
+    println!("vault dir: {}", dir.display());
+    Ok(())
+}
+
+/// `oximemo space switch <name>` — record the selection.
+pub fn cmd_space_switch(name: &str) -> Result<()> {
+    let dir = oximemo_core::spaces::switch_space(name)?;
+    println!("vault dir: {}", dir.display());
+    Ok(())
+}
+
 /// `oximemo doctor [--fix]`.
 pub fn cmd_doctor(vault: &Vault, fix: bool) -> Result<()> {
     let report = vault.doctor(fix)?;

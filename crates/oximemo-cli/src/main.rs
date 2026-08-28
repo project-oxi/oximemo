@@ -26,6 +26,10 @@ struct Cli {
     /// Vault root (defaults to the user vault under Application Support).
     #[arg(long, global = true, env = "OXIMEMO_VAULT")]
     vault: Option<PathBuf>,
+    /// Space name (one-shot; not persisted). Vault lives at
+    /// ~/.oxi/vault/<space>/. Mutually exclusive with --vault.
+    #[arg(long, global = true, env = "OXIMEMO_SPACE", conflicts_with = "vault")]
+    space: Option<String>,
 
     #[command(subcommand)]
     cmd: Cmd,
@@ -193,6 +197,12 @@ enum Cmd {
         sub: Option<VaultCmd>,
     },
 
+    /// Space operations (spec 2026-08-28 §4).
+    Space {
+        #[command(subcommand)]
+        sub: Option<SpaceCmd>,
+    },
+
     /// Migrate vault from v2 (categories) to v3 (folders) layout.
     Migrate {
         /// Preview changes without writing.
@@ -248,6 +258,21 @@ enum MetadataCmd {
 enum VaultCmd {
     /// Print the vault root path.
     Path,
+}
+
+#[derive(Subcommand)]
+enum SpaceCmd {
+    /// List spaces; `*` marks the active one.
+    List,
+    /// Create a space (idempotent) and scaffold its vault.
+    Add {
+        /// Space name (letters/digits/`-`/`_`, 1..=64).
+        name: String,
+    },
+    /// Record the selected space for future runs.
+    Switch {
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -315,7 +340,19 @@ fn run() -> Result<()> {
     if let Cmd::Upgrade { check } = &cli.cmd {
         return upgrade::run(*check);
     }
-    let vault = Vault::open(cli.vault.as_deref())?;
+    // `space` manages spaces without opening a vault.
+    if let Cmd::Space { sub } = &cli.cmd {
+        return match sub {
+            None | Some(SpaceCmd::List) => commands::cmd_space_list(),
+            Some(SpaceCmd::Add { name }) => commands::cmd_space_add(name),
+            Some(SpaceCmd::Switch { name }) => commands::cmd_space_switch(name),
+        };
+    }
+    let spec = oximemo_core::spaces::resolve_vault_spec(
+        cli.vault.as_deref(),
+        cli.space.as_deref(),
+    )?;
+    let vault = Vault::open_spec(&spec)?;
     vault.migrate()?;
     match cli.cmd {
         Cmd::New {
@@ -486,6 +523,7 @@ fn run() -> Result<()> {
         },
         // Handled before the vault is opened (see above).
         Cmd::Upgrade { .. } => unreachable!(),
+        Cmd::Space { .. } => unreachable!(),
     }
 }
 
