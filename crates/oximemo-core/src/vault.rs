@@ -135,6 +135,14 @@ impl Vault {
     /// for that. For the default vault this first runs the one-time
     /// migration to `~/.oxi/vault` (see [`crate::migrate_vault`]).
     pub fn open(vault: Option<&Path>) -> Result<Self> {
+        // Unit-test binaries (cfg(test)) must never point custom-vault
+        // namespaces at the real Application Support — one leaked redb
+        // per vault-opening test caused the 2026-08-28 index explosion
+        // (267 dirs / 365 MB in a day). Downstream integration suites
+        // (CLI, desktop) wire `isolate_index_root_for_tests` into their
+        // own helpers; this hook covers every in-crate test path.
+        #[cfg(test)]
+        let _ = crate::paths::isolate_index_root_for_tests();
         let mut status = VaultStatus::Ok;
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         if vault.is_none() {
@@ -3102,9 +3110,6 @@ mod tests {
     use tempfile::TempDir;
 
     fn tmp_vault() -> (TempDir, Vault) {
-        // Custom-vault namespaces must never land in the real
-        // Application Support (2026-08-28 index-explosion fix).
-        let _ = crate::paths::isolate_index_root_for_tests();
         let dir = TempDir::new().unwrap();
         let v = Vault::open(Some(dir.path())).unwrap();
         (dir, v)
