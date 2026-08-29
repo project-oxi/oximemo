@@ -1,11 +1,11 @@
 /**
  * Collapsible left sidebar — Finder-model curation surface: FAVORITES
- * (smart collections 전체 메모/즐겨찾기/갤러리), QUERIES (the installed
- * `할 일` shortcut + saved `.query` collections), LOCATIONS (볼트 root
- * browse entry, the daily + knowledge folder rows, explicitly pinned
- * folders), TASKS (the slim overdue+today panel that opens the full
- * tasks view on click), RECENTS, and TAGS. Folder browsing happens in
- * the main area; the 볼트 row enters it at the root.
+ * (전체 메모/즐겨찾기/갤러리 as an icon grid), QUERIES (the installed
+ * `할 일` shortcut + saved `.query` collections), LOCATIONS (the vault
+ * root, daily + knowledge, and pinned first-party collections as an
+ * icon grid; regular pinned folders keep managed rows), TASKS (the
+ * slim overdue+today panel), RECENTS, TAGS, and the space switcher
+ * pinned to the bottom edge. Folder browsing happens in the main area.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
@@ -233,6 +233,14 @@ export function Sidebar({
   // permanent, so the entry disappears with it.
   const tasksEnabled = configQ.data?.tasks?.enabled !== false;
   const hasTasksBase = bases.some((b) => b.path === TASKS_BASE_PATH);
+  /** Pinned first-party collections (preset icon present) join the
+   *  LOCATIONS icon grid — except the two system folders that already
+   *  show unconditionally, which would render twice. Regular pinned
+   *  folders keep their managed rows below the grid. */
+  const gridPins = pins.filter(
+    (f) => presetIcons[f.path] && f.path !== dailyFolder && f.path !== DEFAULT_KNOWLEDGE_FOLDER,
+  );
+  const folderPins = pins.filter((f) => !presetIcons[f.path]);
 
   const openFolder = (path: string) => {
     setFavoritesOnly(false);
@@ -247,52 +255,37 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface-sunken/60">
+    <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface-sunken/60 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <div data-tauri-drag-region className="h-12 shrink-0" />
-      <SpacePicker />
 
-      {/* FAVORITES — smart collections only. Folder locations (pinned or
-          the vault root) live in LOCATIONS below. */}
+      {/* FAVORITES — first-party smart collections as an icon grid; the
+          name (and count) rides the hover title. Folder locations (pinned
+          or the vault root) live in LOCATIONS below. */}
       <div className="flex items-center px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
           {t.favorites_section}
         </span>
       </div>
-      <button
-        type="button"
-        onClick={() => { setView("memos"); setFavoritesOnly(false); setFolderFilter(null); }}
-        className={`mx-2 flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] ${
-          view === "memos" && !favoritesOnly && folderFilter === null
-            ? "bg-surface-muted font-semibold text-text"
-            : "text-text-muted hover:bg-surface-muted"
-        }`}
-      >
-        <span className="flex items-center gap-2"><Layers size={14} /> {t.all_memos}</span>
-        <span className="text-[11px] text-text-subtle">{total}</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => { setView("memos"); setFolderFilter(null); setFavoritesOnly(true); }}
-        className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
-          view === "memos" && favoritesOnly
-            ? "bg-surface-muted font-semibold text-text"
-            : "text-text-muted hover:bg-surface-muted"
-        }`}
-      >
-        <Star size={14} /> {t.favorite}
-        {favoritesCount > 0 && <span className="ml-auto text-[11px] text-text-subtle">{favoritesCount}</span>}
-      </button>
-      <button
-        type="button"
-        onClick={() => setView("gallery")}
-        className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
-          view === "gallery"
-            ? "bg-surface-muted font-semibold text-text"
-            : "text-text-muted hover:bg-surface-muted"
-        }`}
-      >
-        <Images size={14} /> {t.gallery}
-      </button>
+      <div className="grid grid-cols-4 gap-1 px-2 pt-1">
+        <NavCell
+          icon={<Layers size={18} aria-hidden />}
+          title={total > 0 ? `${t.all_memos} · ${total}` : t.all_memos}
+          selected={view === "memos" && !favoritesOnly && folderFilter === null}
+          onClick={() => { setView("memos"); setFavoritesOnly(false); setFolderFilter(null); }}
+        />
+        <NavCell
+          icon={<Star size={18} aria-hidden />}
+          title={favoritesCount > 0 ? `${t.favorite} · ${favoritesCount}` : t.favorite}
+          selected={view === "memos" && favoritesOnly}
+          onClick={() => { setView("memos"); setFolderFilter(null); setFavoritesOnly(true); }}
+        />
+        <NavCell
+          icon={<Images size={18} aria-hidden />}
+          title={t.gallery}
+          selected={view === "gallery"}
+          onClick={() => setView("gallery")}
+        />
+      </div>
       {/* QUERIES — saved .query collections (query views spec §5). */}
       <div className="mt-3 flex items-center justify-between pr-3 pl-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
@@ -403,58 +396,74 @@ export function Sidebar({
           );
         })
       )}
-      {/* LOCATIONS — the vault root browse entry (folder tiles live in the
-          main area; this is how you get back to top-level browsing), the
-          daily and knowledge system folders, and pinned folders. */}
+      {/* LOCATIONS — the vault root, daily, and knowledge system folders
+          plus pinned first-party collections as an icon grid (names on
+          hover; collection cells manage rename/unpin/delete via the
+          right-click menu). Regular pinned folders keep their rows. */}
       <div className="mt-3 flex items-center px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
           {t.locations_section}
         </span>
       </div>
-      <LocationsRow
-        path=""
-        selected={view === "memos" && !favoritesOnly && folderFilter === ""}
-        onClick={() => {
-          setView("memos");
-          setFavoritesOnly(false);
-          setFolderFilter("");
-        }}
-        onMoveNote={onMoveNote}
-        onMoveFolderTree={onMoveFolderTree}
-        icon={<Archive size={14} />}
-        label={t.vault_root}
-      />
-      {dailyEnabled && dailyFolder && (
-        <LocationsRow
-          path={dailyFolder}
-          selected={view === "memos" && !favoritesOnly && folderFilter === dailyFolder}
-          onClick={() => openFolder(dailyFolder)}
+      <div className="grid grid-cols-4 gap-1 px-2 pt-1">
+        <LocationCell
+          path=""
+          icon={<Archive size={18} aria-hidden />}
+          label={t.vault_root}
+          selected={view === "memos" && !favoritesOnly && folderFilter === ""}
+          onClick={() => {
+            setView("memos");
+            setFavoritesOnly(false);
+            setFolderFilter("");
+          }}
           onMoveNote={onMoveNote}
           onMoveFolderTree={onMoveFolderTree}
-          icon={<CalendarDays size={14} />}
-          label={folderDisplayName(dailyFolder, t, dailyFolder)}
         />
-      )}
-      {/* The knowledge folder is a shipped system folder (migrate
-          guarantees it, macOS Desktop-style) — always present in
-          LOCATIONS like the daily row, unless the user pinned it
-          (a pin would render a duplicate row below). */}
-      {!pinPaths.includes(DEFAULT_KNOWLEDGE_FOLDER) && (
-        <LocationsRow
+        {dailyEnabled && dailyFolder && (
+          <LocationCell
+            path={dailyFolder}
+            icon={<CalendarDays size={18} aria-hidden />}
+            label={folderDisplayName(dailyFolder, t, dailyFolder)}
+            selected={view === "memos" && !favoritesOnly && folderFilter === dailyFolder}
+            onClick={() => openFolder(dailyFolder)}
+            onMoveNote={onMoveNote}
+            onMoveFolderTree={onMoveFolderTree}
+          />
+        )}
+        {/* The knowledge folder is a shipped system folder (migrate
+            guarantees it) — always in the grid; gridPins excludes the
+            system paths so a pin can no longer duplicate it. */}
+        <LocationCell
           path={DEFAULT_KNOWLEDGE_FOLDER}
+          icon={<GraduationCap size={18} aria-hidden />}
+          label={t.sysfolder_knowledge}
           selected={view === "memos" && !favoritesOnly && folderFilter === DEFAULT_KNOWLEDGE_FOLDER}
           onClick={() => openFolder(DEFAULT_KNOWLEDGE_FOLDER)}
           onMoveNote={onMoveNote}
           onMoveFolderTree={onMoveFolderTree}
-          icon={<GraduationCap size={14} />}
-          label={t.sysfolder_knowledge}
         />
-      )}
-      {pins.map((f) => (
+        {gridPins.map((f) => (
+          <CollectionCell
+            key={f.path}
+            path={f.path}
+            icon={presetIcons[f.path]}
+            folders={folders}
+            selected={folderFilter === f.path}
+            naming={pinNaming === f.path}
+            onOpen={openFolder}
+            onUnpin={unpin}
+            onRename={setPinNaming}
+            onNameCommit={commitPinRename}
+            onDelete={deletePinFolder}
+            onMoveNote={onMoveNote}
+            onMoveFolderTree={onMoveFolderTree}
+          />
+        ))}
+      </div>
+      {folderPins.map((f) => (
         <SidebarFolderRow
           key={f.path}
           path={f.path}
-          icon={presetIcons[f.path]}
           folders={folders}
           selected={folderFilter === f.path}
           naming={pinNaming === f.path}
@@ -600,6 +609,12 @@ export function Sidebar({
             </CtxRoot>
           );
         })}
+      </div>
+      {/* SPACE — pinned to the sidebar's bottom edge (sticky inside the
+          scroll container): the vault-level context stays reachable no
+          matter how long the content above grows. */}
+      <div className="sticky bottom-0 mt-auto border-t border-line bg-surface-sunken">
+        <SpacePicker />
       </div>
     </aside>
   );
@@ -850,27 +865,55 @@ function SidebarFolderRow({
     </CtxRoot>
   );
 }
+/** One icon cell of the FAVORITES grid: icon-only navigation whose name
+ *  (and count, when any) rides a native-title hover — the sidebar's
+ *  compression for fixed smart collections. */
+function NavCell({
+  icon,
+  title,
+  selected,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`grid size-11 place-items-center rounded-md ${
+        selected
+          ? "bg-surface-muted text-text"
+          : "text-text-muted hover:bg-surface-muted hover:text-text"
+      }`}
+    >
+      {icon}
+    </button>
+  );
+}
 
-/** One LOCATIONS row (볼트 root / daily): navigation button that is
- *  also a drop target — dropping a note moves it to this folder,
- *  dropping a folder subtree reparents it here (T14 semantics).
- *  Extracted so useFolderDrop runs at a stable hook index. */
-function LocationsRow({
+/** One LOCATIONS icon cell (vault root / daily / knowledge): icon-only
+ *  navigation that is also a drop target — dropping a note moves it to
+ *  this folder, dropping a folder subtree reparents it here (T14). */
+function LocationCell({
   path,
+  icon,
+  label,
   selected,
   onClick,
   onMoveNote,
   onMoveFolderTree,
-  icon,
-  label,
 }: {
   path: string;
+  icon: React.ReactNode;
+  label: string;
   selected: boolean;
   onClick: () => void;
   onMoveNote: (id: string, folder: string) => void;
   onMoveFolderTree?: (p: string, dest: string) => void;
-  icon: React.ReactNode;
-  label: string;
 }) {
   const { dropCls, ...dropProps } = useFolderDrop(
     path,
@@ -878,18 +921,163 @@ function LocationsRow({
     onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
   );
   return (
-    <div {...dropProps} className={`mx-2 rounded-md ${dropCls ?? ""}`}>
+    <div {...dropProps} className={dropCls ?? ""}>
       <button
         type="button"
         onClick={onClick}
-        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] ${
+        title={label}
+        className={`grid size-11 place-items-center rounded-md ${
           selected
-            ? "bg-surface-muted font-semibold text-text"
-            : "text-text-muted hover:bg-surface-muted"
+            ? "bg-surface-muted text-text"
+            : "text-text-muted hover:bg-surface-muted hover:text-text"
         }`}
       >
-        {icon} <span className="truncate">{label}</span>
+        {icon}
       </button>
     </div>
+  );
+}
+
+/** One pinned first-party COLLECTION cell in the LOCATIONS grid: the
+ *  preset icon identifies it, the full folder name rides the hover
+ *  title, and management (rename / unpin / armed delete) lives in the
+ *  right-click menu — the ⠿-reorder gesture stays on the regular pin
+ *  rows. Drop target like every LOCATIONS cell (T14). */
+function CollectionCell({
+  path,
+  icon,
+  folders,
+  selected,
+  naming,
+  onOpen,
+  onUnpin,
+  onRename,
+  onNameCommit,
+  onDelete,
+  onMoveNote,
+  onMoveFolderTree,
+}: {
+  path: string;
+  icon?: React.ReactNode;
+  folders: FolderDef[];
+  selected: boolean;
+  /** Inline rename session active for this cell. */
+  naming: boolean;
+  onOpen: (path: string) => void;
+  onUnpin: (path: string) => void;
+  onRename: (path: string) => void;
+  onNameCommit: (path: string, name: string | null) => void;
+  onDelete: (path: string) => void;
+  onMoveNote: (id: string, folder: string) => void;
+  onMoveFolderTree?: (p: string, dest: string) => void;
+}) {
+  const { t } = useI18n();
+  // Two-click armed delete (FolderMenu rules): arm resets when the menu
+  // closes and auto-expires after 4s.
+  const [armed, setArmed] = useState(false);
+  const armTimer = useRef<number | null>(null);
+  const disarm = () => {
+    setArmed(false);
+    if (armTimer.current) {
+      window.clearTimeout(armTimer.current);
+      armTimer.current = null;
+    }
+  };
+  useEffect(() => () => disarm(), []);
+  // Recursive note count for the delete confirm wording — same query key
+  // the pin rows use, so both surfaces share one fetch.
+  const parent = parentOf(path);
+  const siblingsQ = useQuery({
+    queryKey: ["folderChildren", parent],
+    queryFn: () => folderChildren(parent),
+    staleTime: Infinity,
+  });
+  const deep =
+    siblingsQ.data?.find((c) => c.path === path)?.note_count_deep ?? 0;
+  const { dropCls, ...dropProps } = useFolderDrop(
+    path,
+    (id) => onMoveNote(id, path),
+    onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
+  );
+  const { displayName: displayFolder } = useFolderNames();
+  const base = path.split("/").at(-1) ?? path;
+  // Inline rename spans two grid columns — a 44px cell can't host an
+  // input for collection-length names.
+  if (naming) {
+    return (
+      <input
+        autoFocus
+        defaultValue={base}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={(e) => onNameCommit(path, e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onNameCommit(path, e.currentTarget.value);
+          else if (e.key === "Escape") onNameCommit(path, null);
+        }}
+        style={{ boxShadow: "none" }}
+        className="col-span-2 min-w-0 rounded-md bg-surface-muted px-1.5 py-1 text-[12px] font-semibold text-text outline-none"
+      />
+    );
+  }
+  return (
+    <CtxRoot onOpenChange={(open) => !open && disarm()}>
+      <CtxTrigger
+        render={
+          <div {...dropProps} className={dropCls ?? ""}>
+            <button
+              type="button"
+              onClick={() => onOpen(path)}
+              title={displayFolder(path)}
+              className={`grid size-11 place-items-center rounded-md ${
+                selected
+                  ? "bg-surface-muted text-text"
+                  : "text-text-muted hover:bg-surface-muted hover:text-text"
+              }`}
+            >
+              {icon ?? (
+                <Folder size={18} style={{ color: colorForFolder(path, folders) }} />
+              )}
+            </button>
+          </div>
+        }
+      >
+        <CtxMenu>
+          <CtxItem label={t.folder_open} onClick={() => onOpen(path)} />
+          <CtxItem
+            icon={PenLine}
+            label={t.rename_folder}
+            onClick={() => onRename(path)}
+          />
+          <CtxItem label={t.folder_unpin} onClick={() => onUnpin(path)} />
+          <CtxSeparator />
+          {armed ? (
+            <CtxItem
+              icon={Trash2}
+              label={t.delete_confirm_arm}
+              danger
+              title={t.delete_folder_confirm
+                .replace("{folder}", base)
+                .replace("{n}", String(deep))}
+              onClick={() => {
+                disarm();
+                onDelete(path);
+              }}
+            />
+          ) : (
+            <CtxItem
+              icon={Trash2}
+              label={t.delete_folder_action}
+              danger
+              keepOpen
+              onClick={() => {
+                setArmed(true);
+                if (armTimer.current) window.clearTimeout(armTimer.current);
+                armTimer.current = window.setTimeout(disarm, 4000);
+              }}
+            />
+          )}
+        </CtxMenu>
+      </CtxTrigger>
+    </CtxRoot>
   );
 }
