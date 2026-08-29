@@ -70,10 +70,8 @@ fn root_paths(text: &str) -> Vec<String> {
         let t = line.trim();
         if t.starts_with('[') {
             in_root_block = t.starts_with("[[root]]");
-        } else if in_root_block {
-            if let Some(v) = strip_path_value(line) {
-                out.push(v);
-            }
+        } else if in_root_block && let Some(v) = strip_path_value(line) {
+            out.push(v);
         }
     }
     out
@@ -83,8 +81,7 @@ fn root_paths(text: &str) -> Vec<String> {
 /// roots (`path = ~/.oxi/vault/<name>` in documents.toml, any tilde or
 /// absolute spelling). These are spaces, not flat content.
 fn provisioned_space_names(home: &Path) -> Vec<String> {
-    let text = std::fs::read_to_string(home.join(".oxi/brain/documents.toml"))
-        .unwrap_or_default();
+    let text = std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap_or_default();
     let flat = spaces::spaces_root(home);
     let flat_canonical = flat.canonicalize().unwrap_or_else(|_| flat.clone());
     let mut names = Vec::new();
@@ -102,12 +99,11 @@ fn provisioned_space_names(home: &Path) -> Vec<String> {
         let canonical = expanded.canonicalize().unwrap_or(expanded.clone());
         if let Ok(rel) = canonical.strip_prefix(&flat_canonical) {
             // Exactly one level under the flat root.
-            if rel.components().count() == 1 {
-                if let Some(name) = rel.to_str() {
-                    if spaces::validate_space_name(name).is_ok() {
-                        names.push(name.to_string());
-                    }
-                }
+            if rel.components().count() == 1
+                && let Some(name) = rel.to_str()
+                && spaces::validate_space_name(name).is_ok()
+            {
+                names.push(name.to_string());
             }
         }
     }
@@ -141,15 +137,14 @@ fn rewrite_documents_flat_root(home: &Path) -> Result<bool> {
         let t = line.trim();
         if t.starts_with('[') {
             in_root_block = t.starts_with("[[root]]");
-        } else if in_root_block {
-            if let Some(v) = strip_path_value(line) {
-                if replacements.contains(&v) {
-                    out.push_str(&format!("path = \"{}\"", target.to_string_lossy()));
-                    changed = true;
-                    out.push('\n');
-                    continue;
-                }
-            }
+        } else if in_root_block
+            && let Some(v) = strip_path_value(line)
+            && replacements.contains(&v)
+        {
+            out.push_str(&format!("path = \"{}\"", target.to_string_lossy()));
+            changed = true;
+            out.push('\n');
+            continue;
         }
         out.push_str(line);
         out.push('\n');
@@ -207,7 +202,10 @@ pub fn maybe_migrate(home: &Path) -> Result<FlatMigrationStatus> {
     }
 
     rewrite_documents_flat_root(home)?;
-    tracing::info!(moved, "migrated flat vault into space '{DEFAULT_SPACE_NAME}'");
+    tracing::info!(
+        moved,
+        "migrated flat vault into space '{DEFAULT_SPACE_NAME}'"
+    );
     Ok(FlatMigrationStatus::Migrated { moved })
 }
 
@@ -283,10 +281,9 @@ mod tests {
         let personal = crate::spaces::space_dir(&home, "personal");
         std::fs::create_dir_all(&personal).unwrap();
         std::fs::write(personal.join("mine.md"), "---\nid: m\n---\n").unwrap();
-        let before = std::fs::read_to_string(
-            crate::spaces::spaces_root(&home).join("2026-08-28-101010.md"),
-        )
-        .unwrap();
+        let before =
+            std::fs::read_to_string(crate::spaces::spaces_root(&home).join("2026-08-28-101010.md"))
+                .unwrap();
         let status = maybe_migrate(&home).unwrap();
         assert!(matches!(status, FlatMigrationStatus::MergeRequired { .. }));
         // Zero mutations on either side.
@@ -303,7 +300,10 @@ mod tests {
     fn no_flat_signature_is_a_noop() {
         let home = tempfile::tempdir().unwrap().keep();
         // Nothing at ~/.oxi/vault.
-        assert!(matches!(maybe_migrate(&home).unwrap(), FlatMigrationStatus::Fresh));
+        assert!(matches!(
+            maybe_migrate(&home).unwrap(),
+            FlatMigrationStatus::Fresh
+        ));
         // Only space dirs, no top-level files → not a flat vault.
         std::fs::create_dir_all(crate::spaces::space_dir(&home, "work")).unwrap();
         assert!(matches!(
@@ -325,8 +325,7 @@ mod tests {
             ),
         );
         maybe_migrate(&home).unwrap();
-        let text =
-            std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap();
+        let text = std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap();
         let personal = crate::spaces::space_dir(&home, "personal");
         assert!(
             text.contains(&format!("path = \"{}\"", personal.display())),
@@ -346,8 +345,7 @@ mod tests {
             "[[root]]\nalias = \"vault\"\npath = \"~/.oxi/vault\"\nspace = \"personal\"\n",
         );
         maybe_migrate(&home).unwrap();
-        let text =
-            std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap();
+        let text = std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap();
         assert!(text.contains(&format!(
             "path = \"{}\"",
             crate::spaces::space_dir(&home, "personal").display()
@@ -365,7 +363,12 @@ mod tests {
         std::fs::create_dir_all(&index).unwrap();
         std::fs::write(index.join(crate::paths::META_DB_NAME), b"redb").unwrap();
         maybe_migrate(&home).unwrap();
-        assert!(index.join("personal").join(crate::paths::META_DB_NAME).is_file());
+        assert!(
+            index
+                .join("personal")
+                .join(crate::paths::META_DB_NAME)
+                .is_file()
+        );
         assert!(!index.join(crate::paths::META_DB_NAME).exists());
     }
 
@@ -378,8 +381,17 @@ mod tests {
             .join(crate::paths::APP_SUPPORT_SUBDIR)
             .join(crate::paths::INDEX_SUBDIR);
         std::fs::create_dir_all(index.join("personal")).unwrap();
-        std::fs::write(index.join("personal").join(crate::paths::META_DB_NAME), b"redb").unwrap();
+        std::fs::write(
+            index.join("personal").join(crate::paths::META_DB_NAME),
+            b"redb",
+        )
+        .unwrap();
         maybe_migrate(&home).unwrap(); // vault migrates; an already-namespaced index must survive untouched
-        assert!(index.join("personal").join(crate::paths::META_DB_NAME).is_file());
+        assert!(
+            index
+                .join("personal")
+                .join(crate::paths::META_DB_NAME)
+                .is_file()
+        );
     }
 }

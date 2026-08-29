@@ -246,7 +246,10 @@ impl Vault {
                         "both the flat vault and ~/.oxi/vault/personal exist; \
                          merge them by hand (see `oximemo doctor`)"
                     );
-                    status = VaultStatus::MergeRequired { old: flat, new: space };
+                    status = VaultStatus::MergeRequired {
+                        old: flat,
+                        new: space,
+                    };
                 }
                 crate::migrate_spaces::FlatMigrationStatus::Migrated { moved } => {
                     tracing::info!(moved, "migrated flat vault into the personal space");
@@ -4201,7 +4204,10 @@ mod tests {
         // The migrated tree continues into the default space (spec
         // 2026-08-28 §3: flat migrate → space migrate, one `open`).
         let personal = new.join(crate::spaces::DEFAULT_SPACE_NAME);
-        assert_eq!(vault_path, personal, "open(None) resolves the personal space");
+        assert_eq!(
+            vault_path, personal,
+            "open(None) resolves the personal space"
+        );
         assert_eq!(status, VaultStatus::Ok);
         assert!(!old.exists(), "entire tree moved away");
         assert!(personal.join("oximemo.toml").is_file());
@@ -4268,10 +4274,8 @@ mod tests {
             old_bytes
         );
         assert_eq!(
-            std::fs::read_to_string(
-                new.join(crate::spaces::DEFAULT_SPACE_NAME).join("other.md")
-            )
-            .unwrap(),
+            std::fs::read_to_string(new.join(crate::spaces::DEFAULT_SPACE_NAME).join("other.md"))
+                .unwrap(),
             "---\nid: other\n---\nnew side\n"
         );
     }
@@ -7586,7 +7590,11 @@ watcher_retry_interval_ms = 200
         let expected_vault = home.join("vault/work");
         let brain = home.join("brain");
         std::fs::create_dir_all(&expected_vault).unwrap();
-        std::fs::write(expected_vault.join("oximemo.toml"), "[brain]\nenabled = true\n").unwrap();
+        std::fs::write(
+            expected_vault.join("oximemo.toml"),
+            "[brain]\nenabled = true\n",
+        )
+        .unwrap();
         crate::brain::with_test_brain_dir(&brain, || {
             let _v = Vault::open(Some(&expected_vault)).unwrap();
             let doc = brain.join("documents.toml");
@@ -7613,7 +7621,11 @@ watcher_retry_interval_ms = 200
             let _ = Vault::open(Some(&expected_vault)).unwrap();
             let _ = Vault::open(Some(&expected_vault)).unwrap();
             let doc = brain.join("documents.toml");
-            assert_eq!(count_roots_for(&doc, &expected_vault), 1, "idempotent ensure");
+            assert_eq!(
+                count_roots_for(&doc, &expected_vault),
+                1,
+                "idempotent ensure"
+            );
         });
     }
 
@@ -7624,7 +7636,11 @@ watcher_retry_interval_ms = 200
         let expected_vault = home.join("vault/personal");
         let brain = home.join("brain");
         std::fs::create_dir_all(&expected_vault).unwrap();
-        std::fs::write(expected_vault.join("oximemo.toml"), "[brain]\nenabled = false\n").unwrap();
+        std::fs::write(
+            expected_vault.join("oximemo.toml"),
+            "[brain]\nenabled = false\n",
+        )
+        .unwrap();
         crate::brain::with_test_brain_dir(&brain, || {
             let _v = Vault::open(Some(&expected_vault)).unwrap();
             assert!(

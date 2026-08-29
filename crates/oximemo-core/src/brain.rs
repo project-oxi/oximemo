@@ -24,7 +24,7 @@
 
 #[cfg(test)]
 use std::cell::RefCell;
- use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 thread_local! {
@@ -183,7 +183,10 @@ mod tests {
         // touch the real brain dir (NoopBrainRegistrar contract).
         let vault = std::env::temp_dir().join("oximemo-noop-ensure-check");
         std::fs::create_dir_all(&vault).unwrap();
-        assert_eq!(ensure_document_root(&vault, "personal"), EnsureOutcome::Present);
+        assert_eq!(
+            ensure_document_root(&vault, "personal"),
+            EnsureOutcome::Present
+        );
     }
     #[test]
     fn absent_documents_toml_is_created_with_one_root() {
@@ -194,7 +197,10 @@ mod tests {
         std::fs::create_dir_all(&vault).unwrap();
         let doc = brain.join("documents.toml");
         with_test_brain_dir(&brain, || {
-            assert_eq!(ensure_document_root(&vault, "personal"), EnsureOutcome::Added);
+            assert_eq!(
+                ensure_document_root(&vault, "personal"),
+                EnsureOutcome::Added
+            );
             let text = std::fs::read_to_string(&doc).unwrap();
             assert!(
                 text.contains(&format!("path = \"{}\"", vault.display())),
@@ -220,7 +226,11 @@ mod tests {
         with_test_brain_dir(&home.join(".oxi/brain"), || {
             assert_eq!(ensure_document_root(&vault, "work"), EnsureOutcome::Present);
         });
-        assert_eq!(std::fs::read(&file).unwrap(), before, "no rewrite on Present");
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            before,
+            "no rewrite on Present"
+        );
     }
 
     #[test]
@@ -274,9 +284,15 @@ mod tests {
         );
         seed_documents(&home, &body);
         with_test_brain_dir(&home.join(".oxi/brain"), || {
-            assert_eq!(ensure_document_root(&vault, "personal"), EnsureOutcome::Added);
+            assert_eq!(
+                ensure_document_root(&vault, "personal"),
+                EnsureOutcome::Added
+            );
             let text = std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap();
-            assert!(text.contains("alias = \"ext\""), "existing root kept: {text}");
+            assert!(
+                text.contains("alias = \"ext\""),
+                "existing root kept: {text}"
+            );
             assert!(text.contains(&format!("path = \"{}\"", vault.display())));
         });
     }

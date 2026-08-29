@@ -27,11 +27,11 @@ async fn live_status_and_recall() {
         eprintln!("oxibrain not on PATH; skipping");
         return;
     }
-    let endpoint = oxibrain_client::LocalProcessEndpoint::new(
-        "oxibrain",
-        oximemo_core::brain::brain_dir(),
-    );
-    let mut client = BrainClient::spawn_local(endpoint).await.expect("spawn child");
+    let endpoint =
+        oxibrain_client::LocalProcessEndpoint::new("oxibrain", oximemo_core::brain::brain_dir());
+    let mut client = BrainClient::spawn_local(endpoint)
+        .await
+        .expect("spawn child");
     let caps = client
         .handshake(oxibrain_client::default_client_hello("oximemo live-test"))
         .await
@@ -55,7 +55,7 @@ async fn live_status_and_recall() {
     assert!(stats.get("episodes").is_some() || stats.get("documents").is_some());
 
     let recall = client
-        .recall("smoke", &space, 512)
+        .recall("smoke", space, 512)
         .await
         .expect("recall envelope");
     assert!(recall.is_object(), "recall must return the op envelope");

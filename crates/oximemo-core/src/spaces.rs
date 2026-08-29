@@ -119,10 +119,10 @@ pub fn resolve_vault_spec(explicit: Option<&Path>, space: Option<&str>) -> Resul
         return Ok(VaultSpec::Space(validate_space_name(raw)?));
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    if let Some(name) = last_space() {
-        if space_dir(Path::new(&home), &name).is_dir() {
-            return Ok(VaultSpec::Space(name));
-        }
+    if let Some(name) = last_space()
+        && space_dir(Path::new(&home), &name).is_dir()
+    {
+        return Ok(VaultSpec::Space(name));
     }
     Ok(VaultSpec::Space(DEFAULT_SPACE_NAME.to_string()))
 }
@@ -234,10 +234,7 @@ mod tests {
 
     #[test]
     fn spaces_root_layout() {
-        assert_eq!(
-            spaces_root(Path::new("/h")),
-            PathBuf::from("/h/.oxi/vault")
-        );
+        assert_eq!(spaces_root(Path::new("/h")), PathBuf::from("/h/.oxi/vault"));
         assert_eq!(
             space_dir(Path::new("/h"), "work"),
             PathBuf::from("/h/.oxi/vault/work")

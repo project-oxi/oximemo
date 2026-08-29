@@ -606,10 +606,12 @@ mod tests {
 
     #[test]
     fn provider_order_is_respected_when_keys_present() {
-        let mut cfg = MetadataConfig::default();
-        cfg.region = "KR".into();
-        cfg.google_books_key = "g".into();
-        cfg.aladin_key = "a".into();
+        let cfg = MetadataConfig {
+            region: "KR".into(),
+            google_books_key: "g".into(),
+            aladin_key: "a".into(),
+            ..MetadataConfig::default()
+        };
         let providers = enabled_providers(&cfg, ProviderDomain::Book);
         let ids: Vec<&str> = providers.iter().map(|p| p.id).collect();
         assert_eq!(ids.first(), Some(&"aladin"));
@@ -627,9 +629,11 @@ mod tests {
 
     #[test]
     fn disabled_config_yields_no_hits_without_network() {
-        let mut cfg = MetadataConfig::default();
-        cfg.enabled = false;
-        cfg.tmdb_key = "k".into();
+        let cfg = MetadataConfig {
+            enabled: false,
+            tmdb_key: "k".into(),
+            ..MetadataConfig::default()
+        };
         assert!(search_movies(&cfg, "anything").is_empty());
         assert!(search_books(&cfg, "anything").is_empty());
     }

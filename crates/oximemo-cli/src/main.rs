@@ -255,9 +255,7 @@ enum SpaceCmd {
         name: String,
     },
     /// Record the selected space for future runs.
-    Switch {
-        name: String,
-    },
+    Switch { name: String },
 }
 
 #[derive(Subcommand)]
@@ -490,10 +488,8 @@ fn run() -> Result<()> {
             SpaceCmd::Switch { name } => commands::cmd_space_switch(&name),
         };
     }
-    let spec = oximemo_core::spaces::resolve_vault_spec(
-        cli.vault.as_deref(),
-        cli.space.as_deref(),
-    )?;
+    let spec =
+        oximemo_core::spaces::resolve_vault_spec(cli.vault.as_deref(), cli.space.as_deref())?;
     let vault = Vault::open_spec(&spec)?;
     vault.migrate()?;
     match cli.cmd {

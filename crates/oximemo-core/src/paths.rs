@@ -123,7 +123,6 @@ impl Paths {
         &self.vault
     }
 
-
     pub fn trash_root(&self) -> PathBuf {
         self.vault.join(TRASH_DIR)
     }
