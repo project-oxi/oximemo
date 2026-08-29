@@ -86,8 +86,12 @@ pub fn resolve_vault_spec(explicit: Option<&Path>, space: Option<&str>) -> Vault
 ### 2. Brain registration — space is derived, not configured
 
 - Registration space = **vault directory basename** (for `Space(name)`
-  vaults, exactly `name`; for `Explicit` vaults, the basename). The daemon
-  call becomes `sync_run(<vault path>, <basename>)`.
+  vaults, exactly `name`; for `Explicit` vaults, the basename).
+  **(Amended 2026-08-29, brain 0.10 cutover spec):** `sync_run` was
+  deleted by oxibrain 0.8.0. Registration is now
+  `ensure_document_root(<vault_dir>, <basename>)` plus the debounced
+  `oxibrain index --documents` trigger — see
+  `2026-08-29-brain-010-cutover-design.md` §2.
 - **Delete** `crate::brain::resolve_space()` (the
   `~/.oxi/config.toml [vault].space` > `oximemo.toml [brain].space`
   precedence chain) and the `BrainConfig::space` field.
@@ -99,9 +103,8 @@ pub fn resolve_vault_spec(explicit: Option<&Path>, space: Option<&str>) -> Vault
     behavior change — the key no longer influences oximemo in any way.)
 - Settings → Brain section: replace the space picker (`select`/free-text
   input writing `[brain].space`) with a read-only line showing the derived
-  space. `enabled`/`socket` rows unchanged.
-- Daemon-down remains a non-error at open (existing detached registration
-  with memo/retry behavior is untouched).
+  space. `enabled`/`executable` rows per the brain 0.10 cutover spec
+  (socket is gone).
 
 ### 3. One-time flat → space migration
 
@@ -170,8 +173,9 @@ agreement on a shared corpus. No reserved names: space dirs live at
   ~/.oxi/vault/<name>` → `Vault::open_spec(Space(name))` +
   `ensure_initialized()` (scaffold + `oximemo.toml`). Idempotent: an
   existing valid space dir is success, not an error (same philosophy as
-  `oxibrain space add`). No brain-directory writes — daemon registration
-  happens on the next open via the existing detached `sync_run`.
+  `oxibrain space add`). No brain-directory writes here — the active
+  space's `documents.toml` root is ensured on the next open (brain 0.10
+  cutover spec §2).
 - `switch_space(name)` — validate + dir-exists check → `set_last_space`.
   Caller (IPC or CLI) decides what happens next (restart vs. nothing).
 
@@ -226,12 +230,13 @@ oximemo --space <name> <cmd>      # global flag, one-shot, not persisted
 - No space renaming, deletion, or per-space display names — the filesystem
   is the registry; manage it in Finder/terminal if ever needed. (Obsidian
   parity is *switching*, not vault management.)
-- No daemon-required flows: every space operation works offline; `sync_run`
-  registration retries on next open (existing memo machinery).
-- No writes to `~/.oxi/brain/` other than the single §3.4 flat-root path
-  rewrite. oximemo never provisions `documents.toml` roots for new spaces —
-  that is `oxibrain space add`'s job; daemon-side `sync_run` covers live
-  ingestion meanwhile.
+- No daemon-required flows: every space operation works offline;
+  `ensure_document_root` + the index trigger run on next open
+  (brain 0.10 cutover spec §2).
+- No writes to `~/.oxi/brain/` beyond the brain 0.10 cutover spec's two
+  sanctioned writes: the §3.4 flat-root path rewrite and the active
+  space's `ensure_document_root`. oximemo never provisions roots for
+  *non-active* spaces — that is `oxibrain space add`'s job.
 - No hot-swap of `AppState` (restart-only switching, per decision 3).
 - No change to `Explicit` (`--vault`) behavior, index hashing, or the
   browser-dev localStorage fallback beyond stub space commands.
@@ -252,9 +257,10 @@ oximemo --space <name> <cmd>      # global flag, one-shot, not persisted
     `index/<name>/` dirs; `Explicit` keeps `by-vault/<hash>`.
   - Name validation boundaries (0, 1, 64, 65 chars; `/`, `.`, space,
     unicode letters pass; NFD/NFC Korean both valid).
-  - Registration: `open_spec(Space("work"))` registers `sync_run(<path>,
-    "work")` (recorder-based, existing `with_test_recorder` harness);
-    stale `oximemo.toml` `[brain] space` key parses and is ignored.
+  - Registration: `open_spec(Space("work"))` ensures a `documents.toml`
+    root `{path: …/work, space: "work"}` (recorder-based, existing
+    `with_test_recorder` harness); stale `oximemo.toml` `[brain]
+    space`/`socket` keys parse and are ignored.
 - `cargo test -p oximemo-cli`: `space list/add/switch` arms incl.
   idempotent add, switch-to-missing error, `--space` flag plumbing.
 - Desktop: `bun x tsc --noEmit`, `bun test`, `bun run build`.
