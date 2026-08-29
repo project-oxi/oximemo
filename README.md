@@ -43,11 +43,12 @@ Two core scenarios, one vault:
 
 - [System requirements](#system-requirements)
 - [Install](#install)
-- [Quick start (CLI)](#quick-start-cli)
+- [Quick start](#quick-start)
 - [The vault](#the-vault)
 - [Architecture](#architecture)
 - [Project structure](#project-structure)
-- [Synchronization for agents](#synchronization-for-agents)
+- [Oxi ecosystem](#oxi-ecosystem)
+- [Agent synchronization](#agent-synchronization)
 - [Development](#development)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
@@ -111,7 +112,7 @@ cargo build --release -p oximemo-cli
 > A Homebrew tap (`brew install`) is planned. For now, use the
 > one-liner, a release tarball, crates.io, or build from source.
 
-## Quick start (CLI)
+## Quick start
 
 The CLI is the authoritative interface — the same `oximemo-core` the desktop app uses.
 
@@ -305,7 +306,16 @@ oximemo/
 └── doc/DESIGN.md         # Full design document
 ```
 
-## Synchronization for agents
+## Oxi ecosystem
+
+oximemo owns the local note vault and capture experience. It reads contextual
+recall from [oxibrain](https://github.com/a7garden/oxibrain), while terminal
+agents such as [oxicode](https://github.com/project-oxi/oxicode) and
+[oxios](https://github.com/project-oxi/oxios) work with the same plain-text
+vault through the oximemo CLI. Each product keeps its own boundaries: oximemo
+never embeds a model or writes agent-managed memory itself.
+
+## Agent synchronization
 
 The manifest is cheap on purpose — bodies are omitted, so it stays light for tens of thousands of notes.
 
@@ -329,13 +339,13 @@ The full procedure, output schemas, and the safe direct-write rules are in [`ski
 
 ```bash
 # Rust
-cargo fmt
+cargo fmt --all -- --check
 cargo clippy -p oximemo-core -p oximemo-cli -p oximemo-capture --all-targets -- -D warnings
 cargo test -p oximemo-core -p oximemo-cli -p oximemo-capture
 
 # Desktop frontend
 cd apps/desktop
-bun install
+bun install --frozen-lockfile
 bun run build
 ```
 
