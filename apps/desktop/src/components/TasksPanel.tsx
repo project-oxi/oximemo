@@ -3,23 +3,27 @@
  * `할 일` base view. Runs the installed `queries/할 일.query` against the
  * same `["base", sourceKey, idx, mtime]` cache key BaseView uses, so a
  * toggle here re-renders the main view's row (and vice-versa) without
- * a duplicate fetch. Filters out DONE/CANCELLED client-side (the base
- * filter restricts by date only), groups by overdue/today, and caps
- * height so a long backlog can't push the rest of the sidebar off
- * screen. The section header carries a `+` quick-add button (opens
- * the shared ⌘⇧T overlay via `useUI.quickAddOpen`) and a chevron that
- * opens the full tasks view in the main area.
+ * a duplicate fetch. Two views feed the panel: 오늘 (index 0, overdue +
+ * due/scheduled-today) and 날짜 없음 (resolved BY NAME from the def —
+ * seed v2 appends it; quick-added tasks carry neither date, so this is
+ * the only sidebar surface where they appear). DONE/CANCELLED drop
+ * client-side, rows group into the three buckets, and height caps keep
+ * a long backlog from pushing the rest of the sidebar off screen. The
+ * section header carries a `+` quick-add button (opens the shared
+ * ⌘⇧T overlay via `useUI.quickAddOpen`) and a chevron that opens the
+ * full tasks view in the main area.
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Plus, SquareCheck } from "lucide-react";
+import YAML from "yaml";
 
-import { runBase } from "../lib/api";
+import { loadBase, runBase } from "../lib/api";
 import { dayTone, relativeDayLabel, useTodayKey } from "../lib/relativeDay";
-import { taskBucket } from "../lib/taskBucket";
+import { noDateViewIndex, partitionPanelRows } from "../lib/tasksPanel";
 import { useTaskToggle } from "../lib/taskToggle";
 import { useOpenTask } from "../lib/taskNav";
-import type { BasePage, BaseRow, RunBaseReq, TaskDto } from "../lib/types";
+import type { BaseDef, BasePage, BaseRow, RunBaseReq } from "../lib/types";
 import { useUI } from "../stores/ui";
 import { TaskCheckbox } from "./TaskCheckbox";
 import { TaskFieldChip } from "./TaskFieldChip";
@@ -29,9 +33,10 @@ import { useI18n } from "../lib/i18n";
  *  Rust `TASKS_BASE_REL` seed and the sidebar's own TASKS_BASE_PATH. */
 const TASKS_BASE_PATH = "queries/할 일.query";
 
-/** View index 0 of the installed base = "오늘" (overdue + today).
- *  The base's own filter narrows to `due <= today || scheduled <= today`,
- *  so this panel does not need a second pass. */
+/** View index 0 of the installed base = "오늘" (overdue + today). The
+ *  base's own filter narrows to `due <= today || scheduled <= today`.
+ *  The 날짜 없음 view is NOT a fixed index — it is resolved by name
+ *  from the def below (seed v2 appends it after any user views). */
 const VIEW_INDEX = 0;
 
 /** Hard row cap for the sidebar (the main view uses BaseView's pagination).
@@ -39,11 +44,6 @@ const VIEW_INDEX = 0;
  *  the user clicks the chevron to open the full view. */
 const ROW_CAP = 50;
 
-/** Status types that count as still-open work (the base returns ALL rows
- *  matching the date filter; we hide terminal ones in the sidebar). */
-function isOpen(statusType: TaskDto["status_type"]): boolean {
-  return statusType !== "DONE" && statusType !== "CANCELLED";
-}
 
 export function TasksPanel() {
   const { t, locale } = useI18n();
@@ -51,6 +51,22 @@ export function TasksPanel() {
   const setQuickAddOpen = useUI((s) => s.setQuickAddOpen);
   const setToast = useUI((s) => s.setToast);
   const todayISO = useTodayKey();
+  // The installed base's def — resolves the 날짜 없음 view by name.
+  // A pre-v2 base (or a user rename) resolves to -1 and simply hides
+  // the undated bucket. Shares BaseView's ["bases", "def", …] family
+  // so a query edit refreshes both surfaces.
+  const defQ = useQuery({
+    queryKey: ["bases", "def", TASKS_BASE_PATH],
+    queryFn: () => loadBase(TASKS_BASE_PATH),
+  });
+  const noDateIdx = useMemo(() => {
+    if (!defQ.data) return -1;
+    try {
+      return noDateViewIndex(YAML.parse(defQ.data.yaml) as BaseDef | null);
+    } catch {
+      return -1;
+    }
+  }, [defQ.data]);
 
   // Share the cache key with BaseView so a toggle or query edit is a
   // single invalidate. The sidebar never reads the def, so we use a
@@ -76,29 +92,43 @@ export function TasksPanel() {
     },
     enabled: true,
   });
+  // 날짜 없음 (undated backlog): engine-filtered by the seed-v2 view
+  // resolved above; disabled while the def is loading or lacks it.
+  const undatedQ = useQuery<BasePage>({
+    queryKey: ["base", TASKS_BASE_PATH, noDateIdx, "sidebar-no-date"],
+    queryFn: () => {
+      const req: RunBaseReq = {
+        viewIndex: noDateIdx,
+        offset: 0,
+        limit: ROW_CAP * 2,
+        group: null,
+        nowMs: null,
+        localOffsetSeconds: null,
+        includeGroupCounts: false,
+        includeSummaries: true,
+        thisId: null,
+      };
+      return runBase({ Path: TASKS_BASE_PATH }, req);
+    },
+    enabled: noDateIdx >= 0,
+  });
 
-  // Open rows only, grouped into overdue / today. The base's filter
-  // already excludes future-dated tasks, so anything that survives is
-  // either overdue or today by taskBucket.
-  const { overdue, today } = useMemo<{ overdue: BaseRow[]; today: BaseRow[] }>(() => {
-    const overdueRows: BaseRow[] = [];
-    const todayRows: BaseRow[] = [];
-    for (const row of runQ.data?.rows ?? []) {
-      const task = row.task;
-      if (!task) continue;
-      if (!isOpen(task.status_type)) continue;
-      const bucket = taskBucket(task, todayISO);
-      if (bucket === "overdue") overdueRows.push(row);
-      else if (bucket === "today") todayRows.push(row);
-      // future / no_date: the base's filter excluded them, but skip defensively.
-    }
-    return {
-      overdue: overdueRows.slice(0, ROW_CAP),
-      today: todayRows.slice(0, ROW_CAP),
-    };
-  }, [runQ.data, todayISO]);
+  // Open rows grouped into overdue / today / 날짜 없음. Each view's
+  // filter pre-narrows its rows; partitionPanelRows drops terminal
+  // statuses and defensively skips any row that lands in the wrong
+  // input, capping each bucket at ROW_CAP.
+  const { overdue, today, noDate } = useMemo(
+    () =>
+      partitionPanelRows(
+        runQ.data?.rows ?? [],
+        undatedQ.data?.rows ?? [],
+        todayISO,
+        ROW_CAP,
+      ),
+    [runQ.data, undatedQ.data, todayISO],
+  );
 
-  const total = overdue.length + today.length;
+  const total = overdue.length + today.length + noDate.length;
 
   return (
     <section className="mt-3">
@@ -161,6 +191,16 @@ export function TasksPanel() {
                 onStale={() => setToast(t.task_conflict_reload)}
               />
             )}
+            {noDate.length > 0 && (
+              <BucketGroup
+                label={t.task_group_no_date}
+                tone="neutral"
+                rows={noDate}
+                locale={locale}
+                todayISO={todayISO}
+                onStale={() => setToast(t.task_conflict_reload)}
+              />
+            )}
           </>
         )}
       </div>
@@ -177,7 +217,7 @@ function BucketGroup({
   onStale,
 }: {
   label: string;
-  tone: "overdue" | "today";
+  tone: "overdue" | "today" | "neutral";
   rows: BaseRow[];
   locale: "ko" | "en";
   todayISO: string;
