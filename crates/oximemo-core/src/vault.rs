@@ -4276,7 +4276,11 @@ mod tests {
         // index through env HOME, so the swap target must outlive them.
         let home = TempDir::new().unwrap().keep();
         let old = seed_old_default(&home);
-        let new = home.join(".oxi").join("vault");
+        let new = home
+            .join(".oxi")
+            .join(crate::paths::SPACES_SUBDIR)
+            .join(crate::spaces::DEFAULT_SPACE_NAME)
+            .join(crate::paths::VAULT_DEFAULT_SUBDIR);
 
         let (vault_path, status) = crate::migrate_vault::with_home(&home, || {
             let v = Vault::open(None).unwrap();
@@ -4285,30 +4289,26 @@ mod tests {
 
         // The migrated tree continues into the default space (spec
         // 2026-08-28 §3: flat migrate → space migrate, one `open`).
-        let personal = new.join(crate::spaces::DEFAULT_SPACE_NAME);
-        assert_eq!(
-            vault_path, personal,
-            "open(None) resolves the personal space"
-        );
+        assert_eq!(vault_path, new, "open(None) resolves the personal space");
         assert_eq!(status, VaultStatus::Ok);
         assert!(!old.exists(), "entire tree moved away");
-        assert!(personal.join("oximemo.toml").is_file());
+        assert!(new.join("oximemo.toml").is_file());
         assert_eq!(
-            std::fs::read(personal.join("_assets/img.png")).unwrap(),
+            std::fs::read(new.join("_assets/img.png")).unwrap(),
             b"\x89PNG-not-really"
         );
-        let converted = std::fs::read_to_string(personal.join("novel/first.md")).unwrap();
+        let converted = std::fs::read_to_string(new.join("novel/first.md")).unwrap();
         assert!(
             converted.starts_with("---\n"),
             "converted to v4: {converted}"
         );
         assert!(!converted.contains("hash"), "stored hash dropped");
-        let trashed = std::fs::read_to_string(personal.join(".trash/novel/old.md")).unwrap();
+        let trashed = std::fs::read_to_string(new.join(".trash/novel/old.md")).unwrap();
         assert!(trashed.starts_with("---\n"), "trashed note converted");
         assert!(trashed.contains("deleted: 2025-01-02T03:04:07Z"));
         // System file moves verbatim, staying frontmatter-less.
         assert_eq!(
-            std::fs::read_to_string(personal.join("habits/emoji.md")).unwrap(),
+            std::fs::read_to_string(new.join("habits/emoji.md")).unwrap(),
             "\u{1f4da}\n"
         );
 
@@ -4327,7 +4327,11 @@ mod tests {
     fn open_surfaces_merge_required_and_doctor_reports_it() {
         let home = TempDir::new().unwrap().keep();
         let old = seed_old_default(&home);
-        let new = home.join(".oxi").join("vault");
+        let new = home
+            .join(".oxi")
+            .join(crate::paths::SPACES_SUBDIR)
+            .join(crate::spaces::DEFAULT_SPACE_NAME)
+            .join(crate::paths::VAULT_DEFAULT_SUBDIR);
         std::fs::create_dir_all(&new).unwrap();
         std::fs::write(new.join("other.md"), "---\nid: other\n---\nnew side\n").unwrap();
         let old_bytes = std::fs::read_to_string(old.join("novel/first.md")).unwrap();
@@ -4345,7 +4349,7 @@ mod tests {
             // flat merge-required surface continues into a flat→space
             // migration of the new side) and doctor surfaces
             // the pending merge instead of failing silently.
-            assert_eq!(v.paths().vault, new.join(crate::spaces::DEFAULT_SPACE_NAME));
+            assert_eq!(v.paths().vault, new);
             let report = v.doctor(false).unwrap();
             assert!(report.merge_required);
         });
@@ -4356,8 +4360,7 @@ mod tests {
             old_bytes
         );
         assert_eq!(
-            std::fs::read_to_string(new.join(crate::spaces::DEFAULT_SPACE_NAME).join("other.md"))
-                .unwrap(),
+            std::fs::read_to_string(new.join("other.md")).unwrap(),
             "---\nid: other\n---\nnew side\n"
         );
     }
@@ -5535,6 +5538,7 @@ watcher_retry_interval_ms = 200
 
     #[test]
     fn doctor_never_rewrites_on_hash_mismatch() {
+        let _sweep = SWEEP_SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let (_t, v) = tmp_vault();
         let n = v
             .create_memo("# Doctor\n\nstable body".into(), None)
@@ -8302,8 +8306,15 @@ watcher_retry_interval_ms = 200
         );
     }
 
+    /// Namespace sweeps mutate the PROCESS-GLOBAL test index root
+    /// (`isolate_index_root_for_tests` is a per-pid OnceLock). Under
+    /// in-process parallel `cargo test` (CI), one test's sweep can delete
+    /// another test's stale fixtures — nextest's process-per-test model
+    /// hides this. Serialize every sweep-driving test on this lock.
+    static SWEEP_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
     #[test]
     fn gc_stale_namespaces_removes_only_old_unlocked_foreign_ones() {
+        let _sweep = SWEEP_SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let _ = crate::paths::isolate_index_root_for_tests(); // FIRST: the root must be the override, never the real App Support
         let root = crate::paths::by_vault_root();
         std::fs::create_dir_all(&root).unwrap();
@@ -8366,6 +8377,7 @@ watcher_retry_interval_ms = 200
 
     #[test]
     fn doctor_reports_and_sweeps_stale_namespaces() {
+        let _sweep = SWEEP_SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let _ = crate::paths::isolate_index_root_for_tests();
         let root = crate::paths::by_vault_root();
         std::fs::create_dir_all(&root).unwrap();
