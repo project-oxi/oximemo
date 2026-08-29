@@ -40,6 +40,7 @@ import type {
   TaskEdit,
   TaskFields,
   TaskSelector,
+  TasksWireConfig,
   ViewMode,
 } from "./types";
 
@@ -180,6 +181,12 @@ export async function setDailyConfig(daily: {
 }
 
 export type GitSection = NonNullable<Config["git"]>;
+
+/** `[tasks]` section setter — core validates the status table and the
+ * fingerprint forces reindex for extraction-affecting changes. */
+export async function setTasksConfig(tasks: TasksWireConfig): Promise<void> {
+  return invoke("set_tasks_config", { tasks });
+}
 
 export async function setGitConfig(git: GitSection): Promise<void> {
   return invoke("set_git_config", { git });

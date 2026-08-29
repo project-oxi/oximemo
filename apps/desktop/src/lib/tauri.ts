@@ -1169,6 +1169,7 @@ async function browserFallback(
       return null;
     case "set_brain_config":
     case "set_daily_config":
+    case "set_tasks_config":
     case "set_general_config":
     case "set_capture_config":
     case "set_index_config":

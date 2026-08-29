@@ -18,6 +18,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import {
   Bot,
+  Boxes,
   Brain,
   Check,
   ChevronDown,
@@ -40,7 +41,9 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  spaceCreate,
   spaceList,
+  spaceSwitch,
   cliStatus,
   copilotStatus,
   copilotProbeAgents,
@@ -69,11 +72,12 @@ import {
   setIndexConfig,
   setGeneralConfig,
   setDailyConfig,
+  setTasksConfig,
   setGitConfig,
   vaultPath,
 } from "../lib/api";
 
-import { useI18n } from "../lib/i18n";
+import { useI18n, type Dict } from "../lib/i18n";
 import { useFolderNames } from "../lib/folders";
 import { useUI } from "../stores/ui";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -82,7 +86,8 @@ import { COLLECTION_CATALOG, SYSTEM_COLLECTIONS, type DictKey } from "../lib/col
 import { MetadataRegionSelect, ProviderKeys } from "./ProviderKeys";
 import { useSchemaInfo } from "../lib/folders";
 import { applyTheme, type Theme } from "../lib/theme";
-import type { FolderEntry } from "../lib/types";
+import type { FolderEntry, TaskStatusWireDef, TasksWireConfig } from "../lib/types";
+import { validSpaceName } from "./SpacePicker";
 const APP_VERSION = __APP_VERSION__;
 
 function Segmented<T extends string>({
@@ -284,13 +289,15 @@ function BrainSection() {
       }),
       ["brain-status"],
     );
+  const spaces = useQuery({ queryKey: ["spaces"], queryFn: spaceList });
+  const activeSpace = spaces.data?.find((s) => s.current)?.name;
 
+  // Early return stays BELOW every hook: useQuery after a conditional
+  // return breaks hook order when the config query settles (React
+  // "rendered more hooks than during the previous render").
   if (!brain && config.isLoading) {
     return <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] text-text-subtle">…</p>;
   }
-
-  const spaces = useQuery({ queryKey: ["spaces"], queryFn: spaceList });
-  const activeSpace = spaces.data?.find((s) => s.current)?.name;
 
   return (
     <div className="space-y-1.5">
@@ -597,6 +604,327 @@ function AdvancedSection() {
       max={2000}
       onCommit={(v) => save(setIndexConfig({ watcher_debounce_ms: v }))}
     />
+  );
+}
+
+/** Status-type select options. The wire `type` is a plain string
+ *  (SCREAMING_SNAKE_CASE); labels reuse the existing status i18n keys. */
+const STATUS_TYPES: { value: string; label: keyof Dict }[] = [
+  { value: "TODO", label: "task_status_todo" },
+  { value: "IN_PROGRESS", label: "task_status_in_progress" },
+  { value: "ON_HOLD", label: "task_status_on_hold" },
+  { value: "DONE", label: "task_status_done" },
+  { value: "CANCELLED", label: "task_status_cancelled" },
+  { value: "NON_TASK", label: "task_status_non_task" },
+];
+/** Client mirror of `TasksConfig::effective_statuses`
+ *  (crates/oximemo-core/src/tasks.rs:220-274): exactly one code point
+ *  per symbol and next, no two configured symbols colliding after
+ *  X→x normalization, and every next resolving against configured ∪
+ *  builtin. Returns an i18n key, or null when the table is valid. */
+function statusesError(
+  statuses: TaskStatusWireDef[],
+): "tasks_status_symbol_len" | "tasks_status_dup" | "tasks_status_next_missing" | null {
+  const BUILTIN: Record<string, true> = { " ": true, "/": true, x: true, "-": true };
+  const cpLen = (s: string) => [...s].length; // code points ≙ Rust `char`s
+  const seen = new Set<string>();
+  for (const s of statuses) {
+    if (cpLen(s.symbol) !== 1 || cpLen(s.next) !== 1) return "tasks_status_symbol_len";
+    const norm = s.symbol === "X" ? "x" : s.symbol;
+    if (seen.has(norm)) return "tasks_status_dup";
+    seen.add(norm);
+  }
+  for (const s of statuses) {
+    const n = s.next === "X" ? "x" : s.next;
+    if (!seen.has(n) && !(n in BUILTIN)) return "tasks_status_next_missing";
+  }
+  return null;
+}
+
+/** `[tasks]` — feature knobs and the custom status table (tasks spec
+ *  2026-08-27 §11). Scalars commit immediately, the pane pattern. The
+ *  status table edits a local draft because a half-edited graph (symbol
+ *  changed, `next` not yet) must not reach the backend validator: a
+ *  draft commits the moment it passes the client mirror, and the
+ *  backend re-validates as the authority. */
+function TasksSection() {
+  const { t } = useI18n();
+  const { config, save } = useConfigSection();
+  const tasks = config.data?.tasks;
+  const [draft, setDraft] = useState<TaskStatusWireDef[] | null>(null);
+
+  // Draft syncs on serialized CONTENT, not query identity: the config
+  // invalidation that follows a scalar save refetches identical status
+  // content and must not clobber a draft mid-edit.
+  const statusesKey = JSON.stringify(tasks?.statuses ?? []);
+  useEffect(() => {
+    setDraft(JSON.parse(statusesKey) as TaskStatusWireDef[]);
+  }, [statusesKey]);
+
+  if (!tasks) {
+    return (
+      <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] text-text-subtle">…</p>
+    );
+  }
+
+  const patch = (p: Partial<TasksWireConfig>) =>
+    save(
+      setTasksConfig({
+        enabled: tasks.enabled,
+        write_format: tasks.write_format,
+        global_filter: tasks.global_filter,
+        recurrence_insert: tasks.recurrence_insert,
+        default_section: tasks.default_section,
+        capture_target: tasks.capture_target,
+        statuses: tasks.statuses,
+        ...p,
+      }),
+    );
+
+  const editRow = (i: number, p: Partial<TaskStatusWireDef>) => {
+    if (!draft) return;
+    const next = draft.map((s, j) => (j === i ? { ...s, ...p } : s));
+    setDraft(next);
+    // Valid graphs commit; invalid ones show the reason and wait.
+    if (statusesError(next) === null) patch({ statuses: next });
+  };
+
+  const removeRow = (i: number) => {
+    if (!draft) return;
+    const next = draft.filter((_, j) => j !== i);
+    setDraft(next);
+    if (statusesError(next) === null) patch({ statuses: next });
+  };
+
+  const addRow = () => {
+    // Empty symbol is invalid on purpose: the row appears, the error
+    // explains what is missing, and nothing hits the backend until the
+    // user completes it.
+    setDraft([...(draft ?? []), { symbol: "", name: undefined, next: "x", type: "TODO" }]);
+  };
+
+  const err = draft ? statusesError(draft) : null;
+
+  return (
+    <div className="space-y-1.5">
+      <ToggleRow
+        label={t.tasks_enabled}
+        checked={tasks.enabled}
+        onChange={(v) => patch({ enabled: v })}
+      />
+      <div className="px-3">
+        <p className="mb-1 text-[11px] text-text-subtle">{t.tasks_capture_target}</p>
+        <Segmented
+          value={tasks.capture_target}
+          onChange={(v) => patch({ capture_target: v })}
+          options={[
+            { value: "daily", label: t.tasks_target_daily },
+            { value: "inbox", label: t.tasks_target_inbox },
+          ]}
+        />
+      </div>
+      <TextRow
+        label={t.tasks_default_section}
+        value={tasks.default_section}
+        onCommit={(v) => patch({ default_section: v })}
+      />
+      <div className="px-3">
+        <p className="mb-1 text-[11px] text-text-subtle">{t.tasks_write_format}</p>
+        <Segmented
+          value={tasks.write_format}
+          onChange={(v) => patch({ write_format: v })}
+          options={[
+            { value: "emoji", label: t.tasks_format_emoji },
+            { value: "dataview", label: t.tasks_format_dataview },
+          ]}
+        />
+      </div>
+      <div className="px-3">
+        <p className="mb-1 text-[11px] text-text-subtle">{t.tasks_recurrence_insert}</p>
+        <Segmented
+          value={tasks.recurrence_insert}
+          onChange={(v) => patch({ recurrence_insert: v })}
+          options={[
+            { value: "above", label: t.tasks_recurrence_above },
+            { value: "below", label: t.tasks_recurrence_below },
+          ]}
+        />
+      </div>
+      <TextRow
+        label={t.tasks_global_filter}
+        value={tasks.global_filter}
+        placeholder="#task"
+        onCommit={(v) => patch({ global_filter: v })}
+      />
+      <p className="px-3 text-[10px] leading-relaxed text-text-subtle">
+        {t.tasks_global_filter_hint}
+      </p>
+
+      <div className="pt-2">
+        <p className="mb-1 px-3 text-[11px] text-text-subtle">{t.tasks_statuses}</p>
+        <p className="mb-1.5 px-3 text-[10px] leading-relaxed text-text-subtle">
+          {t.tasks_statuses_hint}
+        </p>
+        {draft?.map((s, i) => (
+          <div
+            key={i}
+            className="mb-1 flex items-center gap-1 rounded-lg bg-surface-sunken px-2 py-1.5"
+          >
+            <input
+              aria-label={t.tasks_status_symbol}
+              value={s.symbol}
+              onChange={(e) => editRow(i, { symbol: e.target.value })}
+              className="w-9 rounded-md bg-surface-raised px-1.5 py-1 text-center font-mono text-xs text-text outline-none focus:ring-1 focus:ring-line"
+            />
+            <span className="text-[10px] text-text-subtle">→</span>
+            <input
+              aria-label={t.tasks_status_next}
+              value={s.next}
+              onChange={(e) => editRow(i, { next: e.target.value })}
+              className="w-9 rounded-md bg-surface-raised px-1.5 py-1 text-center font-mono text-xs text-text outline-none focus:ring-1 focus:ring-line"
+            />
+            <input
+              aria-label={t.tasks_status_name}
+              value={s.name ?? ""}
+              placeholder={t.tasks_status_name}
+              onChange={(e) => editRow(i, { name: e.target.value || undefined })}
+              className="min-w-0 flex-1 rounded-md bg-surface-raised px-2 py-1 text-xs text-text outline-none focus:ring-1 focus:ring-line"
+            />
+            <select
+              aria-label={t.tasks_status_type}
+              value={s.type}
+              onChange={(e) => editRow(i, { type: e.target.value })}
+              className="shrink-0 rounded-md bg-surface-raised px-1 py-1 text-xs text-text outline-none"
+            >
+              {STATUS_TYPES.map((ty) => (
+                <option key={ty.value} value={ty.value}>
+                  {t[ty.label]}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              aria-label={t.tasks_status_remove}
+              onClick={() => removeRow(i)}
+              className="shrink-0 rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-status-error"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addRow}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-muted"
+        >
+          <Boxes size={12} />
+          {t.tasks_status_add}
+        </button>
+        {err && <p className="px-3 pt-1 text-[10px] text-hue-red">{t[err]}</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Space management pane (spec 2026-08-28 §4): the settings-facing twin
+ *  of the sidebar picker. Switching records `last_space` and restarts
+ *  the app; creation scaffolds the vault directory. Everything is
+ *  filesystem-backed — the brain is never required. Rename and delete
+ *  are non-goals: the filesystem is the registry. */
+function SpaceSection() {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const setError = useUI((s) => s.setError);
+  const spaces = useQuery({ queryKey: ["spaces"], queryFn: spaceList });
+  const [name, setName] = useState("");
+  const current = spaces.data?.find((s) => s.current)?.name ?? "personal";
+  const badName = name.trim().length > 0 && !validSpaceName(name);
+
+  const pick = (n: string) => {
+    if (n === current) return;
+    void spaceSwitch(n).catch((e) => setError(String(e).split("\n")[0]));
+    // app restarts into the chosen space; no local state to clean up
+  };
+
+  const create = () => {
+    if (!validSpaceName(name)) return;
+    void spaceCreate(name.trim())
+      .then(() => {
+        setName("");
+        void qc.invalidateQueries({ queryKey: ["spaces"] });
+        // Stay in the current space after create; switching is explicit.
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {spaces.data?.map((s) => (
+        <button
+          key={s.name}
+          type="button"
+          onClick={() => pick(s.name)}
+          className={
+            "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors " +
+            (s.current
+              ? "bg-surface-sunken font-medium text-text"
+              : "text-text-muted hover:bg-surface-muted hover:text-text")
+          }
+        >
+          <span className="font-mono">{s.name}</span>
+          {s.current && <Check size={13} className="text-text-subtle" />}
+        </button>
+      ))}
+      <div className="flex items-center gap-1 px-1 py-0.5">
+        <input
+          value={name}
+          placeholder={t.space_name_ph}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") create();
+          }}
+          className={`w-full rounded-lg bg-surface-sunken px-2.5 py-1.5 font-mono text-xs text-text outline-none focus:ring-1 ${badName ? "ring-hue-red" : "focus:ring-line"}`}
+        />
+        <button
+          type="button"
+          onClick={create}
+          disabled={!validSpaceName(name)}
+          className="shrink-0 rounded-lg bg-interactive-primary px-2.5 py-1.5 text-xs font-medium text-interactive-primary-foreground disabled:opacity-40"
+        >
+          {t.space_create_confirm}
+        </button>
+      </div>
+      {badName && <p className="px-3 text-[10px] text-hue-red">{t.space_name_invalid}</p>}
+      <p className="px-3 pt-1 text-[10px] leading-relaxed text-text-subtle">{t.space_hint}</p>
+    </div>
+  );
+}
+
+/** `[daily]` — daily note target. `set_daily_config` and its IPC
+ *  predate the settings window (task capture with `capture_target:
+ *  daily` lands here); this pane finally exposes both fields. */
+function DailySection() {
+  const { t } = useI18n();
+  const { config, save } = useConfigSection();
+  const daily = config.data?.daily;
+  return (
+    <div className="space-y-1.5">
+      <ToggleRow
+        label={t.daily_enabled}
+        checked={daily?.enabled ?? true}
+        onChange={(v) =>
+          save(setDailyConfig({ enabled: v, folder: daily?.folder ?? "daily" }))
+        }
+      />
+      <TextRow
+        label={t.daily_folder}
+        value={daily?.folder ?? "daily"}
+        placeholder="daily"
+        onCommit={(v) =>
+          save(setDailyConfig({ enabled: daily?.enabled ?? true, folder: v }))
+        }
+      />
+    </div>
   );
 }
 
@@ -1378,8 +1706,10 @@ export function SettingsMenu() {
       // (installed presets, folder tree) lives together.
       group: t.settings_group_vault,
       items: [
+        { id: "space", label: t.section_space, icon: <Boxes size={13} /> },
         { id: "collections", label: t.section_collections, icon: <Library size={13} /> },
         { id: "folders", label: t.section_folders, icon: <FolderTree size={13} /> },
+        { id: "tasks", label: t.section_tasks, icon: <ListChecks size={13} /> },
       ],
     },
     {
@@ -1492,6 +1822,8 @@ export function SettingsMenu() {
                   </div>
                   <SectionLabel title={t.section_general} />
                   <GeneralSection />
+                  <SectionLabel title={t.section_daily} />
+                  <DailySection />
                   <SectionLabel title={t.section_advanced} />
                   <AdvancedSection />
                 </section>
@@ -1655,6 +1987,18 @@ export function SettingsMenu() {
                       </div>
                     ))}
                   </div>
+                </section>
+              )}
+              {activeTab === "space" && (
+                <section>
+                  <PaneHeader title={t.section_space} />
+                  <SpaceSection />
+                </section>
+              )}
+              {activeTab === "tasks" && (
+                <section>
+                  <PaneHeader title={t.section_tasks} />
+                  <TasksSection />
                 </section>
               )}
               {activeTab === "collections" && <CollectionsSection />}
