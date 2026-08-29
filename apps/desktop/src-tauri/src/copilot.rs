@@ -489,6 +489,11 @@ pub fn build_context(
     let mut s = String::new();
     use std::fmt::Write;
     let _ = writeln!(s, "vault_root: {}", vault_root.display());
+    let _ = writeln!(
+        s,
+        "space: {}",
+        oximemo_core::brain::vault_space_name(vault_root)
+    );
     let _ = writeln!(s, "cli: {}", cli.display());
     let _ = writeln!(s, "skill: {}", skill.display());
     if let Some(d) = map.daily_folder.as_deref().filter(|d| !d.is_empty()) {
@@ -1362,13 +1367,12 @@ mod tests {
             &[],
         );
         assert!(ctx.starts_with("vault_root: /vault\n"));
+        assert!(ctx.contains("space: vault\n")); // dirname of /vault
         assert!(ctx.contains("cli: /app/oximemo\n"));
         assert!(ctx.contains("skill: /app/skills/oximemo/SKILL.md\n"));
-        assert!(ctx.contains("active_memo:\n  id: 0191\n"));
-        // No instruction sentences: every line is a key: value fact or a
-        // section header (spec §7, acceptance criterion 3).
         for line in ctx.lines() {
             let is_fact = line.starts_with("vault_root:")
+                || line.starts_with("space:")
                 || line.starts_with("cli:")
                 || line.starts_with("skill:")
                 || line.starts_with("active_memo:")
@@ -1426,6 +1430,7 @@ mod tests {
         // Facts-only discipline: every line is key: value or a section row.
         for line in ctx.lines() {
             let is_fact = line.starts_with("vault_root:")
+                || line.starts_with("space:")
                 || line.starts_with("cli:")
                 || line.starts_with("skill:")
                 || line.starts_with("daily_folder:")

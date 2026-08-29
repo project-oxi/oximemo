@@ -143,7 +143,14 @@ pub fn run() {
                 .ok()
                 .map(PathBuf::from)
                 .or_else(parse_vault_arg);
-            let vault = oximemo_core::Vault::open(cli_vault.as_deref())?;
+            let cli_space = std::env::var("OXIMEMO_SPACE")
+                .ok()
+                .or_else(parse_space_arg);
+            let spec = oximemo_core::spaces::resolve_vault_spec(
+                cli_vault.as_deref(),
+                cli_space.as_deref(),
+            )?;
+            let vault = oximemo_core::Vault::open_spec(&spec)?;
             vault.ensure_initialized()?;
             // Regenerate cached card previews once when the indexed preview
             // format changes (e.g. line-break preservation). No-op when current.
@@ -342,7 +349,9 @@ pub fn run() {
             commands::stamp_metadata,
             commands::set_menu_locale,
             commands::get_backlinks,
-            commands::save_image_bytes,
+            commands::space_list,
+            commands::space_create,
+            commands::space_switch,
             commands::list_assets,
             commands::gc_assets,
             commands::memo_for_asset,
@@ -399,6 +408,16 @@ fn parse_vault_arg() -> Option<PathBuf> {
     while let Some(a) = args.next() {
         if a == "--vault" {
             return args.next().map(PathBuf::from);
+        }
+    }
+    None
+}
+
+fn parse_space_arg() -> Option<String> {
+    let mut args = std::env::args_os().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--space" {
+            return args.next().map(|s| s.to_string_lossy().into_owned());
         }
     }
     None
@@ -1347,6 +1366,52 @@ mod commands {
     #[tauri::command]
     pub fn vault_path(state: State<'_, AppState>) -> Result<String, String> {
         Ok(state.vault.paths().vault.display().to_string())
+    }
+
+    /// One row of the space picker (spec 2026-08-28 §4).
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct SpaceInfo {
+        pub name: String,
+        pub current: bool,
+    }
+
+    impl SpaceInfo {
+        fn list(vault: &oximemo_core::Vault) -> Vec<Self> {
+            let current = oximemo_core::brain::vault_space_name(&vault.paths().vault);
+            oximemo_core::spaces::list_spaces()
+                .into_iter()
+                .map(|name| Self {
+                    current: name == current,
+                    name,
+                })
+                .collect()
+        }
+    }
+
+    #[tauri::command]
+    pub fn space_list(state: State<'_, AppState>) -> Result<Vec<SpaceInfo>, String> {
+        Ok(SpaceInfo::list(&state.vault))
+    }
+
+    #[tauri::command]
+    pub fn space_create(
+        state: State<'_, AppState>,
+        name: String,
+    ) -> Result<SpaceInfo, String> {
+        oximemo_core::spaces::create_space(&name).map_err(|e| e.to_string())?;
+        Ok(SpaceInfo::list(&state.vault)
+            .into_iter()
+            .find(|s| s.name == name.trim())
+            .ok_or_else(|| format!("space '{name}' not found after creation"))?)
+    }
+
+    /// Switch the active space: persist `last_space`, then restart the
+    /// process (spec decision 3 — the boot-built AppState graph is not
+    /// hot-swappable; Obsidian-style relaunch).
+    #[tauri::command]
+    pub fn space_switch(app: tauri::AppHandle, name: String) -> Result<(), String> {
+        oximemo_core::spaces::switch_space(&name).map_err(|e| e.to_string())?;
+        app.restart(); // -> ! : relaunches into the new space
     }
 
     #[tauri::command]
