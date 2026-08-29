@@ -71,7 +71,7 @@ export function SpacePicker() {
         <ChevronDown size={12} className="text-text-subtle" />
       </button>
       {open && (
-        <div className="absolute left-3 right-3 top-full z-40 rounded-lg border border-line bg-surface-raised p-1 shadow-lg">
+        <div className="absolute bottom-full left-3 right-3 z-40 mb-1 rounded-lg border border-line bg-surface-raised p-1 shadow-lg">
           {spaces.data?.map((s) => (
             <button
               key={s.name}
