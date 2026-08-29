@@ -36,7 +36,7 @@ Two core scenarios, one vault:
 - **OKLCH colors.** Perceptually uniform, CSS-native color labels that look right in both light and dark mode.
 - **Hardened against external writes.** The file watcher debounces, retries partial writes (editors, iCloud), and never crashes the indexer.
 - **HTML notes (`.html`).** `.html` files are first-class notes alongside `.md` — frontmatter lives in a leading HTML comment, the title is derived from the first `<h1>`/`<title>`, and the same TEMPLATE rule applies (`TEMPLATE.html` for HTML notes, `TEMPLATE.md` for markdown). The CLI creates HTML notes with `oximemo new --html`.
-- **oxibrain context panel.** A read-only panel in `MemoDetail` gathers recall layers from the local oxibrain daemon over its Unix socket (no cloud); `[brain]` in `oximemo.toml` controls `enabled`/`socket`/`space`.
+- **oxibrain context panel.** A read-only panel in `MemoDetail` gathers recall layers from oxibrain ≥ 0.10 (no cloud). There is no daemon: each interaction spawns a short-lived `oxibrain admin serve --stdio` child, the binary resolves via PATH (`[brain].executable` overrides), and the space is derived from the vault directory name. Ingestion is oximemo-triggered: the active vault is ensured as a `documents.toml` root and `oxibrain admin index --documents` runs on boot and after settled saves.
 - **Copilot panel.** A floating window (`⌘⇧C` / bottom-right FAB) that delegates vault work — write a note, tidy up, suggest tags — to a terminal-agent CLI you explicitly activate (adapters: `oxios`, `omp`, `claude`, `codex`, `oxicode`). oximemo contains no model, no prompt, no embedding: it hands the agent a declarative context block and the bundled `oximemo` CLI + `SKILL.md` contract, one subprocess per turn. The composer supports `@` note references (attached as context chips), `/` commands (요약·태그 제안·정리·찾기·새 노트), and IME-safe input; responses render as markdown with copy actions. Approvals, sandboxing, and providers stay with the agent; the panel header always discloses the active agent and provider, and vault changes observed during a turn are linked without claiming causality. Hidden entirely when no agent is activated.
 
 ## Table of contents
@@ -196,7 +196,7 @@ vault/
 
 Notes can also be `.html` files — frontmatter sits in a leading HTML comment (`<!-- +++ ... +++ -->`), the title is derived from the first `<h1>` (or `<title>`), and folder templates follow the same rule: a folder with `TEMPLATE.html` (and no `TEMPLATE.md`) auto-creates new notes as HTML, and a folder can ship both to drive the toolbar's split "new note" button.
 
-`oximemo.toml` also carries an optional `[brain]` section (`enabled`/`socket`/`space`, defaults `true` / `""` / `"personal"`) for the read-only oxibrain context panel in `MemoDetail`; the panel hides itself when `enabled = false`.
+`oximemo.toml` also carries an optional `[brain]` section (`enabled`/`executable`, defaults `true`/`""` — empty means spawn `oxibrain` from PATH) for the read-only oxibrain context panel in `MemoDetail`; the panel hides itself when `enabled = false`. oxibrain ≥ 0.10.1 is required. Retired `socket`/`space` keys in existing files are ignored.
 
 Each memo is one file with TOML frontmatter delimited by `+++`:
 

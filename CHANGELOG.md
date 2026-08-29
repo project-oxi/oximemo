@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+### Changed
+
+- **oxibrain 0.10 cutover — the daemon is gone on this side too.**
+  `oxibrain-client` moves from git tag `v0.7.0` (retired daemon/socket
+  topology, ADR-007) to `v0.10.1` (caller-owned `serve --stdio`,
+  ARCHITECTURE v2.13). Every brain interaction now spawns a short-lived
+  `oxibrain admin serve --stdio --dir ~/.oxi/brain` child and drops it;
+  there is no resident daemon, no socket, and no "online" state — the
+  panel reports failure *reasons* (`binary_missing`, `spawn_failed`,
+  `handshake_failed`, `stats_failed`) instead. Requires **oxibrain ≥
+  0.10.1** on PATH (`[brain].executable` overrides; `[brain].socket` and
+  `[brain].space` keys are ignored).
+  - **Ingestion is oximemo-triggered** (brain 0.10 cutover spec,
+    decisions 1/5): on open, oximemo idempotently ensures the active
+    vault as a `documents.toml` root (space derived from the vault
+    dirname; exact-path roots are never clobbered, unparseable files
+    never touched), and a single-flight `oxibrain admin index
+    --documents` reconcile runs after boot and on debounced vault
+    saves. The daemon-hosted vault watcher and `sync_run` are gone
+    upstream (0.8.0); `brain_history` is served by the new
+    `document_history` RPC (gix revisions, Consumption Contract 1.4).
+  - `brain_list_spaces` IPC and the Settings daemon-spaces picker are
+    removed; the spaces design (2026-08-28, amended) replaces them with
+    per-space vault switching in the next cycle.
+
 ### Fixed
 
 - **Unbounded `by-vault` index accumulation** — custom `--vault` opens
