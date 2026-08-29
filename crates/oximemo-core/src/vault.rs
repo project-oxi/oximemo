@@ -141,12 +141,13 @@ const SNAPSHOT_TASK_WEIGHT_CAP: usize = 200_000;
 const TASKS_BASE_REL: &str = "queries/할 일.query";
 
 /// The installed `할 일` base document (tasks spec §7.4): a
-/// vault-global task surface with views 오늘/예정/지연/전체. Unlike
-/// the §9 daily-note fence this is NOT scoped by `this.file.name` —
-/// `today()` pins each view to the wall clock. 오늘 includes overdue
-/// work (due/scheduled on or before today, guarded), 예정 is the
-/// future window, 지연 is strictly overdue by `due`, 전체 is
-/// unfiltered.
+/// vault-global task surface with views 오늘/예정/지연/전체/날짜 없음.
+/// Unlike the §9 daily-note fence this is NOT scoped by
+/// `this.file.name` — `today()` pins each view to the wall clock. 오늘
+/// includes overdue work (due/scheduled on or before today, guarded),
+/// 예정 is the future window, 지연 is strictly overdue by `due`, and
+/// 날짜 없음 is the undated backlog — quick-added tasks have neither
+/// date, so without this view they surface nowhere but 전체.
 const TASKS_BASE_MD: &str = r#"source: tasks
 views:
   - type: tasks
@@ -160,7 +161,21 @@ views:
     filters: 'task.due != null && task.due < today()'
   - type: tasks
     name: 전체
+  - type: tasks
+    name: 날짜 없음
+    filters: 'task.due == null && task.scheduled == null'
 "#;
+
+/// Marker content gating the installed base's seed version (`"1"` =
+/// the original four-view seed). Bump alongside `TASKS_BASE_MD`
+/// changes: vaults whose marker predates the bump get a structural
+/// upgrade in [`Self::ensure_tasks_base_seed`].
+const TASKS_BASE_SEED_VERSION: &str = "2";
+
+/// The 날짜 없음 view name shared by the v2 seed and the structural
+/// upgrade. The desktop sidebar resolves this view BY NAME (not index)
+/// so user-reordered or user-extended bases keep working.
+const TASKS_NO_DATE_VIEW: &str = "날짜 없음";
 
 pub struct Vault {
     paths: Paths,
@@ -3247,22 +3262,89 @@ impl Vault {
             }
             std::fs::write(&marker, b"1")?;
         }
-        // One-shot installed `할 일` base (tasks spec §7.4). Same
-        // ownership rule as the inbox seed above: the base is a
-        // user-ownable `.query`, so once the user deletes it we must
-        // NOT resurrect it on later migrate()s. Marker + absence check
-        // guard the first-ever seed and the "user moved/edited it"
-        // case — the write only happens when the file is missing.
+        // One-shot installed `할 일` base (tasks spec §7.4). The marker
+        // stores the seed version; a pre-v2 vault gets a structural
+        // upgrade instead of a blind reseed so user edits survive. The
+        // base is user-ownable: a deleted file is never resurrected,
+        // and an unparseable file is left for the user to fix (marker
+        // stays stale → retried on the next open).
         let marker = self.paths.tasks_base_seed_marker_path();
-        if !marker.exists() {
-            if !self.paths.vault.join(TASKS_BASE_REL).exists() {
+        if std::fs::read_to_string(&marker)
+            .map(|s| s.trim().to_string())
+            .ok()
+            .as_deref()
+            != Some(TASKS_BASE_SEED_VERSION)
+        {
+            self.ensure_tasks_base_seed(&marker)?;
+        }
+        Ok(())
+    }
+
+    /// Bring the installed `할 일` base to [`TASKS_BASE_SEED_VERSION`].
+    /// Success in every terminal case (first seed, structural upgrade,
+    /// already current, name taken, deliberate deletion) advances the
+    /// marker; unreadable/unparseable files and save races leave it
+    /// stale so the next vault open retries.
+    fn ensure_tasks_base_seed(&self, marker: &std::path::Path) -> Result<()> {
+        if !self.paths.vault.join(TASKS_BASE_REL).exists() {
+            // Missing file + absent marker → first-ever seed. Missing
+            // file + present marker → deliberate deletion, never
+            // resurrected (the v1 ownership rule outlives the bump).
+            if !marker.exists() {
                 self.save_base(TASKS_BASE_REL, TASKS_BASE_MD, None)?;
             }
-            if let Some(parent) = marker.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&marker, b"1")?;
+            return self.write_tasks_seed_marker(marker);
         }
+        let (yaml, mtime) = match self.load_base_raw(TASKS_BASE_REL) {
+            Ok(raw) => raw,
+            Err(_) => return Ok(()), // unreadable: retry next open
+        };
+        let mut def = match crate::base::parse_base(&yaml) {
+            Ok(def) => def,
+            Err(_) => return Ok(()), // user's hand-edit: leave for them to fix
+        };
+        if def
+            .views
+            .iter()
+            .any(|view| view.name.as_deref() == Some(TASKS_NO_DATE_VIEW))
+        {
+            // A view already owns the name — the user's semantics win.
+            return self.write_tasks_seed_marker(marker);
+        }
+        // Insert after the last `tasks` view so user-added table/board
+        // tabs keep their trailing order.
+        let at = def
+            .views
+            .iter()
+            .rposition(|view| view.r#type == "tasks")
+            .map_or(def.views.len(), |i| i + 1);
+        def.views.insert(
+            at,
+            crate::base::BaseViewDef {
+                r#type: "tasks".into(),
+                name: Some(TASKS_NO_DATE_VIEW.into()),
+                filters: Some(crate::base::FilterSpec::Expr(
+                    "task.due == null && task.scheduled == null".into(),
+                )),
+                ..Default::default()
+            },
+        );
+        let upgraded = serde_yaml_ng::to_string(&def)
+            .map_err(|e| crate::CoreError::other(format!("serialize tasks base: {e}")))?;
+        // CAS on the mtime we read: a racing editor wins, we retry next open.
+        if let Err(e) = self.save_base(TASKS_BASE_REL, &upgraded, Some(mtime)) {
+            tracing::warn!(error = %e, "tasks base seed upgrade skipped; will retry");
+            return Ok(());
+        }
+        self.write_tasks_seed_marker(marker)
+    }
+
+    /// Record [`TASKS_BASE_SEED_VERSION`] in the one-shot seed marker.
+    fn write_tasks_seed_marker(&self, marker: &std::path::Path) -> Result<()> {
+        if let Some(parent) = marker.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(marker, TASKS_BASE_SEED_VERSION)?;
         Ok(())
     }
 
@@ -7733,8 +7815,8 @@ watcher_retry_interval_ms = 200
         v.migrate().unwrap();
         let abs = v.paths().vault.join(TASKS_BASE_REL);
         assert!(abs.exists(), "fresh vault must install the 할 일 base");
-        // The seeded document is a valid tasks base: task source, four
-        // `tasks`-type views named 오늘/예정/지연/전체, no warnings.
+        // The seeded document is a valid tasks base: task source, five
+        // `tasks`-type views named 오늘/예정/지연/전체/날짜 없음, no warnings.
         let yaml = std::fs::read_to_string(&abs).unwrap();
         assert_eq!(yaml, TASKS_BASE_MD);
         let def = crate::base::parse_base(&yaml).unwrap();
@@ -7745,7 +7827,7 @@ watcher_retry_interval_ms = 200
             .iter()
             .map(|view| view.name.as_deref().unwrap_or(""))
             .collect();
-        assert_eq!(names, ["오늘", "예정", "지연", "전체"]);
+        assert_eq!(names, ["오늘", "예정", "지연", "전체", "날짜 없음"]);
         assert!(def.views.iter().all(|view| view.r#type == "tasks"));
         assert!(v.paths().tasks_base_seed_marker_path().exists());
         // End-to-end: the seeded views actually execute. Pinned clock
@@ -7777,6 +7859,7 @@ watcher_retry_interval_ms = 200
         assert_eq!(run_view(1).total, 1, "예정: future scheduled only");
         assert_eq!(run_view(2).total, 1, "지연: strictly-overdue due only");
         assert_eq!(run_view(3).total, 4, "전체: every indexed task");
+        assert_eq!(run_view(4).total, 1, "날짜 없음: the undated task");
         // Deliberate deletion is permanent: the marker suppresses the
         // reseed on every later migrate().
         std::fs::remove_file(&abs).unwrap();
@@ -7787,22 +7870,115 @@ watcher_retry_interval_ms = 200
     }
 
     #[test]
-    fn tasks_base_seed_never_overwrites_user_edits() {
+    fn tasks_base_seed_v2_upgrades_an_edited_v1_base_structurally() {
         let (_t, v) = tmp_vault();
         v.migrate().unwrap();
-        // The user edits the base after the seed, then the marker is
-        // lost (e.g. a partial index-dir wipe): the re-run must NOT
-        // clobber the user's file — the absence check guards the write.
-        let edited = "source: tasks\nviews:\n  - type: tasks\n    name: Mine\n";
-        v.save_base(TASKS_BASE_REL, edited, None).unwrap();
-        std::fs::remove_file(v.paths().tasks_base_seed_marker_path()).unwrap();
+        // A v1-era vault: the original tasks views plus a user-added
+        // table view. The stale "1" marker makes migrate() run the seed
+        // check: the v2 upgrade must APPEND the 날짜 없음 view without
+        // touching anything else the user changed.
+        let v1 = "source: tasks\nviews:\n  - type: tasks\n    name: 오늘\n    filters: 'task.due != null && task.due <= today()'\n  - type: tasks\n    name: 예정\n    filters: 'task.scheduled != null && task.scheduled > today()'\n  - type: tasks\n    name: 지연\n    filters: 'task.due != null && task.due < today()'\n  - type: tasks\n    name: 전체\n  - type: table\n    name: 테이블\n";
+        v.save_base(TASKS_BASE_REL, v1, None).unwrap();
+        std::fs::write(v.paths().tasks_base_seed_marker_path(), b"1").unwrap();
         v.migrate().unwrap();
         let yaml = std::fs::read_to_string(v.paths().vault.join(TASKS_BASE_REL)).unwrap();
-        assert_eq!(yaml, edited);
-        assert!(
-            v.paths().tasks_base_seed_marker_path().exists(),
-            "marker is (re)written exactly when the seed check ran"
+        assert!(yaml.contains("테이블"), "user-added views survive the upgrade");
+        let def = crate::base::parse_base(&yaml).unwrap();
+        let nodate = def
+            .views
+            .iter()
+            .find(|view| view.name.as_deref() == Some("날짜 없음"))
+            .expect("v2 appends the 날짜 없음 view");
+        assert_eq!(nodate.r#type, "tasks");
+        match nodate.filters.as_ref() {
+            Some(crate::base::FilterSpec::Expr(expr)) => {
+                assert_eq!(expr, "task.due == null && task.scheduled == null");
+            }
+            other => panic!("expected the guarded no-date expr, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(v.paths().tasks_base_seed_marker_path())
+                .unwrap()
+                .trim(),
+            "2",
+            "the marker records the seed version"
         );
+        // Idempotent: later migrates must not duplicate the view.
+        v.migrate().unwrap();
+        let def2 = crate::base::parse_base(
+            &std::fs::read_to_string(v.paths().vault.join(TASKS_BASE_REL)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            def2.views
+                .iter()
+                .filter(|view| view.name.as_deref() == Some("날짜 없음"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn tasks_base_seed_v2_respects_a_user_view_that_already_owns_the_name() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        // The user already has a view named 날짜 없음 (here: a table) —
+        // their semantics win; nothing is appended.
+        let mine = "source: tasks\nviews:\n  - type: tasks\n    name: 전체\n  - type: table\n    name: 날짜 없음\n";
+        v.save_base(TASKS_BASE_REL, mine, None).unwrap();
+        std::fs::write(v.paths().tasks_base_seed_marker_path(), b"1").unwrap();
+        v.migrate().unwrap();
+        let def = crate::base::parse_base(
+            &std::fs::read_to_string(v.paths().vault.join(TASKS_BASE_REL)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(def.views.len(), 2, "no tasks view is appended over the user's name");
+        assert_eq!(
+            std::fs::read_to_string(v.paths().tasks_base_seed_marker_path())
+                .unwrap()
+                .trim(),
+            "2"
+        );
+    }
+
+    #[test]
+    fn tasks_base_seed_v2_leaves_an_unparseable_base_alone_for_the_user_to_fix() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        // A hand-edited file that no longer parses is never rewritten;
+        // the marker stays stale so the upgrade retries after the fix.
+        let broken = "source: [broken\n";
+        std::fs::write(v.paths().vault.join(TASKS_BASE_REL), broken).unwrap();
+        std::fs::write(v.paths().tasks_base_seed_marker_path(), b"1").unwrap();
+        v.migrate().unwrap();
+        let yaml = std::fs::read_to_string(v.paths().vault.join(TASKS_BASE_REL)).unwrap();
+        assert_eq!(yaml, broken, "unparseable files are never rewritten");
+        assert_eq!(
+            std::fs::read_to_string(v.paths().tasks_base_seed_marker_path())
+                .unwrap()
+                .trim(),
+            "1"
+        );
+    }
+
+    #[test]
+    fn tasks_base_seed_v1_marker_and_deleted_file_stay_deleted() {
+        let (t, v) = tmp_vault();
+        v.migrate().unwrap();
+        // Deleted-before-v2 stays deleted: the ownership rule outlives
+        // the version bump, only the marker advances.
+        let abs = v.paths().vault.join(TASKS_BASE_REL);
+        std::fs::remove_file(&abs).unwrap();
+        std::fs::write(v.paths().tasks_base_seed_marker_path(), b"1").unwrap();
+        v.migrate().unwrap();
+        assert!(!abs.exists(), "deleted base must not be resurrected");
+        assert_eq!(
+            std::fs::read_to_string(v.paths().tasks_base_seed_marker_path())
+                .unwrap()
+                .trim(),
+            "2"
+        );
+        drop(t);
     }
 
     // -- .query base file CRUD (task 7) -------------------------------
