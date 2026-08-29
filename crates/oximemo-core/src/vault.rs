@@ -192,11 +192,23 @@ pub struct Vault {
 }
 
 impl Vault {
-    /// Resolve a vault (default location when `vault` is `None`) and load its
-    /// config. Does not create directories — call [`Self::ensure_initialized`]
-    /// for that. For the default vault this first runs the one-time
-    /// migration to `~/.oxi/vault` (see [`crate::migrate_vault`]).
+    /// Resolve a vault (space resolution when `vault` is `None`) and load
+    /// its config. Does not create directories — call
+    /// [`Self::ensure_initialized`] for that. `None` runs the full
+    /// space resolution chain (spec 2026-08-28 §1): `--space` >
+    /// `last_space` > `personal`, after the one-time default-vault and
+    /// flat→space migrations.
     pub fn open(vault: Option<&Path>) -> Result<Self> {
+        match vault {
+            Some(p) => Self::open_spec(&crate::spaces::VaultSpec::Explicit(p.to_path_buf())),
+            None => Self::open_spec(&crate::spaces::resolve_vault_spec(None, None)?),
+        }
+    }
+
+    /// Open the vault selected by an already-resolved spec. Runs the
+    /// home-relative migrations (app-support → `~/.oxi/vault`, then flat
+    /// → `personal`) for `Space` specs; `Explicit` paths skip both.
+    pub fn open_spec(spec: &crate::spaces::VaultSpec) -> Result<Self> {
         // Unit-test binaries (cfg(test)) must never point custom-vault
         // namespaces at the real Application Support — one leaked redb
         // per vault-opening test caused the 2026-08-28 index explosion
@@ -207,7 +219,7 @@ impl Vault {
         let _ = crate::paths::isolate_index_root_for_tests();
         let mut status = VaultStatus::Ok;
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        if vault.is_none() {
+        if matches!(spec, crate::spaces::VaultSpec::Space(_)) {
             match crate::migrate_vault::maybe_migrate(home.as_ref())? {
                 crate::migrate_vault::MigrationStatus::MergeRequired { old, new } => {
                     tracing::warn!(
@@ -226,8 +238,23 @@ impl Vault {
                 }
                 _ => {}
             }
+            match crate::migrate_spaces::maybe_migrate(home.as_ref())? {
+                crate::migrate_spaces::FlatMigrationStatus::MergeRequired { flat, space } => {
+                    tracing::warn!(
+                        flat = %flat.display(),
+                        space = %space.display(),
+                        "both the flat vault and ~/.oxi/vault/personal exist; \
+                         merge them by hand (see `oximemo doctor`)"
+                    );
+                    status = VaultStatus::MergeRequired { old: flat, new: space };
+                }
+                crate::migrate_spaces::FlatMigrationStatus::Migrated { moved } => {
+                    tracing::info!(moved, "migrated flat vault into the personal space");
+                }
+                _ => {}
+            }
         }
-        let paths = Paths::resolve(vault);
+        let paths = Paths::resolve_spec(spec);
         let config = VaultConfig::load(&paths);
         // Brain documents-plane glue: ensure the active space's root in
         // `~/.oxi/brain/documents.toml` (spec 2026-08-29 cutover §2).
@@ -4152,26 +4179,29 @@ mod tests {
             (v.paths().vault.clone(), v.status().clone())
         });
 
-        assert_eq!(vault_path, new, "open(None) resolves the new default");
+        // The migrated tree continues into the default space (spec
+        // 2026-08-28 §3: flat migrate → space migrate, one `open`).
+        let personal = new.join(crate::spaces::DEFAULT_SPACE_NAME);
+        assert_eq!(vault_path, personal, "open(None) resolves the personal space");
         assert_eq!(status, VaultStatus::Ok);
         assert!(!old.exists(), "entire tree moved away");
-        assert!(new.join("oximemo.toml").is_file());
+        assert!(personal.join("oximemo.toml").is_file());
         assert_eq!(
-            std::fs::read(new.join("_assets/img.png")).unwrap(),
+            std::fs::read(personal.join("_assets/img.png")).unwrap(),
             b"\x89PNG-not-really"
         );
-        let converted = std::fs::read_to_string(new.join("novel/first.md")).unwrap();
+        let converted = std::fs::read_to_string(personal.join("novel/first.md")).unwrap();
         assert!(
             converted.starts_with("---\n"),
             "converted to v4: {converted}"
         );
         assert!(!converted.contains("hash"), "stored hash dropped");
-        let trashed = std::fs::read_to_string(new.join(".trash/novel/old.md")).unwrap();
+        let trashed = std::fs::read_to_string(personal.join(".trash/novel/old.md")).unwrap();
         assert!(trashed.starts_with("---\n"), "trashed note converted");
         assert!(trashed.contains("deleted: 2025-01-02T03:04:07Z"));
         // System file moves verbatim, staying frontmatter-less.
         assert_eq!(
-            std::fs::read_to_string(new.join("habits/emoji.md")).unwrap(),
+            std::fs::read_to_string(personal.join("habits/emoji.md")).unwrap(),
             "\u{1f4da}\n"
         );
 
@@ -4204,9 +4234,11 @@ mod tests {
                     new: new.clone()
                 }
             );
-            // The vault still opens at the new path and doctor surfaces
+            // The vault still opens (inside the personal space — the
+            // flat merge-required surface continues into a flat→space
+            // migration of the new side) and doctor surfaces
             // the pending merge instead of failing silently.
-            assert_eq!(v.paths().vault, new);
+            assert_eq!(v.paths().vault, new.join(crate::spaces::DEFAULT_SPACE_NAME));
             let report = v.doctor(false).unwrap();
             assert!(report.merge_required);
         });
@@ -4217,7 +4249,10 @@ mod tests {
             old_bytes
         );
         assert_eq!(
-            std::fs::read_to_string(new.join("other.md")).unwrap(),
+            std::fs::read_to_string(
+                new.join(crate::spaces::DEFAULT_SPACE_NAME).join("other.md")
+            )
+            .unwrap(),
             "---\nid: other\n---\nnew side\n"
         );
     }
