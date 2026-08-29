@@ -56,10 +56,10 @@ export function HistoryPanel({ path }: { path: string }) {
               const shown = content.slice(0, 400);
               const remaining = content.length - shown.length;
               return (
-                <div key={e.id} className="rounded-md bg-surface-muted/60 px-2 py-1.5">
+                <div key={e.revision} className="rounded-md bg-surface-muted/60 px-2 py-1.5">
                   <p className="text-[10px] font-medium text-text-subtle">
-                    {new Date(e.occurred_at).toLocaleString()}
-                    <span className="ml-1 font-normal">#{e.seq}</span>
+                    {new Date(e.committed_at_ms).toLocaleString()}
+                    <span className="ml-1 font-normal">#{e.revision.slice(0, 7)}</span>
                   </p>
                   <pre className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-text">
                     {shown}

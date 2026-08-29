@@ -40,7 +40,6 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  brainListSpaces,
   cliStatus,
   copilotStatus,
   copilotProbeAgents,
@@ -267,35 +266,27 @@ function useConfigSection() {
   return { config, save };
 }
 
-/** `[brain]` — daemon connection. Space picker uses the live daemon list;
- *  offline falls back to a free-text input (C1: offline is normal). */
+/** `[brain]` — oxibrain integration. oxibrain is a CLI invocation, not
+ *  a daemon: the binary resolves via PATH unless overridden (brain 0.10
+ *  cutover §3). */
 function BrainSection() {
   const { t } = useI18n();
   const { config, save } = useConfigSection();
-  const spaces = useQuery({
-    queryKey: ["brain-spaces"],
-    queryFn: brainListSpaces,
-    staleTime: 30_000,
-  });
   const brain = config.data?.brain;
 
   const patch = (p: Partial<NonNullable<typeof brain>>) =>
     save(
       setBrainConfig({
         enabled: brain?.enabled ?? true,
-        socket: brain?.socket ?? "",
-        space: brain?.space ?? "personal",
+        executable: brain?.executable ?? "",
         ...p,
       }),
-      ["brain-status", "brain-spaces"],
+      ["brain-status"],
     );
 
   if (!brain && config.isLoading) {
     return <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] text-text-subtle">…</p>;
   }
-  const online = spaces.data?.online === true;
-  const list = spaces.data?.spaces ?? [];
-  const known = list.some((s) => s.name === brain?.space);
 
   return (
     <div className="space-y-1.5">
@@ -305,50 +296,11 @@ function BrainSection() {
         onChange={(v) => patch({ enabled: v })}
       />
       <TextRow
-        label={t.brain_socket}
-        value={brain?.socket ?? ""}
-        placeholder={t.brain_socket_ph}
-        onCommit={(v) => patch({ socket: v })}
+        label={t.brain_executable}
+        value={brain?.executable ?? ""}
+        placeholder={t.brain_executable_ph}
+        onCommit={(v) => patch({ executable: v })}
       />
-      <div className="rounded-lg bg-surface-sunken px-3 py-2">
-        <div className="mb-1 flex items-center justify-between">
-          <p className="text-[11px] text-text-subtle">{t.brain_space}</p>
-          <button
-            type="button"
-            aria-label={t.brain_retry}
-            onClick={() => spaces.refetch()}
-            className="rounded-md p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
-          >
-            <RefreshCw size={12} className={spaces.isFetching ? "animate-spin" : ""} />
-          </button>
-        </div>
-        {online ? (
-          <select
-            value={brain?.space ?? "personal"}
-            onChange={(e) => patch({ space: e.target.value })}
-            className="w-full rounded-md bg-surface-raised px-2 py-1 text-xs text-text outline-none focus:ring-1 focus:ring-line"
-          >
-            {!known && brain?.space && (
-              <option value={brain.space}>{brain.space}</option>
-            )}
-            {list.map((s) => (
-              <option key={s.name} value={s.name}>
-                {s.name} · {t.brain_episodes.replace("{n}", String(s.episodes))}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            value={brain?.space ?? ""}
-            placeholder="personal"
-            onChange={(e) => patch({ space: e.target.value })}
-            className="w-full rounded-md bg-surface-raised px-2 py-1 font-mono text-xs text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
-          />
-        )}
-        {!online && (
-          <p className="mt-1 text-[10px] text-text-subtle">{t.brain_space_offline}</p>
-        )}
-      </div>
     </div>
   );
 }

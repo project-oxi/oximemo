@@ -42,6 +42,24 @@ function layersOf(value: unknown): BrainLayer[] {
   );
 }
 
+/** Count what the brain's `meta.dropped` reports as discarded. The shape
+ *  is intentionally opaque (array / record / number across versions);
+ *  anything non-empty counts, and an unknown shape yields null — the
+ *  notice is informational, never load-bearing. */
+function droppedCount(value: unknown): number | null {
+  if (!value || typeof value !== "object" || !("meta" in value)) return null;
+  const meta = value.meta;
+  if (!meta || typeof meta !== "object" || !("dropped" in meta)) return null;
+  const raw: unknown = meta.dropped;
+  if (typeof raw === "number") return raw > 0 ? raw : null;
+  if (Array.isArray(raw)) return raw.length > 0 ? raw.length : null;
+  if (raw && typeof raw === "object") {
+    const entries = Object.values(raw).filter((v) => v !== 0 && v !== "" && v !== false);
+    return entries.length > 0 ? entries.length : null;
+  }
+  return null;
+}
+
 export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
   const { t } = useI18n();
   const qc = useQueryClient();
@@ -53,7 +71,7 @@ export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
   const [layers, setLayers] = useState<BrainLayer[] | null>(null);
   const [gathering, setGathering] = useState(false);
   const [offline, setOffline] = useState(false);
-
+  const [dropped, setDropped] = useState<number | null>(null);
   const config = useQuery({ queryKey: ["config"], queryFn: getConfig });
   const brainEnabled = config.data?.brain?.enabled !== false;
 
@@ -75,8 +93,8 @@ export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
   // notes.
   useEffect(() => {
     setLayers(null);
-    setGathering(false);
     setOffline(false);
+    setDropped(null);
     setOpen(null);
   }, [noteId]);
 
@@ -85,8 +103,12 @@ export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
   const gather = () => {
     setGathering(true);
     setOffline(false);
+    setDropped(null);
     brainGather(query, 4000)
-      .then((v) => setLayers(layersOf(v)))
+      .then((v) => {
+        setLayers(layersOf(v));
+        setDropped(droppedCount(v));
+      })
       .catch(() => {
         setOffline(true);
         setLayers(null);
@@ -181,6 +203,7 @@ export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
                   layers={layers}
                   gathering={gathering}
                   offline={offline}
+                  dropped={dropped}
                   onGather={gather}
                   onRetryStatus={() => void status.refetch()}
                   onDistill={distill}

@@ -109,10 +109,13 @@ export async function brainStatus(): Promise<BrainStatus> {
   return invoke<BrainStatus>("brain_status");
 }
 
-/** Envelope the daemon's `recall` returns. `layers` stays optional — the
- * panel defends against shape drift between daemon versions. */
+/** Envelope the `recall` op returns. `layers` stays optional — the
+ * panel defends against shape drift between brain versions. `meta.dropped`
+ * reports what truncation discarded (an empty result is not "nothing
+ * exists" until `dropped` agrees). */
 export interface BrainRecall {
   layers?: BrainLayer[];
+  meta?: { dropped?: unknown };
 }
 
 /** Recall layers for a query; throws when the daemon is offline. */
@@ -123,15 +126,14 @@ export async function brainGather(
   return invoke<BrainRecall>("brain_gather", { query, budget });
 }
 
-/** One synced revision of a note from the brain's occurrence chain
- *  (Consumption Contract 1.3). Oldest-first when listed. */
+/** One synced revision of a note from the documents plane (brain 0.10
+ *  `document_history`; supersedes the occurrence-chain episodes).
+ *  Oldest-first when listed. */
 export interface HistoryEpisode {
-  id: string;
-  seq: number;
+  revision: string;
   content: string;
   /** Unix milliseconds. */
-  occurred_at: number;
-  ingested_at: number;
+  committed_at_ms: number;
 }
 
 /** Revision history of one vault-relative note path; throws when the
@@ -226,21 +228,6 @@ export async function setIndexConfig(index: {
   watcher_debounce_ms: number;
 }): Promise<void> {
   return invoke("set_index_config", { index });
-}
-
-export interface BrainSpace {
-  name: string;
-  episodes: number;
-}
-
-export interface BrainSpaces {
-  online: boolean;
-  spaces: BrainSpace[];
-}
-
-/** Daemon-exposed spaces for the settings picker. Offline is normal (C1). */
-export async function brainListSpaces(): Promise<BrainSpaces> {
-  return invoke<BrainSpaces>("brain_list_spaces");
 }
 
 // --- copilot (spec 2026-08-23) ----------------------------------------------

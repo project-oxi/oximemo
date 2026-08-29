@@ -1176,10 +1176,6 @@ async function browserFallback(
     case "set_metadata_config":
       return null;
 
-    case "brain_list_spaces":
-      // Browser preview has no daemon: offline is a normal state (C1).
-      return { online: false, spaces: [] };
-
 
     case "set_folder_view": {
       const views = loadViews();
@@ -1268,8 +1264,8 @@ async function browserFallback(
 
 
     case "brain_status":
-      // Browser preview has no daemon: offline is a normal state.
-      return { online: false };
+      // Browser preview has no brain: a failure reason is a normal state.
+      return { online: false, reason: "binary_missing" };
     case "brain_gather":
       throw new Error("Brain is offline");
 

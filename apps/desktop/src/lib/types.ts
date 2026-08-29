@@ -41,9 +41,17 @@ export interface DailyOpen {
   created: boolean;
 }
 
+export type BrainFailureReason =
+  | "binary_missing"
+  | "spawn_failed"
+  | "handshake_failed"
+  | "stats_failed"
+  | "disabled";
+
 export interface BrainStatus {
   online: boolean;
-  disabled?: boolean;
+  /** Why the brain is unreachable; absent when online. */
+  reason?: BrainFailureReason;
   server_version?: string;
   episodes?: number | null;
   entities?: number | null;
@@ -238,7 +246,7 @@ export interface Config {
   capture?: { double_tap_threshold_ms?: number; overlay_max_height?: number };
   appearance?: { theme?: "system" | "light" | "dark"; show_dock_icon?: boolean };
   folders?: FolderDef[];
-  brain?: { enabled?: boolean; socket?: string; space?: string };
+  brain?: { enabled?: boolean; executable?: string };
   daily?: { enabled?: boolean; folder?: string };
   git?: { auto_commit?: boolean; adopt_foreign_repo?: boolean };
   copilot?: {

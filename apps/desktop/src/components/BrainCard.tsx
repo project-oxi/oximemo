@@ -3,6 +3,9 @@
  * Presentational only — the gather/distill state machine lives in ContextDock
  * so results survive the popover closing and reopening. Renders inside a
  * Popover.Popup, sized per the spec: 360px wide, min(480px, 65vh) max height.
+ *
+ * Brain 0.10 cutover: "offline" is a failure reason (binary missing, spawn
+ * failure, …), not a daemon state; truncation is surfaced via `meta.dropped`.
  */
 import { Sparkles } from "lucide-react";
 import { useI18n, type Dict } from "../lib/i18n";
@@ -28,11 +31,23 @@ export function layerLabel(t: Dict, kind: string): string {
   return t[key];
 }
 
+/** Localized one-liner for a failure reason; falls back to the generic
+ *  offline copy for unknown reasons (forward compatibility). */
+function offlineReasonLine(t: Dict, status: BrainStatus | undefined): string {
+  const reason = status?.reason;
+  if (!reason || reason === "disabled") return t.brain_offline;
+  const key = `brain_reason_${reason}` as keyof Dict;
+  return (t[key] as string | undefined) ?? t.brain_offline;
+}
+
 export interface BrainCardProps {
   status: BrainStatus | undefined;
   layers: BrainLayer[] | null;
   gathering: boolean;
   offline: boolean;
+  /** Count of results the brain truncated (`meta.dropped`); null when
+   *  nothing was reported. */
+  dropped: number | null;
   onGather: () => void;
   onRetryStatus: () => void;
   onDistill: () => void;
@@ -43,6 +58,7 @@ export function BrainCard({
   layers,
   gathering,
   offline,
+  dropped,
   onGather,
   onRetryStatus,
   onDistill,
@@ -54,7 +70,7 @@ export function BrainCard({
     <div className="flex max-h-[min(480px,65vh)] w-[360px] flex-col overflow-hidden">
       <div className="flex items-center gap-1.5 border-b border-line px-3 py-2 text-xs font-medium text-text">
         <span
-          aria-label={online ? "online" : "offline"}
+          aria-label={online ? "online" : (status?.reason ?? "offline")}
           className={`inline-block h-1.5 w-1.5 rounded-full ${
             online ? "bg-status-success" : "bg-text-subtle/40"
           }`}
@@ -71,7 +87,7 @@ export function BrainCard({
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {!online ? (
           <div className="flex items-center gap-2 py-1 text-xs text-text-subtle">
-            {t.brain_offline}
+            {offlineReasonLine(t, status)}
             <button
               type="button"
               onClick={onRetryStatus}
@@ -105,6 +121,11 @@ export function BrainCard({
                 </pre>
               </div>
             ))}
+            {dropped !== null && dropped > 0 && (
+              <p className="pt-1 text-[10px] text-text-subtle">
+                {t.brain_dropped.replace("{n}", String(dropped))}
+              </p>
+            )}
           </div>
         )}
         {offline && online && (
