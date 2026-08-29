@@ -45,7 +45,7 @@ async fn live_status_and_recall() {
     // flat→space migration see the 2026-08-28 spaces plan.
     let space = "personal";
     // `stats` is a native JSON-RPC method in oxibrain ≥ 0.10 — the
-    // client 0.10.1 helper routes it through tools/call, which the
+    // client 0.10.x helper routes it through tools/call, which the
     // server rejects, so call the native method directly.
     let stats = client
         .call_rpc_json("stats", serde_json::json!({ "space": space }))

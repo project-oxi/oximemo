@@ -1638,7 +1638,7 @@ mod commands {
         };
         let space = oximemo_core::brain::vault_space_name(&state.vault.paths().vault);
         // `stats` is a native JSON-RPC method in oxibrain ≥ 0.10 (demoted
-        // from the MCP tool surface, ADR-012) — the client 0.10.1 helper
+        // from the MCP tool surface, ADR-012) — the client 0.10.x helper
         // still routes it through tools/call, which the server rejects,
         // so we call the native method directly here.
         let stats = match client
