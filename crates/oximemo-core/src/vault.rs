@@ -229,13 +229,15 @@ impl Vault {
         }
         let paths = Paths::resolve(vault);
         let config = VaultConfig::load(&paths);
-        // Detached brain registration: ecosystem `[vault].space` wins over
-        // the vault-local `brain.space`; the daemon call (sync_run) is
-        // fire-and-forget so open never blocks on a missing daemon.
+        // Brain documents-plane glue: ensure the active space's root in
+        // `~/.oxi/brain/documents.toml` (spec 2026-08-29 cutover §2).
+        // Pure filesystem, never blocks open; brain-installed-or-not is
+        // irrelevant (C1). Ingestion itself runs as a detached
+        // `oxibrain index --documents` child owned by the desktop app.
         if config.brain.enabled {
-            let space =
-                crate::brain::resolve_space(std::path::Path::new(&home), &config.brain.space);
-            crate::brain::register_vault(&paths.vault, &space, &config.brain.socket);
+            let space = crate::brain::vault_space_name(&paths.vault);
+            let outcome = crate::brain::ensure_document_root(&paths.vault, &space);
+            tracing::debug!(?outcome, space = %space, "brain: document root ensured");
         }
         let files = FileStore::new(paths.clone());
         Ok(Self {
@@ -4478,8 +4480,7 @@ mod tests {
 
         let brain = crate::config::BrainConfig {
             enabled: false,
-            socket: "/tmp/other.sock".into(),
-            space: "work".into(),
+            executable: "/tmp/oxibrain-test".into(),
         };
         v.set_brain_config(brain.clone()).unwrap();
         v.set_general_config(crate::config::GeneralConfig {
@@ -7516,174 +7517,67 @@ watcher_retry_interval_ms = 200
         assert_eq!(rec.path, "daily/2026-08-21.html");
         assert!(m.body.contains("<h1>2026-08-21</h1>"));
     }
+    // -- brain documents-plane glue on open (2026-08-29 cutover) ------
 
-    // -- brain registration on open (task 7) --------------------------
-
-    fn fresh_recorder() -> (
-        std::sync::Arc<crate::brain::RecordingBrainRegistrar>,
-        tempfile::TempDir,
-    ) {
-        // No global reset: each test uses a unique tempdir, so its
-        // `(vault, space, socket)` tuple never collides with another
-        // test's memo entry. The per-tuple `reset_registration_memo_for_test`
-        // is used only by tests that intentionally re-open the same
-        // vault across two scopes (see `open_without_recorder_under_cfg_test_is_a_noop`).
-        (
-            crate::brain::RecordingBrainRegistrar::new(),
-            tempfile::tempdir().unwrap(),
-        )
-    }
-    #[test]
-    fn registers_vault_when_brain_enabled() {
-        let (recorder, dir) = fresh_recorder();
-        let home = dir.path().to_path_buf();
-        let expected_vault = dir.path().join("vault");
-        std::fs::create_dir_all(&expected_vault).unwrap();
-        std::fs::write(
-            expected_vault.join("oximemo.toml"),
-            "[brain]\nenabled = true\nspace = \"personal\"\nsocket = \"\"\n",
-        )
-        .unwrap();
-        crate::brain::with_test_recorder(recorder.clone(), || {
-            crate::migrate_vault::with_home(&home, || {
-                let _v = Vault::open(Some(&expected_vault)).unwrap();
-            });
-        });
-        let calls = recorder.calls.lock();
-        assert_eq!(calls.len(), 1, "exactly one registration");
-        assert_eq!(calls[0].vault, expected_vault);
-        assert_eq!(calls[0].space, "personal");
-        assert_eq!(calls[0].socket, "");
+    fn count_roots_for(documents: &Path, vault: &Path) -> usize {
+        let text = std::fs::read_to_string(documents).unwrap();
+        text.matches(&format!("path = \"{}\"", vault.display()))
+            .count()
     }
 
     #[test]
-    fn brain_disabled_means_no_registration() {
-        let (recorder, dir) = fresh_recorder();
+    fn open_ensures_document_root_when_brain_enabled() {
+        let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let expected_vault = dir.path().join("vault");
+        let expected_vault = home.join("vault/work");
+        let brain = home.join("brain");
         std::fs::create_dir_all(&expected_vault).unwrap();
-        std::fs::write(
-            expected_vault.join("oximemo.toml"),
-            "[brain]\nenabled = false\n",
-        )
-        .unwrap();
-        crate::brain::with_test_recorder(recorder.clone(), || {
-            crate::migrate_vault::with_home(&home, || {
-                let _v = Vault::open(Some(&expected_vault)).unwrap();
-            });
-        });
-        assert_eq!(recorder.calls.lock().len(), 0);
-    }
-
-    #[test]
-    fn ecosystem_space_overrides_vault_local_space() {
-        let (recorder, dir) = fresh_recorder();
-        let home = dir.path().to_path_buf();
-        let expected_vault = dir.path().join("vault");
-        std::fs::create_dir_all(&expected_vault).unwrap();
-        std::fs::create_dir_all(home.join(".oxi")).unwrap();
-        std::fs::write(home.join(".oxi/config.toml"), "[vault]\nspace = \"work\"\n").unwrap();
-        std::fs::write(
-            expected_vault.join("oximemo.toml"),
-            "[brain]\nenabled = true\nspace = \"personal\"\n",
-        )
-        .unwrap();
-        crate::brain::with_test_recorder(recorder.clone(), || {
-            crate::migrate_vault::with_home(&home, || {
-                let _v = Vault::open(Some(&expected_vault)).unwrap();
-            });
-        });
-        let calls = recorder.calls.lock();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].space, "work", "ecosystem wins over vault-local");
-    }
-
-    #[test]
-    fn unreachable_socket_does_not_block_open() {
-        let (_recorder, dir) = fresh_recorder();
-        let home = dir.path().to_path_buf();
-        let expected_vault = dir.path().join("vault");
-        std::fs::create_dir_all(&expected_vault).unwrap();
-        std::fs::write(
-            expected_vault.join("oximemo.toml"),
-            "[brain]\nenabled = true\nsocket = \"/tmp/oximemo-test-nonexistent-socket.sock\"\n",
-        )
-        .unwrap();
-        crate::migrate_vault::with_home(&home, || {
-            let v = Vault::open(Some(&expected_vault));
-            assert!(v.is_ok(), "open must succeed despite unreachable daemon");
+        std::fs::write(expected_vault.join("oximemo.toml"), "[brain]\nenabled = true\n").unwrap();
+        crate::brain::with_test_brain_dir(&brain, || {
+            let _v = Vault::open(Some(&expected_vault)).unwrap();
+            let doc = brain.join("documents.toml");
+            let text = std::fs::read_to_string(&doc).unwrap();
+            assert!(text.contains("space = \"work\""), "text: {text}");
+            assert_eq!(count_roots_for(&doc, &expected_vault), 1);
         });
     }
 
     #[test]
-    fn repeated_open_same_tuple_registers_only_once() {
-        // Important #1: the memo in `register_vault` collapses identical
-        // (vault, space, socket) tuples so the daemon isn't spammed by
-        // reopens (e.g. the watcher's per-debounced reopen path).
-        let (recorder, dir) = fresh_recorder();
+    fn repeated_open_does_not_duplicate_roots() {
+        let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let expected_vault = dir.path().join("vault");
+        let expected_vault = home.join("vault/personal");
+        let brain = home.join("brain");
         std::fs::create_dir_all(&expected_vault).unwrap();
         std::fs::write(
             expected_vault.join("oximemo.toml"),
-            "[brain]\nenabled = true\nspace = \"personal\"\nsocket = \"\"\n",
+            "[brain]\nenabled = true\n",
         )
         .unwrap();
-        crate::brain::with_test_recorder(recorder.clone(), || {
-            crate::migrate_vault::with_home(&home, || {
-                let _ = Vault::open(Some(&expected_vault)).unwrap();
-                let _ = Vault::open(Some(&expected_vault)).unwrap();
-                let _ = Vault::open(Some(&expected_vault)).unwrap();
-            });
+        crate::brain::with_test_brain_dir(&brain, || {
+            let _ = Vault::open(Some(&expected_vault)).unwrap();
+            let _ = Vault::open(Some(&expected_vault)).unwrap();
+            let _ = Vault::open(Some(&expected_vault)).unwrap();
+            let doc = brain.join("documents.toml");
+            assert_eq!(count_roots_for(&doc, &expected_vault), 1, "idempotent ensure");
         });
-        let calls = recorder.calls.lock();
-        assert_eq!(calls.len(), 1, "memo: identical tuple → one call");
     }
 
     #[test]
-    fn open_without_recorder_under_cfg_test_is_a_noop() {
-        // Important #2: under cfg(test), `current_registrar()` returns
-        // `NoopBrainRegistrar` unless a recorder is installed. This
-        // stands between unrelated tests and the developer's live
-        // daemon. The test exercises an existing-style `Vault::open`
-        // path (no recorder) and asserts the open itself succeeds; the
-        // follow-up reinstalls a recorder and confirms a fresh open
-        // does get through (i.e. the memo didn't bake in a stale
-        // no-op decision).
-        let (_recorder, dir) = fresh_recorder();
+    fn brain_disabled_means_no_documents_write() {
+        let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let expected_vault = dir.path().join("vault");
+        let expected_vault = home.join("vault/personal");
+        let brain = home.join("brain");
         std::fs::create_dir_all(&expected_vault).unwrap();
-        std::fs::write(
-            expected_vault.join("oximemo.toml"),
-            "[brain]\nenabled = true\nspace = \"personal\"\n",
-        )
-        .unwrap();
-        // First: no recorder installed — the cfg(test) default is the
-        // no-op, and the memo caches the registration so it can't fire
-        // again even if a recorder is later installed.
-        crate::migrate_vault::with_home(&home, || {
-            let v = Vault::open(Some(&expected_vault)).unwrap();
-            assert!(v.paths().vault.ends_with("vault"));
+        std::fs::write(expected_vault.join("oximemo.toml"), "[brain]\nenabled = false\n").unwrap();
+        crate::brain::with_test_brain_dir(&brain, || {
+            let _v = Vault::open(Some(&expected_vault)).unwrap();
+            assert!(
+                !brain.join("documents.toml").exists(),
+                "disabled brain must not create documents.toml"
+            );
         });
-        // Reset the memo (only if it matches this test's tuple — see
-        // round-2 #2) and reinstall a recorder: a fresh open MUST
-        // reach the recorder. If `current_registrar()` were still
-        // returning `RealBrainRegistrar` under cfg(test), the call to
-        // `connect_default` here would hit the developer's live daemon
-        // — this assertion proves the no-op gate is in place.
-        let rec = crate::brain::RecordingBrainRegistrar::new();
-        crate::brain::reset_registration_memo_for_test(&crate::brain::Registration {
-            vault: expected_vault.clone(),
-            space: "personal".into(),
-            socket: String::new(),
-        });
-        crate::brain::with_test_recorder(rec.clone(), || {
-            crate::migrate_vault::with_home(&home, || {
-                let _ = Vault::open(Some(&expected_vault)).unwrap();
-            });
-        });
-        assert_eq!(rec.calls.lock().len(), 1);
     }
 
     // -- create_capture + inbox seed (spec 2026-08-25 §2.1) --------

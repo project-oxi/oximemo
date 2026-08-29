@@ -57,25 +57,26 @@ impl Default for VaultConfig {
     }
 }
 
-/// oxibrain daemon connection settings. `socket` empty = use
-/// `~/.oxi/brain/oxibrain.sock` (the daemon default).
+/// oxibrain integration settings (spec 2026-08-29 brain 0.10 cutover §1).
+/// `executable` empty = spawn `"oxibrain"` and let the OS resolve PATH.
+/// The retired `socket`/`space` keys from older `oximemo.toml` files
+/// parse as unknown and are ignored (`#[serde(default)]`, no
+/// `deny_unknown_fields`); the data dir is the fixed ecosystem default
+/// `~/.oxi/brain`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BrainConfig {
     /// Panel visibility and context gathering master switch.
     pub enabled: bool,
-    /// Absolute path to the daemon's Unix socket; empty = default location.
-    pub socket: String,
-    /// Knowledge space name; "personal" matches the daemon's own default.
-    pub space: String,
+    /// Override for the oxibrain binary; empty = PATH lookup.
+    pub executable: String,
 }
 
 impl Default for BrainConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            socket: String::new(),
-            space: "personal".to_string(),
+            executable: String::new(),
         }
     }
 }
@@ -382,28 +383,27 @@ mod tests {
     fn brain_section_defaults_and_roundtrip() {
         let c = VaultConfig::default();
         assert!(c.brain.enabled);
-        assert_eq!(c.brain.socket, "");
-        assert_eq!(c.brain.space, "personal");
+        assert_eq!(c.brain.executable, "");
 
         let s = c.to_toml().unwrap();
         let back: VaultConfig = toml::from_str(&s).unwrap();
         assert!(back.brain.enabled);
 
-        // Explicit override wins.
+        // Explicit override wins; retired socket/space keys are ignored.
         let t = r#"
 [brain]
 enabled = false
+executable = "/usr/local/bin/oxibrain"
 socket = "/tmp/custom.sock"
 space = "work"
 "#;
         let c2: VaultConfig = toml::from_str(t).unwrap();
         assert!(!c2.brain.enabled);
-        assert_eq!(c2.brain.socket, "/tmp/custom.sock");
-        assert_eq!(c2.brain.space, "work");
+        assert_eq!(c2.brain.executable, "/usr/local/bin/oxibrain");
 
         // Exposed via config_json for the frontend.
         let j = c2.config_json();
-        assert_eq!(j["brain"]["socket"], "/tmp/custom.sock");
+        assert_eq!(j["brain"]["executable"], "/usr/local/bin/oxibrain");
     }
 
     #[test]
