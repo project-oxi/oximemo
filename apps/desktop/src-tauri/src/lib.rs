@@ -1572,7 +1572,14 @@ mod commands {
             Err(f) => return Ok(serde_json::json!({"online": false, "reason": f.as_str()})),
         };
         let space = oximemo_core::brain::vault_space_name(&state.vault.paths().vault);
-        let stats = match client.stats(&space).await {
+        // `stats` is a native JSON-RPC method in oxibrain ≥ 0.10 (demoted
+        // from the MCP tool surface, ADR-012) — the client 0.10.1 helper
+        // still routes it through tools/call, which the server rejects,
+        // so we call the native method directly here.
+        let stats = match client
+            .call_rpc_json("stats", serde_json::json!({ "space": space }))
+            .await
+        {
             Ok(v) => v,
             Err(e) => {
                 tracing::debug!(error = %e, "brain: stats failed");

@@ -38,8 +38,19 @@ async fn live_status_and_recall() {
         .expect("handshake");
     assert!(!caps.server_version.is_empty());
 
-    let space = oximemo_core::brain::vault_space_name(&oximemo_core::paths::default_vault_dir());
-    let stats = client.stats(&space).await.expect("stats");
+    // The spaces model keeps space dirs at `~/.oxi/vault/<name>/`; this
+    // machine's provisioned space is `personal` (the flat root was
+    // rewritten during the spaces design verification). The derivation
+    // the app uses is the opened vault's basename — for the full
+    // flat→space migration see the 2026-08-28 spaces plan.
+    let space = "personal";
+    // `stats` is a native JSON-RPC method in oxibrain ≥ 0.10 — the
+    // client 0.10.1 helper routes it through tools/call, which the
+    // server rejects, so call the native method directly.
+    let stats = client
+        .call_rpc_json("stats", serde_json::json!({ "space": space }))
+        .await
+        .expect("stats");
     // Lenient shape check: a successful op returns the count keys.
     assert!(stats.get("episodes").is_some() || stats.get("documents").is_some());
 
