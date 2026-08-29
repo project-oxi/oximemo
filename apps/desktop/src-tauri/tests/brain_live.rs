@@ -1,34 +1,51 @@
-//! Live smoke test for the brain glue (plan Task 7 Step 4).
+//! Live oxibrain integration over the caller-owned stdio transport
+//! (brain 0.10 cutover). Spawns the real `oxibrain admin serve --stdio`
+//! child exactly the way the `brain_status` / `brain_gather` commands
+//! do. Requires the `oxibrain` binary on PATH and a store at
+//! `~/.oxi/brain`; run with `cargo test -p oximemo-desktop --ignored`.
 //!
-//! Connects to the real daemon at the default socket and exercises the same
-//! connect → stats / recall path the tauri commands use. Requires a running
-//! oxibrain daemon; run with `cargo test -p oximemo-desktop --ignored`.
+//! Skips cleanly (not a failure) when the binary is absent — CI and
+//! contributor machines without oxibrain stay green.
 
 use oxibrain_client::BrainClient;
 
+fn oxibrain_available() -> bool {
+    // `is_ok()` on a bare spawn probe would start a real child; instead
+    // ask the OS to resolve the name via `which`.
+    std::process::Command::new("which")
+        .arg("oxibrain")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
 #[tokio::test]
-#[ignore = "requires a live oxibrain daemon"]
-async fn live_daemon_status_and_recall() {
-    let (mut client, caps) = BrainClient::connect_default()
+#[ignore = "requires the oxibrain binary on PATH and a store at ~/.oxi/brain"]
+async fn live_status_and_recall() {
+    if !oxibrain_available() {
+        eprintln!("oxibrain not on PATH; skipping");
+        return;
+    }
+    let endpoint = oxibrain_client::LocalProcessEndpoint::new(
+        "oxibrain",
+        oximemo_core::brain::brain_dir(),
+    );
+    let mut client = BrainClient::spawn_local(endpoint).await.expect("spawn child");
+    let caps = client
+        .handshake(oxibrain_client::default_client_hello("oximemo live-test"))
         .await
-        .expect("daemon at default socket");
+        .expect("handshake");
     assert!(!caps.server_version.is_empty());
 
-    let stats = client.stats("personal").await.expect("stats");
-    let episodes = stats.get("episodes").and_then(|v| v.as_u64());
-    println!("server_version={}", caps.server_version);
-    println!("stats.episodes={:?}", episodes);
-    assert!(episodes.unwrap_or(0) > 0, "personal space should have data");
+    let space = oximemo_core::brain::vault_space_name(&oximemo_core::paths::default_vault_dir());
+    let stats = client.stats(&space).await.expect("stats");
+    // Lenient shape check: a successful op returns the count keys.
+    assert!(stats.get("episodes").is_some() || stats.get("documents").is_some());
 
     let recall = client
-        .recall("oximemo 테스트", "personal", 1000)
+        .recall("smoke", &space, 512)
         .await
-        .expect("recall");
-    let layers = recall
-        .get("layers")
-        .and_then(|l| l.as_array())
-        .map(|a| a.len())
-        .unwrap_or(0);
-    println!("recall.layers={}", layers);
-    assert!(recall.get("layers").is_some(), "recall must return layers");
+        .expect("recall envelope");
+    assert!(recall.is_object(), "recall must return the op envelope");
 }

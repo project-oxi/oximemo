@@ -45,6 +45,13 @@ pub struct AppState {
     /// thread performs the gix commits so no write path ever waits on
     /// git (the ≤16 ms capture budget stays untouched).
     pub git_tx: tokio::sync::mpsc::UnboundedSender<PathBuf>,
+    /// Single-flight guard for detached `oxibrain admin index` runs
+    /// (brain 0.10 cutover §2): at most one reconcile child at a time.
+    pub brain_indexing: Arc<AtomicBool>,
+    /// `[brain]` snapshot for fire-and-forget triggers. Read once at
+    /// boot; settings changes apply on the next interaction spawn.
+    pub brain_enabled: bool,
+    pub brain_executable: String,
 }
 
 impl AppState {
@@ -53,6 +60,8 @@ impl AppState {
         git: Arc<oxi_vault_git::GitLayer>,
         git_tx: tokio::sync::mpsc::UnboundedSender<PathBuf>,
     ) -> Self {
+        let (brain_enabled, brain_executable) =
+            vault.with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
         Self {
             vault,
             capture_monitor: Mutex::new(None),
@@ -63,9 +72,20 @@ impl AppState {
             tray: Mutex::new(None),
             git,
             git_tx,
+            brain_indexing: Arc::new(AtomicBool::new(false)),
+            brain_enabled,
+            brain_executable,
         }
     }
-}
+
+    /// Fire-and-forget reconcile of the documents cache from the
+    /// configured roots. Skipped when `[brain].enabled = false` or when
+    /// a run is already in flight; failures are logged, never surfaced.
+    pub fn request_brain_index(&self) {
+        request_brain_index_run(&self.brain_indexing, self.brain_enabled, &self.brain_executable);
+    }
+ }
+
 
 pub fn run() {
     init_tracing();
@@ -170,6 +190,7 @@ pub fn run() {
             app.manage(AppState::new(vault, git, git_tx));
             let wstate = app.state::<AppState>();
             spawn_watcher(&wstate, app.handle());
+            wstate.request_brain_index();
 
             let handle = app.handle().clone();
             app.global_shortcut()
@@ -310,7 +331,6 @@ pub fn run() {
             commands::move_note,
             commands::brain_status,
             commands::brain_gather,
-            commands::brain_list_spaces,
             commands::brain_history,
             commands::set_brain_config,
             commands::set_general_config,
@@ -399,6 +419,8 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
         Duration::from_millis(state.vault.with_config(|c| c.index.watcher_debounce_ms) as u64);
     let emit_handle = handle.clone();
     let git_tx = state.git_tx.clone();
+    let brain_in_flight = state.brain_indexing.clone();
+    let (brain_enabled, brain_executable) = (state.brain_enabled, state.brain_executable.clone());
     let on_change: oximemo_core::watcher::OnChange = Arc::new(move |path| {
         // Saved-query edits are not note content (query views spec §3):
         // broadcast bases:changed and skip reindex + git enqueue
@@ -417,12 +439,11 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
         if let Ok(v) = oximemo_core::Vault::open(Some(&vault_path)) {
             v.reindex_path(&path);
         }
-        let _ = emit_handle.emit("memos:changed", ());
-        // Mechanical safety net: hand the settled path to the git consumer.
-        // try_send semantics — a full channel drops, and the next settle
-        // (or the next boot's reconcile pass) re-commits. Non-blocking by
-        // construction so the capture path budget is untouched.
         let _ = git_tx.send(path);
+        // Documents-plane reconcile (brain 0.10 cutover §2): the
+        // debounced settle is oximemo's ingestion trigger. Single-flight
+        // and fire-and-forget — the brain is additive (C1).
+        request_brain_index_run(&brain_in_flight, brain_enabled, &brain_executable);
     });
     match oximemo_core::watcher::MemoWatcher::spawn(
         vec![
@@ -435,6 +456,46 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
         Ok(w) => *state.watcher.lock() = Some(w),
         Err(e) => tracing::warn!(error = %e, "vault watcher failed to start"),
     }
+}
+
+/// Run at most one `oxibrain admin index --documents` child at a time:
+/// a swap on `in_flight` gates re-entry, the spawned thread resets it
+/// when the child exits. Every failure is logged and dropped — a
+/// missing/uninstalled oxibrain is a normal state (C1), never an error.
+fn request_brain_index_run(
+    in_flight: &std::sync::Arc<AtomicBool>,
+    enabled: bool,
+    executable: &str,
+) {
+    use std::sync::atomic::Ordering;
+    if !enabled {
+        return;
+    }
+    if in_flight.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let exec = if executable.is_empty() {
+        "oxibrain".to_string()
+    } else {
+        executable.to_string()
+    };
+    let flag = std::sync::Arc::clone(in_flight);
+    let _ = std::thread::Builder::new()
+        .name("oximemo-brain-index".into())
+        .spawn(move || {
+            let out = std::process::Command::new(&exec)
+                .args(["admin", "index", "--documents"])
+                .arg("--dir")
+                .arg(oximemo_core::brain::brain_dir())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            match out {
+                Ok(s) => tracing::debug!(status = %s, "brain index done"),
+                Err(e) => tracing::debug!(error = %e, "brain index skipped"),
+            }
+            flag.store(false, Ordering::SeqCst);
+        });
 }
 
 /// Background consumer for vault git auto-commits. Receives settled paths
@@ -656,52 +717,76 @@ fn init_tracing() {
         .try_init();
 }
 
-/// Resolved oxibrain connection settings from `[brain]` config: an explicit
-/// socket path wins; empty uses the daemon default location.
-struct BrainEndpointConf {
-    enabled: bool,
-    socket: String,
-    space: String,
+/// Why a brain interaction failed (brain 0.10 cutover §3). Serialized
+/// into `brain_status.reason` for the panel's gray state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrainFailure {
+    BinaryMissing,
+    SpawnFailed,
+    HandshakeFailed,
 }
 
-impl BrainEndpointConf {
-    /// Resolve the brain endpoint with **ecosystem-canonical** space:
-    /// `~/.oxi/config.toml [vault].space` wins over the vault-local
-    /// `BrainConfig::space` (ECOSYSTEM.md §C5). All brain_* commands
-    /// must resolve through here — they read the same space the
-    /// daemon's `register_vault` (vault.rs:117) registered the watcher
-    /// under; reading the vault-local field directly would silently
-    /// query the wrong space when the operator sets the override.
-    fn from_vault_config(c: &oximemo_core::config::VaultConfig) -> Self {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let space = oximemo_core::brain::resolve_space(std::path::Path::new(&home), &c.brain.space);
-        Self {
-            enabled: c.brain.enabled,
-            socket: c.brain.socket.clone(),
-            space,
+impl BrainFailure {
+    fn as_str(self) -> &'static str {
+        match self {
+            BrainFailure::BinaryMissing => "binary_missing",
+            BrainFailure::SpawnFailed => "spawn_failed",
+            BrainFailure::HandshakeFailed => "handshake_failed",
         }
     }
 }
 
-async fn brain_connect(
-    cfg: &BrainEndpointConf,
-) -> anyhow::Result<(
-    oxibrain_client::BrainClient,
-    oxibrain_client::BrainCapabilities,
-)> {
-    if cfg.socket.is_empty() {
-        oxibrain_client::BrainClient::connect_default().await
+/// `[brain].executable` override; empty = spawn `"oxibrain"` and let
+/// the OS resolve PATH (brain 0.10 cutover decision 2).
+fn resolve_brain_executable(executable: &str) -> String {
+    if executable.is_empty() {
+        "oxibrain".to_string()
     } else {
-        let mut client = oxibrain_client::BrainClient::connect(&cfg.socket).await?;
-        let caps = client
-            .handshake(oxibrain_client::default_client_hello(concat!(
-                env!("CARGO_PKG_NAME"),
-                " ",
-                env!("CARGO_PKG_VERSION")
-            )))
-            .await?;
-        Ok((client, caps))
+        executable.to_string()
     }
+}
+
+/// Spawn `oxibrain admin serve --stdio` as a short-lived child and
+/// negotiate capabilities. The child dies when the returned client is
+/// dropped (`kill_on_drop`) — no daemon, no socket, no state. A spawn
+/// ENOENT maps to [`BrainFailure::BinaryMissing`] so the panel can say
+/// "not installed" instead of a generic failure.
+async fn spawn_brain(
+    executable: &str,
+) -> Result<
+    (oxibrain_client::BrainClient, oxibrain_client::BrainCapabilities),
+    BrainFailure,
+> {
+    use std::io::ErrorKind;
+    let endpoint = oxibrain_client::LocalProcessEndpoint::new(
+        resolve_brain_executable(executable),
+        oximemo_core::brain::brain_dir(),
+    );
+    let mut client = oxibrain_client::BrainClient::spawn_local(endpoint).await.map_err(|e| {
+        let binary_missing = e
+            .root_cause()
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == ErrorKind::NotFound);
+        if binary_missing {
+            tracing::debug!("brain: oxibrain binary not found on PATH");
+            BrainFailure::BinaryMissing
+        } else {
+            tracing::debug!(error = %e, "brain: spawn failed");
+            BrainFailure::SpawnFailed
+        }
+    })?;
+    let caps = client
+        .handshake(oxibrain_client::default_client_hello(concat!(
+            env!("CARGO_PKG_NAME"),
+            " ",
+            env!("CARGO_PKG_VERSION")
+        )))
+        .await
+        .map_err(|e| {
+            tracing::debug!(error = %e, "brain: handshake failed");
+            BrainFailure::HandshakeFailed
+        })?;
+    Ok((client, caps))
 }
 
 mod commands {
@@ -1470,28 +1555,28 @@ mod commands {
         Ok(state.vault.note_dto(&memo))
     }
 
-    /// oxibrain daemon health + counts for the panel's status dot. Daemon
-    /// down is a normal state, not an error: `{online: false, ...}`.
+    /// oxibrain health + counts for the panel's status dot (brain 0.10
+    /// cutover §3). Each interaction spawns a short-lived
+    /// `oxibrain admin serve --stdio` child; "offline" is a failure
+    /// reason, not a daemon state. Never `Err` — the panel renders the
+    /// reason as a normal gray state (C1).
     #[tauri::command]
     pub async fn brain_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-        let cfg = state
-            .vault
-            .with_config(crate::BrainEndpointConf::from_vault_config);
-        if !cfg.enabled {
-            return Ok(serde_json::json!({"online": false, "disabled": true}));
+        let (enabled, executable) =
+            state.vault.with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
+        if !enabled {
+            return Ok(serde_json::json!({"online": false, "reason": "disabled"}));
         }
-        let (mut client, caps) = match crate::brain_connect(&cfg).await {
+        let (mut client, caps) = match crate::spawn_brain(&executable).await {
             Ok(c) => c,
-            Err(e) => {
-                tracing::debug!(error = %e, "brain: daemon unreachable");
-                return Ok(serde_json::json!({"online": false}));
-            }
+            Err(f) => return Ok(serde_json::json!({"online": false, "reason": f.as_str()})),
         };
-        let stats = match client.stats(&cfg.space).await {
+        let space = oximemo_core::brain::vault_space_name(&state.vault.paths().vault);
+        let stats = match client.stats(&space).await {
             Ok(v) => v,
             Err(e) => {
                 tracing::debug!(error = %e, "brain: stats failed");
-                return Ok(serde_json::json!({"online": false}));
+                return Ok(serde_json::json!({"online": false, "reason": "stats_failed"}));
             }
         };
         let count = |k: &str| stats.get(k).and_then(|v| v.as_u64());
@@ -1505,86 +1590,53 @@ mod commands {
         }))
     }
 
-    /// Assemble recall layers for a query. Daemon down → Err so the panel
-    /// can show its offline line; the note editor itself is unaffected.
+    /// Assemble recall layers for a query. Brain failure → Err so the
+    /// panel can show its offline line; the note editor itself is
+    /// unaffected. The recall envelope is forwarded verbatim.
     #[tauri::command]
     pub async fn brain_gather(
         state: State<'_, AppState>,
         query: String,
         budget: Option<u32>,
     ) -> Result<serde_json::Value, String> {
-        let cfg = state
-            .vault
-            .with_config(crate::BrainEndpointConf::from_vault_config);
-        if !cfg.enabled {
+        let (enabled, executable) =
+            state.vault.with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
+        if !enabled {
             return Err("brain disabled in config".to_string());
         }
-        let (mut client, _caps) = crate::brain_connect(&cfg)
+        let (mut client, _caps) = crate::spawn_brain(&executable)
             .await
-            .map_err(|e| format!("brain offline: {e}"))?;
+            .map_err(|f| format!("brain offline: {}", f.as_str()))?;
+        let space = oximemo_core::brain::vault_space_name(&state.vault.paths().vault);
         client
-            .recall(&query, &cfg.space, budget.unwrap_or(4000) as usize)
+            .recall(&query, &space, budget.unwrap_or(4000) as usize)
             .await
             .map_err(|e| format!("brain recall failed: {e}"))
     }
 
-    /// Occurrence-chain history of one note from the brain ledger
-    /// (Consumption Contract 1.3): every revision the vault sync ingested,
-    /// oldest first, full content. Daemon down → Err so the panel hides
-    /// itself; the note editor is unaffected (C1). Mechanical undo is the
-    /// local git layer's job — this is the semantic "how it evolved" view.
+    /// Revision history of one note from the documents plane
+    /// (supersedes `episodes_for_locator`, Consumption Contract 1.4):
+    /// every gix revision the reconcile ingested, oldest first, full
+    /// content. Failure → Err so the panel hides itself (C1).
     #[tauri::command]
     pub async fn brain_history(
         state: State<'_, AppState>,
         path: String,
     ) -> Result<serde_json::Value, String> {
-        let cfg = state
-            .vault
-            .with_config(crate::BrainEndpointConf::from_vault_config);
-        if !cfg.enabled {
+        let (enabled, executable) =
+            state.vault.with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
+        if !enabled {
             return Err("brain disabled in config".to_string());
         }
-        let dir = state.vault.paths().vault.to_string_lossy().into_owned();
-        let (mut client, _caps) = crate::brain_connect(&cfg)
+        let (mut client, _caps) = crate::spawn_brain(&executable)
             .await
-            .map_err(|e| format!("brain offline: {e}"))?;
-        let episodes = client
-            .episodes_for_locator(&dir, &path, &cfg.space)
+            .map_err(|f| format!("brain offline: {}", f.as_str()))?;
+        let space = oximemo_core::brain::vault_space_name(&state.vault.paths().vault);
+        let revisions = client
+            .document_history(&space, &space, &path, 50)
             .await
             .map_err(|e| format!("brain history failed: {e}"))?;
-        serde_json::to_value(&episodes).map_err(|e| e.to_string())
-    }
-
-    /// Spaces the daemon exposes, for the settings picker. Offline is a
-    /// normal state (C1): `{online: false, spaces: []}` — the UI falls back
-    /// to a free-text input.
-    #[tauri::command]
-    pub async fn brain_list_spaces(
-        state: State<'_, AppState>,
-    ) -> Result<serde_json::Value, String> {
-        let cfg = state
-            .vault
-            .with_config(crate::BrainEndpointConf::from_vault_config);
-        if !cfg.enabled {
-            return Ok(serde_json::json!({ "online": false, "spaces": [] }));
-        }
-        let (mut client, _caps) = match crate::brain_connect(&cfg).await {
-            Ok(c) => c,
-            Err(_) => return Ok(serde_json::json!({ "online": false, "spaces": [] })),
-        };
-        match client.list_spaces().await {
-            Ok(list) => Ok(serde_json::json!({
-                "online": true,
-                "spaces": list
-                    .iter()
-                    .map(|s| serde_json::json!({
-                        "name": s.name,
-                        "episodes": s.episode_count,
-                    }))
-                    .collect::<Vec<_>>(),
-            })),
-            Err(_) => Ok(serde_json::json!({ "online": false, "spaces": [] })),
-        }
+        serde_json::to_value(&revisions).map_err(|e| e.to_string())
     }
 
     // -- config sections (TOML ⇄ GUI parity) --------------------------------
