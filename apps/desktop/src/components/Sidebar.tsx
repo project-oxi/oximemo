@@ -1,11 +1,11 @@
 /**
  * Collapsible left sidebar — Finder-model curation surface: FAVORITES
- * (전체 메모/즐겨찾기/갤러리 as an icon grid), QUERIES (the installed
- * `할 일` shortcut + saved `.query` collections), LOCATIONS (the vault
- * root, daily + knowledge, and pinned first-party collections as an
- * icon grid; regular pinned folders keep managed rows), TASKS (the
- * slim overdue+today panel), RECENTS, TAGS, and the space switcher
- * pinned to the bottom edge. Folder browsing happens in the main area.
+ * (one icon grid: 전체 메모/즐겨찾기/갤러리 smart collections + the vault
+ * root, daily + knowledge locations, and pinned first-party collections
+ * growing in the same grid; regular pinned folders keep managed rows),
+ * QUERIES (the installed `할 일` shortcut + saved `.query` collections),
+ * TASKS (the slim overdue+today panel), RECENTS, TAGS, and the space
+ * switcher pinned to the bottom edge. Folder browsing happens in the main area.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
@@ -258,15 +258,20 @@ export function Sidebar({
     <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface-sunken/60 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <div data-tauri-drag-region className="h-12 shrink-0" />
 
-      {/* FAVORITES — first-party smart collections as an icon grid; the
-          name (and count) rides the hover title. Folder locations (pinned
-          or the vault root) live in LOCATIONS below. */}
-      <div className="flex items-center px-3">
+      {/* FAVORITES — one Finder-model curation grid: the smart
+          collections (all notes / favorites / gallery), the vault
+          locations (root, daily, knowledge), and pinned first-party
+          collections grow in the same grid as pins are added (names on
+          hover; collection cells manage rename/unpin/delete via the
+          right-click menu). Regular pinned folders keep their rows. */}
+      <div className="mt-3 flex items-center px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
           {t.favorites_section}
         </span>
       </div>
       <div className="grid grid-cols-4 gap-1 px-2 pt-1">
+        {/* Smart collections lead the grid — the app's fixed,
+            always-present destinations. */}
         <NavCell
           icon={<Layers size={18} aria-hidden />}
           title={total > 0 ? `${t.all_memos} · ${total}` : t.all_memos}
@@ -285,7 +290,78 @@ export function Sidebar({
           selected={view === "gallery"}
           onClick={() => setView("gallery")}
         />
+        <LocationCell
+          path=""
+          icon={<Archive size={18} aria-hidden />}
+          label={t.vault_root}
+          selected={view === "memos" && !favoritesOnly && folderFilter === ""}
+          onClick={() => {
+            setView("memos");
+            setFavoritesOnly(false);
+            setFolderFilter("");
+          }}
+          onMoveNote={onMoveNote}
+          onMoveFolderTree={onMoveFolderTree}
+        />
+        {dailyEnabled && dailyFolder && (
+          <LocationCell
+            path={dailyFolder}
+            icon={<CalendarDays size={18} aria-hidden />}
+            label={folderDisplayName(dailyFolder, t, dailyFolder)}
+            selected={view === "memos" && !favoritesOnly && folderFilter === dailyFolder}
+            onClick={() => openFolder(dailyFolder)}
+            onMoveNote={onMoveNote}
+            onMoveFolderTree={onMoveFolderTree}
+          />
+        )}
+        {/* The knowledge folder is a shipped system folder (migrate
+            guarantees it) — always in the grid; gridPins excludes the
+            system paths so a pin can no longer duplicate it. */}
+        <LocationCell
+          path={DEFAULT_KNOWLEDGE_FOLDER}
+          icon={<GraduationCap size={18} aria-hidden />}
+          label={t.sysfolder_knowledge}
+          selected={view === "memos" && !favoritesOnly && folderFilter === DEFAULT_KNOWLEDGE_FOLDER}
+          onClick={() => openFolder(DEFAULT_KNOWLEDGE_FOLDER)}
+          onMoveNote={onMoveNote}
+          onMoveFolderTree={onMoveFolderTree}
+        />
+        {gridPins.map((f) => (
+          <CollectionCell
+            key={f.path}
+            path={f.path}
+            icon={presetIcons[f.path]}
+            folders={folders}
+            selected={folderFilter === f.path}
+            naming={pinNaming === f.path}
+            onOpen={openFolder}
+            onUnpin={unpin}
+            onRename={setPinNaming}
+            onNameCommit={commitPinRename}
+            onDelete={deletePinFolder}
+            onMoveNote={onMoveNote}
+            onMoveFolderTree={onMoveFolderTree}
+          />
+        ))}
       </div>
+      {folderPins.map((f) => (
+        <SidebarFolderRow
+          key={f.path}
+          path={f.path}
+          folders={folders}
+          selected={folderFilter === f.path}
+          naming={pinNaming === f.path}
+          pinPaths={pinPaths}
+          onOpen={openFolder}
+          onUnpin={unpin}
+          onRename={setPinNaming}
+          onNameCommit={commitPinRename}
+          onDelete={deletePinFolder}
+          onReorder={reorderPins}
+          onMoveNote={onMoveNote}
+          onMoveFolderTree={onMoveFolderTree}
+        />
+      ))}
       {/* QUERIES — saved .query collections (query views spec §5). */}
       <div className="mt-3 flex items-center justify-between pr-3 pl-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
@@ -396,88 +472,6 @@ export function Sidebar({
           );
         })
       )}
-      {/* LOCATIONS — the vault root, daily, and knowledge system folders
-          plus pinned first-party collections as an icon grid (names on
-          hover; collection cells manage rename/unpin/delete via the
-          right-click menu). Regular pinned folders keep their rows. */}
-      <div className="mt-3 flex items-center px-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-          {t.locations_section}
-        </span>
-      </div>
-      <div className="grid grid-cols-4 gap-1 px-2 pt-1">
-        <LocationCell
-          path=""
-          icon={<Archive size={18} aria-hidden />}
-          label={t.vault_root}
-          selected={view === "memos" && !favoritesOnly && folderFilter === ""}
-          onClick={() => {
-            setView("memos");
-            setFavoritesOnly(false);
-            setFolderFilter("");
-          }}
-          onMoveNote={onMoveNote}
-          onMoveFolderTree={onMoveFolderTree}
-        />
-        {dailyEnabled && dailyFolder && (
-          <LocationCell
-            path={dailyFolder}
-            icon={<CalendarDays size={18} aria-hidden />}
-            label={folderDisplayName(dailyFolder, t, dailyFolder)}
-            selected={view === "memos" && !favoritesOnly && folderFilter === dailyFolder}
-            onClick={() => openFolder(dailyFolder)}
-            onMoveNote={onMoveNote}
-            onMoveFolderTree={onMoveFolderTree}
-          />
-        )}
-        {/* The knowledge folder is a shipped system folder (migrate
-            guarantees it) — always in the grid; gridPins excludes the
-            system paths so a pin can no longer duplicate it. */}
-        <LocationCell
-          path={DEFAULT_KNOWLEDGE_FOLDER}
-          icon={<GraduationCap size={18} aria-hidden />}
-          label={t.sysfolder_knowledge}
-          selected={view === "memos" && !favoritesOnly && folderFilter === DEFAULT_KNOWLEDGE_FOLDER}
-          onClick={() => openFolder(DEFAULT_KNOWLEDGE_FOLDER)}
-          onMoveNote={onMoveNote}
-          onMoveFolderTree={onMoveFolderTree}
-        />
-        {gridPins.map((f) => (
-          <CollectionCell
-            key={f.path}
-            path={f.path}
-            icon={presetIcons[f.path]}
-            folders={folders}
-            selected={folderFilter === f.path}
-            naming={pinNaming === f.path}
-            onOpen={openFolder}
-            onUnpin={unpin}
-            onRename={setPinNaming}
-            onNameCommit={commitPinRename}
-            onDelete={deletePinFolder}
-            onMoveNote={onMoveNote}
-            onMoveFolderTree={onMoveFolderTree}
-          />
-        ))}
-      </div>
-      {folderPins.map((f) => (
-        <SidebarFolderRow
-          key={f.path}
-          path={f.path}
-          folders={folders}
-          selected={folderFilter === f.path}
-          naming={pinNaming === f.path}
-          pinPaths={pinPaths}
-          onOpen={openFolder}
-          onUnpin={unpin}
-          onRename={setPinNaming}
-          onNameCommit={commitPinRename}
-          onDelete={deletePinFolder}
-          onReorder={reorderPins}
-          onMoveNote={onMoveNote}
-          onMoveFolderTree={onMoveFolderTree}
-        />
-      ))}
 
 
       {/* TASKS — slim companion to the full `할 일` base view (the

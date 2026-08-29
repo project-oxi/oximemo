@@ -197,7 +197,6 @@ export const dict: Record<keyof typeof ko, string> = {
   brain_history_empty: "No recorded revisions yet. They appear here once the note syncs to the brain.",
   brain_history_more_chars: "more characters",
   all_memos: "All Notes",
-  locations_section: "Locations",
   tags_section: "Tags",
   colors_section: "Colors",
   all_tags: "All tags",

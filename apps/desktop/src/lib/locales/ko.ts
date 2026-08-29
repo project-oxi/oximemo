@@ -195,7 +195,6 @@ export const dict = {
   brain_history_empty: "아직 기록된 리비전이 없습니다. 노트가 브레인에 동기화되면 여기에 쌓입니다.",
   brain_history_more_chars: "자 더 있음",
   all_memos: "전체 메모",
-  locations_section: "위치",
   tags_section: "태그",
   colors_section: "색상",
   all_tags: "모든 태그",

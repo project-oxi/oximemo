@@ -135,7 +135,7 @@ function CopilotFab() {
 /**
  * One-shot migration (2026-08-23): collections installed before install-time
  * auto-pinning landed (user report — installed collections never showed in
- * the sidebar's 위치 section) get pinned once. Runs after every folder schema
+ * the sidebar's 즐겨찾기 section) get pinned once. Runs after every folder schema
  * settles, pins unpinned collection presets, then marks itself done; a later
  * deliberate unpin is respected forever after.
  */
