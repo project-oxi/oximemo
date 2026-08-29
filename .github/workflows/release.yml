@@ -236,16 +236,17 @@ jobs:
         with:
           key: publish-crates
 
-      # Leaf crates have no internal dependencies and can publish immediately.
-      # oximemo-cli depends on oximemo-core, so core must be indexed first.
+      # Publish in dependency topology: core resolves oxi-frontmatter from
+      # the registry, and metadata resolves oximemo-core — publishing
+      # metadata before core fails version selection (v0.11.0 postmortem).
       # Version is read per-crate via cargo metadata (workspace-inherited and
       # standalone versions alike — oxi-vault-git is 0.x, not the app version).
-      - name: Publish leaf crates (frontmatter, metadata, core, capture, oxi-vault-git)
+      - name: Publish crates (frontmatter, vault-git, core, capture, metadata)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          for crate in oxi-frontmatter oximemo-metadata oximemo-core oximemo-capture oxi-vault-git; do
+          for crate in oxi-frontmatter oxi-vault-git oximemo-core oximemo-capture oximemo-metadata; do
             CV=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$crate\") | .version")
             echo "Publishing $crate@$CV"
             if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \
