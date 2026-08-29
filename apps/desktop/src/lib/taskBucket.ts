@@ -4,9 +4,8 @@
  * fallback. Pure — takes the two nullable dates plus a local ISO today
  * so callers can pin the key from `useTodayKey`.
  *
- * 이번 주 follows dates.ts's Sunday-first week convention (the sidebar
- * calendar grid): the current week ends on SATURDAY, so the next Sunday
- * already buckets as 이후.
+ * 이번 주 follows dates.ts's Sunday-first week convention: the current
+ * week ends on SATURDAY, so the next Sunday already buckets as 이후.
  */
 import { daysBetween } from "./dates";
 import type { TaskDto } from "./types";

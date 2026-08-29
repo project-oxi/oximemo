@@ -1,11 +1,11 @@
 /**
  * Collapsible left sidebar — Finder-model curation surface: FAVORITES
- * (smart collections 전체 메모/즐겨찾기/갤러리), LOCATIONS (볼트 root
- * browse entry + explicitly pinned folders + the daily folder row),
- * QUERIES (saved `.query` collections + the installed `할 일` shortcut),
- * TASKS (the slim overdue+today panel that opens the full tasks view
- * on click), RECENTS, and TAGS. Folder browsing happens in the main
- * area; the 볼트 row enters it at the root.
+ * (smart collections 전체 메모/즐겨찾기/갤러리), QUERIES (the installed
+ * `할 일` shortcut + saved `.query` collections), LOCATIONS (볼트 root
+ * browse entry, the daily + knowledge folder rows, explicitly pinned
+ * folders), RECENTS, TASKS (the slim overdue+today panel that opens
+ * the full tasks view on click), and TAGS. Folder browsing happens in
+ * the main area; the 볼트 row enters it at the root.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
@@ -222,8 +222,8 @@ export function Sidebar({
   }, [pinSchemas]);
 
   // Daily notes: opt-out via config (absent = enabled). The LOCATIONS row
-  // below browses the daily folder; the sidebar's mini-calendar + today
-  // shortcut moved to the main area in T-사이드바.
+  // below browses the daily folder; today's note opens from the main
+  // area's TODAY button and the command palette, not from this sidebar.
   const dailyCfg = configQ.data?.daily;
   const dailyEnabled = dailyCfg?.enabled !== false;
   const dailyFolder = dailyCfg?.folder || "daily";
@@ -405,8 +405,7 @@ export function Sidebar({
       )}
       {/* LOCATIONS — the vault root browse entry (folder tiles live in the
           main area; this is how you get back to top-level browsing), the
-          daily folder (a real path — the calendar block below navigates
-          notes, this browses the folder), and pinned folders. */}
+          daily and knowledge system folders, and pinned folders. */}
       <div className="mt-3 flex items-center px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
           {t.locations_section}

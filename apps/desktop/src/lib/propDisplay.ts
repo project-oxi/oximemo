@@ -146,19 +146,3 @@ export function badgeTone(token: string | undefined): string {
   }
 }
 
-/** Schema color token → calendar-dot background class. Neutral/muted
- *  tokens return null so the caller keeps its default dot color. */
-export function toneBg(token: string | undefined): string | null {
-  switch (token) {
-    case "success":
-      return "bg-hue-green";
-    case "warning":
-      return "bg-hue-amber";
-    case "info":
-      return "bg-hue-blue";
-    case "error":
-      return "bg-hue-red";
-    default:
-      return null;
-  }
-}

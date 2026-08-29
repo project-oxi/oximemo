@@ -53,13 +53,6 @@ export function monthTitle(y: number, m: number, locale: string): string {
   return fmt.format(new Date(y, m - 1, 1));
 }
 
-/** Local date subtitle like "8월 22일 (토)" (ko) / "Aug 22 (Fri)" (en). */
-export function dayLabel(iso: string, locale: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Intl.DateTimeFormat(locale, { month: "long", day: "numeric", weekday: "short" }).format(
-    new Date(y, m - 1, d),
-  );
-}
 
 /** Local YYYY-MM-DD from an RFC3339 timestamp (core `created`/`updated`).
  *  Falls back to the first 10 chars when the timestamp is malformed. */
