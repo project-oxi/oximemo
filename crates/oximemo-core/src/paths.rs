@@ -103,11 +103,26 @@ impl Paths {
         }
     }
 
+    /// Resolve paths for a spec-aware vault selection (spec 2026-08-28
+    /// §1). A space vault namespaces its derived index as
+    /// `…/index/<space>/`; an explicit path keeps the historical
+    /// `…/index/by-vault/<hash>/`.
+    pub fn resolve_spec(spec: &crate::spaces::VaultSpec) -> Self {
+        match spec {
+            crate::spaces::VaultSpec::Space(name) => Self {
+                vault: default_vault_dir().join(name),
+                index_dir: app_support_dir().join(INDEX_SUBDIR).join(name),
+            },
+            crate::spaces::VaultSpec::Explicit(p) => Self::resolve(Some(p)),
+        }
+    }
+
     /// Root directory to scan for notes (= vault root). Files live directly
     /// in physical folders, not date-sharded subdirectories.
     pub fn scan_root(&self) -> &Path {
         &self.vault
     }
+
 
     pub fn trash_root(&self) -> PathBuf {
         self.vault.join(TRASH_DIR)
@@ -441,5 +456,23 @@ mod tests {
         let none = Paths::resolve(None);
         assert_eq!(none.index_dir, app_support_dir().join(INDEX_SUBDIR));
         assert!(!none.index_dir.starts_with(&root));
+    }
+
+    #[test]
+    fn space_vaults_get_namespaced_indexes() {
+        let a = Paths::resolve_spec(&crate::spaces::VaultSpec::Space("a".into()));
+        let b = Paths::resolve_spec(&crate::spaces::VaultSpec::Space("b".into()));
+        assert_eq!(a.vault, default_vault_dir().join("a"));
+        assert_eq!(b.vault, default_vault_dir().join("b"));
+        assert_ne!(a.index_dir, b.index_dir);
+        assert!(a.index_dir.ends_with("index/a"));
+    }
+
+    #[test]
+    fn explicit_spec_keeps_by_vault_hash_index() {
+        let s = crate::spaces::VaultSpec::Explicit(PathBuf::from("/tmp/some-vault"));
+        let p = Paths::resolve_spec(&s);
+        let q = Paths::resolve(Some(Path::new("/tmp/some-vault")));
+        assert_eq!(p.index_dir, q.index_dir);
     }
 }
