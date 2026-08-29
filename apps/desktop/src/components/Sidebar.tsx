@@ -3,8 +3,8 @@
  * (smart collections 전체 메모/즐겨찾기/갤러리), QUERIES (the installed
  * `할 일` shortcut + saved `.query` collections), LOCATIONS (볼트 root
  * browse entry, the daily + knowledge folder rows, explicitly pinned
- * folders), RECENTS, TASKS (the slim overdue+today panel that opens
- * the full tasks view on click), and TAGS. Folder browsing happens in
+ * folders), TASKS (the slim overdue+today panel that opens the full
+ * tasks view on click), RECENTS, and TAGS. Folder browsing happens in
  * the main area; the 볼트 row enters it at the root.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -471,6 +471,12 @@ export function Sidebar({
       ))}
 
 
+      {/* TASKS — slim companion to the full `할 일` base view (the
+          chevron in the panel header opens the full one in the main
+          area). Gated by the same `[tasks] enabled` + base-file-exists
+          rules as the QUERIES entry above — deliberate deletion of the
+          installed base hides both surfaces. */}
+      {tasksEnabled && hasTasksBase && <TasksPanel />}
       {/* RECENTS — recently updated notes, one click to open. */}
       {recents.length > 0 && (
         <>
@@ -497,12 +503,6 @@ export function Sidebar({
           </div>
         </>
       )}
-      {/* TASKS — slim companion to the full `할 일` base view (the
-          chevron in the panel header opens the full one in the main
-          area). Gated by the same `[tasks] enabled` + base-file-exists
-          rules as the QUERIES entry above — deliberate deletion of the
-          installed base hides both surfaces. */}
-      {tasksEnabled && hasTasksBase && <TasksPanel />}
       {/* TAGS */}
       <div className="mt-3 flex items-center justify-between px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">{t.tags_section}</span>
