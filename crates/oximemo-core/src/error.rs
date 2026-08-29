@@ -85,6 +85,9 @@ pub enum CoreError {
     #[error("image rejected: {0}")]
     AssetRejected(String),
 
+    #[error("invalid space name: {0}")]
+    InvalidSpaceName(String),
+
     #[error("expression error at {line}:{col}: {message}")]
     Expr {
         message: String,

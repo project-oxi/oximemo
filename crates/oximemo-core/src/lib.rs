@@ -23,6 +23,7 @@ pub mod migrate_vault;
 pub mod paths;
 pub mod props;
 pub mod schema;
+pub mod spaces;
 pub mod tags;
 pub mod tasks;
 pub mod template;
