@@ -1,6 +1,7 @@
 //! Spaces — per-space vault identity (spec 2026-08-28).
 //!
-//! A space is one directory under `~/.oxi/vault/`; the directory name
+//! A space is one directory under `~/.oxi/spaces/`; its `vault/` child
+//! contains the user files. The directory name
 //! is the space identity for the vault path, the derived index
 //! namespace, and the brain registration. This module owns name
 //! validation, the app-local "last selected space" setting, and the
@@ -17,7 +18,7 @@ use crate::error::{CoreError, Result};
 pub const DEFAULT_SPACE_NAME: &str = "personal";
 
 /// A space name is an identifier: it becomes a directory name under
-/// `~/.oxi/vault/`. Letters (any script), digits, `-`, `_`; length
+/// `~/.oxi/spaces/<name>/vault/`. Letters (any script), digits, `-`, `_`; length
 /// 1..=64 after trimming. Verbatim semantics of oxibrain-core's
 /// `validate_space_name` (spec 2026-08-28 §4) — the two rules must not
 /// drift; the acceptance corpus in `tests` pins the shared cases.
@@ -46,14 +47,22 @@ pub fn validate_space_name(raw: &str) -> Result<String> {
     Ok(name.to_string())
 }
 
-/// `~/.oxi/vault/` — the container whose subdirectories are spaces.
-pub fn spaces_root(home: &Path) -> PathBuf {
-    home.join(".oxi").join("vault")
+/// `<oxi-home>/spaces/` — the container whose subdirectories are spaces.
+/// Takes the Oxi home (`~/.oxi`, i.e. [`crate::paths::oxi_home()`]), not
+/// the user home: every space path hangs directly off the Oxi tree so
+/// `OXI_HOME` relocates it wholesale.
+pub fn spaces_root(oxi_home: &Path) -> PathBuf {
+    oxi_home.join("spaces")
 }
 
-/// `~/.oxi/vault/<name>/` for a validated space name.
-pub fn space_dir(home: &Path, name: &str) -> PathBuf {
-    spaces_root(home).join(name)
+/// `<oxi-home>/spaces/<name>/` for a validated space name.
+pub fn space_dir(oxi_home: &Path, name: &str) -> PathBuf {
+    spaces_root(oxi_home).join(name)
+}
+
+/// `<oxi-home>/spaces/<name>/vault/` for a validated space name.
+pub fn space_vault_dir(oxi_home: &Path, name: &str) -> PathBuf {
+    space_dir(oxi_home, name).join(crate::paths::VAULT_DEFAULT_SUBDIR)
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -95,7 +104,7 @@ pub fn set_last_space(name: &str) -> Result<()> {
 pub enum VaultSpec {
     /// Explicit path (`--vault` / `OXIMEMO_VAULT`). Tests and custom setups.
     Explicit(PathBuf),
-    /// A space directory: `~/.oxi/vault/<name>/`.
+    /// A space directory: `~/.oxi/spaces/<name>/vault/`.
     Space(String),
 }
 
@@ -118,21 +127,20 @@ pub fn resolve_vault_spec(explicit: Option<&Path>, space: Option<&str>) -> Resul
     if let Some(raw) = space {
         return Ok(VaultSpec::Space(validate_space_name(raw)?));
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let home = crate::paths::oxi_home();
     if let Some(name) = last_space()
-        && space_dir(Path::new(&home), &name).is_dir()
+        && space_vault_dir(&home, &name).is_dir()
     {
         return Ok(VaultSpec::Space(name));
     }
     Ok(VaultSpec::Space(DEFAULT_SPACE_NAME.to_string()))
 }
 
-/// Every space directory under `~/.oxi/vault/`: subdirectories whose
+/// Every space directory under `~/.oxi/spaces/`: subdirectories whose
 /// names pass validation, skipping dotfiles, sorted. The filesystem is
 /// the registry — the daemon is never consulted (offline is normal).
 pub fn list_spaces() -> Vec<String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let root = spaces_root(Path::new(&home));
+    let root = spaces_root(&crate::paths::oxi_home());
     let mut names: Vec<String> = std::fs::read_dir(&root)
         .into_iter()
         .flatten()
@@ -146,18 +154,19 @@ pub fn list_spaces() -> Vec<String> {
     names
 }
 
-/// Create a space by name (idempotent) and scaffold it: `mkdir -p`,
+/// Create a space by name (idempotent) and scaffold its `vault/`: `mkdir -p`,
 /// then `Vault::open_spec` + `ensure_initialized` (folders, config).
 /// No brain-directory writes here — the active space's documents root
 /// is ensured on the next open (brain 0.10 cutover spec §2).
 pub fn create_space(name: &str) -> Result<PathBuf> {
     let name = validate_space_name(name)?;
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let dir = space_dir(Path::new(&home), &name);
-    std::fs::create_dir_all(&dir)?;
+    let home = crate::paths::oxi_home();
+    let dir = space_dir(&home, &name);
+    let vault_dir = space_vault_dir(&home, &name);
+    std::fs::create_dir_all(&vault_dir)?;
     let vault = crate::Vault::open_spec(&VaultSpec::Space(name))?;
     vault.migrate()?;
-    let config = dir.join(crate::paths::CONFIG_NAME);
+    let config = vault_dir.join(crate::paths::CONFIG_NAME);
     if !config.is_file() {
         oxi_frontmatter::atomic_write(&config, b"# oximemo vault configuration\n")?;
     }
@@ -168,9 +177,9 @@ pub fn create_space(name: &str) -> Result<PathBuf> {
 /// (create first). Returns the space dir for the caller to report.
 pub fn switch_space(name: &str) -> Result<PathBuf> {
     let name = validate_space_name(name)?;
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let dir = space_dir(Path::new(&home), &name);
-    if !dir.is_dir() {
+    let home = crate::paths::oxi_home();
+    let dir = space_dir(&home, &name);
+    if !space_vault_dir(&home, &name).is_dir() {
         return Err(CoreError::Other(format!(
             "space '{name}' does not exist (create it first: oximemo space add {name})"
         )));
@@ -234,10 +243,13 @@ mod tests {
 
     #[test]
     fn spaces_root_layout() {
-        assert_eq!(spaces_root(Path::new("/h")), PathBuf::from("/h/.oxi/vault"));
         assert_eq!(
-            space_dir(Path::new("/h"), "work"),
-            PathBuf::from("/h/.oxi/vault/work")
+            spaces_root(Path::new("/h/.oxi")),
+            PathBuf::from("/h/.oxi/spaces")
+        );
+        assert_eq!(
+            space_dir(Path::new("/h/.oxi"), "work"),
+            PathBuf::from("/h/.oxi/spaces/work")
         );
     }
 
@@ -247,10 +259,11 @@ mod tests {
     fn list_spaces_is_sorted_and_validated() {
         let home = tempfile::tempdir().unwrap().keep();
         crate::migrate_vault::with_home(&home, || {
-            std::fs::create_dir_all(space_dir(&home, "beta")).unwrap();
-            std::fs::create_dir_all(space_dir(&home, "alpha")).unwrap();
-            std::fs::create_dir_all(space_dir(&home, ".hidden")).unwrap();
-            std::fs::create_dir_all(space_dir(&home, "not ok")).unwrap();
+            let oxi = home.join(".oxi");
+            std::fs::create_dir_all(space_dir(&oxi, "beta")).unwrap();
+            std::fs::create_dir_all(space_dir(&oxi, "alpha")).unwrap();
+            std::fs::create_dir_all(space_dir(&oxi, ".hidden")).unwrap();
+            std::fs::create_dir_all(space_dir(&oxi, "not ok")).unwrap();
             assert_eq!(list_spaces(), vec!["alpha".to_string(), "beta".to_string()]);
         });
     }
@@ -260,7 +273,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap().keep();
         crate::migrate_vault::with_home(&home, || {
             let dir = create_space("work").unwrap();
-            assert!(dir.join("oximemo.toml").is_file()); // ensure_initialized scaffold
+            assert!(dir.join("vault/oximemo.toml").is_file()); // ensure_initialized scaffold
             let dir2 = create_space("work").unwrap();
             assert_eq!(dir, dir2);
         });
@@ -278,7 +291,7 @@ mod tests {
             assert!(switch_space("ghost").is_err()); // missing dir
             create_space("work").unwrap();
             let dir = switch_space("work").unwrap();
-            assert_eq!(dir, space_dir(&home, "work"));
+            assert_eq!(dir, space_dir(&home.join(".oxi"), "work"));
             assert_eq!(last_space(), Some("work".to_string()));
         });
     }
@@ -318,7 +331,7 @@ mod tests {
             let s = resolve_vault_spec(None, None).unwrap();
             assert!(matches!(&s, VaultSpec::Space(n) if n == "personal"));
             // Directory exists → selected.
-            std::fs::create_dir_all(space_dir(&home, "gone")).unwrap();
+            std::fs::create_dir_all(space_vault_dir(&home.join(".oxi"), "gone")).unwrap();
             let s = resolve_vault_spec(None, None).unwrap();
             assert!(matches!(&s, VaultSpec::Space(n) if n == "gone"));
         });

@@ -3,7 +3,7 @@
 //! The pre-spaces vault lives *flat* at `~/.oxi/vault` (notes, folders,
 //! `.git` directly under it). With spaces adopted, that flat root is the
 //! *container* of space directories — so the legacy content moves into
-//! the default space `~/.oxi/vault/personal/` once, on `Vault::open`,
+//! the default space `~/.oxi/spaces/personal/vault/` once, on `Vault::open`,
 //! before path resolution. Provisioned space directories (roots in
 //! oxibrain's `~/.oxi/brain/documents.toml`) are excluded from the move;
 //! a pre-existing `personal/` blocks the move with `MergeRequired`
@@ -82,7 +82,7 @@ fn root_paths(text: &str) -> Vec<String> {
 /// absolute spelling). These are spaces, not flat content.
 fn provisioned_space_names(home: &Path) -> Vec<String> {
     let text = std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap_or_default();
-    let flat = spaces::spaces_root(home);
+    let flat = home.join(".oxi").join("vault");
     let flat_canonical = flat.canonicalize().unwrap_or_else(|_| flat.clone());
     let mut names = Vec::new();
     for raw in root_paths(&text) {
@@ -120,8 +120,8 @@ fn rewrite_documents_flat_root(home: &Path) -> Result<bool> {
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Ok(false);
     };
-    let flat = spaces::spaces_root(home);
-    let target = spaces::space_dir(home, DEFAULT_SPACE_NAME);
+    let flat = home.join(".oxi").join("vault");
+    let target = spaces::space_vault_dir(&home.join(".oxi"), DEFAULT_SPACE_NAME);
     let flat_str = flat.to_string_lossy().to_string();
     let flat_tilde = "~/.oxi/vault".to_string();
     let replacements = [
@@ -159,8 +159,8 @@ fn rewrite_documents_flat_root(home: &Path) -> Result<bool> {
 /// Run the one-time flat → space migration for `home`. See the module
 /// docs for the decision table.
 pub fn maybe_migrate(home: &Path) -> Result<FlatMigrationStatus> {
-    let flat = spaces::spaces_root(home);
-    let space = spaces::space_dir(home, DEFAULT_SPACE_NAME);
+    let flat = home.join(".oxi").join("vault");
+    let space = spaces::space_vault_dir(&home.join(".oxi"), DEFAULT_SPACE_NAME);
     if !flat_signature(&flat) {
         return Ok(if space.is_dir() {
             FlatMigrationStatus::AlreadyMigrated
@@ -189,14 +189,14 @@ pub fn maybe_migrate(home: &Path) -> Result<FlatMigrationStatus> {
 
     // Index rename: flat `index/` → `index/personal/` when the index is
     // still flat (meta.redb directly inside) and not already namespaced.
-    let index = home
-        .join("Library/Application Support")
-        .join(crate::paths::APP_SUPPORT_SUBDIR)
-        .join(crate::paths::INDEX_SUBDIR);
-    if index.join(crate::paths::META_DB_NAME).is_file() && !index.join(DEFAULT_SPACE_NAME).exists()
+    let legacy_index = crate::paths::legacy_app_support_dir(home).join(crate::paths::INDEX_SUBDIR);
+    let index = home.join(".oxi/oximemo").join(crate::paths::INDEX_SUBDIR);
+    if legacy_index.join(crate::paths::META_DB_NAME).is_file()
+        && !index.join(DEFAULT_SPACE_NAME).exists()
     {
-        let tmp = index.with_extension("personal-migrating");
-        std::fs::rename(&index, &tmp)?;
+        std::fs::create_dir_all(index.parent().expect("index has parent"))?;
+        let tmp = legacy_index.with_extension("personal-migrating");
+        std::fs::rename(&legacy_index, &tmp)?;
         std::fs::create_dir_all(&index)?;
         std::fs::rename(&tmp, index.join(DEFAULT_SPACE_NAME))?;
     }
@@ -215,7 +215,7 @@ mod tests {
     use std::path::Path;
 
     fn seed_flat(home: &Path) {
-        let flat = crate::spaces::spaces_root(home);
+        let flat = home.join(".oxi/vault");
         std::fs::create_dir_all(flat.join("daily")).unwrap();
         std::fs::create_dir_all(flat.join("_assets")).unwrap();
         std::fs::write(flat.join("2026-08-28-101010.md"), "---\nid: a\n---\n").unwrap();
@@ -235,14 +235,18 @@ mod tests {
     fn migrates_flat_content_into_personal() {
         let home = tempfile::tempdir().unwrap().keep();
         seed_flat(&home);
-        let personal = crate::spaces::space_dir(&home, "personal");
+        let personal = crate::spaces::space_vault_dir(&home.join(".oxi"), "personal");
         let status = maybe_migrate(&home).unwrap();
         assert!(matches!(status, FlatMigrationStatus::Migrated { moved: n } if n >= 5));
         assert!(personal.join("daily/today.md").is_file());
         assert!(personal.join("_assets").is_dir());
         assert!(personal.join(".git/HEAD").is_file()); // history moves with the tree
         assert!(personal.join("oximemo.toml").is_file());
-        assert!(!crate::spaces::spaces_root(&home).join("daily").exists());
+        assert!(
+            !crate::spaces::spaces_root(&home.join(".oxi"))
+                .join("daily")
+                .exists()
+        );
     }
 
     #[test]
@@ -260,36 +264,44 @@ mod tests {
     fn provisioned_space_dirs_are_excluded_from_the_move() {
         let home = tempfile::tempdir().unwrap().keep();
         seed_flat(&home);
-        std::fs::create_dir_all(crate::spaces::spaces_root(&home).join("work")).unwrap();
+        std::fs::create_dir_all(crate::spaces::spaces_root(&home.join(".oxi")).join("work"))
+            .unwrap();
         seed_brain_dir(
             &home,
             &format!(
                 "[[root]]\nalias = \"work\"\npath = \"{}\"\nspace = \"work\"\n",
-                crate::spaces::spaces_root(&home).join("work").display()
+                crate::spaces::spaces_root(&home.join(".oxi"))
+                    .join("work")
+                    .display()
             ),
         );
         let status = maybe_migrate(&home).unwrap();
         assert!(matches!(status, FlatMigrationStatus::Migrated { .. }));
-        assert!(crate::spaces::spaces_root(&home).join("work").is_dir());
-        assert!(crate::spaces::space_dir(&home, "personal/daily").is_dir());
+        assert!(
+            crate::spaces::spaces_root(&home.join(".oxi"))
+                .join("work")
+                .is_dir()
+        );
+        assert!(
+            crate::spaces::space_vault_dir(&home.join(".oxi"), "personal")
+                .join("daily")
+                .is_dir()
+        );
     }
 
     #[test]
     fn existing_personal_blocks_with_merge_required_and_touches_nothing() {
         let home = tempfile::tempdir().unwrap().keep();
         seed_flat(&home);
-        let personal = crate::spaces::space_dir(&home, "personal");
+        let personal = crate::spaces::space_vault_dir(&home.join(".oxi"), "personal");
         std::fs::create_dir_all(&personal).unwrap();
         std::fs::write(personal.join("mine.md"), "---\nid: m\n---\n").unwrap();
-        let before =
-            std::fs::read_to_string(crate::spaces::spaces_root(&home).join("2026-08-28-101010.md"))
-                .unwrap();
+        let before = std::fs::read_to_string(home.join(".oxi/vault/2026-08-28-101010.md")).unwrap();
         let status = maybe_migrate(&home).unwrap();
         assert!(matches!(status, FlatMigrationStatus::MergeRequired { .. }));
         // Zero mutations on either side.
         assert_eq!(
-            std::fs::read_to_string(crate::spaces::spaces_root(&home).join("2026-08-28-101010.md"))
-                .unwrap(),
+            std::fs::read_to_string(home.join(".oxi/vault/2026-08-28-101010.md")).unwrap(),
             before
         );
         assert!(personal.join("mine.md").is_file());
@@ -305,7 +317,7 @@ mod tests {
             FlatMigrationStatus::Fresh
         ));
         // Only space dirs, no top-level files → not a flat vault.
-        std::fs::create_dir_all(crate::spaces::space_dir(&home, "work")).unwrap();
+        std::fs::create_dir_all(crate::spaces::space_dir(&home.join(".oxi"), "work")).unwrap();
         assert!(matches!(
             maybe_migrate(&home).unwrap(),
             FlatMigrationStatus::Fresh
@@ -316,7 +328,7 @@ mod tests {
     fn rewrites_documents_flat_root_to_personal() {
         let home = tempfile::tempdir().unwrap().keep();
         seed_flat(&home);
-        let flat = crate::spaces::spaces_root(&home);
+        let flat = home.join(".oxi/vault");
         seed_brain_dir(
             &home,
             &format!(
@@ -326,7 +338,7 @@ mod tests {
         );
         maybe_migrate(&home).unwrap();
         let text = std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap();
-        let personal = crate::spaces::space_dir(&home, "personal");
+        let personal = crate::spaces::space_vault_dir(&home.join(".oxi"), "personal");
         assert!(
             text.contains(&format!("path = \"{}\"", personal.display())),
             "flat root path not rewritten: {text}"
@@ -348,7 +360,7 @@ mod tests {
         let text = std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap();
         assert!(text.contains(&format!(
             "path = \"{}\"",
-            crate::spaces::space_dir(&home, "personal").display()
+            crate::spaces::space_vault_dir(&home.join(".oxi"), "personal").display()
         )));
     }
 
@@ -356,13 +368,12 @@ mod tests {
     fn flat_index_is_renamed_to_personal() {
         let home = tempfile::tempdir().unwrap().keep();
         seed_flat(&home);
-        let index = home
-            .join("Library/Application Support")
-            .join(crate::paths::APP_SUPPORT_SUBDIR)
-            .join(crate::paths::INDEX_SUBDIR);
-        std::fs::create_dir_all(&index).unwrap();
-        std::fs::write(index.join(crate::paths::META_DB_NAME), b"redb").unwrap();
+        let legacy_index =
+            crate::paths::legacy_app_support_dir(&home).join(crate::paths::INDEX_SUBDIR);
+        std::fs::create_dir_all(&legacy_index).unwrap();
+        std::fs::write(legacy_index.join(crate::paths::META_DB_NAME), b"redb").unwrap();
         maybe_migrate(&home).unwrap();
+        let index = home.join(".oxi/oximemo").join(crate::paths::INDEX_SUBDIR);
         assert!(
             index
                 .join("personal")

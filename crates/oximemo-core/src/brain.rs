@@ -55,7 +55,7 @@ fn test_brain_gate_active() -> bool {
     true
 }
 
-/// `~/.oxi/brain` — the oxibrain data plane. Caller-owned stdio children
+/// `~/.oxi/brain` (or `$OXI_HOME/brain`) — the oxibrain data plane. Caller-owned stdio children
 /// are pointed here with `--dir`; `documents.toml` lives inside. Empty
 /// `HOME` degrades to a relative `.oxi/brain` (tests override the whole
 /// dir via [`with_test_brain_dir`]).
@@ -68,8 +68,7 @@ pub fn brain_dir() -> PathBuf {
     {
         return dir;
     }
-    let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".oxi").join("brain")
+    crate::paths::oxi_home().join("brain")
 }
 
 /// The space name for a vault: its directory basename, or `"personal"`
@@ -192,7 +191,7 @@ mod tests {
     fn absent_documents_toml_is_created_with_one_root() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/vault/personal");
+        let vault = home.join(".oxi/spaces/personal/vault");
         let brain = home.join(".oxi/brain");
         std::fs::create_dir_all(&vault).unwrap();
         let doc = brain.join("documents.toml");
@@ -215,7 +214,7 @@ mod tests {
     fn exact_path_root_is_present_without_rewrite() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/vault/work");
+        let vault = home.join(".oxi/spaces/work/vault");
         std::fs::create_dir_all(&vault).unwrap();
         let body = format!(
             "[[root]]\nalias = \"work\"\npath = \"{}\"\nspace = \"work\"\n",
@@ -240,7 +239,7 @@ mod tests {
         // from what it would have written.
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/vault/work");
+        let vault = home.join(".oxi/spaces/work/vault");
         std::fs::create_dir_all(&vault).unwrap();
         let body = format!(
             "[[root]]\nalias = \"custom-alias\"\npath = \"{}\"\nspace = \"elsewhere\"\ninclude = [\"**/*.md\"]\n",
@@ -258,7 +257,7 @@ mod tests {
     fn invalid_toml_is_never_touched() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/vault/personal");
+        let vault = home.join(".oxi/spaces/personal/vault");
         std::fs::create_dir_all(&vault).unwrap();
         let file = seed_documents(&home, "not [ valid toml");
         let before = std::fs::read(&file).unwrap();
@@ -275,7 +274,7 @@ mod tests {
     fn additional_roots_preserved_when_appending() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/vault/personal");
+        let vault = home.join(".oxi/spaces/personal/vault");
         let other = home.join("some/other/root");
         std::fs::create_dir_all(&vault).unwrap();
         let body = format!(

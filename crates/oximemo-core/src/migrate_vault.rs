@@ -2,7 +2,7 @@
 //!
 //! The default vault moves from the pre-unification application-support
 //! location (`~/Library/Application Support/com.oximemo.app/vault`) to the
-//! shared ecosystem location `~/.oxi/vault`. On `Vault::open(None)` this
+//! shared ecosystem location `~/.oxi/spaces/personal/vault`. On `Vault::open(None)` this
 //! module runs **before** path resolution and decides between:
 //!
 //! - **old populated ∧ new absent** — move the entire tree
@@ -71,23 +71,20 @@ const CONVERSION_MARKER: &str = "v3-converted";
 /// Pre-unification default vault: `<home>/Library/Application
 /// Support/com.oximemo.app/vault`.
 pub fn old_default_vault(home: &Path) -> PathBuf {
-    home.join("Library")
-        .join("Application Support")
-        .join(paths::APP_SUPPORT_SUBDIR)
-        .join(paths::VAULT_DEFAULT_SUBDIR)
+    paths::legacy_app_support_dir(home).join(paths::VAULT_DEFAULT_SUBDIR)
 }
 
 /// Shared ecosystem default vault: `<home>/.oxi/vault`.
 pub fn new_default_vault(home: &Path) -> PathBuf {
-    home.join(".oxi").join(paths::VAULT_DEFAULT_SUBDIR)
+    home.join(".oxi")
+        .join(paths::SPACES_SUBDIR)
+        .join(crate::spaces::DEFAULT_SPACE_NAME)
+        .join(paths::VAULT_DEFAULT_SUBDIR)
 }
 
 /// Derived index dir for the default vault (application support).
 fn support_index_dir(home: &Path) -> PathBuf {
-    home.join("Library")
-        .join("Application Support")
-        .join(paths::APP_SUPPORT_SUBDIR)
-        .join(paths::INDEX_SUBDIR)
+    home.join(".oxi").join("oximemo").join(paths::INDEX_SUBDIR)
 }
 
 /// Filesystem debris that an empty-looking counterpart might carry

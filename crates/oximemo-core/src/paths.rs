@@ -2,7 +2,7 @@
 //!
 //! Layout:
 //! ```text
-//! <vault>/                          # default: ~/.oxi/vault
+//! ~/.oxi/spaces/<space>/vault/       # default: ~/.oxi/spaces/personal/vault
 //! ├── <folder>/<title-slug>.md     # notes in physical folders
 //! ├── _assets/<blake3hex>.<ext>     # images referenced as oximg://<name>
 //! ├── .trash/<original-path>        # deleted files (path preserved)
@@ -14,7 +14,7 @@
 //!     └── by-vault/<hash>/   # only for custom `--vault` paths
 //! ```
 //!
-//! The default vault moved to `~/.oxi/vault` (shared ecosystem location);
+//! The default vault moved to `~/.oxi/spaces/personal/vault` (shared ecosystem location);
 //! [`crate::migrate_vault`] performs the one-time move from the
 //! pre-unification application-support path.
 
@@ -111,7 +111,10 @@ impl Paths {
     pub fn resolve_spec(spec: &crate::spaces::VaultSpec) -> Self {
         match spec {
             crate::spaces::VaultSpec::Space(name) => Self {
-                vault: default_vault_dir().join(name),
+                vault: oxi_home()
+                    .join(SPACES_SUBDIR)
+                    .join(name)
+                    .join(VAULT_DEFAULT_SUBDIR),
                 index_dir: app_support_dir().join(INDEX_SUBDIR).join(name),
             },
             crate::spaces::VaultSpec::Explicit(p) => Self::resolve(Some(p)),
@@ -227,11 +230,14 @@ impl Paths {
     }
 }
 
-/// `~/Library/Application Support/com.oximemo.app` (macOS default).
+/// `~/.oxi/oximemo` — oximemo-private settings and derived state.
 pub fn app_support_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home)
-        .join("Library")
+    oxi_home().join("oximemo")
+}
+
+/// Legacy macOS app-support location used only while migrating old installs.
+pub fn legacy_app_support_dir(home: &Path) -> PathBuf {
+    home.join("Library")
         .join("Application Support")
         .join(APP_SUPPORT_SUBDIR)
 }
@@ -324,13 +330,24 @@ fn lexical_abs(p: &Path) -> PathBuf {
     }
     out
 }
-/// `~/.oxi/vault` — the shared ecosystem default vault (design
+/// `~/.oxi/spaces/personal/vault` — the shared ecosystem default vault (design
 /// 2026-08-20 §5.1). The derived index still lives under application
 /// support (see [`Paths::resolve`]) so a vault synced through a cloud
 /// folder never ships its binary indexes.
 pub fn default_vault_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home).join(".oxi").join(VAULT_DEFAULT_SUBDIR)
+    oxi_home()
+        .join(SPACES_SUBDIR)
+        .join(crate::spaces::DEFAULT_SPACE_NAME)
+        .join(VAULT_DEFAULT_SUBDIR)
+}
+
+/// Resolve the shared Oxi home. `OXI_HOME` is the portable/test override.
+pub fn oxi_home() -> PathBuf {
+    if let Some(path) = std::env::var_os("OXI_HOME") {
+        return PathBuf::from(path);
+    }
+    let home = std::env::var_os("HOME").unwrap_or_else(|| ".".into());
+    PathBuf::from(home).join(".oxi")
 }
 
 #[cfg(test)]
@@ -350,8 +367,8 @@ mod tests {
         assert!(p.index_dir.starts_with(custom_index_support()));
     }
 
-    /// The default vault lives at `~/.oxi/vault` (shared ecosystem
-    /// location, design 2026-08-20 §5.1) while its derived index stays
+    /// The default vault lives at `~/.oxi/spaces/personal/vault` (shared
+    /// ecosystem location) while its derived index stays
     /// under application support.
     #[test]
     fn default_vault_lives_under_dot_oxi() {
@@ -361,7 +378,13 @@ mod tests {
         let home = tempfile::tempdir().unwrap().keep();
         crate::migrate_vault::with_home(&home, || {
             let p = Paths::resolve(None);
-            assert_eq!(p.vault, home.join(".oxi").join(VAULT_DEFAULT_SUBDIR));
+            assert_eq!(
+                p.vault,
+                home.join(".oxi")
+                    .join(SPACES_SUBDIR)
+                    .join("personal")
+                    .join(VAULT_DEFAULT_SUBDIR)
+            );
             assert_eq!(p.index_dir, app_support_dir().join(INDEX_SUBDIR));
         });
     }
@@ -462,8 +485,20 @@ mod tests {
     fn space_vaults_get_namespaced_indexes() {
         let a = Paths::resolve_spec(&crate::spaces::VaultSpec::Space("a".into()));
         let b = Paths::resolve_spec(&crate::spaces::VaultSpec::Space("b".into()));
-        assert_eq!(a.vault, default_vault_dir().join("a"));
-        assert_eq!(b.vault, default_vault_dir().join("b"));
+        assert_eq!(
+            a.vault,
+            oxi_home()
+                .join(SPACES_SUBDIR)
+                .join("a")
+                .join(VAULT_DEFAULT_SUBDIR)
+        );
+        assert_eq!(
+            b.vault,
+            oxi_home()
+                .join(SPACES_SUBDIR)
+                .join("b")
+                .join(VAULT_DEFAULT_SUBDIR)
+        );
         assert_ne!(a.index_dir, b.index_dir);
         assert!(a.index_dir.ends_with("index/a"));
     }

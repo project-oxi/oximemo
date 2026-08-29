@@ -3407,10 +3407,8 @@ impl Vault {
         self.ensure_initialized()?;
         let active_space = crate::brain::vault_space_name(&self.paths.vault);
         let spaces = crate::spaces::list_spaces();
-        let last_space_stale = crate::spaces::last_space().filter(|n| {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-            !crate::spaces::space_dir(std::path::Path::new(&home), n).is_dir()
-        });
+        let last_space_stale = crate::spaces::last_space()
+            .filter(|n| !crate::spaces::space_vault_dir(&crate::paths::oxi_home(), n).is_dir());
         let mut report = DoctorReport {
             merge_required: matches!(self.status, VaultStatus::MergeRequired { .. }),
             index_locked: crate::lock::is_locked(&self.paths.meta_lock_path()),

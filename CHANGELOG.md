@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+### Changed
+
+- **Spaces move to `~/.oxi/spaces/<name>/vault/` (work in progress on
+  main, unreleased).** Each space directory now owns a `vault/` child
+  for user files, freeing the space directory itself for metadata;
+  oximemo-private settings and derived state move from
+  `~/Library/Application Support/com.oximemo.app` to `~/.oxi/oximemo`
+  (legacy locations are still detected via the migration paths).
+  `oxi_home()` becomes the single resolver for the `~/.oxi` tree and
+  honors `OXI_HOME`.
 ## [0.12.0] — 2026-08-29
 
 ### Added
