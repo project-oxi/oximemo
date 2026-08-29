@@ -76,6 +76,10 @@ export interface CommandCallbacks {
   newQuery?: () => void;
   openQuery?: (path: string) => void;
   openSettings: () => void;
+  /** ⌘K space 전환 — opens the sidebar picker popover. */
+  openSpacePicker?: () => void;
+  /** ⌘K space 생성 — opens the picker straight into name input. */
+  createSpace?: () => void;
   setTheme: (t: Theme) => void;
 }
 
@@ -242,10 +246,18 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
   }
   const nf = pair(locale, "folder_new");
   add("action.new_folder", "folder-plus", nf.title, nf.alias, "action", callbacks.newFolder);
-  const qc = pair(locale, "palette_quick_capture");
-  add("action.capture", "zap", qc.title, qc.alias, "action", callbacks.quickCapture, { hint: "⌘⇧N" });
   const st = pair(locale, "settings");
   add("action.settings", "settings", st.title, st.alias, "action", callbacks.openSettings);
+  if (callbacks.openSpacePicker) {
+    const sp = pair(locale, "palette_space_switch");
+    add("action.space_switch", "layers", sp.title, sp.alias, "action", callbacks.openSpacePicker);
+  }
+  if (callbacks.createSpace) {
+    const sn = pair(locale, "palette_space_new");
+    add("action.space_new", "folder-plus", sn.title, sn.alias, "action", callbacks.createSpace);
+  }
+  const qc = pair(locale, "palette_quick_capture");
+  add("action.capture", "zap", qc.title, qc.alias, "action", callbacks.quickCapture, { hint: "⌘⇧N" });
   // Theme trio excludes the active theme; title "테마: 다크" style.
   for (const t of ["system", "light", "dark"] as Theme[]) {
     if (t === theme) continue;

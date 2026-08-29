@@ -40,6 +40,7 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  spaceList,
   cliStatus,
   copilotStatus,
   copilotProbeAgents,
@@ -288,6 +289,9 @@ function BrainSection() {
     return <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] text-text-subtle">…</p>;
   }
 
+  const spaces = useQuery({ queryKey: ["spaces"], queryFn: spaceList });
+  const activeSpace = spaces.data?.find((s) => s.current)?.name;
+
   return (
     <div className="space-y-1.5">
       <ToggleRow
@@ -301,6 +305,10 @@ function BrainSection() {
         placeholder={t.brain_executable_ph}
         onCommit={(v) => patch({ executable: v })}
       />
+      <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
+        <p className="text-[11px] text-text-subtle">{t.brain_space_derived}</p>
+        <p className="font-mono text-[11px] text-text">{activeSpace ?? "—"}</p>
+      </div>
     </div>
   );
 }

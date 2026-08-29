@@ -1168,6 +1168,12 @@ export function CardGrid() {
         useUI.getState().setView("memos");
         useUI.getState().setSettingsOpen(true);
       },
+      openSpacePicker: () => {
+        useUI.getState().setSpacePickerOpen(true);
+      },
+      createSpace: () => {
+        useUI.getState().requestSpaceCreate();
+      },
       // SettingsMenu's onTheme flow, verbatim: instant apply + TOML parity.
       setTheme: (v: Theme) => {
         useUI.getState().setTheme(v);

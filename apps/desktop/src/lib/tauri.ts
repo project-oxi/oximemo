@@ -1262,10 +1262,15 @@ async function browserFallback(
       return changed;
     }
 
-
     case "brain_status":
       // Browser preview has no brain: a failure reason is a normal state.
       return { online: false, reason: "binary_missing" };
+    case "space_list":
+      return [{ name: "personal", current: true }];
+    case "space_create":
+      return { name: String(args?.name ?? ""), current: false };
+    case "space_switch":
+      return null;
     case "brain_gather":
       throw new Error("Brain is offline");
 

@@ -142,6 +142,28 @@ export async function brainHistory(path: string): Promise<HistoryEpisode[]> {
   return invoke<HistoryEpisode[]>("brain_history", { path });
 }
 
+
+// --- spaces (spec 2026-08-28) ----------------------------------------------
+
+export interface SpaceInfo {
+  name: string;
+  current: boolean;
+}
+
+/** Space dirs under ~/.oxi/vault. Filesystem-backed; brain not required. */
+export async function spaceList(): Promise<SpaceInfo[]> {
+  return invoke<SpaceInfo[]>("space_list");
+}
+
+/** Create + scaffold; invalid names surface the backend error string. */
+export async function spaceCreate(name: string): Promise<SpaceInfo> {
+  return invoke<SpaceInfo>("space_create", { name });
+}
+
+/** Persist last_space and restart the app into the new space. */
+export async function spaceSwitch(name: string): Promise<void> {
+  return invoke("space_switch", { name });
+}
 // --- TOML ⇄ GUI parity: config section setters ---------------------------
 
 export type BrainSection = NonNullable<Config["brain"]>;

@@ -8,7 +8,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-
+import { SpacePicker } from "./SpacePicker";
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
 import { createQueryCollection, defaultQueryYaml } from "../lib/queryCreation";
 import { colorForFolder } from "../lib/color";
@@ -300,6 +300,7 @@ export function Sidebar({
   return (
     <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface-sunken/60">
       <div data-tauri-drag-region className="h-12 shrink-0" />
+      <SpacePicker />
 
       {/* FAVORITES — smart collections only. Folder locations (pinned or
           the vault root) live in LOCATIONS below. */}

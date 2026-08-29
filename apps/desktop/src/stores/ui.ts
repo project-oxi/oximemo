@@ -173,6 +173,13 @@ interface UIState {
    *  consumes it on open and clears it. */
   settingsTab: string | null;
   setSettingsTab: (tab: string | null) => void;
+  /** Space picker popover open (sidebar header + ⌘K entry share it). */
+  spacePickerOpen: boolean;
+  setSpacePickerOpen: (b: boolean) => void;
+  /** One-shot: open the picker straight into name-input mode. */
+  spacePickerCreate: boolean;
+  requestSpaceCreate: () => void;
+  consumeSpaceCreate: () => void;
   /** Review-queue mode for the current folder (the badge bar button,
    * ⌘K, and the collections pane all toggle it). Folder changes
    * reset it in CardGrid. */
@@ -392,6 +399,11 @@ export const useUI = create<UIState>((set) => ({
   setCopilotSelection: (s) => set({ copilotSelection: s }),
   /** One-shot settings tab request — consumed by SettingsMenu on open
    *  (⌘K 컬렉션 관리 → collections pane). */
+  spacePickerOpen: false,
+  setSpacePickerOpen: (b) => set({ spacePickerOpen: b }),
+  spacePickerCreate: false,
+  requestSpaceCreate: () => set({ spacePickerOpen: true, spacePickerCreate: true }),
+  consumeSpaceCreate: () => set({ spacePickerCreate: false }),
   settingsTab: null,
   setSettingsTab: (tab) => set({ settingsTab: tab }),
   pendingTaskAnchor: null,
