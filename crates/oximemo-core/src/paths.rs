@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 pub const APP_SUPPORT_SUBDIR: &str = "com.oximemo.app";
+pub const SPACES_SUBDIR: &str = "spaces";
 pub const VAULT_DEFAULT_SUBDIR: &str = "vault";
 pub const INDEX_SUBDIR: &str = "index";
 pub const META_DB_NAME: &str = "meta.redb";
