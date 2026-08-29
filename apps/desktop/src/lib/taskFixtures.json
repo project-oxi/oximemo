@@ -232,6 +232,34 @@
       "today": "2026-08-27"
     },
     {
+      "body": "- [ ] 한국어 작업 #프로젝트 #긴급 📅 2026-01-31 🔁 every month\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": "Toggle",
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] 한국어 작업 #프로젝트 #긴급 📅 2026-02-28 🔁 every month",
+              "- [x] 한국어 작업 #프로젝트 #긴급 📅 2026-01-31 🔁 every month ✅ 2026-08-27"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "toggle_recurrence_spawn_preserves_tags_korean",
+      "today": "2026-08-27"
+    },
+    {
       "body": "- [ ] task 📅 2026-08-20 🔁 every 6 months on the 2nd wednesday\n",
       "cfg": {
         "capture_target": "daily",
@@ -1928,6 +1956,67 @@
       },
       "line": 1,
       "name": "tab_indent_child_set_priority_low",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] see [x](y) ⏫ tail\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "emoji"
+      },
+      "edit": {
+        "SetPriority": "Lowest"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] see [x](y)  tail ⏬"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "link_then_priority_emoji_is_recognized",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] 문서 [링크](https://example.com/a) [due:: 2026-08-30] #메모\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": [],
+        "write_format": "dataview"
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-09-01"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] 문서 [링크](https://example.com/a)  #메모 [due:: 2026-09-01]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "link_then_dataview_fields_korean_is_recognized",
       "today": "2026-08-27"
     }
   ]

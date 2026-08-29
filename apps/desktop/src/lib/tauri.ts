@@ -1280,6 +1280,11 @@ async function browserFallback(
     case "cli_status":
       return "not-installed";
 
+    case "folder_template":
+      // Browser preview has no vault file reads: the slash 템플릿
+      // command hides (the desktop IPC reads TEMPLATE.md from disk).
+      return null;
+
     // --- Query views (design 2026-08-25): desktop-only by decision — no
     // second engine. The `bases:changed` event is Rust-side; browser-mode
     // listen() registration is a natural no-op (nothing emits it).

@@ -6,31 +6,33 @@ import { Image as ImageIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
+import type { Text } from "@codemirror/state";
 
-import { createFolder, getConfig } from "../lib/api";
+import { createFolder, folderTemplate, getConfig, transformTaskDraft } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { FolderCombobox, type FolderComboboxHandle } from "./FolderCombobox";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { TagChipRow } from "./TagChipRow";
+import { TaskEditPopover, type TaskEditInitial, type VirtualAnchor } from "./TaskEditPopover";
 import { imagePickerKeymap, insertImagesAt, type ImageViewHandle } from "../lib/cm6Images";
 import { wikiLinks, type AtomicCodeMirrorEditorHandle } from "@atomic-editor/editor";
-import type { FolderEntry, TaskEdit } from "../lib/types";
+import type { FolderEntry, TaskDraftTransform, TaskEdit } from "../lib/types";
 import { buildWikiLinksConfig } from "../lib/memoLinks";
 import { embedExtension } from "../lib/embeds";
 import { queryEmbedExtension } from "../lib/queryEmbeds";
-import { applyTaskTransform, taskCheckboxExtension } from "../lib/taskCheckboxes";
+import { taskCheckboxExtension } from "../lib/taskCheckboxes";
 import { taskSuggestExtension } from "../lib/taskSuggest";
 import { RecencyLog } from "../lib/paletteCommands";
 import { slashCompletionSource } from "../lib/slashExtension";
 import type { SlashDeps } from "../lib/slashCommands";
-import { cfgFromJson, editFromJson, parseTaskLine, type TaskLineCfg } from "../lib/taskLine";
+import { cfgFromJson, parseTaskLine, type TaskLineChange, type TaskLineCfg } from "../lib/taskLine";
+import { initialFromLine } from "../lib/taskPopoverSeed";
 import { dayTone, relativeDayLabel, useTodayKey } from "../lib/relativeDay";
+import { todayLocalISO } from "../lib/dates";
 import { useUI } from "../stores/ui";
 const cx = (...xs: (string | false | null | undefined)[]) =>
   xs.filter(Boolean).join(" ");
 
-import { TaskEditPopover, type TaskEditInitial } from "./TaskEditPopover";
-import { initialFromLine } from "../lib/taskPopoverSeed";
 export interface MemoEditorFormProps {
   body: string;
   onBodyChange: (v: string) => void;
@@ -46,6 +48,20 @@ export interface MemoEditorFormProps {
    *  an unmount. MemoDetail uses this to dispatch scroll+selection
    *  once a queued `pendingTaskAnchor` arrives. */
   onEditorView?: (view: EditorView | null) => void;
+}
+
+/** Map kernel line changes to CM6 offsets against `doc` (the same doc
+ *  the transform ran on). `delete_lines: 0` is a pure insertion anchored
+ *  at the start of `start_line`. Same mapping as taskCheckboxes'
+ *  internal `changeSpecs` — the popover's commit path needs the
+ *  RETURNED geometry to re-resolve the target line between sequenced
+ *  edits, which `applyTaskTransform` (dispatches internally) hides. */
+function lineChangeSpecs(doc: Text, changes: TaskLineChange[]) {
+  return changes.map((c) => {
+    const from = doc.line(c.start_line + 1).from;
+    const to = c.delete_lines > 0 ? doc.line(c.start_line + c.delete_lines).to : from;
+    return { from, to, insert: c.insert_lines.join("\n") };
+  });
 }
 
 export function MemoEditorForm({
@@ -88,30 +104,34 @@ export function MemoEditorForm({
       slashRecencyRef.current.load([]);
     }
   }, []);
+  // Slash 템플릿 group (Plan D): the folder's TEMPLATE.md body arrives
+  // async; until it resolves — or permanently in browser mode — the
+  // 폴더 템플릿 삽입 command hides (never a silent no-op).
+  const templateQ = useQuery({
+    queryKey: ["folder_template", folder],
+    queryFn: () => folderTemplate(folder),
+  });
+  const templateBody = templateQ.data ?? null;
   const slashDeps = useMemo<SlashDeps>(
     () => ({
       cfg: taskCfg,
       locale,
       recency: slashRecencyRef.current,
       todayISO: todayKey,
-      // v1: no template-read IPC exists, so the 폴더 템플릿 삽입
-      // command stays hidden (never a silent no-op) until one lands.
-      templateBody: () => null,
+      templateBody: () => templateBody,
     }),
-    [taskCfg, locale, todayKey],
+    [taskCfg, locale, todayKey, templateBody],
   );
   // Task edit popover (spec §7.2): open + initial field snapshot +
   // the 0-based line index in the editor's doc. We seed the
   // popover's draft from the line's parsed fields when ⌘⇧E / a
-  // right-click on a CM6 widget opens it; the line index rides
-  // along so the sequenced commits re-target the same row after
-  // each kernel round-trip.
+  // right-click on a CM6 widget opens it; the commit path re-resolves
+  // the line after each kernel round-trip (see commitTaskEdits).
   const [taskEdit, setTaskEdit] = useState<{
     open: boolean;
     line: number;
     initial: TaskEditInitial;
   } | null>(null);
-  const taskAnchorRef = useRef<HTMLSpanElement | null>(null);
   const setError = useUI((s) => s.setError);
 
   const openTaskPopover = useCallback((line: number) => {
@@ -129,10 +149,8 @@ export function MemoEditorForm({
     [],
   );
 
-  // Position the virtual anchor span over the target line's text.
-  // The span itself is rendered next to the editor; the popover's
-  // Base UI Positioner resolves its anchor from the trigger ref,
-  // so all the geometry comes from `coordsAtPos`.
+  // Caret-line geometry for the popover anchor, resolved once per
+  // open from the live CM6 view via `coordsAtPos`.
   const anchorCoords = useMemo(() => {
     if (!taskEdit) return null;
     const view = viewHandleRef.current?.view;
@@ -141,33 +159,53 @@ export function MemoEditorForm({
     return view.coordsAtPos(line.from);
   }, [taskEdit]);
 
+  // Virtual anchor for the popover: a position-only rect over the
+  // target line's text, fed straight to Base UI's `Positioner anchor`.
+  // No DOM span is rendered — a hidden trigger measuring the caret
+  // was both stale-on-mount (ref null until a re-render) and the
+  // source of the (0, 0) anchoring bug.
+  const taskAnchor = useMemo<VirtualAnchor | null>(() => {
+    if (!anchorCoords) return null;
+    const { left, top, right, bottom } = anchorCoords;
+    return {
+      getBoundingClientRect: () =>
+        new DOMRect(left, top, Math.max(right - left, 1), Math.max(bottom - top, 1)),
+    };
+  }, [anchorCoords]);
+
   const commitTaskEdits = useCallback(
     async (edits: TaskEdit[]) => {
       if (edits.length === 0) return;
       const view = viewHandleRef.current?.view;
-      const line = taskEdit?.line ?? 0;
+      let line = taskEdit?.line ?? 0;
       if (!view || !taskCfg) return;
       for (const edit of edits) {
-        await applyTaskTransform(view, line, editFromJson(edit), {
-          cfg: taskCfg,
-          labels: {
-            status: {
-              TODO: t.task_status_todo,
-              IN_PROGRESS: t.task_status_in_progress,
-              ON_HOLD: t.task_status_on_hold,
-              DONE: t.task_status_done,
-              CANCELLED: t.task_status_cancelled,
-              NON_TASK: t.task_status_non_task,
-            },
-            dayLabel: (iso) => relativeDayLabel(iso, todayKey, locale),
-            dayTone: (iso) => dayTone(iso, todayKey),
-          },
-          onConflict: () => setError(t.task_conflict_reload),
-        });
+        // Same guarded pattern as applyTaskTransform (doc snapshot →
+        // kernel round-trip → drift check → ONE dispatch), but inline:
+        // the returned geometry re-resolves the target line for the
+        // remaining edits.
+        const before = view.state.doc;
+        let out: TaskDraftTransform;
+        try {
+          out = await transformTaskDraft(before.toString(), line, edit, todayLocalISO());
+        } catch {
+          setError(t.task_conflict_reload);
+          return;
+        }
+        if (view.state.doc !== before || out.changes.length === 0) {
+          setError(t.task_conflict_reload);
+          return;
+        }
+        view.dispatch({ changes: lineChangeSpecs(before, out.changes) });
+        // A terminal status + recurrence spawns the new occurrence
+        // ABOVE the completed line (spec §6), shifting the just-edited
+        // task down one row — the same primary_line rule vault.rs
+        // `patch_task` applies to its returned TaskDto.
+        if (out.spawned_line_hint === line) line += 1;
       }
       editorHandleRef.current?.focus();
     },
-    [taskCfg, t, todayKey, locale, taskEdit?.line, setError],
+    [taskCfg, t, taskEdit?.line, setError],
   );
 
   // Wiki-links completion config, hoisted so BOTH surfaces share one
@@ -352,38 +390,26 @@ export function MemoEditorForm({
           }}
         />
       </div>
-      {taskCfg && taskEdit && anchorCoords && (
-        <>
-          {/* Virtual anchor span positioned over the target task
-              line. The popover's hidden trigger mirrors this span's
-              rect — see TaskEditPopover's `anchor` prop. */}
-          <span
-            data-task-edit-anchor
-            aria-hidden
-            ref={(el) => {
-              taskAnchorRef.current = el;
-              if (!el) return;
-              el.style.position = "fixed";
-              el.style.left = `${anchorCoords.left}px`;
-              el.style.top = `${anchorCoords.top}px`;
-              el.style.width = `${Math.max(anchorCoords.right - anchorCoords.left, 1)}px`;
-              el.style.height = `${Math.max(anchorCoords.bottom - anchorCoords.top, 1)}px`;
-              el.style.pointerEvents = "none";
-            }}
-          />
-          <TaskEditPopover
-            open={taskEdit.open}
-            onOpenChange={(o) => {
-              if (!o) closeTaskPopover();
-              else setTaskEdit((s) => (s ? { ...s, open: true } : s));
-            }}
-            anchor={taskAnchorRef.current}
-            initial={taskEdit.initial}
-            cfg={taskCfg}
-            todayISO={todayKey}
-            onCommit={(edits) => void commitTaskEdits(edits)}
-          />
-        </>
+      {taskCfg && taskEdit && taskAnchor && (
+        <TaskEditPopover
+          open={taskEdit.open}
+          onOpenChange={(o) => {
+            if (!o) {
+              closeTaskPopover();
+              // Esc / outside dismissal hands focus back to the
+              // editor (the commit path focuses after its
+              // round-trips land).
+              editorHandleRef.current?.focus();
+            } else {
+              setTaskEdit((s) => (s ? { ...s, open: true } : s));
+            }
+          }}
+          anchor={taskAnchor}
+          initial={taskEdit.initial}
+          cfg={taskCfg}
+          todayISO={todayKey}
+          onCommit={(edits) => void commitTaskEdits(edits)}
+        />
       )}
     </div>
   );

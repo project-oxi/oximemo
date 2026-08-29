@@ -146,15 +146,15 @@ function fenceLineMask(text: string, lineCount: number): Uint8Array {
   return mask;
 }
 
-/** Mark class per status type — mirrors TaskCheckbox's mark choice
- * (Check / Minus / half fill) with plain CSS instead of lucide React. */
-const BOX_MARK_CLASS: Record<StatusType, string> = {
-  TODO: "ox-taskline-box-open",
+/** Extra mark class per status type — mirrors TaskCheckbox's mark
+ *  choice (Check / Minus / half fill) with plain CSS instead of
+ *  lucide React. Open states keep the bare `.ox-taskline-box` look
+ *  (empty box), so they emit no extra token — there is no
+ *  `.ox-taskline-box-open` rule to hang one on. */
+const BOX_MARK_CLASS: Partial<Record<StatusType, string>> = {
   IN_PROGRESS: "ox-taskline-box-progress",
-  ON_HOLD: "ox-taskline-box-open",
   DONE: "ox-taskline-box-done",
   CANCELLED: "ox-taskline-box-cancelled",
-  NON_TASK: "ox-taskline-box-open",
 };
 
 /** Inner mark glyph (lucide Check/Minus as CSS masks — see app.css).
@@ -221,7 +221,7 @@ const TONE_CLASS: Record<DayTone, string> = {
 
 type ToggleFn = (view: EditorView, line: number) => void;
 
-class TaskLineWidget extends WidgetType {
+export class TaskLineWidget extends WidgetType {
   constructor(
     readonly line: number,
     readonly lineText: string,
@@ -236,11 +236,15 @@ class TaskLineWidget extends WidgetType {
     super();
   }
 
-  /** Recreate when the line bytes or checkbox symbol change. Everything
-   *  else the DOM shows (chips, marks, labels) derives from these two —
-   *  the cfg and label closures are fixed per extension instance. */
+  /** Recreate when the line index, line bytes, or checkbox symbol
+   *  change. Everything else the DOM shows (chips, marks, labels)
+   *  derives from the bytes — the cfg and label closures are fixed
+   *  per extension instance. The line index is identity even though
+   *  the bytes don't show it: CM6 keeps the existing DOM (and its
+   *  listener closures) while eq holds, so a widget reused after a
+   *  line-count change above it would fire a stale line. */
   eq(other: TaskLineWidget) {
-    return other.lineText === this.lineText && other.symbol === this.symbol;
+    return other.line === this.line && other.lineText === this.lineText && other.symbol === this.symbol;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -256,7 +260,8 @@ class TaskLineWidget extends WidgetType {
     box.setAttribute("aria-checked", ariaChecked(this.statusType));
     box.setAttribute("aria-label", `${statusLabel}: ${body}`.trim());
     box.title = statusLabel;
-    box.className = `ox-taskline-box ${BOX_MARK_CLASS[this.statusType]}`;
+    const boxMark = BOX_MARK_CLASS[this.statusType];
+    box.className = boxMark ? `ox-taskline-box ${boxMark}` : "ox-taskline-box";
     const markIcon = BOX_MARK_ICON[this.statusType];
     if (markIcon) {
       const mark = document.createElement("span");
@@ -268,11 +273,14 @@ class TaskLineWidget extends WidgetType {
     // selection before applying their transaction, so clicking never
     // drags the caret off the current line.
     box.addEventListener("mousedown", (e) => e.preventDefault());
-    box.addEventListener("click", () => this.onToggle(view, this.line));
+    // Resolve the line at event time from the widget's live position:
+    // eq may keep this DOM (and its closures) across rebuilds, so the
+    // captured `this.line` can go stale when lines shift above.
+    box.addEventListener("click", () => this.onToggle(view, view.state.doc.lineAt(view.posAtDOM(box)).number - 1));
     if (this.onContextMenu) {
       box.addEventListener("contextmenu", (e) => {
         e.preventDefault();
-        this.onContextMenu!(this.line);
+        this.onContextMenu!(view.state.doc.lineAt(view.posAtDOM(box)).number - 1);
       });
     }
     wrap.append(box);
@@ -394,7 +402,9 @@ function changeSpecs(doc: Text, changes: TaskLineChange[]) {
  * desktop IPC round-trip resolves later, so the doc is re-checked
  * against the pre-call snapshot before dispatching; drift (or any
  * kernel rejection) reports through `onConflict` instead of splicing
- * shifted offsets. Exported for the Task 9 popover, which commits the
+ * shifted offsets. A reply with no changes is a no-op (the line
+ * already matches — a racing update got there first) and returns
+ * silently. Exported for the Task 9 popover, which commits the
  * same way. */
 export async function applyTaskTransform(
   view: EditorView,
@@ -410,7 +420,8 @@ export async function applyTaskTransform(
     opts.onConflict?.();
     return;
   }
-  if (view.state.doc !== before || changes.length === 0) {
+  if (changes.length === 0) return; // no-op: state already matches
+  if (view.state.doc !== before) {
     opts.onConflict?.();
     return;
   }

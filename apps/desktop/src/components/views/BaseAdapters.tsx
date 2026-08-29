@@ -111,10 +111,10 @@ export function BaseListAdapter({
 }
 
 /** Pull the active tasks cfg out of the shared config cache. The
- *  popover needs `cfg.statuses` for the status selector, and any
- *  call site that wants to open one needs the same value — one hook
- *  keeps them in lockstep (and lets the views gracefully degrade
- *  while the query is still loading). */
+ *  popover derives its (effective) status table and write format from
+ *  it, and any call site that wants to open one needs the same value —
+ *  one hook keeps them in lockstep (and lets the views gracefully
+ *  degrade while the query is still loading). */
 function useTasksCfg(): TaskLineCfg | null {
   const q = useQuery({ queryKey: ["config"], queryFn: getConfig });
   return q.data?.tasks ? cfgFromJson(q.data.tasks) : null;
@@ -130,6 +130,7 @@ function TaskEditPopoverController({
   anchor,
   open,
   onOpenChange,
+  todayISO,
 }: {
   task: TaskDto;
   row: BaseRow;
@@ -137,6 +138,10 @@ function TaskEditPopoverController({
   anchor: HTMLElement | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Shared midnight key — threads into the popover so its 오늘/내일
+   *  shortcuts and recurrence preview roll over at midnight instead
+   *  of freezing the mount-time day. */
+  todayISO: string;
 }) {
   const commit = useTaskEditMany(row);
   return (
@@ -146,6 +151,7 @@ function TaskEditPopoverController({
       anchor={anchor}
       initial={initialFromDto(task)}
       cfg={cfg}
+      todayISO={todayISO}
       onCommit={(edits) => commit(edits)}
     />
   );
@@ -209,14 +215,20 @@ function TaskListRow({
       >
         <Pencil size={12} />
       </button>
-      {cfg && (
+      {cfg && editAnchorRef.current && (
         <TaskEditPopoverController
           task={row.task!}
           row={row}
           cfg={cfg}
           anchor={editAnchorRef.current}
           open={editOpen}
-          onOpenChange={setEditOpen}
+          onOpenChange={(o) => {
+            setEditOpen(o);
+            // Esc / outside dismissal restores focus to the pencil
+            // (the keyboard path shouldn't drop the user's place).
+            if (!o) editAnchorRef.current?.focus();
+          }}
+          todayISO={todayISO}
         />
       )}
     </div>
@@ -289,14 +301,20 @@ function TaskCard({ row, onSelect }: { row: BaseRow; onSelect: (id: string) => v
           @ {title}
         </span>
       </button>
-      {cfg && (
+      {cfg && editAnchorRef.current && (
         <TaskEditPopoverController
           task={row.task!}
           row={row}
           cfg={cfg}
           anchor={editAnchorRef.current}
           open={editOpen}
-          onOpenChange={setEditOpen}
+          onOpenChange={(o) => {
+            setEditOpen(o);
+            // Esc / outside dismissal restores focus to the pencil
+            // (the keyboard path shouldn't drop the user's place).
+            if (!o) editAnchorRef.current?.focus();
+          }}
+          todayISO={todayISO}
         />
       )}
     </div>

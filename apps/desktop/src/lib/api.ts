@@ -531,6 +531,13 @@ export function folderSchema(folder: string): Promise<FolderSchema | null> {
   return invoke<FolderSchema | null>("folder_schema", { folder });
 }
 
+/** The folder's TEMPLATE.md body, or null when it has none — the slash
+ * 템플릿 command hides on null (Plan D Task 2). Desktop-only: browser
+ * mode has no vault file reads and the fallback answers null. */
+export function folderTemplate(folder: string): Promise<string | null> {
+  return invoke<string | null>("folder_template", { folder });
+}
+
 /** Install a collection preset (TEMPLATE.md + SCHEMA.toml) into a
  *  folder — the generalized surface behind every managed collection
  *  (knowledge/daily included). Clean cutover from the old

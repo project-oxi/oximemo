@@ -94,9 +94,19 @@ describe("suggestOptionsFor — recognition gate", () => {
     expect(suggestOptionsFor("", EMOJI_CFG, 0, LABELS)).toBeNull();
   });
 
-  test("global filter configured but missing from the line: no options", () => {
+  test("global filter: kernel containment rule (contains, not starts-with)", () => {
     const cfg = cfgFromJson({ ...BASE_WIRE, global_filter: "#task" });
-    expect(suggestOptionsFor("- [ ] no token", cfg, 12, LABELS)).toBeNull();
+    // Caret at a REAL token boundary (end of line): the filter-less
+    // line is rejected by the containment gate itself, not by a
+    // boundary check.
+    expect(suggestOptionsFor("- [ ] no token", cfg, 14, LABELS)).toBeNull();
+    // A line merely CONTAINING the filter (mid-line, not a prefix)
+    // suggests.
+    const hit = suggestOptionsFor("- [ ] see #task d", cfg, 17, LABELS);
+    expect(hit).not.toBeNull();
+    expect(hit!.options.length).toBeGreaterThan(0);
+    // Empty global filter: any recognized checkbox line suggests.
+    expect(suggestOptionsFor("- [ ] no token", EMOJI_CFG, 14, LABELS)).not.toBeNull();
   });
 
   test("partial token at the cursor: options with a whitespace-bounded from", () => {
@@ -113,6 +123,46 @@ describe("suggestOptionsFor — recognition gate", () => {
     // from the token start would clobber the task text.
     expect(suggestOptionsFor("- [ ] one", EMOJI_CFG, 7, LABELS)).toBeNull();
     expect(suggestOptionsFor("- [ ] one", EMOJI_CFG, 8, LABELS)).toBeNull();
+  });
+});
+
+describe("suggestOptionsFor — apply-range structure guards", () => {
+  test("caret 0 (before the checkbox): range clamps to a pure insertion at the checkbox end", () => {
+    const line = "- [ ] task";
+    const result = suggestOptionsFor(line, EMOJI_CFG, 0, LABELS, {
+      todayISO: "2026-08-27",
+    })!;
+    expect(result).not.toBeNull();
+    expect(result.from).toBe(6);
+    expect(result.to).toBe(6);
+    const dueToday = result.options.find((o) => o.label === "Due Today")!;
+    const [d] = applyOption(dueToday, result.from, result.to, line.length);
+    expect(d!.changes.from).toBe(6);
+    expect(d!.changes.to).toBe(6);
+    // Reconstructing the line: the checkbox stays a prefix — nothing
+    // was inserted before `- [ ] `.
+    const applied =
+      line.slice(0, d!.changes.from) + d!.changes.insert + line.slice(d!.changes.to);
+    expect(applied.startsWith("- [ ] ")).toBe(true);
+  });
+
+  test("caret at end of an existing date token: token preserved (pure insertion after it)", () => {
+    const line = "- [ ] task 📅 2026-08-27";
+    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS, {
+      todayISO: "2026-08-27",
+    })!;
+    expect(result).not.toBeNull();
+    // `due` is present → no Due options; another field's accept must
+    // not reach back into the existing token.
+    expect(result.options.some((o) => o.label.startsWith("Due"))).toBe(false);
+    const schedToday = result.options.find((o) => o.label === "Scheduled Today")!;
+    const [d] = applyOption(schedToday, result.from, result.to, line.length);
+    expect(d!.changes.from).toBe(line.length);
+    expect(d!.changes.to).toBe(line.length);
+    const applied =
+      line.slice(0, d!.changes.from) + d!.changes.insert + line.slice(d!.changes.to);
+    expect(applied).toBe(`${line}${d!.changes.insert}`);
+    expect(applied).toContain("📅 2026-08-27");
   });
 });
 describe("suggestOptionsFor — code-span gate", () => {

@@ -1934,7 +1934,7 @@ mod tests {
             .v()
             .with_config(|c| c.daily.folder.trim_end_matches('/').to_string());
         let today_path = format!("{folder}/{}.md", local_today());
-        assert_eq!(listed[0].task_ref.memo_id.to_string().is_empty(), false);
+        assert!(!listed[0].task_ref.memo_id.to_string().is_empty());
         // The task now lives in today's daily note: verify via the
         // source record path.
         let snap = t.v().snapshot().unwrap();

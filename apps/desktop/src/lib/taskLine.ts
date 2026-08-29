@@ -354,7 +354,12 @@ function scanContent(content: string, contentBase: number, state: ScanState): vo
     }
     const rest = content.slice(i);
     if (rest.startsWith("](")) {
-      const closeRel = rest.indexOf(")");
+      // `closeRel` is measured AFTER the `](` prefix — the kernel strips
+      // the prefix before searching (`after_link.find(')')`), so the
+      // skip is exactly `](` + link text + `)`. Measuring from `rest`
+      // instead overshoots by 2 and swallows the first field tokens
+      // after the link.
+      const closeRel = rest.slice(2).indexOf(")");
       if (closeRel >= 0) {
         i += 2 + closeRel + 1;
         continue;
@@ -495,14 +500,39 @@ function scanContent(content: string, contentBase: number, state: ScanState): vo
   }
 }
 
-function parseDateYyyyMmDd(s: string): { y: number; m: number; d: number } | null {
+/** Strict `YYYY-MM-DD` parser mirroring the kernel's
+ * `parse_date_yyyy_mm_dd`: shape check plus real calendar validation
+ * (`Date::from_calendar_date` rejects month 13, Feb 30, …). Exported so
+ * chip rendering (`lib/taskPreview.ts`) applies the same validation the
+ * kernel applies before trusting a date value. */
+export function parseDateYyyyMmDd(s: string): { y: number; m: number; d: number } | null {
   const trimmed = s.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
-  return {
-    y: +trimmed.slice(0, 4),
-    m: +trimmed.slice(5, 7),
-    d: +trimmed.slice(8, 10),
-  };
+  const y = +trimmed.slice(0, 4);
+  const m = +trimmed.slice(5, 7);
+  const d = +trimmed.slice(8, 10);
+  // `daysInMonth` (recurrence section) implements the same month-length
+  // table, leap years included, as `Date::from_calendar_date`.
+  if (m < 1 || m > 12 || d < 1 || d > daysInMonth(y, m)) return null;
+  return { y, m, d };
+}
+
+/** Recover the `Priority` value from a raw priority token: dataview
+ * `[priority:: <word>]` first (it is the superset form — any bracketed
+ * text fails the emoji branch), then a bare priority emoji, possibly
+ * with the VS-16 suffix some editors insert. Unrecognised values —
+ * e.g. `[priority:: none]` or an unknown word — collapse to `null`
+ * ("no priority"). Exported so `lib/taskPreview.ts` derives chip
+ * priority from the same tables the scanner reads; the priority
+ * vocabulary lives in exactly one place. */
+export function priorityFromFieldText(text: string): Priority {
+  const m = /^\[\s*priority\s*::\s*([^\]]+?)\s*\]$/i.exec(text);
+  if (m) {
+    const word = (m[1] ?? "").toLowerCase();
+    if (word === "none") return null;
+    return PRIORITY_WORDS[word] ?? null;
+  }
+  return PRIORITY_EMOJI[text.replaceAll(VARIATION_SELECTOR_16, "")] ?? null;
 }
 
 // --- Checkbox prefix recognition ---------------------------------------

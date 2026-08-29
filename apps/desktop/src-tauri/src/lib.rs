@@ -273,6 +273,7 @@ pub fn run() {
             commands::restore_base,
             commands::base_props,
             commands::folder_schema,
+            commands::folder_template,
             commands::set_metadata_config,
             commands::search_book_metadata,
             commands::search_movie_metadata,
@@ -1161,6 +1162,22 @@ mod commands {
             .vault
             .folder_schema(&folder)
             .map_err(|e| e.to_string())
+    }
+
+    /// The folder's TEMPLATE.md body (Plan D slash 템플릿 group). `null`
+    /// when the folder carries no template — the slash command hides
+    /// rather than no-ops. Markdown only: the editor inserts text.
+    #[tauri::command]
+    pub fn folder_template(
+        state: State<'_, AppState>,
+        folder: String,
+    ) -> Result<Option<String>, String> {
+        Ok(oximemo_core::template::load_template(
+            state.vault.paths(),
+            &folder,
+            oximemo_core::memo::NoteFormat::Markdown,
+        )
+        .map(|(_, body)| body))
     }
 
     /// Install the knowledge preset (TEMPLATE.md + SCHEMA.toml) into a

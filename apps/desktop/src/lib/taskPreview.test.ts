@@ -406,6 +406,75 @@ describe("preprocessTaskMarkdown — field chips", () => {
     expect(out).not.toContain("oops");
     expect(out).not.toContain("📅");
   });
+
+  test("shape-valid but impossible date chips icon-only (kernel calendar validation)", () => {
+    const out = preprocessTaskMarkdown("- [ ] task 📅 2026-13-45");
+    expect(out).toContain('class="ox-task-field ox-task-due"');
+    expect(out).not.toContain("2026-13-45");
+  });
+
+  test("valid leap day still chips with its value", () => {
+    const out = preprocessTaskMarkdown("- [ ] task 📅 2028-02-29");
+    expect(out).toContain("2028-02-29");
+  });
+});
+
+describe("preprocessTaskMarkdown — indented code exclusion (spec §3)", () => {
+  test("4-space task-looking line with no open list is code — untouched", () => {
+    const md = "    - [ ] task 📅 2026-08-30";
+    expect(preprocessTaskMarkdown(md)).toBe(md);
+  });
+
+  test("4-space continuation of an open list item is chipped", () => {
+    const out = preprocessTaskMarkdown("- [ ] parent\n    - [ ] child 📅 2026-08-30");
+    expect(out).toContain('<span class="ox-task-field ox-task-due"><span class="ox-task-ic-due" aria-hidden="true"></span>2026-08-30</span>');
+    expect(out).not.toContain("📅");
+  });
+
+  test("blank lines do not close the list — continuation still chipped", () => {
+    const out = preprocessTaskMarkdown("- [ ] parent\n\n    - [ ] child 📅 2026-08-30");
+    expect(out).toContain("ox-task-due");
+    expect(out).not.toContain("📅");
+  });
+
+  test("fence interior does not touch the list context", () => {
+    const md = "- [ ] parent\n```\nplain\n```\n    - [ ] child 📅 2026-08-30";
+    const out = preprocessTaskMarkdown(md);
+    expect(out).toContain("plain");
+    expect(out).toContain("ox-task-due");
+  });
+});
+
+describe("fields after markdown links (kernel link-skip parity)", () => {
+  test("previewTaskLine recognizes a priority token right after a link", () => {
+    // Live-proven regression case: the mirror's link skip measured the
+    // close paren from `](` and overshot by 2, so `spans.fields` came
+    // back empty for exactly this line.
+    const chips = previewTaskLine("- [ ] see [x](y) ⏫ tail", DEFAULT_CFG);
+    const fields = chips.filter(isField);
+    expect(fields.map((f) => f.field)).toEqual(["priority"]);
+    expect(fields[0]?.text).toBe("⏫");
+    expect(fields[0]?.priority).toBe("high");
+  });
+
+  test("priority emoji flush against the link close paren is chipped", () => {
+    const out = preprocessTaskMarkdown("- [ ] see [x](y)⏫ tail");
+    expect(out).toContain('class="ox-task-field ox-task-priority"');
+    expect(out).not.toContain("⏫");
+  });
+
+  test("dataview date after a multi-byte link text is chipped, tag survives", () => {
+    const out = preprocessTaskMarkdown("- [ ] 문서 [링크](https://example.com/a) [due:: 2026-08-30] #메모");
+    expect(out).toContain('<span class="ox-task-field ox-task-due"><span class="ox-task-ic-due" aria-hidden="true"></span>2026-08-30</span>');
+    expect(out).toContain("#메모");
+    expect(out).not.toContain("[due::");
+  });
+
+  test("stripTaskMetadata removes link-adjacent tokens", () => {
+    expect(stripTaskMetadata("- [ ] see [x](y) ⏫ tail")).toBe("- see [x](y) tail");
+    expect(stripTaskMetadata("- [ ] 문서 [링크](https://example.com/a) [due:: 2026-08-30] #메모"))
+      .toBe("- 문서 [링크](https://example.com/a) #메모");
+  });
 });
 
 describe("preprocessTaskMarkdown — code protection", () => {
@@ -472,8 +541,13 @@ describe("stripTaskMetadata — plain-text rows", () => {
     expect(stripTaskMetadata("- [?] mystery 📅 2026-08-30")).toBe("- [?] mystery");
   });
 
-  test("leading indent (list nesting) is preserved", () => {
-    expect(stripTaskMetadata("    - [ ] child 📅 2026-08-30")).toBe("    - child");
+  test("4-space indent with no open list is indented code — untouched (spec §3)", () => {
+    const md = "    - [ ] child 📅 2026-08-30";
+    expect(stripTaskMetadata(md)).toBe(md);
+  });
+
+  test("4-space continuation inside an open list keeps its indent, loses metadata", () => {
+    expect(stripTaskMetadata("- [ ] parent\n    - [ ] child 📅 2026-08-30")).toBe("- parent\n    - child");
   });
 
   test("fenced code is untouched, prose after it is stripped", () => {

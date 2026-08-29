@@ -21,7 +21,9 @@
  * field kind, this module follows automatically.
  */
 import {
+  parseDateYyyyMmDd,
   parseTaskLine,
+  priorityFromFieldText,
   tagSpansOf,
   type ParsedLine,
   type Priority,
@@ -171,43 +173,6 @@ export function previewTaskLine(
   return [statusChip, textChip, ...fieldChips, ...tagChips];
 }
 
-/** Recover the Priority value from the original emoji/dataview token.
- * The kernel's scanner records the parsed Priority in its state, but
- * doesn't surface it through `FieldSpan`. Re-derive locally so the
- * consumer doesn't have to. Returns `null` for unrecognised values
- * (e.g. `[priority:: none]` collapses to "no priority"). */
-function priorityFromFieldText(text: string): Priority {
-  // Dataview form: [priority:: <word>]. Strip the wrapper and look up
-  // the inner word. Tried before the emoji branch because the dataview
-  // form is a superset (any text in brackets would not match an emoji).
-  const m = /^\[\s*priority\s*::\s*([^\]]+?)\s*\]$/i.exec(text);
-  if (m) {
-    const word = (m[1] ?? "").toLowerCase();
-    const WORDS: Record<string, Priority> = {
-      highest: "highest",
-      high: "high",
-      medium: "medium",
-      low: "low",
-      lowest: "lowest",
-    };
-    if (word === "none") return null;
-    if (WORDS[word] !== undefined) return WORDS[word];
-    return null;
-  }
-  // Emoji form: a single priority emoji (possibly + variation
-  // selector). The variation selector is the U+FE0F that some editors
-  // insert after the emoji; strip it before lookup.
-  const stripped = text.replace(/️/g, "");
-  const EMOJI: Record<string, Priority> = {
-    "🔺": "highest",
-    "⏫": "high",
-    "🔼": "medium",
-    "🔽": "low",
-    "⏬": "lowest",
-  };
-  if (EMOJI[stripped] !== undefined) return EMOJI[stripped];
-  return null;
-}
 
 // --- Markdown preview preprocessor (card / chat surfaces) -----------
 //
@@ -278,7 +243,10 @@ export function chipRawValue(field: TaskField, token: string): string | null {
     return stripped.length > 0 ? stripped : null;
   }
   const m = /\d{4}-\d{2}-\d{2}/.exec(token);
-  return m ? m[0] : null;
+  // Kernel parity: the kernel accepts a date value only after calendar
+  // validation, so a well-shaped substring it would reject
+  // (`2026-13-45`) chips as a bare icon, not a fake date.
+  return m !== null && parseDateYyyyMmDd(m[0]) !== null ? m[0] : null;
 }
 
 /** HTML-escaped `chipRawValue` for the string-splicing paths below. */
@@ -324,11 +292,49 @@ function checkboxBracket(line: string, parsed: ParsedLine): Splice | null {
   return { start: bracketStart, end: bracketStart + 3, text: "" };
 }
 
+// --- Indented-code exclusion (spec §3) ---------------------------------
+
+/** Open list items as their indent columns — the mirror of
+ * `parse_tasks`' open-item stack. A line starting at ≥4 columns while
+ * this stack is empty is an indented code block, not a task; the same
+ * line inside an open list continues the list item (and marked renders
+ * it that way). */
+interface ListContext {
+  stack: number[];
+}
+
+/** Tab-aware indent columns: a tab advances to the next multiple of
+ * four columns (kernel `indent_columns_of`). */
+function indentColumnsOf(line: string): number {
+  let cols = 0;
+  for (const ch of line) {
+    if (ch === " ") cols += 1;
+    else if (ch === "\t") cols = (Math.floor(cols / 4) + 1) * 4;
+    else break;
+  }
+  return cols;
+}
+
+/** Update `ctx` exactly like the kernel: only a recognized task line
+ * whose status is not NON_TASK opens a list frame, popping any
+ * deeper-or-equal frames first. Fence interiors, prose, and blank
+ * lines leave the stack untouched. */
+function trackListStack(line: string, parsed: ParsedLine | null, ctx: ListContext): void {
+  if (parsed === null || parsed.statusType === "NON_TASK") return;
+  const cols = indentColumnsOf(line);
+  while (ctx.stack.length > 0 && ctx.stack[ctx.stack.length - 1]! >= cols) ctx.stack.pop();
+  ctx.stack.push(cols);
+}
+
 /** One prose line → inert-chip markup. Non-task lines and unknown
  * checkbox markers round-trip verbatim; field tokens on any task line
- * are chipped regardless of the marker's canonicity. */
-function chipLine(line: string): string {
+ * are chipped regardless of the marker's canonicity. A line indented
+ * ≥4 columns with no open list above it is an indented code block and
+ * passes through untouched (kernel `parse_tasks` §3). */
+function chipLine(line: string, ctx: ListContext): string {
+  if (ctx.stack.length === 0 && indentColumnsOf(line) >= 4) return line;
   const parsed = parseTaskLine(line, PREVIEW_CFG);
+  trackListStack(line, parsed, ctx);
   if (parsed === null) return line;
   const edits: Splice[] = parsed.spans.fields.map((f) => ({
     start: f.start,
@@ -347,9 +353,13 @@ function chipLine(line: string): string {
 
 /** One prose line → metadata-free text (checkbox bytes and field
  * tokens removed). Matches the kernel's `parsed.text` notion of the
- * body: metadata, including its values, is not prose. */
-function stripLine(line: string): string {
+ * body: metadata, including its values, is not prose. A line indented
+ * ≥4 columns with no open list above it is an indented code block and
+ * passes through untouched (kernel `parse_tasks` §3). */
+function stripLine(line: string, ctx: ListContext): string {
+  if (ctx.stack.length === 0 && indentColumnsOf(line) >= 4) return line;
   const parsed = parseTaskLine(line, PREVIEW_CFG);
+  trackListStack(line, parsed, ctx);
   if (parsed === null) return line;
   const edits: Splice[] = parsed.spans.fields.map((f) => ({
     start: f.start,
@@ -413,19 +423,25 @@ function perProseLine(text: string, fn: (line: string) => string): string {
 }
 
 /** Rewrite recognized task tokens in a markdown document to inert chip
- * markup (before `marked`). See the section header above. */
+ * markup (before `marked`). See the section header above. One list
+ * context spans the whole document — fence interiors never touch the
+ * stack, so a list opened before a fence is still open after it,
+ * exactly as in the kernel's single pass over the body. */
 export function preprocessTaskMarkdown(md: string): string {
   if (!md) return md;
+  const ctx: ListContext = { stack: [] };
   return splitFences(md)
-    .map((seg) => (seg.code ? seg.text : perProseLine(seg.text, chipLine)))
+    .map((seg) => (seg.code ? seg.text : perProseLine(seg.text, (line) => chipLine(line, ctx))))
     .join("\n");
 }
 
 /** Remove recognized task tokens from a markdown document, leaving the
- * body prose (plain-text rows). See the section header above. */
+ * body prose (plain-text rows). See the section header above. One list
+ * context spans the whole document, as in `preprocessTaskMarkdown`. */
 export function stripTaskMetadata(md: string): string {
   if (!md) return md;
+  const ctx: ListContext = { stack: [] };
   return splitFences(md)
-    .map((seg) => (seg.code ? seg.text : perProseLine(seg.text, stripLine)))
+    .map((seg) => (seg.code ? seg.text : perProseLine(seg.text, (line) => stripLine(line, ctx))))
     .join("\n");
 }

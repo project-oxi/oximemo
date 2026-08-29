@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 
 import { cfgFromJson, type WireTaskLineCfg } from "./taskLine";
-import { lineIsTask, widgetRangesFor } from "./taskCheckboxes";
+import { lineIsTask, TaskLineWidget, widgetRangesFor } from "./taskCheckboxes";
 
 const BASE_WIRE: WireTaskLineCfg = {
   write_format: "emoji",
@@ -130,5 +130,26 @@ describe("widgetRangesFor", () => {
     const ranges = widgetRangesFor(doc, doc.length, cfg);
     expect(ranges.map((r) => r.line)).toEqual([0]);
     expect(ranges[0]!.parsed.statusType).toBe("DONE");
+  });
+});
+describe("TaskLineWidget.eq", () => {
+  // Widget identity drives CM6's DOM reuse: while eq holds, the old
+  // DOM (and its captured listeners) survives. The line index must be
+  // part of the contract or identical task lines swap stale closures.
+  const widgetAt = (line: number, lineText: string, symbol = "[ ]") =>
+    new TaskLineWidget(line, lineText, symbol, "TODO", [], 0, { status: {} }, () => {}, undefined);
+
+  test("identical widgets are equal", () => {
+    expect(widgetAt(3, "- [ ] alpha").eq(widgetAt(3, "- [ ] alpha"))).toBe(true);
+  });
+
+  test("same text and symbol on a different line is NOT equal (stale-closure guard)", () => {
+    expect(widgetAt(6, "- [ ] alpha").eq(widgetAt(3, "- [ ] alpha"))).toBe(false);
+    expect(widgetAt(3, "- [ ] alpha").eq(widgetAt(6, "- [ ] alpha"))).toBe(false);
+  });
+
+  test("changed text or symbol is not equal", () => {
+    expect(widgetAt(3, "- [ ] alpha").eq(widgetAt(3, "- [ ] beta"))).toBe(false);
+    expect(widgetAt(3, "- [ ] alpha", "[ ]").eq(widgetAt(3, "- [ ] alpha", "[x]"))).toBe(false);
   });
 });

@@ -31,6 +31,12 @@ import {
 import type { TaskEdit } from "../lib/types";
 import { shiftISODate, todayLocalISO } from "../lib/dates";
 import { relativeDayLabel } from "../lib/relativeDay";
+import { effectiveStatuses } from "../lib/taskToggle";
+/** Position-only anchor (floating-ui's VirtualElement shape): a rect
+ *  provider with no DOM box — the editor path's caret-line anchor. */
+export interface VirtualAnchor {
+  getBoundingClientRect: () => DOMRect;
+}
 export interface TaskEditInitial {
   symbol: string;
   statusType: StatusType;
@@ -45,10 +51,12 @@ export interface TaskEditInitial {
 export interface TaskEditPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Element the popover anchors to (Task 9 spec: positions itself
-   *  near the trigger — the edit button in views, or a virtual anchor
-   *  at the caret line in the editor). */
-  anchor: HTMLElement | null;
+  /** Element (the row's pencil button) or virtual rect (the editor's
+   *  caret line) the popover positions against. Passed straight to
+   *  Base UI's `Popover.Positioner anchor` — no trigger-rect mirroring:
+   *  a `display: contents` trigger has no box, so the old hidden-span
+   *  hack measured all zeros and dropped the popover at (0, 0). */
+  anchor: HTMLElement | VirtualAnchor | null;
   initial: TaskEditInitial;
   cfg: TaskLineCfg;
   /** ISO "YYYY-MM-DD" for the popover's recurrence preview + the
@@ -121,8 +129,13 @@ export function TaskEditPopover({
     setRecurrence(initial.recurrence);
   }, [open, initial]);
 
-  // Anchor precedence mirrors the kernel: due → scheduled → start.
-  // Null when none of the three is set (caller shows "needs date").
+  // Effective status table for the selector: builtin statuses ∪ the
+  // vault's raw `[tasks]` entries (X-normalized). The raw cfg.statuses
+  // alone is EMPTY on default vaults — rendering it dropped every
+  // option.
+  const statuses = useMemo(() => effectiveStatuses(cfg), [cfg]);
+  // Recurrence-preview anchor precedence mirrors the kernel: due →
+  // scheduled → start. Null when none of the three is set.
   const anchorForPreview = due ?? scheduled ?? start;
   const preview = useMemo(
     () => nextOccurrencePreview(recurrence ?? "", anchorForPreview, today),
@@ -190,32 +203,17 @@ export function TaskEditPopover({
 
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange} modal={false}>
-      {/* Hidden anchor trigger — the visible trigger lives outside the
-          popover (the row's edit button in views; a virtual span
-          positioned at the caret in the editor). We need a `Trigger`
-          for Base UI's positioning engine, but the rendered element
-          itself mirrors the caller's anchor position. */}
-      <Popover.Trigger
-        render={
-          <span
-            ref={(el: HTMLSpanElement | null) => {
-              if (anchor && el && anchor !== el) {
-                const r = anchor.getBoundingClientRect();
-                el.style.position = "fixed";
-                el.style.left = `${r.left}px`;
-                el.style.top = `${r.top}px`;
-                el.style.width = `${r.width}px`;
-                el.style.height = `${r.height}px`;
-                el.style.pointerEvents = "none";
-              }
-            }}
-            aria-hidden
-            className="contents"
-          />
-        }
-      />
+      {/* `open` is fully controlled, so no Trigger part is rendered —
+          the Positioner anchors against the caller's element/rect via
+          the `anchor` prop (Base UI rc.0 SharedParameters). */}
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={4} className="z-[60]">
+        <Popover.Positioner
+          anchor={anchor}
+          side="bottom"
+          align="start"
+          sideOffset={4}
+          className="z-[60]"
+        >
           <Popover.Popup
             data-task-edit-popover
             onKeyDown={onKeyDown}
@@ -229,7 +227,7 @@ export function TaskEditPopover({
                   onChange={(e) => setSymbol(e.target.value)}
                   className="w-full rounded-[var(--input-radius)] bg-surface px-2 py-1 text-[12px] shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
                 >
-                  {cfg.statuses.map((s) => (
+                  {statuses.map((s) => (
                     <option key={s.symbol} value={s.symbol}>
                       {t[STATUS_LABEL_KEY[s.type]]}
                     </option>
@@ -389,7 +387,16 @@ function RecurrencePreview({ recurrence, preview, today, locale, t }: Recurrence
   const trimmed = recurrence?.trim() ?? "";
   if (trimmed.length === 0) return null;
   if (preview === null) {
-    return <span className="text-[10px] text-text-subtle">{t.task_recurrence_needs_date}</span>;
+    // `nextOccurrencePreview` collapses "unparseable rule" and
+    // "parseable rule, no anchor" into null. Probe with `today` as a
+    // synthetic anchor: a non-null result isolates the rule parse, so
+    // an unsupported rule warns instead of asking for a date.
+    const parseable = nextOccurrencePreview(trimmed, today, today) !== null;
+    return (
+      <span className="text-[10px] text-text-subtle">
+        {parseable ? t.task_recurrence_needs_date : t.task_warning_unsupported}
+      </span>
+    );
   }
   return (
     <span className="text-[10px] text-text-subtle">

@@ -2040,16 +2040,20 @@ mod tests {
 
     #[test]
     fn global_filter_with_newline_is_rejected() {
-        let mut cfg = TasksConfig::default();
-        cfg.global_filter = "#task\n".into();
+        let cfg = TasksConfig {
+            global_filter: "#task\n".into(),
+            ..TasksConfig::default()
+        };
         let err = cfg.effective_statuses().unwrap_err();
         assert!(matches!(err, CoreError::InvalidTasksConfig(_)));
     }
 
     #[test]
     fn global_filter_with_nul_is_rejected() {
-        let mut cfg = TasksConfig::default();
-        cfg.global_filter = "#task\0".into();
+        let cfg = TasksConfig {
+            global_filter: "#task\0".into(),
+            ..TasksConfig::default()
+        };
         let err = cfg.effective_statuses().unwrap_err();
         assert!(matches!(err, CoreError::InvalidTasksConfig(_)));
     }
@@ -2869,8 +2873,10 @@ mod tests {
         ));
         // --- toggle: recurrence, recurrence_insert = below, with subtree
         {
-            let mut cfg = TasksConfig::default();
-            cfg.recurrence_insert = RecurrenceInsert::Below;
+            let cfg = TasksConfig {
+                recurrence_insert: RecurrenceInsert::Below,
+                ..TasksConfig::default()
+            };
             cases.push(mk(
                 "toggle_recurrence_spawns_below_after_subtree",
                 cfg,
@@ -2903,6 +2909,17 @@ mod tests {
             "toggle_recurrence_month_clamp_jan31_to_feb28",
             TasksConfig::default(),
             "- [ ] task 📅 2026-01-31 🔁 every month\n",
+            0,
+            TaskEdit::Toggle,
+            today,
+        ));
+        // --- toggle: recurrence spawn preserves tags (Korean body) — pins the
+        // extractAuxFields contract; a regression here silently dropped tags
+        // from spawned occurrences while the tag-less corpus stayed green.
+        cases.push(mk(
+            "toggle_recurrence_spawn_preserves_tags_korean",
+            TasksConfig::default(),
+            "- [ ] 한국어 작업 #프로젝트 #긴급 📅 2026-01-31 🔁 every month\n",
             0,
             TaskEdit::Toggle,
             today,
@@ -2974,8 +2991,10 @@ mod tests {
                 today,
             ));
             // dataview, absent -> append
-            let mut cfg = TasksConfig::default();
-            cfg.write_format = WriteFormat::Dataview;
+            let cfg = TasksConfig {
+                write_format: WriteFormat::Dataview,
+                ..TasksConfig::default()
+            };
             cases.push(mk(
                 &format!("set_date_{label}_dataview_append_when_absent"),
                 cfg.clone(),
@@ -3057,8 +3076,10 @@ mod tests {
                 TaskEdit::SetPriority(level),
                 today,
             ));
-            let mut cfg = TasksConfig::default();
-            cfg.write_format = WriteFormat::Dataview;
+            let cfg = TasksConfig {
+                write_format: WriteFormat::Dataview,
+                ..TasksConfig::default()
+            };
             cases.push(mk(
                 &format!("set_priority_{:?}_dataview", level),
                 cfg,
@@ -3088,8 +3109,10 @@ mod tests {
             today,
         ));
         // dataview format
-        let mut cfg = TasksConfig::default();
-        cfg.write_format = WriteFormat::Dataview;
+        let cfg = TasksConfig {
+            write_format: WriteFormat::Dataview,
+            ..TasksConfig::default()
+        };
         cases.push(mk(
             "set_text_dataview_preserves_field",
             cfg,
@@ -3099,8 +3122,10 @@ mod tests {
             today,
         ));
         // global filter preserved
-        let mut cfg = TasksConfig::default();
-        cfg.global_filter = "#task".into();
+        let cfg = TasksConfig {
+            global_filter: "#task".into(),
+            ..TasksConfig::default()
+        };
         cases.push(mk(
             "set_text_global_filter_hash_preserved",
             cfg,
@@ -3110,8 +3135,10 @@ mod tests {
             today,
         ));
         // global filter as bare word preserved
-        let mut cfg = TasksConfig::default();
-        cfg.global_filter = "milk".into();
+        let cfg = TasksConfig {
+            global_filter: "milk".into(),
+            ..TasksConfig::default()
+        };
         cases.push(mk(
             "set_text_global_filter_word_preserved",
             cfg,
@@ -3138,8 +3165,10 @@ mod tests {
             TaskEdit::SetRecurrence(None),
             today,
         ));
-        let mut cfg = TasksConfig::default();
-        cfg.write_format = WriteFormat::Dataview;
+        let cfg = TasksConfig {
+            write_format: WriteFormat::Dataview,
+            ..TasksConfig::default()
+        };
         cases.push(mk(
             "set_recurrence_add_rule_dataview",
             cfg,
@@ -3213,8 +3242,10 @@ mod tests {
         ));
         // 2. Korean description + dataview tokens: SetPriority.
         {
-            let mut cfg = TasksConfig::default();
-            cfg.write_format = WriteFormat::Dataview;
+            let cfg = TasksConfig {
+                write_format: WriteFormat::Dataview,
+                ..TasksConfig::default()
+            };
             cases.push(mk(
                 "korean_description_set_priority_high_dataview",
                 cfg,
@@ -3229,8 +3260,10 @@ mod tests {
         // must be a UTF-16 code-unit offset that still slices back to
         // the original bytes.
         {
-            let mut cfg = TasksConfig::default();
-            cfg.global_filter = "milk".into();
+            let cfg = TasksConfig {
+                global_filter: "milk".into(),
+                ..TasksConfig::default()
+            };
             cases.push(mk(
                 "korean_description_set_text_preserves_tag_and_filter_substring",
                 cfg,
@@ -3287,6 +3320,38 @@ mod tests {
             TaskEdit::SetPriority(Priority::Low),
             today,
         ));
+        // 8. Markdown link before a priority token: the scanner's
+        // link-destination skip must land exactly past `)`. The TS
+        // mirror regressed here by measuring the close paren from the
+        // `](` prefix (off-by-2), hiding fields that follow a link.
+        cases.push(mk(
+            "link_then_priority_emoji_is_recognized",
+            TasksConfig::default(),
+            "- [ ] see [x](y) ⏫ tail\n",
+            0,
+            TaskEdit::SetPriority(Priority::Lowest),
+            today,
+        ));
+        // 9. Markdown link before dataview fields, Korean body: the
+        // same skip over multi-byte link text, plus a dataview
+        // replace-in-place splice.
+        {
+            let cfg = TasksConfig {
+                write_format: WriteFormat::Dataview,
+                ..TasksConfig::default()
+            };
+            cases.push(mk(
+                "link_then_dataview_fields_korean_is_recognized",
+                cfg,
+                "- [ ] 문서 [링크](https://example.com/a) [due:: 2026-08-30] #메모\n",
+                0,
+                TaskEdit::SetDate {
+                    field: DateField::Due,
+                    value: Some(time::macros::date!(2026 - 09 - 01)),
+                },
+                today,
+            ));
+        }
 
         let corpus = serde_json::json!({ "cases": cases });
 

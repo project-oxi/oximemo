@@ -169,12 +169,17 @@ export function caretInsideInlineCode(line: string, caret: number): boolean {
 }
 
 /** Pure: build the completion options for a caret position on one
- *  line. Returns null when the line is not a recognized task line,
- *  the caret is inside an inline-code span, the caret is not at a
- *  token boundary (line start, after whitespace, or end of line), or
- *  every field is already present. `from` walks back to the start of
- *  the current (whitespace-bounded) token; at end-of-line after a
- *  space `from === to` (pure insertion). */
+ *  line. Returns null when the line is not a recognized task line
+ *  (including the §7.3 global-filter containment gate the widget's
+ *  `lineIsTask` and the kernel's `parse_tasks` apply), the caret is
+ *  inside an inline-code span, the caret is not at a token boundary
+ *  (line start, after whitespace, or end of line), or every field is
+ *  already present. `from` walks back to the start of the current
+ *  (whitespace-bounded) token — never into the checkbox structure and
+ *  never over a complete field token already parsed on the line
+ *  (existing tokens are preserved: the range degrades to a pure
+ *  insertion at the caret); at end-of-line after a space `from ===
+ *  to` (pure insertion). */
 export function suggestOptionsFor(
   line: string,
   cfg: TaskLineCfg,
@@ -185,12 +190,28 @@ export function suggestOptionsFor(
   if (!Number.isInteger(caret) || caret < 0 || caret > line.length) return null;
   const parsed = parseTaskLine(line, cfg);
   if (!parsed) return null;
+  // §7.3 contract — suggest, checkbox widget, and kernel parse_tasks
+  // must agree on what a task line is: with a global filter
+  // configured, the line has to CONTAIN it (substring, not
+  // starts-with; an empty filter passes everything). Same rule as
+  // `lineIsTask` and tasks.rs's `raw_line.contains(...)`.
+  if (cfg.globalFilter !== "" && !line.includes(cfg.globalFilter)) return null;
   if (caretInsideInlineCode(line, caret)) return null;
   const prev = caret > 0 ? line[caret - 1] : "";
   const atBoundary = caret === 0 || caret === line.length || /\s/.test(prev);
   if (!atBoundary) return null;
+  const checkboxEnd = parsed.spans.checkbox.end;
   let from = caret;
-  while (from > 0 && !/\s/.test(line[from - 1]!)) from--;
+  while (from > checkboxEnd && !/\s/.test(line[from - 1]!)) from--;
+  // A complete field token already on the line is not the partial
+  // trigger being typed — the apply range must not replace it.
+  if (parsed.spans.fields.some((f) => f.start < caret && f.end > from)) {
+    from = caret;
+  }
+  // The apply range never reaches into (or before) the checkbox
+  // structure: a caret at/before the checkbox end becomes a pure
+  // insertion at its end.
+  if (from < checkboxEnd) from = checkboxEnd;
   const present = new Set<TaskField>(parsed.spans.fields.map((f) => f.field));
   const absent = SUGGEST_FIELDS.filter((f) => !present.has(f));
   if (absent.length === 0) return null;
@@ -210,7 +231,7 @@ export function suggestOptionsFor(
       options.push(buildBareOption(field, label, cfg));
     }
   }
-  return { from, to: caret, options };
+  return { from, to: Math.max(caret, from), options };
 }
 
 // --- Per-option builders -----------------------------------------------
