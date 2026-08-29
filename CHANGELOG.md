@@ -6,18 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [0.11.0] — 2026-08-29
+
 ### Changed
 
 - **oxibrain 0.10 cutover — the daemon is gone on this side too.**
   `oxibrain-client` moves from git tag `v0.7.0` (retired daemon/socket
-  topology, ADR-007) to `v0.10.1` (caller-owned `serve --stdio`,
-  ARCHITECTURE v2.13). Every brain interaction now spawns a short-lived
+  topology, ADR-007) to `v0.11.0` (caller-owned `serve --stdio`,
   `oxibrain admin serve --stdio --dir ~/.oxi/brain` child and drops it;
   there is no resident daemon, no socket, and no "online" state — the
   panel reports failure *reasons* (`binary_missing`, `spawn_failed`,
   `handshake_failed`, `stats_failed`) instead. Requires **oxibrain ≥
-  0.10.1** on PATH (`[brain].executable` overrides; `[brain].socket` and
-  `[brain].space` keys are ignored).
+  0.11.0** on PATH (`[brain].executable` overrides; `[brain].socket` and
   - **Ingestion is oximemo-triggered** (brain 0.10 cutover spec,
     decisions 1/5): on open, oximemo idempotently ensures the active
     vault as a `documents.toml` root (space derived from the vault
@@ -45,6 +45,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (env `OXIMEMO_SPACE`, mutually exclusive with `--vault`). `oximemo
   doctor` reports the active space, all spaces, and a stale
   `last_space`.
+- **Tasks** (spec 2026-08-27). Editor lines become first-class tasks:
+  inline checkbox widgets with click-to-toggle that survives line
+  shifts, slash-menu quick add, due/weight field chips with an inline
+  cell editor, and a rollover that carries unfinished tasks into
+  today's note. A dedicated Tasks view buckets by overdue / today /
+  tomorrow / scheduled / later; the daily note and the sidebar TASKS
+  panel read the same kernel, and per-space task settings land in
+  Settings (`set_tasks_config` IPC).
+- **Calendar view** — browse a folder on a month grid bound to its
+  date field (created/updated or a `date:`-style property), ko/en
+  i18n included.
+- **Sidebar rework** — icon-grid FAVORITES/LOCATIONS cells with a
+  bottom space switcher; TasksPanel becomes its own component above
+  RECENTS; the mini-calendar is removed (superseded by Calendar view).
 
 ### Fixed
 
@@ -60,6 +74,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stale namespaces are swept by age — GUI startup (7-day floor) and
   `oximemo doctor [--fix]` (1-hour floor, in-flight flock guarded).
   `DoctorReport` gains `stale_index_namespaces`.
+- **Image saves failed in-app** — the `save_image_bytes` Tauri command
+  was never registered in `generate_handler` while the frontend
+  invoked it, so every in-app image save hit "command not found" (the
+  browser fallback masked it). Registered with the other asset
+  commands.
 
 ## [0.10.1] — 2026-08-27
 
@@ -1061,7 +1080,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/project-oxi/oximemo/compare/v0.10.1...v0.11.0
+[0.10.1]: https://github.com/project-oxi/oximemo/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/project-oxi/oximemo/compare/v0.9.3...v0.10.0
 [0.9.3]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.3
 [0.9.2]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.2
 [0.9.1]: https://github.com/project-oxi/oximemo/releases/tag/v0.9.1
