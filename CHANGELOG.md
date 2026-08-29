@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [0.12.0] — 2026-08-29
+
 ### Added
 
 - **Sidebar tasks panel shows undated work (tasks base seed v2).**
@@ -19,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   base without touching user views or edits, never resurrects a
   deleted base, and leaves unparseable files alone for the user to
   fix (the seed marker stays stale and the upgrade retries).
+- **Sidebar curation grid merges favorites and locations.** The fixed
+  3-cell favorites grid folds its smart-collection cells (전체 노트 /
+  즐겨찾기 / 갤러리) into the front of the locations grid, and the merged
+  section is retitled 즐겨찾기 (Finder-model curation) — pinned
+  collections now grow the same grid instead of running out of room.
+  The unused `locations_section` locale key is dropped.
+
+### Fixed
+
+- **Space picker popover opens upward so it stays on screen** when the
+  sidebar header sits near the bottom of the window.
 
 ## [0.11.0] — 2026-08-29
 
@@ -1094,7 +1107,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/project-oxi/oximemo/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/project-oxi/oximemo/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/project-oxi/oximemo/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/project-oxi/oximemo/compare/v0.9.3...v0.10.0
