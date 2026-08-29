@@ -3320,9 +3320,18 @@ impl Vault {
     /// there is no stored digest to compare against or repair.
     pub fn doctor(&self, fix: bool) -> Result<DoctorReport> {
         self.ensure_initialized()?;
+        let active_space = crate::brain::vault_space_name(&self.paths.vault);
+        let spaces = crate::spaces::list_spaces();
+        let last_space_stale = crate::spaces::last_space().filter(|n| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            !crate::spaces::space_dir(std::path::Path::new(&home), n).is_dir()
+        });
         let mut report = DoctorReport {
             merge_required: matches!(self.status, VaultStatus::MergeRequired { .. }),
             index_locked: crate::lock::is_locked(&self.paths.meta_lock_path()),
+            active_space,
+            spaces,
+            last_space_stale,
             ..DoctorReport::default()
         };
         // Gather indexed ids for orphan detection.
@@ -3967,6 +3976,16 @@ pub struct DoctorReport {
     /// `~/.oxi/vault` exist and must be merged by hand
     /// ([`VaultStatus::MergeRequired`]).
     pub merge_required: bool,
+    /// Active space (vault directory name; spec 2026-08-28 §5).
+    #[serde(default)]
+    pub active_space: String,
+    /// All space directories under ~/.oxi/vault.
+    #[serde(default)]
+    pub spaces: Vec<String>,
+    /// A recorded `last_space` whose directory is missing (resolution
+    /// fell through to the default). `None` = coherent.
+    #[serde(default)]
+    pub last_space_stale: Option<String>,
     pub orphan_index_records: Vec<MemoId>,
     pub orphan_files: Vec<PathBuf>,
     /// Always empty since v4: hashes are derived from body+favorite and

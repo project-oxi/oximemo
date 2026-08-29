@@ -127,6 +127,58 @@ pub fn resolve_vault_spec(explicit: Option<&Path>, space: Option<&str>) -> Resul
     Ok(VaultSpec::Space(DEFAULT_SPACE_NAME.to_string()))
 }
 
+/// Every space directory under `~/.oxi/vault/`: subdirectories whose
+/// names pass validation, skipping dotfiles, sorted. The filesystem is
+/// the registry — the daemon is never consulted (offline is normal).
+pub fn list_spaces() -> Vec<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let root = spaces_root(Path::new(&home));
+    let mut names: Vec<String> = std::fs::read_dir(&root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| validate_space_name(n).is_ok())
+        .collect();
+    names.sort();
+    names
+}
+
+/// Create a space by name (idempotent) and scaffold it: `mkdir -p`,
+/// then `Vault::open_spec` + `ensure_initialized` (folders, config).
+/// No brain-directory writes here — the active space's documents root
+/// is ensured on the next open (brain 0.10 cutover spec §2).
+pub fn create_space(name: &str) -> Result<PathBuf> {
+    let name = validate_space_name(name)?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let dir = space_dir(Path::new(&home), &name);
+    std::fs::create_dir_all(&dir)?;
+    let vault = crate::Vault::open_spec(&VaultSpec::Space(name))?;
+    vault.migrate()?;
+    let config = dir.join(crate::paths::CONFIG_NAME);
+    if !config.is_file() {
+        oxi_frontmatter::atomic_write(&config, b"# oximemo vault configuration\n")?;
+    }
+    Ok(dir)
+}
+
+/// Record the user's space selection. The directory must already exist
+/// (create first). Returns the space dir for the caller to report.
+pub fn switch_space(name: &str) -> Result<PathBuf> {
+    let name = validate_space_name(name)?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let dir = space_dir(Path::new(&home), &name);
+    if !dir.is_dir() {
+        return Err(CoreError::Other(format!(
+            "space '{name}' does not exist (create it first: oximemo space add {name})"
+        )));
+    }
+    set_last_space(&name)?;
+    Ok(dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +242,48 @@ mod tests {
             space_dir(Path::new("/h"), "work"),
             PathBuf::from("/h/.oxi/vault/work")
         );
+    }
+
+    // -- list/create/switch --
+
+    #[test]
+    fn list_spaces_is_sorted_and_validated() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            std::fs::create_dir_all(space_dir(&home, "beta")).unwrap();
+            std::fs::create_dir_all(space_dir(&home, "alpha")).unwrap();
+            std::fs::create_dir_all(space_dir(&home, ".hidden")).unwrap();
+            std::fs::create_dir_all(space_dir(&home, "not ok")).unwrap();
+            assert_eq!(list_spaces(), vec!["alpha".to_string(), "beta".to_string()]);
+        });
+    }
+
+    #[test]
+    fn create_space_scaffolds_and_is_idempotent() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            let dir = create_space("work").unwrap();
+            assert!(dir.join("oximemo.toml").is_file()); // ensure_initialized scaffold
+            let dir2 = create_space("work").unwrap();
+            assert_eq!(dir, dir2);
+        });
+    }
+
+    #[test]
+    fn create_space_rejects_invalid_name() {
+        assert!(create_space("not/ok").is_err());
+    }
+
+    #[test]
+    fn switch_space_requires_existing_dir_and_records() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            assert!(switch_space("ghost").is_err()); // missing dir
+            create_space("work").unwrap();
+            let dir = switch_space("work").unwrap();
+            assert_eq!(dir, space_dir(&home, "work"));
+            assert_eq!(last_space(), Some("work".to_string()));
+        });
     }
 
     // -- resolve_vault_spec precedence (spec §1) --
