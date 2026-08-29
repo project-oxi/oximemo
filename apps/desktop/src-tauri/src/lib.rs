@@ -82,10 +82,13 @@ impl AppState {
     /// configured roots. Skipped when `[brain].enabled = false` or when
     /// a run is already in flight; failures are logged, never surfaced.
     pub fn request_brain_index(&self) {
-        request_brain_index_run(&self.brain_indexing, self.brain_enabled, &self.brain_executable);
+        request_brain_index_run(
+            &self.brain_indexing,
+            self.brain_enabled,
+            &self.brain_executable,
+        );
     }
- }
-
+}
 
 pub fn run() {
     init_tracing();
@@ -143,9 +146,7 @@ pub fn run() {
                 .ok()
                 .map(PathBuf::from)
                 .or_else(parse_vault_arg);
-            let cli_space = std::env::var("OXIMEMO_SPACE")
-                .ok()
-                .or_else(parse_space_arg);
+            let cli_space = std::env::var("OXIMEMO_SPACE").ok().or_else(parse_space_arg);
             let spec = oximemo_core::spaces::resolve_vault_spec(
                 cli_vault.as_deref(),
                 cli_space.as_deref(),
@@ -353,6 +354,7 @@ pub fn run() {
             commands::space_list,
             commands::space_create,
             commands::space_switch,
+            commands::save_image_bytes,
             commands::list_assets,
             commands::gc_assets,
             commands::memo_for_asset,
@@ -774,7 +776,10 @@ fn resolve_brain_executable(executable: &str) -> String {
 async fn spawn_brain(
     executable: &str,
 ) -> Result<
-    (oxibrain_client::BrainClient, oxibrain_client::BrainCapabilities),
+    (
+        oxibrain_client::BrainClient,
+        oxibrain_client::BrainCapabilities,
+    ),
     BrainFailure,
 > {
     use std::io::ErrorKind;
@@ -782,19 +787,21 @@ async fn spawn_brain(
         resolve_brain_executable(executable),
         oximemo_core::brain::brain_dir(),
     );
-    let mut client = oxibrain_client::BrainClient::spawn_local(endpoint).await.map_err(|e| {
-        let binary_missing = e
-            .root_cause()
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(|io| io.kind() == ErrorKind::NotFound);
-        if binary_missing {
-            tracing::debug!("brain: oxibrain binary not found on PATH");
-            BrainFailure::BinaryMissing
-        } else {
-            tracing::debug!(error = %e, "brain: spawn failed");
-            BrainFailure::SpawnFailed
-        }
-    })?;
+    let mut client = oxibrain_client::BrainClient::spawn_local(endpoint)
+        .await
+        .map_err(|e| {
+            let binary_missing = e
+                .root_cause()
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io| io.kind() == ErrorKind::NotFound);
+            if binary_missing {
+                tracing::debug!("brain: oxibrain binary not found on PATH");
+                BrainFailure::BinaryMissing
+            } else {
+                tracing::debug!(error = %e, "brain: spawn failed");
+                BrainFailure::SpawnFailed
+            }
+        })?;
     let caps = client
         .handshake(oxibrain_client::default_client_hello(concat!(
             env!("CARGO_PKG_NAME"),
@@ -1395,15 +1402,12 @@ mod commands {
     }
 
     #[tauri::command]
-    pub fn space_create(
-        state: State<'_, AppState>,
-        name: String,
-    ) -> Result<SpaceInfo, String> {
+    pub fn space_create(state: State<'_, AppState>, name: String) -> Result<SpaceInfo, String> {
         oximemo_core::spaces::create_space(&name).map_err(|e| e.to_string())?;
-        Ok(SpaceInfo::list(&state.vault)
+        SpaceInfo::list(&state.vault)
             .into_iter()
             .find(|s| s.name == name.trim())
-            .ok_or_else(|| format!("space '{name}' not found after creation"))?)
+            .ok_or_else(|| format!("space '{name}' not found after creation"))
     }
 
     /// Switch the active space: persist `last_space`, then restart the
@@ -1628,8 +1632,9 @@ mod commands {
     /// reason as a normal gray state (C1).
     #[tauri::command]
     pub async fn brain_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-        let (enabled, executable) =
-            state.vault.with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
+        let (enabled, executable) = state
+            .vault
+            .with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
         if !enabled {
             return Ok(serde_json::json!({"online": false, "reason": "disabled"}));
         }
@@ -1672,8 +1677,9 @@ mod commands {
         query: String,
         budget: Option<u32>,
     ) -> Result<serde_json::Value, String> {
-        let (enabled, executable) =
-            state.vault.with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
+        let (enabled, executable) = state
+            .vault
+            .with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
         if !enabled {
             return Err("brain disabled in config".to_string());
         }
@@ -1696,8 +1702,9 @@ mod commands {
         state: State<'_, AppState>,
         path: String,
     ) -> Result<serde_json::Value, String> {
-        let (enabled, executable) =
-            state.vault.with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
+        let (enabled, executable) = state
+            .vault
+            .with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
         if !enabled {
             return Err("brain disabled in config".to_string());
         }
