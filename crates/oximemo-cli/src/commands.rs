@@ -10,6 +10,36 @@ use oximemo_core::memo::{MemoFilter, MemoId};
 
 use crate::format::{self, Format};
 
+// -- space (spec 2026-08-28 §4) ------------------------------------------
+
+/// `oximemo space list` — validated space dirs, `*` marks the active one.
+pub fn cmd_space_list() -> Result<()> {
+    let names = oximemo_core::spaces::list_spaces();
+    let active = match oximemo_core::spaces::resolve_vault_spec(None, None)? {
+        oximemo_core::spaces::VaultSpec::Space(n) => n,
+        oximemo_core::spaces::VaultSpec::Explicit(_) => String::new(),
+    };
+    for n in names {
+        let marker = if n == active { "* " } else { "  " };
+        println!("{marker}{n}");
+    }
+    Ok(())
+}
+
+/// `oximemo space add <name>` — create (idempotent) + scaffold.
+pub fn cmd_space_add(name: &str) -> Result<()> {
+    let dir = oximemo_core::spaces::create_space(name)?;
+    println!("vault dir: {}", dir.display());
+    Ok(())
+}
+
+/// `oximemo space switch <name>` — record the selection.
+pub fn cmd_space_switch(name: &str) -> Result<()> {
+    let dir = oximemo_core::spaces::switch_space(name)?;
+    println!("vault dir: {}", dir.display());
+    Ok(())
+}
+
 /// `oximemo new` — capture a note from an argument or stdin.
 ///
 /// `--tag` values are folded into the body as inline `#tag` tokens so the

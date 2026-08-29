@@ -27,6 +27,11 @@ struct Cli {
     #[arg(long, global = true, env = "OXIMEMO_VAULT")]
     vault: Option<PathBuf>,
 
+    /// Space name (one-shot; not persisted). Vault lives at
+    /// ~/.oxi/vault/<space>/. Mutually exclusive with --vault.
+    #[arg(long, global = true, env = "OXIMEMO_SPACE", conflicts_with = "vault")]
+    space: Option<String>,
+
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -201,11 +206,16 @@ enum Cmd {
     },
 
     /// Check for a newer release and self-update.
-    /// Check for a newer release and self-update.
     Upgrade {
         /// Report availability without installing.
         #[arg(long)]
         check: bool,
+    },
+
+    /// Space operations (spec 2026-08-28 §4).
+    Space {
+        #[command(subcommand)]
+        sub: Option<SpaceCmd>,
     },
 
     /// Search metadata providers (books/movies) with the vault's
@@ -232,6 +242,21 @@ enum Cmd {
     Task {
         #[command(subcommand)]
         sub: TaskCmd,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+enum SpaceCmd {
+    /// List spaces; `*` marks the active one.
+    List,
+    /// Create a space (idempotent) and scaffold its vault.
+    Add {
+        /// Space name (letters/digits/`-`/`_`, 1..=64).
+        name: String,
+    },
+    /// Record the selected space for future runs.
+    Switch {
+        name: String,
     },
 }
 
@@ -457,7 +482,19 @@ fn run() -> Result<()> {
     if let Cmd::Upgrade { check } = &cli.cmd {
         return upgrade::run(*check);
     }
-    let vault = Vault::open(cli.vault.as_deref())?;
+    // `space` needs no vault: handled before any resolution (below).
+    if let Cmd::Space { sub } = &cli.cmd {
+        return match sub.clone().unwrap_or(SpaceCmd::List) {
+            SpaceCmd::List => commands::cmd_space_list(),
+            SpaceCmd::Add { name } => commands::cmd_space_add(&name),
+            SpaceCmd::Switch { name } => commands::cmd_space_switch(&name),
+        };
+    }
+    let spec = oximemo_core::spaces::resolve_vault_spec(
+        cli.vault.as_deref(),
+        cli.space.as_deref(),
+    )?;
+    let vault = Vault::open_spec(&spec)?;
     vault.migrate()?;
     match cli.cmd {
         Cmd::New {
@@ -629,6 +666,7 @@ fn run() -> Result<()> {
         Cmd::Task { sub } => dispatch_task(&vault, sub),
         // Handled before the vault is opened (see above).
         Cmd::Upgrade { .. } => unreachable!(),
+        Cmd::Space { .. } => unreachable!(),
     }
 }
 
