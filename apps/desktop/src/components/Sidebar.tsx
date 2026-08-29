@@ -1,26 +1,26 @@
 /**
  * Collapsible left sidebar — Finder-model curation surface: FAVORITES
  * (smart collections 전체 메모/즐겨찾기/갤러리), LOCATIONS (볼트 root
- * browse entry + explicitly pinned folders), DAILY (today row + mini
- * calendar as one block), RECENTS, and TAGS. Folder browsing happens in
- * the main area; the 볼트 row enters it at the root.
+ * browse entry + explicitly pinned folders + the daily folder row),
+ * QUERIES (saved `.query` collections + the installed `할 일` shortcut),
+ * TASKS (the slim overdue+today panel that opens the full tasks view
+ * on click), RECENTS, and TAGS. Folder browsing happens in the main
+ * area; the 볼트 row enters it at the root.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SpacePicker } from "./SpacePicker";
-import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, openDailyNote, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
+import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
 import { createQueryCollection, defaultQueryYaml } from "../lib/queryCreation";
 import { colorForFolder } from "../lib/color";
-import { dayLabel, todayLocalISO } from "../lib/dates";
+import { listen } from "../lib/tauri";
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, BtnMenuRoot, BtnMenuTrigger, BtnMenuPopup, BtnMenuItem, BtnMenuSeparator } from "./ContextMenu";
 import { useFolderDrop, parentOf } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
 import { folderDisplayName, useFolderNames, useSchemaInfo, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
+import { TasksPanel } from "./TasksPanel";
 import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
-import { toneBg } from "../lib/propDisplay";
-import { listen } from "../lib/tauri";
-import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
-import { Calendar } from "./Calendar";
 import { TextCtxMenu } from "./TextCtxMenu";
 import { useUI, type TagState } from "../stores/ui";
 import type { FolderDef } from "../lib/types";
@@ -46,7 +46,7 @@ export function Sidebar({
   /** Move a dragged folder subtree into a pinned/seeded row's folder. */
   onMoveFolderTree?: (path: string, dest: string) => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const facets = useQuery({ queryKey: ["facets"], queryFn: listFacets });
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
   const configQ = useQuery({ queryKey: ["config"], queryFn: getConfig });
@@ -70,7 +70,6 @@ export function Sidebar({
   const setView = useUI((s) => s.setView);
   const select = useUI((s) => s.select);
   const setError = useUI((s) => s.setError);
-  const setDraftId = useUI((s) => s.setDraftId);
   const qc = useQueryClient();
 
   // Picking a tag is vault-wide intent — drop any folder/favorite scope
@@ -222,10 +221,9 @@ export function Sidebar({
     return out;
   }, [pinSchemas]);
 
-  // Daily notes: opt-out via config (absent = enabled). Config drives
-  // folder + flag; the calendar query refreshes the dot set as memos
-  // change (T5 added the openDailyNote + listMemos(folder) wiring and
-  // the memos:changed listener invalidates ["memos"] prefix).
+  // Daily notes: opt-out via config (absent = enabled). The LOCATIONS row
+  // below browses the daily folder; the sidebar's mini-calendar + today
+  // shortcut moved to the main area in T-사이드바.
   const dailyCfg = configQ.data?.daily;
   const dailyEnabled = dailyCfg?.enabled !== false;
   const dailyFolder = dailyCfg?.folder || "daily";
@@ -235,57 +233,8 @@ export function Sidebar({
   // permanent, so the entry disappears with it.
   const tasksEnabled = configQ.data?.tasks?.enabled !== false;
   const hasTasksBase = bases.some((b) => b.path === TASKS_BASE_PATH);
-  const dailyQ = useQuery({
-    queryKey: ["memos", "daily", dailyFolder],
-    queryFn: () => listMemos(null, 500, { folder: dailyFolder }),
-    enabled: dailyEnabled,
-  });
-  const dailyDates = new Set(
-    (dailyQ.data?.items ?? [])
-      .filter((n) => n.path.startsWith(`${dailyFolder}/`))
-      .map((n) => n.path.match(/\/(\d{4}-\d{2}-\d{2})\.(md|html)$/)?.[1])
-      .filter((d): d is string => Boolean(d)),
-  );
-  // Mood-colored dots (user prompt 2026-08-23): the daily folder's
-  // badge property (declared by its SCHEMA.toml — mood in the shipped
-  // preset) tints the day's dot. Days without the property stay
-  // neutral; folders without a schema keep plain dots.
-  const dailySchemas = useSchemaInfo(dailyEnabled ? [dailyFolder] : []);
-  const dailySchema = dailySchemas[dailyFolder];
-  const badgeProp = useMemo(() => {
-    const props = dailySchema?.properties;
-    if (!props) return null;
-    const key = Object.keys(props).find((k) => props[k].badge);
-    return key ? { key, colors: props[key].colors } : null;
-  }, [dailySchema]);
-  const moodDot = useMemo(() => {
-    if (!badgeProp) return undefined;
-    const byDate = new Map<string, string>();
-    for (const n of dailyQ.data?.items ?? []) {
-      const d = n.path.match(/\/(\d{4}-\d{2}-\d{2})\.(md|html)$/)?.[1];
-      const v = d ? n.props?.[badgeProp.key] : undefined;
-      if (d && v && "Str" in v) byDate.set(d, v.Str);
-    }
-    return (date: string) => {
-      const v = byDate.get(date);
-      return v ? toneBg(badgeProp.colors?.[v]) : null;
-    };
-  }, [badgeProp, dailyQ.data]);
-
-  const openDaily = (date: string) => {
-    openDailyNote(date)
-      .then(({ memo, created }) => {
-        setView("memos");
-        select(memo.id);
-        // Fresh daily note: closing it untouched (template body intact)
-        // discards it. Adopted/visited notes are never discardable.
-        if (created) setDraftId(memo.id, memo.body);
-      })
-      .catch((e) => setError(String(e).split("\n")[0]));
-  };
 
   const openFolder = (path: string) => {
-    setView("memos");
     setFavoritesOnly(false);
     setFolderFilter(path);
   };
@@ -386,7 +335,7 @@ export function Sidebar({
           const warn = !b.loadable || ambiguousNames.has(b.name);
           const renaming = queryNaming === b.path;
           return (
-            <CtxRoot key={b.path}>
+            <BtnMenuRoot key={b.path}>
               <div className="group/query relative mx-2">
                 <button
                   type="button"
@@ -424,7 +373,7 @@ export function Sidebar({
                     />
                   )}
                 </button>
-                <CtxTrigger
+                <BtnMenuTrigger
                   render={
                     <button
                       type="button"
@@ -435,20 +384,22 @@ export function Sidebar({
                     </button>
                   }
                 />
-                <CtxMenu>
-                  <CtxItem
+                <BtnMenuPopup>
+                  <BtnMenuItem
                     icon={PenLine}
                     label={t.query_rename}
                     onClick={() => setQueryNaming(b.path)}
                   />
-                  <CtxItem
+                  <BtnMenuSeparator />
+                  <BtnMenuItem
                     icon={Trash2}
                     label={t.query_delete}
+                    danger
                     onClick={() => deleteQuery(b.path)}
                   />
-                </CtxMenu>
+                </BtnMenuPopup>
               </div>
-            </CtxRoot>
+            </BtnMenuRoot>
           );
         })
       )}
@@ -520,37 +471,7 @@ export function Sidebar({
         />
       ))}
 
-      {/* DAILY — one integrated block: the today row opens today's note,
-          the mini calendar below it dots days that have one; clicking a
-          day opens or creates it. */}
-      {dailyEnabled && (
-        <>
-          <div className="mt-3 flex items-center px-3">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-              {t.daily_section}
-            </span>
-          </div>
-          <button
-            data-daily-today
-            type="button"
-            onClick={() => openDaily(todayLocalISO())}
-            className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-text-muted transition-colors hover:bg-surface-muted hover:text-text"
-          >
-            <CalendarDays size={14} className="text-hue-blue" />
-            <span className="font-medium">{t.today_note}</span>
-            <span className="ml-auto text-[10px] text-text-subtle">{dayLabel(todayLocalISO(), locale)}</span>
-          </button>
-          <div className="px-2 pt-1">
-            <Calendar
-              dates={dailyDates}
-              today={todayLocalISO()}
-              locale={locale}
-              onSelect={openDaily}
-              dotTone={moodDot}
-            />
-          </div>
-        </>
-      )}
+
       {/* RECENTS — recently updated notes, one click to open. */}
       {recents.length > 0 && (
         <>
@@ -562,7 +483,6 @@ export function Sidebar({
           <div className="flex flex-col px-2 pt-1">
             {recents.map((n) => (
               <button
-                key={n.id}
                 type="button"
                 onClick={() => { setView("memos"); select(n.id); }}
                 className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-text-muted hover:bg-surface-muted hover:text-text"
@@ -578,7 +498,12 @@ export function Sidebar({
           </div>
         </>
       )}
-
+      {/* TASKS — slim companion to the full `할 일` base view (the
+          chevron in the panel header opens the full one in the main
+          area). Gated by the same `[tasks] enabled` + base-file-exists
+          rules as the QUERIES entry above — deliberate deletion of the
+          installed base hides both surfaces. */}
+      {tasksEnabled && hasTasksBase && <TasksPanel />}
       {/* TAGS */}
       <div className="mt-3 flex items-center justify-between px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">{t.tags_section}</span>

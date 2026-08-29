@@ -1,9 +1,10 @@
 /**
- * Styled wrappers around Base UI `ContextMenu`. One shared visual vocabulary so
- * every right-click menu in the app looks consistent (round/border/dark-mode
- * matching the existing Popover + Card styling).
+ * Styled wrappers around Base UI `ContextMenu` AND `Menu`. One shared visual
+ * vocabulary so every right-click menu AND every left-click popover menu in
+ * the app looks consistent (round/border/dark-mode matching the existing
+ * Popover + Card styling).
  *
- * Usage:
+ * Usage (right-click):
  *   <CtxRoot>
  *     <CtxTrigger render={<button ... />}>        // or default <div>
  *       {content}
@@ -11,11 +12,19 @@
  *     </CtxTrigger>
  *   </CtxRoot>
  *
- * The CtxMenu portal teleports to <body>, but stays a React descendant of Root,
- * so nesting it inside the trigger is correct. For grid/flex children, pass a
- * `render` element to merge the trigger onto the existing node (no wrapper div).
+ * Usage (left-click — e.g. a MoreHorizontal button):
+ *   <BtnMenuRoot>
+ *     <BtnMenuTrigger render={<button ... />}>
+ *       <BtnMenuPopup>...BtnMenuItem / BtnMenuSeparator...</BtnMenuPopup>
+ *     </BtnMenuTrigger>
+ *   </BtnMenuRoot>
+ *
+ * The popup portals teleport to <body>, but stay React descendants of Root,
+ * so nesting them inside the trigger is correct. For grid/flex children,
+ * pass a `render` element to merge the trigger onto the existing node (no
+ * wrapper div).
  */
-import { ContextMenu } from "@base-ui-components/react";
+import { ContextMenu, Menu } from "@base-ui-components/react";
 import { Check, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -135,4 +144,70 @@ export function CtxSubmenu({
       </ContextMenu.Portal>
     </ContextMenu.SubmenuRoot>
   );
+}
+
+/* ---------------------------------------------------------------------
+ * Left-click popover menu (Base UI `Menu`). Used by the "�" affordance on
+ * sidebar rows and any other button-driven dropdown that needs the same
+ * visual vocabulary as CtxMenu. Same POPUP_CLS, same item chrome — only
+ * the trigger semantics differ (left-click vs right-click).
+ * ------------------------------------------------------------------- */
+
+/** Context provider — renders no HTML. Must wrap a Trigger + its popup. */
+export const BtnMenuRoot = Menu.Root;
+
+/** Trigger — opens on left-click / Enter / Space. Pass `render` to merge
+ *  onto an existing element (e.g. a positioned icon button). */
+export const BtnMenuTrigger = Menu.Trigger;
+
+/** Portal + Positioner (z-70) + Popup. Items inside share the CtxItem
+ *  chrome via `BtnMenuItem`. */
+export function BtnMenuPopup({ children }: { children: ReactNode }) {
+  return (
+    <Menu.Portal>
+      <Menu.Positioner sideOffset={4} className="z-[70]">
+        {/* Stop propagation at the popup so an item click never reaches the
+            trigger's own onClick (e.g. the query row's openBase click). */}
+        <Menu.Popup className={POPUP_CLS} onClick={(e) => e.stopPropagation()}>
+          {children}
+        </Menu.Popup>
+      </Menu.Positioner>
+    </Menu.Portal>
+  );
+}
+
+export function BtnMenuItem({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  danger,
+  keepOpen,
+}: {
+  icon?: LucideIcon;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  /** Keep the menu open after this item's click (mirror of CtxItem's flag). */
+  keepOpen?: boolean;
+}) {
+  return (
+    <Menu.Item
+      onClick={onClick}
+      disabled={disabled}
+      closeOnClick={keepOpen === true ? false : undefined}
+      className={
+        "flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 outline-none data-[highlighted]:bg-surface-muted disabled:pointer-events-none disabled:opacity-30 " +
+        (danger ? "text-status-error" : "")
+      }
+    >
+      {Icon && <Icon size={14} className="shrink-0" />}
+      <span className="flex-1">{label}</span>
+    </Menu.Item>
+  );
+}
+
+export function BtnMenuSeparator() {
+  return <Menu.Separator className="my-1 h-px bg-line" />;
 }
