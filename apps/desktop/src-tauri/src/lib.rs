@@ -346,6 +346,7 @@ pub fn run() {
             commands::set_appearance_config,
             commands::set_daily_config,
             commands::set_git_config,
+            commands::set_tasks_config,
             commands::stamp_metadata,
             commands::set_menu_locale,
             commands::get_backlinks,
@@ -1858,6 +1859,20 @@ mod commands {
         state
             .vault
             .set_daily_config(daily)
+            .map_err(|e| e.to_string())
+    }
+    /// `[tasks]` section setter (mirrors `set_brain_config`). Core
+    /// validates the status table (`effective_statuses`); the persisted
+    /// config fingerprint bumps the generation so extraction-affecting
+    /// changes reindex on the next open (tasks spec §11).
+    #[tauri::command]
+    pub fn set_tasks_config(
+        state: State<'_, AppState>,
+        tasks: oximemo_core::tasks::TasksConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_tasks_config(tasks)
             .map_err(|e| e.to_string())
     }
 
