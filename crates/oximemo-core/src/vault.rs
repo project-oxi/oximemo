@@ -7882,7 +7882,10 @@ watcher_retry_interval_ms = 200
         std::fs::write(v.paths().tasks_base_seed_marker_path(), b"1").unwrap();
         v.migrate().unwrap();
         let yaml = std::fs::read_to_string(v.paths().vault.join(TASKS_BASE_REL)).unwrap();
-        assert!(yaml.contains("테이블"), "user-added views survive the upgrade");
+        assert!(
+            yaml.contains("테이블"),
+            "user-added views survive the upgrade"
+        );
         let def = crate::base::parse_base(&yaml).unwrap();
         let nodate = def
             .views
@@ -7932,7 +7935,11 @@ watcher_retry_interval_ms = 200
             &std::fs::read_to_string(v.paths().vault.join(TASKS_BASE_REL)).unwrap(),
         )
         .unwrap();
-        assert_eq!(def.views.len(), 2, "no tasks view is appended over the user's name");
+        assert_eq!(
+            def.views.len(),
+            2,
+            "no tasks view is appended over the user's name"
+        );
         assert_eq!(
             std::fs::read_to_string(v.paths().tasks_base_seed_marker_path())
                 .unwrap()
