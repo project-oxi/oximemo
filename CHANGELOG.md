@@ -28,8 +28,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     upstream (0.8.0); `brain_history` is served by the new
     `document_history` RPC (gix revisions, Consumption Contract 1.4).
   - `brain_list_spaces` IPC and the Settings daemon-spaces picker are
-    removed; the spaces design (2026-08-28, amended) replaces them with
-    per-space vault switching in the next cycle.
+    removed; the derived space shows in Settings → Brain.
+
+### Added
+
+- **Per-space vault switching (spec 2026-08-28, amended).** A space is
+  one directory under `~/.oxi/vault/`; the directory name is the space
+  identity everywhere (index namespace, brain registration, copilot
+  context). One-time migration moves the legacy flat vault into
+  `~/.oxi/vault/personal/` on first open (pre-existing `personal/`
+  blocks with a `MergeRequired` banner + `oximemo doctor` guidance),
+  and the flat `documents.toml` root is rewritten to the space dir.
+  Switching is Obsidian-style: sidebar-header picker or ⌘K entries,
+  `space_switch` persists `last_space` and restarts the app; the CLI
+  gains `oximemo space list|add|switch` and a global `--space`
+  (env `OXIMEMO_SPACE`, mutually exclusive with `--vault`). `oximemo
+  doctor` reports the active space, all spaces, and a stale
+  `last_space`.
 
 ### Fixed
 
