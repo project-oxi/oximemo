@@ -544,13 +544,25 @@ integration preserves the project's IME-safe doctrine.
 ### §7.4 Tasks surface
 
 - Sidebar gains a `할 일` system entry opening an installed `.query` with
-  `source: tasks` and views 오늘 / 예정 / 지연 / 전체. It is seeded once
-  behind an install marker, follows the existing collection ownership rule,
-  and is never recreated after deliberate deletion. Users may duplicate and
-  edit it; there is no hidden query definition.
+  `source: tasks` and views 오늘 / 예정 / 지연 / 전체 / 날짜 없음. It is
+  seeded once behind a versioned install marker (seed v2), follows the
+  existing collection ownership rule, and is never recreated after
+  deliberate deletion. Users may duplicate and edit it; there is no
+  hidden query definition.
+- **Seed v2 (날짜 없음).** Quick-added tasks carry neither `due` nor
+  `scheduled`, so the four original views never surfaced them outside
+  전체. The v2 seed appends `filters: 'task.due == null &&
+  task.scheduled == null'`. The upgrade is structural, not a reseed:
+  `migrate()` parses the vault's existing base, appends the view after
+  the last `tasks` view, and re-saves — user-added views and edits
+  survive verbatim; a view already named 날짜 없음 (any type) suppresses
+  the merge; an unparseable file is left untouched with a stale marker
+  (retried next open); a deleted base stays deleted. The sidebar panel
+  resolves the view BY NAME, never by index.
 - Default grouping in the `tasks` view: 지연 / 오늘 / 내일 / 이번 주 /
   이후 / 날짜 없음, computed from `task.due` with `task.scheduled`
-  fallback.
+  fallback. The sidebar panel buckets 지연 / 오늘 / 날짜 없음 from the
+  오늘 + 날짜 없음 views.
 - Row click opens the parent note and scrolls to the task's line; the
   checkbox toggles in place through `patch_task`, then `["base"]` is
   invalidated exactly like the shipped cell-commit path

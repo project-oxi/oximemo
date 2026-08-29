@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+### Added
+
+- **Sidebar tasks panel shows undated work (tasks base seed v2).**
+  Quick-added tasks carry neither `due` nor `scheduled`, so they never
+  matched the 오늘 view and vanished from the sidebar. The installed
+  `할 일.query` gains a fifth tasks view, 날짜 없음 (`task.due == null
+  && task.scheduled == null`), and the panel renders it as a third
+  bucket beside 지연 / 오늘, resolving the view by name (index-safe
+  against user-reordered views). Existing vaults upgrade structurally
+  on next open: `migrate()` appends the view to a parseable pre-v2
+  base without touching user views or edits, never resurrects a
+  deleted base, and leaves unparseable files alone for the user to
+  fix (the seed marker stays stale and the upgrade retries).
+
 ## [0.11.0] — 2026-08-29
 
 ### Changed
