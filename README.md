@@ -370,7 +370,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow, and [`doc/DESIGN
 
 ## Roadmap
 
-- **v0.3+** — MCP server mode (`oximemo mcp serve`), multiple vaults, iCloud-Drive vault auto-detection, optional wikilinks/backlinks.
+- **Next** — MCP server mode (`oximemo mcp serve`), iCloud-Drive vault auto-detection.
 - **Deferred by design** — AI summaries, auto-tagging, chatbot, and embedding-based semantic search. BM25 keeps the capture loop fast; an offline embedding path (Rust `candle`, Metal-accelerated) stays a possibility if real demand appears.
 
 ## Contributing

@@ -4,6 +4,29 @@ All notable changes to oximemo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.13.1] — 2026-08-30
+
+### Fixed
+
+- **The installed 할 일 base is a protected system surface.** It appeared
+  in the generic QUERIES list, so its delete menu trashed the seeded
+  `queries/할 일.query` and the seed marker kept it deleted forever.
+  `trash_base`/`rename_base` now refuse it, a missing file re-seeds as a
+  repair on `migrate()`, and the sidebar QUERIES list and palette exclude
+  it — its only surfaces are the dedicated 할 일 row and the tasks panel.
+- **Flat-era settings and multi-space migration repairs.** A flat-era
+  `~/.oxi/settings.json` now migrates (recency-first) instead of being
+  orphaned; the flat → spaces move records per-space brain-root
+  registrations as a request list (alias-deduped, flushed in order,
+  restored verbatim on failure — the 0.13.0 single-request shape reads
+  as a one-element list); CLI integration tests isolate app-support
+  state instead of leaking pending records into the real `~/.oxi/oximemo`;
+  registration failures log the full error chain.
+
+### Changed
+
+- oxibrain-client pin advances to v0.12.1.
+
 ## [0.13.0] — 2026-08-30
 
 Unified Oxi home completion: spaces live at `~/.oxi/spaces/<name>/vault/`,
@@ -1151,7 +1174,9 @@ vault registration goes through the oxibrain client boundary.
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/project-oxi/oximemo/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/project-oxi/oximemo/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/project-oxi/oximemo/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/project-oxi/oximemo/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/project-oxi/oximemo/compare/v0.10.0...v0.10.1
