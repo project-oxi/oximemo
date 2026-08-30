@@ -37,6 +37,9 @@ Thumbs.db
 # --- Logs / local scratch ---
 *.log
 
+# --- Release prep scratch (auto-release-prep artifact) ---
+.release-prep-status.md
+
 # Brainstorm visual companion
 .superpowers/
 
