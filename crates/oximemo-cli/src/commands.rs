@@ -1297,6 +1297,7 @@ mod tests {
     impl TmpVault {
         fn new() -> Self {
             let _ = oximemo_core::paths::isolate_index_root_for_tests();
+            let _ = oximemo_core::paths::isolate_app_support_for_tests();
             use std::sync::atomic::{AtomicU64, Ordering};
             static N: AtomicU64 = AtomicU64::new(0);
             let dir = std::env::temp_dir().join(format!(

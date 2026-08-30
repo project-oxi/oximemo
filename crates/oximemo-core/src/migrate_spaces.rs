@@ -186,24 +186,32 @@ fn flat_entry_destination(
     Some(personal_vault.join(&name))
 }
 
-/// One-shot legacy `settings.json` migration (last-space selection):
-/// macOS application support → oximemo's private dir, only when the
-/// destination is absent. Journal-tracked; the source is moved
-/// (rename, with a copy+remove fallback across volumes). Failures are
-/// logged, never fatal — `last_space` resolution self-heals to the
-/// default space.
+/// One-shot legacy `settings.json` migration: candidates in recency
+/// order are the flat-era `~/.oxi/settings.json` and the pre-flat
+/// macOS application-support `settings.json`. The first that exists
+/// moves into oximemo's private dir, only when the destination is
+/// absent. Journal-tracked; the source is moved (rename, with a
+/// copy+remove fallback across volumes). Failures are logged, never
+/// fatal — `last_space` resolution self-heals to the default space.
 fn migrate_legacy_settings(oxi_home: &Path, legacy_home: Option<&Path>) {
-    let Some(source) = legacy_home
-        .map(|h| crate::paths::legacy_app_support_dir(h).join("settings.json"))
-        .filter(|p| p.is_file())
-    else {
+    let flat_source = oxi_home.join("settings.json");
+    let app_support_source =
+        legacy_home.map(|h| crate::paths::legacy_app_support_dir(h).join("settings.json"));
+    let (source, key) = if flat_source.is_file() {
+        (Some(flat_source), journal::FLAT_SETTINGS)
+    } else if app_support_source.as_ref().is_some_and(|p| p.is_file()) {
+        (app_support_source, journal::LEGACY_SETTINGS)
+    } else {
+        return;
+    };
+    let Some(source) = source else {
         return;
     };
     let dest = spaces::app_settings_path_in(oxi_home);
     if dest.exists() {
         return; // newer settings win; the legacy copy is inert
     }
-    journal::begin(oxi_home, journal::LEGACY_SETTINGS, &source, &dest);
+    journal::begin(oxi_home, key, &source, &dest);
     let moved = match std::fs::rename(&source, &dest) {
         Ok(()) => true,
         Err(_) => {
@@ -212,7 +220,7 @@ fn migrate_legacy_settings(oxi_home: &Path, legacy_home: Option<&Path>) {
         }
     };
     if moved {
-        journal::complete(oxi_home, journal::LEGACY_SETTINGS, None);
+        journal::complete(oxi_home, key, None);
         tracing::info!(
             to = %dest.display(),
             "migrated legacy settings.json into oximemo's private dir"
@@ -297,11 +305,23 @@ pub fn maybe_migrate(oxi_home: &Path, legacy_home: Option<&Path>) -> Result<Flat
         }
     }
 
-    // No direct documents.toml write: record the personal-space root
-    // for the next flush (module docs). The legacy flat entry may
-    // linger in the brain's config until the alias-keyed upsert lands;
-    // the indexer skips directories that no longer exist.
+    // No direct documents.toml write: record a pending registration per
+    // moved root for the next flush (module docs). The personal vault
+    // gets the default-space request; every moved space dir (e.g. a
+    // provisioned `knowledge/`) re-registers under its own name so the
+    // brain's alias-keyed upsert repairs the stale flat-era root. The
+    // legacy entries may linger in the brain's config until the flush
+    // lands; the indexer skips directories that no longer exist.
     crate::brain::record_pending_root_registration(&space, DEFAULT_SPACE_NAME);
+    for (from, dest) in &expected {
+        let Some(name) = from.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if personal_vault_entry(&space, name) == *dest {
+            continue; // personal content, covered by the default request
+        }
+        crate::brain::record_pending_request(crate::brain::document_root_request(dest, name));
+    }
 
     journal::complete(oxi_home, journal::FLAT_VAULT, None);
     tracing::info!(
@@ -309,6 +329,13 @@ pub fn maybe_migrate(oxi_home: &Path, legacy_home: Option<&Path>) -> Result<Flat
         "migrated the flat vault into the spaces layout (default space '{DEFAULT_SPACE_NAME}')"
     );
     Ok(FlatMigrationStatus::Migrated { moved })
+}
+
+/// The personal-vault destination of a flat entry with `name` — the
+/// counterpart of [`flat_entry_destination`]'s content rule, used to
+/// tell personal content from moved space dirs after the move.
+fn personal_vault_entry(personal_vault: &Path, name: &str) -> PathBuf {
+    personal_vault.join(name)
 }
 
 #[cfg(test)]
@@ -366,6 +393,43 @@ mod tests {
         assert_eq!(entry.status, journal::STATUS_COMPLETE);
     }
 
+    /// The flat era kept `settings.json` at the Oxi-home root. It must
+    /// move into oximemo's private dir (journal-tracked), not be
+    /// orphaned by the spaces layout.
+    #[test]
+    fn flat_era_settings_move_into_private_dir() {
+        let home = tempfile::tempdir().unwrap().keep();
+        seed_flat(&home);
+        std::fs::write(
+            home.join(".oxi/settings.json"),
+            r#"{"version":9,"theme":"github_dark"}"#,
+        )
+        .unwrap();
+        migrate(&home).unwrap();
+        let dest = crate::spaces::app_settings_path_in(&oxi_of(&home));
+        assert!(dest.is_file(), "settings moved into the private dir");
+        assert!(!home.join(".oxi/settings.json").exists());
+        let entry = journal::entry(&oxi_of(&home), journal::FLAT_SETTINGS).expect("entry");
+        assert_eq!(entry.status, journal::STATUS_COMPLETE);
+        // An existing private-dir settings file wins; the flat copy is inert.
+        let home2 = tempfile::tempdir().unwrap().keep();
+        seed_flat(&home2);
+        std::fs::write(home2.join(".oxi/settings.json"), r#"{"version":9}"#).unwrap();
+        let dest2 = crate::spaces::app_settings_path_in(&oxi_of(&home2));
+        std::fs::create_dir_all(dest2.parent().unwrap()).unwrap();
+        std::fs::write(&dest2, r#"{"version":10}"#).unwrap();
+        migrate(&home2).unwrap();
+        assert!(
+            home2.join(".oxi/settings.json").is_file(),
+            "inert copy kept"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&dest2).unwrap(),
+            r#"{"version":10}"#,
+            "newer private settings untouched"
+        );
+    }
+
     #[test]
     fn idempotent_second_run_is_already_migrated() {
         let home = tempfile::tempdir().unwrap().keep();
@@ -409,10 +473,30 @@ mod tests {
             );
             assert!(!flat_work.exists());
             // documents.toml untouched: registration goes through the
-            // pending-file boundary instead.
+            // pending-file boundary instead — one request per moved
+            // root, keyed by alias so the brain's upsert repairs the
+            // stale flat-era entry in place.
             assert_eq!(
                 std::fs::read(home.join(".oxi/brain/documents.toml")).unwrap(),
-                before
+                before,
+                "documents.toml must stay byte-identical"
+            );
+            let pending = crate::brain::pending_root_registration().expect("recorded");
+            let by_alias: Vec<(String, String)> = pending
+                .requests
+                .iter()
+                .map(|r| (r.request.alias.clone(), r.request.path.clone()))
+                .collect();
+            assert!(
+                by_alias.contains(&(
+                    "work".to_string(),
+                    work_vault.to_string_lossy().into_owned()
+                )),
+                "the moved work root is re-registered: {by_alias:?}"
+            );
+            assert!(
+                by_alias.iter().any(|(a, _)| a == "personal"),
+                "the personal vault keeps its default-space request: {by_alias:?}"
             );
         });
     }
@@ -480,9 +564,10 @@ mod tests {
             let pending = crate::brain::pending_root_registration()
                 .expect("the personal root must be recorded for the next flush");
             let personal = crate::spaces::space_vault_dir(&oxi_of(&home), "personal");
-            assert_eq!(pending.request.alias, "personal");
-            assert_eq!(pending.request.space, "personal");
-            assert_eq!(pending.request.path, personal.to_string_lossy());
+            assert_eq!(pending.requests.len(), 1);
+            assert_eq!(pending.requests[0].request.alias, "personal");
+            assert_eq!(pending.requests[0].request.space, "personal");
+            assert_eq!(pending.requests[0].request.path, personal.to_string_lossy());
         });
     }
 

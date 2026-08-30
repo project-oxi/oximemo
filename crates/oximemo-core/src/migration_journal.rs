@@ -22,6 +22,9 @@ pub(crate) const APP_SUPPORT_VAULT: &str = "app_support_vault";
 pub(crate) const FLAT_VAULT: &str = "flat_vault";
 /// Journal key: legacy `settings.json` → oximemo-private settings.
 pub(crate) const LEGACY_SETTINGS: &str = "legacy_settings";
+/// Journal key: flat-era `~/.oxi/settings.json` → oximemo-private
+/// settings.
+pub(crate) const FLAT_SETTINGS: &str = "flat_settings";
 
 /// Entry status until the migration verified cleanly.
 pub(crate) const STATUS_IN_PROGRESS: &str = "in_progress";

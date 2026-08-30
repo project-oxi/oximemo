@@ -219,10 +219,19 @@ fn flat_vault_report(oxi_home: &Path) -> SourceReport {
 }
 
 fn legacy_settings_report(oxi_home: &Path, legacy_home: Option<&Path>) -> SourceReport {
-    let source = legacy_home
-        .map(|h| paths::legacy_app_support_dir(h).join("settings.json"))
-        .filter(|p| p.is_file());
+    // Candidates in recency order: the flat-era `~/.oxi/settings.json`
+    // first, then the pre-flat application-support copy. Mirrors
+    // `migrate_spaces::migrate_legacy_settings`.
+    let flat = oxi_home.join("settings.json");
+    let source = if flat.is_file() {
+        Some(flat)
+    } else {
+        legacy_home
+            .map(|h| paths::legacy_app_support_dir(h).join("settings.json"))
+            .filter(|p| p.is_file())
+    };
     let dest = spaces::app_settings_path_in(oxi_home);
+    let completed = |key| journal_status(oxi_home, key) == Some("complete");
 
     let (status, pending_bytes, action) = match &source {
         Some(src) if !dest.exists() => (
@@ -231,7 +240,7 @@ fn legacy_settings_report(oxi_home: &Path, legacy_home: Option<&Path>) -> Source
             pending_action(false),
         ),
         Some(_) => (SourceStatus::Completed, None, "none".to_string()),
-        None if journal_status(oxi_home, journal::LEGACY_SETTINGS) == Some("complete") => {
+        None if completed(journal::FLAT_SETTINGS) || completed(journal::LEGACY_SETTINGS) => {
             (SourceStatus::Completed, None, "none".to_string())
         }
         None => (SourceStatus::Fresh, None, "none".to_string()),

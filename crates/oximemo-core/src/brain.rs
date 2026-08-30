@@ -111,14 +111,37 @@ pub fn document_root_request(vault: &Path, space: &str) -> RegisterDocumentRootR
     }
 }
 
-/// A deferred [`RegisterDocumentRootRequest`]: the request plus when it
-/// was recorded (unix seconds). Persisted as
-/// `pending_root_registration.json` and restored verbatim on a failed
-/// flush, so `recorded_at` keeps the original recording time.
+/// One deferred [`RegisterDocumentRootRequest`] plus when it was
+/// recorded (unix seconds).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PendingRootRegistration {
+pub struct RecordedRootRequest {
     pub request: RegisterDocumentRootRequest,
     pub recorded_at: u64,
+}
+
+/// The pending-registration file
+/// (`pending_root_registration.json`): a list of deferred requests,
+/// deduplicated by alias (a fresh record for an alias replaces the
+/// stale one). The flat→spaces migration records one request per moved
+/// space so every moved root is re-registered, not just the personal
+/// vault. Restored verbatim on a failed flush, so `recorded_at` keeps
+/// the original recording time.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PendingRootRegistration {
+    pub requests: Vec<RecordedRootRequest>,
+}
+
+/// Backward compatibility: the 0.13.0 single-request shape.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum PendingFile {
+    List {
+        requests: Vec<RecordedRootRequest>,
+    },
+    LegacySingle {
+        request: RegisterDocumentRootRequest,
+        recorded_at: u64,
+    },
 }
 
 /// The pending-registration directory: the test override under
@@ -139,16 +162,27 @@ fn pending_path() -> PathBuf {
     pending_dir().join(PENDING_FILE_NAME)
 }
 
-/// The pending registration, if one is recorded. A corrupt file is
-/// logged and ignored — the next `Vault::open` overwrites it anyway.
+/// The pending registrations, if any are recorded. Accepts both the
+/// current list shape and the 0.13.0 single-request shape. A corrupt
+/// file is logged and ignored — the next `Vault::open` re-records
+/// anyway.
 pub fn pending_root_registration() -> Option<PendingRootRegistration> {
     #[cfg(test)]
     if !test_pending_gate_active() {
         return None;
     }
     let text = std::fs::read_to_string(pending_path()).ok()?;
-    match serde_json::from_str(&text) {
-        Ok(pending) => Some(pending),
+    match serde_json::from_str::<PendingFile>(&text) {
+        Ok(PendingFile::List { requests }) => Some(PendingRootRegistration { requests }),
+        Ok(PendingFile::LegacySingle {
+            request,
+            recorded_at,
+        }) => Some(PendingRootRegistration {
+            requests: vec![RecordedRootRequest {
+                request,
+                recorded_at,
+            }],
+        }),
         Err(e) => {
             tracing::warn!(
                 error = %e,
@@ -160,26 +194,34 @@ pub fn pending_root_registration() -> Option<PendingRootRegistration> {
     }
 }
 
-/// Whether a documents-root registration is waiting for a flush
+/// Whether documents-root registrations are waiting for a flush
 /// (doctor visibility).
 pub fn has_pending_root_registration() -> bool {
     pending_root_registration().is_some()
 }
 
-/// Record the active vault's registration request for a later
-/// [`flush_pending_registrations`]. Synchronous, pure filesystem, and
-/// strictly inside oximemo's own private subtree — never a brain file,
-/// never a spawned child, so `Vault::open` stays instant (C1: boot
-/// never blocks on the brain). Failures are logged, never propagated.
-pub fn record_pending_root_registration(vault: &Path, space: &str) {
+/// Record one registration request for a later
+/// [`flush_pending_registrations`], replacing any earlier request with
+/// the same alias and preserving the others. Synchronous, pure
+/// filesystem, and strictly inside oximemo's own private subtree —
+/// never a brain file, never a spawned child, so `Vault::open` stays
+/// instant (C1: boot never blocks on the brain). Failures are logged,
+/// never propagated.
+pub fn record_pending_request(request: RegisterDocumentRootRequest) {
     #[cfg(test)]
     if !test_pending_gate_active() {
         return;
     }
-    let pending = PendingRootRegistration {
-        request: document_root_request(vault, space),
+    let mut pending = pending_root_registration().unwrap_or(PendingRootRegistration {
+        requests: Vec::new(),
+    });
+    pending
+        .requests
+        .retain(|r| r.request.alias != request.alias);
+    pending.requests.push(RecordedRootRequest {
+        request,
         recorded_at: unix_now(),
-    };
+    });
     let Ok(body) = serde_json::to_string_pretty(&pending) else {
         tracing::warn!("brain: pending registration serialize failed");
         return;
@@ -192,6 +234,12 @@ pub fn record_pending_root_registration(vault: &Path, space: &str) {
             "brain: pending registration not recorded"
         );
     }
+}
+
+/// Record the active vault's registration request for a later
+/// [`flush_pending_registrations`]. See [`record_pending_request`].
+pub fn record_pending_root_registration(vault: &Path, space: &str) {
+    record_pending_request(document_root_request(vault, space));
 }
 
 fn unix_now() -> u64 {
@@ -222,34 +270,45 @@ pub async fn register_document_root(
     Ok(outcome)
 }
 
-/// Deliver the recorded pending registration: read and delete the
-/// pending file, attempt the registration, and on success return the
-/// outcome. On any failure (offline, oxibrain missing, handshake or
-/// RPC error) the pending file is re-written verbatim and `Ok(None)`
-/// returned — never an error for the caller (C1). Idempotent end to
-/// end: the brain-side upsert makes repeated flushes no-ops, and a
-/// crash between delete and attempt loses nothing because the next
-/// `Vault::open` re-records the request.
+/// Deliver the recorded pending registrations: read and delete the
+/// pending file, attempt every request in recording order, and on full
+/// success return the first outcome. On any failure (offline, oxibrain
+/// missing, handshake or RPC error) the pending file is re-written
+/// verbatim — including the requests already delivered, which are
+/// idempotent alias-keyed upserts brain-side — and `Ok(None)` is
+/// returned, never an error for the caller (C1). A crash between
+/// delete and attempt loses nothing because the next `Vault::open`
+/// re-records the requests.
 pub async fn flush_pending_registrations(
     executable: &Path,
 ) -> Result<Option<RegisterDocumentRootOutcome>> {
     let Some(pending) = pending_root_registration() else {
         return Ok(None);
     };
+    if pending.requests.is_empty() {
+        let _ = std::fs::remove_file(pending_path());
+        return Ok(None);
+    }
     let _ = std::fs::remove_file(pending_path());
-    match register_document_root(executable, &pending.request).await {
-        Ok(outcome) => Ok(Some(outcome)),
-        Err(error) => {
-            tracing::debug!(
-                %error,
-                "brain: pending registration flush failed; request kept for the next flush point"
-            );
-            if let Ok(body) = serde_json::to_string_pretty(&pending) {
-                let _ = oxi_frontmatter::atomic_write(&pending_path(), body.as_bytes());
+    let mut first_outcome: Option<RegisterDocumentRootOutcome> = None;
+    for recorded in &pending.requests {
+        match register_document_root(executable, &recorded.request).await {
+            Ok(outcome) if first_outcome.is_none() => first_outcome = Some(outcome),
+            Ok(_) => {}
+            Err(error) => {
+                tracing::debug!(
+                    error = %format!("{error:#}"),
+                    alias = %recorded.request.alias,
+                    "brain: pending registration flush failed; requests kept for the next flush point"
+                );
+                if let Ok(body) = serde_json::to_string_pretty(&pending) {
+                    let _ = oxi_frontmatter::atomic_write(&pending_path(), body.as_bytes());
+                }
+                return Ok(None);
             }
-            Ok(None)
         }
     }
+    Ok(first_outcome)
 }
 
 /// Blocking flush for synchronous callers (the CLI has no async
@@ -305,17 +364,62 @@ mod tests {
             record_pending_root_registration(&vault, "work");
             let pending = pending_root_registration().expect("recorded");
             let want = document_root_request(&vault, "work");
-            assert_eq!(pending.request.space, want.space);
-            assert_eq!(pending.request.alias, want.alias);
-            assert_eq!(pending.request.path, want.path);
+            assert_eq!(pending.requests.len(), 1);
+            assert_eq!(pending.requests[0].request.space, want.space);
+            assert_eq!(pending.requests[0].request.alias, want.alias);
+            assert_eq!(pending.requests[0].request.path, want.path);
             assert!(
-                pending.recorded_at >= before.saturating_sub(1),
+                pending.requests[0].recorded_at >= before.saturating_sub(1),
                 "recorded_at = {}",
-                pending.recorded_at
+                pending.requests[0].recorded_at
             );
             assert!(has_pending_root_registration());
             // The file lands under the override dir with the documented name.
             assert!(dir.path().join(PENDING_FILE_NAME).is_file());
+        });
+    }
+
+    #[test]
+    fn recording_by_alias_replaces_only_that_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        with_test_pending_dir(dir.path(), || {
+            record_pending_request(document_root_request(Path::new("/t/k"), "knowledge"));
+            record_pending_request(document_root_request(Path::new("/t/p"), "personal"));
+            // A re-open of the personal vault replaces its entry, keeps
+            // the knowledge one.
+            record_pending_request(document_root_request(Path::new("/t/p2"), "personal"));
+            let pending = pending_root_registration().unwrap();
+            let aliases: Vec<&str> = pending
+                .requests
+                .iter()
+                .map(|r| r.request.alias.as_str())
+                .collect();
+            assert_eq!(aliases, vec!["knowledge", "personal"]);
+            assert_eq!(pending.requests[1].request.path, "/t/p2");
+        });
+    }
+
+    #[test]
+    fn legacy_single_request_file_reads_as_one_element_list() {
+        let dir = tempfile::tempdir().unwrap();
+        // The 0.13.0 shape, verbatim.
+        std::fs::write(
+            dir.path().join(PENDING_FILE_NAME),
+            r#"{
+  "request": {
+    "space": "personal",
+    "alias": "personal",
+    "path": "/t/vault"
+  },
+  "recorded_at": 1788048572
+}"#,
+        )
+        .unwrap();
+        with_test_pending_dir(dir.path(), || {
+            let pending = pending_root_registration().unwrap();
+            assert_eq!(pending.requests.len(), 1);
+            assert_eq!(pending.requests[0].request.alias, "personal");
+            assert_eq!(pending.requests[0].recorded_at, 1788048572);
         });
     }
 

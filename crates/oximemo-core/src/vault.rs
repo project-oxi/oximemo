@@ -7756,12 +7756,16 @@ watcher_retry_interval_ms = 200
             let _v = Vault::open(Some(&expected_vault)).unwrap();
             let pending = crate::brain::pending_root_registration()
                 .expect("open must record the pending registration");
-            assert_eq!(pending.request.space, "work");
-            assert_eq!(pending.request.alias, "work");
-            assert_eq!(pending.request.path, expected_vault.to_string_lossy());
+            assert_eq!(pending.requests.len(), 1);
+            assert_eq!(pending.requests[0].request.space, "work");
+            assert_eq!(pending.requests[0].request.alias, "work");
+            assert_eq!(
+                pending.requests[0].request.path,
+                expected_vault.to_string_lossy()
+            );
             // The rules stay the brain's defaults; oximemo writes only
             // its own pending file — never a brain file.
-            assert!(pending.request.include.is_none());
+            assert!(pending.requests[0].request.include.is_none());
             assert!(!home.join("brain").exists(), "no brain dir is created");
         });
     }
@@ -7781,11 +7785,15 @@ watcher_retry_interval_ms = 200
             let _ = Vault::open(Some(&expected_vault)).unwrap();
             let _ = Vault::open(Some(&expected_vault)).unwrap();
             let _ = Vault::open(Some(&expected_vault)).unwrap();
-            // The record is a single-file overwrite, so repeated opens
-            // cannot accumulate state; the flush side is idempotent via
-            // the brain's alias-keyed upsert.
+            // Records dedupe by alias, so repeated opens cannot
+            // accumulate state; the flush side is idempotent via the
+            // brain's alias-keyed upsert.
             let pending = crate::brain::pending_root_registration().expect("recorded");
-            assert_eq!(pending.request.path, expected_vault.to_string_lossy());
+            assert_eq!(pending.requests.len(), 1);
+            assert_eq!(
+                pending.requests[0].request.path,
+                expected_vault.to_string_lossy()
+            );
         });
     }
 

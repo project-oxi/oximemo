@@ -231,8 +231,35 @@ impl Paths {
 }
 
 /// `~/.oxi/oximemo` — oximemo-private settings and derived state.
+/// Honors the test override ([`isolate_app_support_for_tests`]): when
+/// oximemo-core is compiled as a plain dependency (e.g. inside the CLI
+/// binary's own unit tests) the `cfg(test)` pending gate does not
+/// exist, so a vault-opening test would otherwise record pending
+/// registrations into the user's real `~/.oxi/oximemo`.
 pub fn app_support_dir() -> PathBuf {
-    oxi_home().join("oximemo")
+    TEST_APP_SUPPORT
+        .get()
+        .cloned()
+        .unwrap_or_else(|| oxi_home().join("oximemo"))
+}
+
+static TEST_APP_SUPPORT: OnceLock<PathBuf> = OnceLock::new();
+
+/// # Test-only
+/// Redirect `app_support_dir()` (pending registrations, settings,
+/// index namespaces) into `$TMPDIR/oximemo-test-appsupport-<pid>`.
+/// Idempotent; the first call wins and production never initializes it
+/// (a runtime-set global). Mirrors `isolate_index_root_for_tests`.
+#[doc(hidden)]
+pub fn isolate_app_support_for_tests() -> PathBuf {
+    TEST_APP_SUPPORT
+        .get_or_init(|| {
+            let root = std::env::temp_dir()
+                .join(format!("oximemo-test-appsupport-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&root);
+            root
+        })
+        .clone()
 }
 
 /// Legacy macOS app-support location used only while migrating old installs.

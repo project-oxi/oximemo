@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.13.0"
+version = "0.13.1"
 edition = "2024"
 rust-version = "1.89"
 authors = ["oximemo"]
@@ -54,13 +54,13 @@ objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSApplication", "NSWi
 # Errors
 objc2-foundation = { version = "0.3", features = ["NSString", "NSProcessInfo", "NSThread", "NSRunLoop"] }
 thiserror = "2"
-oxibrain-client = { version = "0.12", git = "https://github.com/a7garden/oxibrain", tag = "v0.12.0" }
+oxibrain-client = { version = "0.12", git = "https://github.com/a7garden/oxibrain", tag = "v0.12.1" }
 anyhow = "1"
 oxi-vault-git = "0.1"
 
-oximemo-core = { path = "crates/oximemo-core", version = "0.13.0" }
-oximemo-capture = { path = "crates/oximemo-capture", version = "0.13.0" }
-oximemo-metadata = { path = "crates/oximemo-metadata", version = "0.13.0" }
+oximemo-core = { path = "crates/oximemo-core", version = "0.13.1" }
+oximemo-capture = { path = "crates/oximemo-capture", version = "0.13.1" }
+oximemo-metadata = { path = "crates/oximemo-metadata", version = "0.13.1" }
 
 [profile.release]
 codegen-units = 1
