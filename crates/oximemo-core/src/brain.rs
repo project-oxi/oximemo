@@ -1,73 +1,88 @@
-//! Documents-plane glue between oximemo's vault and the oxibrain 0.10+
-//! caller-owned model (spec 2026-08-29 brain 0.10 cutover, §2).
+//! Documents-plane glue between oximemo's vault and the oxibrain
+//! caller-owned model (unified home design, 2026-08-30).
 //!
 //! The brain has no resident process: every interaction spawns
-//! `oxibrain admin serve --stdio` as a short-lived child (desktop side),
-//! and vault ingestion is a reconcile of `~/.oxi/brain/documents.toml`
-//! roots. This module owns the two filesystem operations that never
-//! need a live brain:
+//! `oxibrain admin serve --stdio` as a short-lived caller-owned child
+//! and speaks newline-delimited JSON-RPC over its piped stdio.
+//! **oximemo never writes brain files** (`~/.oxi/brain/`): the
+//! documents root is registered through
+//! [`BrainClient::register_document_root`], an idempotent upsert keyed
+//! by alias that lives on the oxibrain side of the client boundary.
 //!
-//! - [`ensure_document_root`] — idempotently guarantees a `[[root]]`
-//!   entry whose `path` is exactly the active vault. This is one of the
-//!   two sanctioned oximemo writes into `~/.oxi/brain/` (the other is
-//!   the one-time flat-root rewrite in `migrate_spaces`). Operator
-//!   configuration is never clobbered: an existing root for the same
-//!   path is left byte-identical, and an unparseable file is never
-//!   touched.
+//! Because a registration needs a live oxibrain child and
+//! `Vault::open` must never block (or spawn anything), open only
+//! *records* the pending request and a later flush delivers it:
+//!
+//! - [`document_root_request`] — the pure vault+space → request
+//!   mapping (`None` rules mean the brain's connector defaults apply;
+//!   oximemo deliberately ships no include/exclude/size policy).
+//! - [`record_pending_root_registration`] — boot-time, synchronous,
+//!   oximemo-private fs only: atomically writes
+//!   `<app_support_dir()>/pending_root_registration.json`.
+//! - [`register_document_root`] / [`flush_pending_registrations`] —
+//!   the client-boundary calls. The flush is offline-tolerant: on any
+//!   failure the pending file is restored verbatim and `Ok(None)`
+//!   returned, so an unflushable registration is a normal state, not
+//!   an error.
 //! - [`vault_space_name`] — the space identity, derived from the vault
 //!   directory basename (amended spaces spec §2). There is no
-//!   configured space anywhere in oximemo anymore.
+//!   configured space anywhere in oximemo.
 //!
-//! Failure posture (ECOSYSTEM C1): every path here either succeeds
-//! quietly or logs and returns without blocking `Vault::open`. The
-//! brain is additive; a missing/uninstalled oxibrain is a normal state.
+//! Flush points: the desktop boot task, `oximemo doctor`, and
+//! `oximemo migrate-home`. `Vault::open` itself re-records the pending
+//! request on every open with `[brain].enabled`, so even a lost flush
+//! is retried on the next launch.
+//!
+//! Failure posture (ECOSYSTEM C1): the brain is additive; a missing or
+//! uninstalled oxibrain is a normal state, never an error for the
+//! caller's main flow.
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use oxibrain_client::{
+    BrainClient, LocalProcessEndpoint, RegisterDocumentRootOutcome, RegisterDocumentRootRequest,
+};
+
+/// Filename of the deferred registration record under
+/// [`crate::paths::app_support_dir()`].
+pub const PENDING_FILE_NAME: &str = "pending_root_registration.json";
 
 #[cfg(test)]
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 thread_local! {
-    /// Per-thread brain-dir override for tests, mirroring the retired
-    /// recorder pattern: without an installed override, the documents
-    /// glue is a no-op so unrelated tests never touch the developer's
-    /// real `~/.oxi/brain/documents.toml`.
-    static TEST_BRAIN_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    /// Per-thread pending-dir override for tests: without an installed
+    /// override the pending glue is a no-op under `cfg(test)` so
+    /// unrelated vault-opening tests never touch the developer's real
+    /// `~/.oxi/oximemo/` (the same contract as the retired
+    /// `NoopBrainRegistrar` gate). Production is always active.
+    static TEST_PENDING_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
 
 #[cfg(test)]
-pub(crate) fn with_test_brain_dir<R>(dir: &Path, f: impl FnOnce() -> R) -> R {
-    let _ = TEST_BRAIN_DIR.try_with(|cell| *cell.borrow_mut() = Some(dir.to_path_buf()));
+pub(crate) fn with_test_pending_dir<R>(dir: &Path, f: impl FnOnce() -> R) -> R {
+    let _ = TEST_PENDING_DIR.try_with(|cell| *cell.borrow_mut() = Some(dir.to_path_buf()));
     let out = f();
-    let _ = TEST_BRAIN_DIR.try_with(|cell| *cell.borrow_mut() = None);
+    let _ = TEST_PENDING_DIR.try_with(|cell| *cell.borrow_mut() = None);
     out
 }
 
-/// Under `cfg(test)` with no override installed, the documents glue is
-/// a no-op (the old `NoopBrainRegistrar` contract). Production is
-/// always active.
-fn test_brain_gate_active() -> bool {
-    #[cfg(test)]
-    return TEST_BRAIN_DIR
+/// Under `cfg(test)` with no override installed, the pending glue is a
+/// no-op. Production is always active.
+#[cfg(test)]
+fn test_pending_gate_active() -> bool {
+    TEST_PENDING_DIR
         .try_with(|cell| cell.borrow().is_some())
-        .unwrap_or(false);
-    #[cfg(not(test))]
-    true
+        .unwrap_or(false)
 }
 
-/// `~/.oxi/brain` (or `$OXI_HOME/brain`) — the oxibrain data plane. Caller-owned stdio children
-/// are pointed here with `--dir`; `documents.toml` lives inside. Empty
-/// `HOME` degrades to a relative `.oxi/brain` (tests override the whole
-/// dir via [`with_test_brain_dir`]).
+/// `~/.oxi/brain` (or `$OXI_HOME/brain`) — the oxibrain data plane.
+/// Caller-owned stdio children are pointed here with `--dir`;
+/// `documents.toml` lives inside. The directory is created and owned
+/// by oxibrain — oximemo only passes the path.
 pub fn brain_dir() -> PathBuf {
-    #[cfg(test)]
-    if let Some(dir) = TEST_BRAIN_DIR
-        .try_with(|cell| cell.borrow().clone())
-        .ok()
-        .flatten()
-    {
-        return dir;
-    }
     crate::paths::oxi_home().join("brain")
 }
 
@@ -82,222 +97,190 @@ pub fn vault_space_name(vault: &Path) -> String {
         .to_string()
 }
 
-/// Outcome of [`ensure_document_root`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EnsureOutcome {
-    /// The root entry was appended (file created or extended).
-    Added,
-    /// A root with exactly this `path` already existed — nothing written.
-    Present,
-    /// `documents.toml` exists but does not parse (or the write failed)
-    /// — left untouched.
-    SkippedInvalid,
-}
-
-/// One `[[root]]` entry of oxibrain's canonical `documents.toml`
-/// (alias, path, space are mandatory; include/exclude/max_file_bytes are
-/// optional and never written by oximemo — server defaults apply).
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-struct DocumentRoot {
-    alias: String,
-    path: String,
-    space: String,
-}
-
-#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default)]
-struct DocumentsFile {
-    #[serde(rename = "root")]
-    roots: Vec<DocumentRoot>,
-}
-
-/// Guarantee that `documents.toml` carries a root whose `path` is
-/// exactly `vault`. Idempotent by filesystem check — repeated opens are
-/// no-ops without any memoization. Never blocks: I/O errors are logged
-/// and reported as `SkippedInvalid` rather than propagated (the vault
-/// must open even when the brain dir is unwritable).
-pub fn ensure_document_root(vault: &Path, space: &str) -> EnsureOutcome {
-    if !test_brain_gate_active() {
-        return EnsureOutcome::Present;
-    }
-    let file = brain_dir().join("documents.toml");
-    let mut doc = match std::fs::read_to_string(&file) {
-        Err(_) => DocumentsFile::default(),
-        Ok(text) => match toml::from_str::<DocumentsFile>(&text) {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    path = %file.display(),
-                    "brain: documents.toml unparseable; leaving untouched"
-                );
-                return EnsureOutcome::SkippedInvalid;
-            }
-        },
-    };
-    if doc.roots.iter().any(|r| Path::new(&r.path) == vault) {
-        return EnsureOutcome::Present;
-    }
-    doc.roots.push(DocumentRoot {
+/// The pure vault+space → registration request mapping. Alias and
+/// space are the vault directory basename; `None` rules mean the
+/// brain's connector defaults apply.
+pub fn document_root_request(vault: &Path, space: &str) -> RegisterDocumentRootRequest {
+    RegisterDocumentRootRequest {
+        space: space.to_string(),
         alias: space.to_string(),
         path: vault.to_string_lossy().into_owned(),
-        space: space.to_string(),
-    });
-    let body = match toml::to_string_pretty(&doc) {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::warn!(error = %e, "brain: documents.toml serialize failed");
-            return EnsureOutcome::SkippedInvalid;
-        }
-    };
-    if let Some(parent) = file.parent()
-        && let Err(e) = std::fs::create_dir_all(parent)
+        include: None,
+        exclude: None,
+        max_file_bytes: None,
+    }
+}
+
+/// A deferred [`RegisterDocumentRootRequest`]: the request plus when it
+/// was recorded (unix seconds). Persisted as
+/// `pending_root_registration.json` and restored verbatim on a failed
+/// flush, so `recorded_at` keeps the original recording time.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PendingRootRegistration {
+    pub request: RegisterDocumentRootRequest,
+    pub recorded_at: u64,
+}
+
+/// The pending-registration directory: the test override under
+/// `cfg(test)`, oximemo's private app-support dir in production.
+fn pending_dir() -> PathBuf {
+    #[cfg(test)]
+    if let Some(dir) = TEST_PENDING_DIR
+        .try_with(|cell| cell.borrow().clone())
+        .ok()
+        .flatten()
     {
-        tracing::warn!(error = %e, path = %parent.display(), "brain: cannot create brain dir");
-        return EnsureOutcome::SkippedInvalid;
+        return dir;
     }
-    let tmp = file.with_extension("toml.oximemo-tmp");
-    if let Err(e) = std::fs::write(&tmp, &body).and_then(|_| std::fs::rename(&tmp, &file)) {
-        tracing::warn!(error = %e, path = %file.display(), "brain: documents.toml write failed");
-        return EnsureOutcome::SkippedInvalid;
+    crate::paths::app_support_dir()
+}
+
+fn pending_path() -> PathBuf {
+    pending_dir().join(PENDING_FILE_NAME)
+}
+
+/// The pending registration, if one is recorded. A corrupt file is
+/// logged and ignored — the next `Vault::open` overwrites it anyway.
+pub fn pending_root_registration() -> Option<PendingRootRegistration> {
+    #[cfg(test)]
+    if !test_pending_gate_active() {
+        return None;
     }
-    EnsureOutcome::Added
+    let text = std::fs::read_to_string(pending_path()).ok()?;
+    match serde_json::from_str(&text) {
+        Ok(pending) => Some(pending),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                path = %pending_path().display(),
+                "brain: corrupt pending registration file ignored"
+            );
+            None
+        }
+    }
+}
+
+/// Whether a documents-root registration is waiting for a flush
+/// (doctor visibility).
+pub fn has_pending_root_registration() -> bool {
+    pending_root_registration().is_some()
+}
+
+/// Record the active vault's registration request for a later
+/// [`flush_pending_registrations`]. Synchronous, pure filesystem, and
+/// strictly inside oximemo's own private subtree — never a brain file,
+/// never a spawned child, so `Vault::open` stays instant (C1: boot
+/// never blocks on the brain). Failures are logged, never propagated.
+pub fn record_pending_root_registration(vault: &Path, space: &str) {
+    #[cfg(test)]
+    if !test_pending_gate_active() {
+        return;
+    }
+    let pending = PendingRootRegistration {
+        request: document_root_request(vault, space),
+        recorded_at: unix_now(),
+    };
+    let Ok(body) = serde_json::to_string_pretty(&pending) else {
+        tracing::warn!("brain: pending registration serialize failed");
+        return;
+    };
+    let path = pending_path();
+    if let Err(e) = oxi_frontmatter::atomic_write(&path, body.as_bytes()) {
+        tracing::warn!(
+            error = %e,
+            path = %path.display(),
+            "brain: pending registration not recorded"
+        );
+    }
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Register the document root through the client boundary: spawn the
+/// caller-owned `oxibrain admin serve --stdio` child for
+/// [`brain_dir`], perform the idempotent alias-keyed upsert, and drop
+/// the child (`kill_on_drop`). Mirrors the desktop app's endpoint
+/// construction. Never touches `documents.toml` directly.
+pub async fn register_document_root(
+    executable: &Path,
+    request: &RegisterDocumentRootRequest,
+) -> Result<RegisterDocumentRootOutcome> {
+    let endpoint = LocalProcessEndpoint::new(executable, brain_dir());
+    let mut client = BrainClient::spawn_local(endpoint)
+        .await
+        .context("spawn oxibrain for document-root registration")?;
+    let outcome = client
+        .register_document_root(request.clone())
+        .await
+        .context("register_document_root rpc")?;
+    drop(client);
+    Ok(outcome)
+}
+
+/// Deliver the recorded pending registration: read and delete the
+/// pending file, attempt the registration, and on success return the
+/// outcome. On any failure (offline, oxibrain missing, handshake or
+/// RPC error) the pending file is re-written verbatim and `Ok(None)`
+/// returned — never an error for the caller (C1). Idempotent end to
+/// end: the brain-side upsert makes repeated flushes no-ops, and a
+/// crash between delete and attempt loses nothing because the next
+/// `Vault::open` re-records the request.
+pub async fn flush_pending_registrations(
+    executable: &Path,
+) -> Result<Option<RegisterDocumentRootOutcome>> {
+    let Some(pending) = pending_root_registration() else {
+        return Ok(None);
+    };
+    let _ = std::fs::remove_file(pending_path());
+    match register_document_root(executable, &pending.request).await {
+        Ok(outcome) => Ok(Some(outcome)),
+        Err(error) => {
+            tracing::debug!(
+                %error,
+                "brain: pending registration flush failed; request kept for the next flush point"
+            );
+            if let Ok(body) = serde_json::to_string_pretty(&pending) {
+                let _ = oxi_frontmatter::atomic_write(&pending_path(), body.as_bytes());
+            }
+            Ok(None)
+        }
+    }
+}
+
+/// Blocking flush for synchronous callers (the CLI has no async
+/// runtime of its own): runs the async flush on a minimal
+/// current-thread tokio runtime.
+pub fn flush_pending_registrations_blocking(
+    executable: &Path,
+) -> Result<Option<RegisterDocumentRootOutcome>> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime for pending flush")?
+        .block_on(flush_pending_registrations(executable))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn seed_documents(home: &Path, text: &str) -> PathBuf {
-        let brain = home.join(".oxi").join("brain");
-        std::fs::create_dir_all(&brain).unwrap();
-        let file = brain.join("documents.toml");
-        std::fs::write(&file, text).unwrap();
-        file
-    }
+    use crate::migrate_vault::with_home;
 
     #[test]
-    fn no_override_is_a_noop() {
-        // Without `with_test_brain_dir`, cfg(test) builds must never
-        // touch the real brain dir (NoopBrainRegistrar contract).
-        let vault = std::env::temp_dir().join("oximemo-noop-ensure-check");
-        std::fs::create_dir_all(&vault).unwrap();
-        assert_eq!(
-            ensure_document_root(&vault, "personal"),
-            EnsureOutcome::Present
-        );
-    }
-    #[test]
-    fn absent_documents_toml_is_created_with_one_root() {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/spaces/personal/vault");
-        let brain = home.join(".oxi/brain");
-        std::fs::create_dir_all(&vault).unwrap();
-        let doc = brain.join("documents.toml");
-        with_test_brain_dir(&brain, || {
-            assert_eq!(
-                ensure_document_root(&vault, "personal"),
-                EnsureOutcome::Added
-            );
-            let text = std::fs::read_to_string(&doc).unwrap();
-            assert!(
-                text.contains(&format!("path = \"{}\"", vault.display())),
-                "text: {text}"
-            );
-            assert!(text.contains("space = \"personal\""));
-            assert!(text.contains("alias = \"personal\""));
-        });
-    }
+    fn document_root_request_maps_alias_space_path() {
+        let request = document_root_request(Path::new("/tmp/x/work"), "work");
+        assert_eq!(request.space, "work");
+        assert_eq!(request.alias, "work");
+        assert_eq!(request.path, "/tmp/x/work");
+        // Rules stay unset: the brain's connector defaults apply.
+        assert!(request.include.is_none());
+        assert!(request.exclude.is_none());
+        assert!(request.max_file_bytes.is_none());
 
-    #[test]
-    fn exact_path_root_is_present_without_rewrite() {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/spaces/work/vault");
-        std::fs::create_dir_all(&vault).unwrap();
-        let body = format!(
-            "[[root]]\nalias = \"work\"\npath = \"{}\"\nspace = \"work\"\n",
-            vault.display()
-        );
-        let file = seed_documents(&home, &body);
-        let before = std::fs::read(&file).unwrap();
-        with_test_brain_dir(&home.join(".oxi/brain"), || {
-            assert_eq!(ensure_document_root(&vault, "work"), EnsureOutcome::Present);
-        });
-        assert_eq!(
-            std::fs::read(&file).unwrap(),
-            before,
-            "no rewrite on Present"
-        );
-    }
-
-    #[test]
-    fn same_path_different_alias_space_is_present() {
-        // Operator owns alias/space/include for an existing exact-path
-        // root; oximemo never clobbers it even when the values differ
-        // from what it would have written.
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/spaces/work/vault");
-        std::fs::create_dir_all(&vault).unwrap();
-        let body = format!(
-            "[[root]]\nalias = \"custom-alias\"\npath = \"{}\"\nspace = \"elsewhere\"\ninclude = [\"**/*.md\"]\n",
-            vault.display()
-        );
-        let file = seed_documents(&home, &body);
-        let before = std::fs::read(&file).unwrap();
-        with_test_brain_dir(&home.join(".oxi/brain"), || {
-            assert_eq!(ensure_document_root(&vault, "work"), EnsureOutcome::Present);
-        });
-        assert_eq!(std::fs::read(&file).unwrap(), before);
-    }
-
-    #[test]
-    fn invalid_toml_is_never_touched() {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/spaces/personal/vault");
-        std::fs::create_dir_all(&vault).unwrap();
-        let file = seed_documents(&home, "not [ valid toml");
-        let before = std::fs::read(&file).unwrap();
-        with_test_brain_dir(&home.join(".oxi/brain"), || {
-            assert_eq!(
-                ensure_document_root(&vault, "personal"),
-                EnsureOutcome::SkippedInvalid
-            );
-        });
-        assert_eq!(std::fs::read(&file).unwrap(), before);
-    }
-
-    #[test]
-    fn additional_roots_preserved_when_appending() {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().to_path_buf();
-        let vault = home.join(".oxi/spaces/personal/vault");
-        let other = home.join("some/other/root");
-        std::fs::create_dir_all(&vault).unwrap();
-        let body = format!(
-            "[[root]]\nalias = \"ext\"\npath = \"{}\"\nspace = \"ext\"\n",
-            other.display()
-        );
-        seed_documents(&home, &body);
-        with_test_brain_dir(&home.join(".oxi/brain"), || {
-            assert_eq!(
-                ensure_document_root(&vault, "personal"),
-                EnsureOutcome::Added
-            );
-            let text = std::fs::read_to_string(home.join(".oxi/brain/documents.toml")).unwrap();
-            assert!(
-                text.contains("alias = \"ext\""),
-                "existing root kept: {text}"
-            );
-            assert!(text.contains(&format!("path = \"{}\"", vault.display())));
-        });
-    }
-
-    #[test]
-    fn vault_space_name_uses_basename_or_personal() {
         assert_eq!(vault_space_name(Path::new("/tmp/x/work")), "work");
         assert_eq!(vault_space_name(Path::new("work")), "work");
         assert_eq!(vault_space_name(Path::new("/")), "personal");
@@ -305,23 +288,73 @@ mod tests {
     }
 
     #[test]
-    fn stale_brain_config_keys_parse_and_ignore() {
-        // socket/space are retired keys; serde(default) + no
-        // deny_unknown_fields keeps old oximemo.toml files loading.
-        let t = "[brain]\nenabled = true\nsocket = \"/old.sock\"\nspace = \"work\"\n";
-        #[derive(serde::Deserialize, Default)]
-        #[serde(default)]
-        struct Brain {
-            enabled: bool,
-            executable: String,
-        }
-        #[derive(serde::Deserialize, Default)]
-        #[serde(default)]
-        struct Root {
-            brain: Brain,
-        }
-        let r: Root = toml::from_str(t).unwrap();
-        assert!(r.brain.enabled);
-        assert_eq!(r.brain.executable, "");
+    fn no_override_is_a_noop() {
+        // Without `with_test_pending_dir`, cfg(test) builds must never
+        // touch the real pending file (NoopBrainRegistrar contract).
+        record_pending_root_registration(Path::new("/tmp/oximemo-noop-vault"), "personal");
+        assert!(!has_pending_root_registration());
+    }
+
+    #[test]
+    fn record_then_read_roundtrips_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = dir.path().join("spaces/work/vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        let before = unix_now();
+        with_test_pending_dir(dir.path(), || {
+            record_pending_root_registration(&vault, "work");
+            let pending = pending_root_registration().expect("recorded");
+            let want = document_root_request(&vault, "work");
+            assert_eq!(pending.request.space, want.space);
+            assert_eq!(pending.request.alias, want.alias);
+            assert_eq!(pending.request.path, want.path);
+            assert!(
+                pending.recorded_at >= before.saturating_sub(1),
+                "recorded_at = {}",
+                pending.recorded_at
+            );
+            assert!(has_pending_root_registration());
+            // The file lands under the override dir with the documented name.
+            assert!(dir.path().join(PENDING_FILE_NAME).is_file());
+        });
+    }
+
+    #[test]
+    fn offline_flush_keeps_pending_and_never_touches_brain_files() {
+        let home = tempfile::tempdir().unwrap().keep();
+        with_home(&home, || {
+            let pending_dir = home.join("pending-test");
+            let vault = home.join("spaces/work/vault");
+            std::fs::create_dir_all(&vault).unwrap();
+            with_test_pending_dir(&pending_dir, || {
+                record_pending_root_registration(&vault, "work");
+                assert!(pending_dir.join(PENDING_FILE_NAME).is_file());
+
+                // A missing executable fails the spawn; the flush must
+                // report Ok(None) and re-write the pending file verbatim.
+                let before = std::fs::read(pending_dir.join(PENDING_FILE_NAME)).unwrap();
+                let out = flush_pending_registrations_blocking(Path::new("/nonexistent/oxibrain"))
+                    .expect("flush never errors for offline");
+                assert!(out.is_none());
+                assert_eq!(
+                    std::fs::read(pending_dir.join(PENDING_FILE_NAME)).unwrap(),
+                    before,
+                    "pending file restored verbatim"
+                );
+                // No brain files anywhere: oximemo only ever passes the
+                // path to the spawned child.
+                assert!(!home.join(".oxi/brain").exists());
+            });
+        });
+    }
+
+    #[test]
+    fn flush_without_pending_is_a_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        with_test_pending_dir(dir.path(), || {
+            let out = flush_pending_registrations_blocking(Path::new("/nonexistent/oxibrain"))
+                .expect("no pending → no attempt");
+            assert!(out.is_none());
+        });
     }
 }

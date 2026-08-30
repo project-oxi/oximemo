@@ -128,8 +128,8 @@ flowchart TB
 
 | 계층                   | 역할                            | 기술                               | 위치                                                                                |
 | :------------------- | :---------------------------- | :------------------------------- | :-------------------------------------------------------------------------------- |
-| 원본 (source of truth) | 사람·에이전트가 직접 읽을 수 있는 노트 본문     | 개별 `.md` 파일 + TOML frontmatter   | 사용자가 지정한 **Vault 폴더** (기본: `~/Library/Application Support/com.oximemo.app/vault/`) |
-| 메타데이터 인덱스            | 그리드 페이지네이션, 필터, 동기화 커서용 빠른 조회 | `redb` (순수 Rust 임베디드 KV/테이블 스토어) | 로컬 전용 캐시 경로: `~/Library/Application Support/com.oximemo.app/index/meta.redb`       |
+| 원본 (source of truth) | 사람·에이전트가 직접 읽을 수 있는 노트 본문     | 개별 `.md` 파일 + YAML frontmatter    | 사용자가 지정한 **Vault 폴더** (기본: `~/.oxi/spaces/personal/vault/`, `OXI_HOME`으로 전체 이동 가능) |
+| 메타데이터 인덱스            | 그리드 페이지네이션, 필터, 동기화 커서용 빠른 조회 | `redb` (순수 Rust 임베디드 KV/테이블 스토어) | 로컬 전용 캐시 경로: `~/.oxi/oximemo/index/<space>/meta.redb`                        |
 | 전문 검색 인덱스            | BM25 키워드 검색                   | `tantivy`                        | `…/index/search/`                                                                 |
 
 **왜 3단인가:**  인덱스 계층(redb, tantivy)은 언제든 Vault 폴더를 다시 스캔해서 100% 재생성할 수 있는 "파생 데이터"로 설계합니다. 이렇게 하면 인덱스가 손상되거나 앱 버전이 바뀌어 스키마가 달라져도 `oximemo reindex` 한 번으로 복구됩니다. 반대로 Vault 폴더는 절대 자동으로 손댈 필요가 없는 순수 텍스트 뭉치이므로, 에이전트가 CLI 없이 `grep`이나 `cat`으로 직접 들여다봐도 안전합니다.

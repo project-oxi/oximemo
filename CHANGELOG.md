@@ -4,18 +4,52 @@ All notable changes to oximemo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-## [Unreleased]
+## [0.13.0] — 2026-08-30
+
+Unified Oxi home completion: spaces live at `~/.oxi/spaces/<name>/vault/`,
+legacy layouts are consolidated by journaled resumable migrations, and
+vault registration goes through the oxibrain client boundary.
 
 ### Changed
 
-- **Spaces move to `~/.oxi/spaces/<name>/vault/` (work in progress on
-  main, unreleased).** Each space directory now owns a `vault/` child
-  for user files, freeing the space directory itself for metadata;
-  oximemo-private settings and derived state move from
-  `~/Library/Application Support/com.oximemo.app` to `~/.oxi/oximemo`
+- **Spaces move to `~/.oxi/spaces/<name>/vault/`.** Each space directory
+  now owns a `vault/` child for user files, freeing the space directory
+  itself for metadata; oximemo-private settings and derived state move
+  from `~/Library/Application Support/com.oximemo.app` to `~/.oxi/oximemo`
   (legacy locations are still detected via the migration paths).
   `oxi_home()` becomes the single resolver for the `~/.oxi` tree and
-  honors `OXI_HOME`.
+  honors `OXI_HOME` — including the boot-time migration entry point,
+  which previously read `$HOME` only.
+- **No direct `documents.toml` writes.** Vault registration now goes
+  through the oxibrain `register_document_root` client op (idempotent,
+  alias-keyed upsert). When no capable oxibrain binary is available, the
+  request is recorded in `~/.oxi/oximemo/pending_root_registration.json`
+  and delivered by the next desktop boot, `doctor`, or `migrate-home`
+  — oximemo stays fully usable offline and never touches brain files.
+
+### Added
+
+- **`oximemo migrate-home [--dry-run]`** — preflight/resume for the
+  app-support vault, flat `~/.oxi/vault`, legacy per-space dirs, and
+  legacy settings migrations. Journaled (write-before-first-mutation,
+  verified completion), copy-verify across filesystems without ever
+  deleting the source (retired backups are reported by `doctor`);
+  conflicting old/new locations are reported with both paths and left
+  untouched. Dry-run mutates nothing.
+- **`doctor` layout diagnostics** — active `oxi_home`, `brain_dir`,
+  app-private dir, legacy presence, retired backups, pending
+  registration, and both merge-required paths.
+- **Migration safety tests** — real-`.git` history and permission
+  preservation across rename and cross-fs copy migrations.
+
+### Fixed
+
+- Flat `~/.oxi/vault/<name>/` directories without a `vault/` child (the
+  pre-per-space-vault layout) are now migrated into
+  `spaces/<name>/vault/` instead of stranding the notes.
+- Legacy `settings.json` (`last_space`) migrates from the old
+  app-support location to `~/.oxi/oximemo/settings.json`.
+
 ## [0.12.0] — 2026-08-29
 
 ### Added

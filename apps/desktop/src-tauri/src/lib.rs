@@ -2,7 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -199,6 +199,29 @@ pub fn run() {
             let wstate = app.state::<AppState>();
             spawn_watcher(&wstate, app.handle());
             wstate.request_brain_index();
+            // Unified home: deliver the documents-root registration an
+            // offline open recorded. Fire-and-forget on the async
+            // runtime — the brain is additive (C1) and boot never
+            // waits for it. Only attempted when `[brain].enabled`;
+            // a failed flush keeps the pending file for the next
+            // flush point (next boot, `oximemo doctor`, `oximemo
+            // migrate-home`).
+            if wstate.brain_enabled {
+                let exec = resolve_brain_executable(&wstate.brain_executable);
+                tauri::async_runtime::spawn(async move {
+                    match oximemo_core::brain::flush_pending_registrations(Path::new(&exec)).await {
+                        Ok(Some(outcome)) => tracing::debug!(
+                            outcome = %outcome.outcome,
+                            root = %outcome.root.path,
+                            "brain: pending document-root registration flushed"
+                        ),
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::debug!(error = %e, "brain: pending registration flush errored")
+                        }
+                    }
+                });
+            }
 
             let handle = app.handle().clone();
             app.global_shortcut()

@@ -65,9 +65,11 @@ pub enum VaultSpec {
 pub fn resolve_vault_spec(explicit: Option<&Path>, space: Option<&str>) -> VaultSpec;
 ```
 
-- `Paths::resolve` learns the spec. Index layout:
-  - `Space(name)` → vault `~/.oxi/vault/<name>/`, index
-    `…/com.oximemo.app/index/<name>/`
+- `Paths::resolve_spec` learns the spec. Index layout (amended by the
+  2026-08-30 unified home: the Oxi home is `~/.oxi` and oximemo's
+  private state moved to `~/.oxi/oximemo/`):
+  - `Space(name)` → vault `~/.oxi/spaces/<name>/vault/`, index
+    `~/.oxi/oximemo/index/<name>/`
   - `Explicit(path)` → unchanged: index `…/index/by-vault/<hash>/`
     (existing `vault_namespace` machinery).
 - `Vault::open(vault: Option<&Path>)` keeps its signature (zero test churn)

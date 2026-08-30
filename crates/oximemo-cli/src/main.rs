@@ -23,12 +23,13 @@ mod upgrade;
     long_about = "Reads/writes the oximemo vault. Agent-facing commands default to JSON/NDJSON."
 )]
 struct Cli {
-    /// Vault root (defaults to the user vault under Application Support).
+    /// Vault root (defaults to the active space vault under
+    /// ~/.oxi/spaces/<space>/vault/).
     #[arg(long, global = true, env = "OXIMEMO_VAULT")]
     vault: Option<PathBuf>,
 
     /// Space name (one-shot; not persisted). Vault lives at
-    /// ~/.oxi/vault/<space>/. Mutually exclusive with --vault.
+    /// ~/.oxi/spaces/<space>/vault/. Mutually exclusive with --vault.
     #[arg(long, global = true, env = "OXIMEMO_SPACE", conflicts_with = "vault")]
     space: Option<String>,
 
@@ -201,6 +202,18 @@ enum Cmd {
     /// Migrate vault from v2 (categories) to v3 (folders) layout.
     Migrate {
         /// Preview changes without writing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// One-time home-layout migration: application-support vault →
+    /// ~/.oxi/spaces/personal/vault, flat ~/.oxi/vault → spaces,
+    /// legacy settings — journaled and resumable. With --dry-run,
+    /// prints a per-source status report and mutates nothing. (The
+    /// separate `migrate` subcommand above is the v2→v3 file-format
+    /// migrator and stays unchanged.)
+    MigrateHome {
+        /// Report the per-source status without writing anything.
         #[arg(long)]
         dry_run: bool,
     },
@@ -480,6 +493,13 @@ fn run() -> Result<()> {
     if let Cmd::Upgrade { check } = &cli.cmd {
         return upgrade::run(*check);
     }
+    // `migrate-home` inspects and migrates the HOME layout itself and
+    // must observe the pre-migration state: handled before any vault
+    // resolution (the generic open below would run the migrations as
+    // a side effect of open_spec).
+    if let Cmd::MigrateHome { dry_run } = &cli.cmd {
+        return commands::cmd_migrate_home(*dry_run);
+    }
     // `space` needs no vault: handled before any resolution (below).
     if let Cmd::Space { sub } = &cli.cmd {
         return match sub.clone().unwrap_or(SpaceCmd::List) {
@@ -663,6 +683,7 @@ fn run() -> Result<()> {
         // Handled before the vault is opened (see above).
         Cmd::Upgrade { .. } => unreachable!(),
         Cmd::Space { .. } => unreachable!(),
+        Cmd::MigrateHome { .. } => unreachable!(),
     }
 }
 

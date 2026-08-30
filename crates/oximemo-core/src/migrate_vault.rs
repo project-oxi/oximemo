@@ -26,16 +26,27 @@
 //! conversion marker ([`CONVERSION_MARKER`]) is withheld until the pass
 //! completes cleanly so the self-heal retry actually runs.
 //!
-//! The cross-device (EXDEV) move fallback follows file symlinks and
-//! aborts on symlinked directories — the old default vault never
-//! carries symlinks in practice, and a partial fallback leaves both
-//! sides populated so the next open reports [`MigrationStatus::MergeRequired`].
-
-use std::path::{Path, PathBuf};
+//! The move is journaled (see [`crate::migration_journal`]): the
+//! journal entry is written before the first mutation and marked
+//! complete after verification. A same-volume `rename` is atomic and
+//! moves the data. The cross-volume (EXDEV) fallback copies the tree
+//! with per-file verification and **keeps the source** as a retired
+//! backup recorded in the journal — the old `remove_dir_all` here
+//! could destroy the only good copy, so it is gone. Because the backup
+//! keeps the old side populated, subsequent runs consult the journal:
+//! a completed entry reads as [`MigrationStatus::AlreadyMigrated`]
+//! (never [`MigrationStatus::MergeRequired`]), and doctor surfaces the
+//! backup as safe to delete manually. The fallback follows file
+//! symlinks and aborts on symlinked directories — the old default
+//! vault never carries symlinks in practice — and a crash mid-copy
+//! leaves the journal `in_progress`, so the next run resumes the copy
+//! (idempotent: identical files are skipped by size + blake3).
 
 use oxi_frontmatter::{NoteFormat, Parsed, Table, Value, atomic_write, emit, parse};
+use std::path::{Path, PathBuf};
 
 use crate::error::{CoreError, Result};
+use crate::migration_journal as journal;
 use crate::paths;
 
 /// Outcome of the one-time default-vault migration check.
@@ -68,23 +79,26 @@ pub enum MigrationStatus {
 /// run that failed on malformed notes retries after the user fixes them.
 const CONVERSION_MARKER: &str = "v3-converted";
 
-/// Pre-unification default vault: `<home>/Library/Application
-/// Support/com.oximemo.app/vault`.
-pub fn old_default_vault(home: &Path) -> PathBuf {
-    paths::legacy_app_support_dir(home).join(paths::VAULT_DEFAULT_SUBDIR)
+/// Pre-unification default vault: `<user-home>/Library/Application
+/// Support/com.oximemo.app/vault`. Takes the **user** home, not the
+/// Oxi home — the legacy location predates `~/.oxi` entirely.
+pub fn old_default_vault(user_home: &Path) -> PathBuf {
+    paths::legacy_app_support_dir(user_home).join(paths::VAULT_DEFAULT_SUBDIR)
 }
 
-/// Shared ecosystem default vault: `<home>/.oxi/vault`.
-pub fn new_default_vault(home: &Path) -> PathBuf {
-    home.join(".oxi")
+/// Shared ecosystem default vault: `<oxi-home>/spaces/personal/vault`
+/// (the post-spaces target; the historical `~/.oxi/vault` hop is
+/// handled by [`crate::migrate_spaces`]).
+pub fn new_default_vault(oxi_home: &Path) -> PathBuf {
+    oxi_home
         .join(paths::SPACES_SUBDIR)
         .join(crate::spaces::DEFAULT_SPACE_NAME)
         .join(paths::VAULT_DEFAULT_SUBDIR)
 }
 
-/// Derived index dir for the default vault (application support).
-fn support_index_dir(home: &Path) -> PathBuf {
-    home.join(".oxi").join("oximemo").join(paths::INDEX_SUBDIR)
+/// Derived index dir for the default vault: `<oxi-home>/oximemo/index`.
+fn support_index_dir(oxi_home: &Path) -> PathBuf {
+    oxi_home.join("oximemo").join(paths::INDEX_SUBDIR)
 }
 
 /// Filesystem debris that an empty-looking counterpart might carry
@@ -110,9 +124,20 @@ const VAULT_CRUFT: &[&str] = &[
 /// a hand-written `created` next to `created_at`).
 const CORE_KEYS: &[&str] = &["id", "created", "updated", "favorite", "deleted"];
 
+/// Migrate the application-support default vault into the shared
+/// spaces layout.
 ///
-/// Never overwrites: when both locations are populated the trees are left
-/// untouched and [`MigrationStatus::MergeRequired`] is returned.
+/// * `oxi_home` — the shared Oxi home (`~/.oxi`, `OXI_HOME`-aware):
+///   the migration target and the journal location hang off it.
+/// * `legacy_home` — the user home holding the pre-unification
+///   application-support vault. `None` (no `$HOME`) means no legacy
+///   candidate can exist.
+///
+/// Never overwrites: when both locations are populated without an
+/// in-progress journal entry the trees are left untouched and
+/// [`MigrationStatus::MergeRequired`] is returned. A completed journal
+/// entry settles the cross-volume case where the retired backup keeps
+/// the old side populated forever.
 ///
 /// # Errors
 ///
@@ -121,15 +146,28 @@ const CORE_KEYS: &[&str] = &["id", "created", "updated", "favorite", "deleted"];
 ///   could not be converted (malformed TOML, missing required fields,
 ///   unrepresentable values). Convertible notes are still converted, so
 ///   fixing the listed files and re-running makes progress.
-pub fn maybe_migrate(home: &Path) -> Result<MigrationStatus> {
-    let old = old_default_vault(home);
-    let new = new_default_vault(home);
-    let old_populated = is_populated(&old);
+pub fn maybe_migrate(oxi_home: &Path, legacy_home: Option<&Path>) -> Result<MigrationStatus> {
+    let new = new_default_vault(oxi_home);
+    let old = legacy_home.map(old_default_vault);
+
+    // A completed journal entry settles every ambiguity the filesystem
+    // cannot: with the cross-volume fallback the retired backup keeps
+    // `old` populated forever, which must never read as MergeRequired.
+    if journal::is_complete(oxi_home, journal::APP_SUPPORT_VAULT) {
+        retry_conversion_if_needed(oxi_home, &new)?;
+        return Ok(MigrationStatus::AlreadyMigrated);
+    }
+
+    let old_populated = old.as_deref().is_some_and(is_populated);
     let new_populated = is_populated(&new);
 
     match (old_populated, new_populated) {
         (false, false) => Ok(MigrationStatus::Fresh),
         (true, false) => {
+            let old = old.expect("old_populated implies a legacy home");
+            // Journal before the first mutation: a crash anywhere in
+            // the move/conversion below leaves visible resume state.
+            journal::begin(oxi_home, journal::APP_SUPPORT_VAULT, &old, &new);
             // `is_populated` filters cruft, but a directory containing
             // *only* a stray `.DS_Store` is still non-empty on disk and
             // `fs::rename` rejects an existing non-empty destination
@@ -141,37 +179,78 @@ pub fn maybe_migrate(home: &Path) -> Result<MigrationStatus> {
                     return Ok(MigrationStatus::MergeRequired { old, new });
                 }
             }
-            match move_tree(&old, &new) {
-                Ok(()) => {
-                    let converted = run_conversion(&new, &support_index_dir(home))?;
+            match move_tree(&old, &new)? {
+                MoveOutcome::Renamed => {
+                    let converted = run_conversion(&new, &support_index_dir(oxi_home))?;
+                    journal::complete(oxi_home, journal::APP_SUPPORT_VAULT, None);
                     Ok(MigrationStatus::Migrated { converted })
                 }
-                // Race: another process completed the move between our
-                // population check and our rename. The tree is now on the
-                // new side; treat it as an already-migrated open.
-                Err(e) => {
-                    if let CoreError::Io(io) = &e
-                        && io.kind() == std::io::ErrorKind::NotFound
-                    {
-                        debug_assert!(!old.exists(), "loser observed the source gone");
-                        return Ok(MigrationStatus::AlreadyMigrated);
-                    }
-                    Err(e)
-                }
+                // Cross-volume fallback: the verified copy is done, the
+                // source stays as a retired backup.
+                MoveOutcome::CopiedToBackup => finish_cross_fs(oxi_home, &old, &new),
             }
         }
-        (true, true) => Ok(MigrationStatus::MergeRequired { old, new }),
-        (false, true) => {
-            // Already migrated (or created fresh on the new path after the
-            // move). Retry any leftover v3 notes once — guarded by the
-            // marker so the steady-state open never walks the tree.
-            let index_dir = support_index_dir(home);
-            if !index_dir.join(CONVERSION_MARKER).exists() {
-                run_conversion(&new, &index_dir)?;
+        (true, true) => {
+            let old = old.expect("old_populated implies a legacy home");
+            // Both sides populated: either a genuine conflict (never
+            // touched) or the interrupted cross-volume copy the journal
+            // knows how to resume. The rename path cannot produce this
+            // state — it is atomic.
+            let in_progress = journal::entry(oxi_home, journal::APP_SUPPORT_VAULT)
+                .is_some_and(|e| e.status == journal::STATUS_IN_PROGRESS);
+            if !in_progress {
+                return Ok(MigrationStatus::MergeRequired { old, new });
             }
+            copy_tree_resume(&old, &new)?;
+            finish_cross_fs(oxi_home, &old, &new)
+        }
+        (false, true) => {
+            // Already migrated (or a rename that landed before its
+            // journal update — settle the entry now). Retry any
+            // leftover v3 notes once — guarded by the marker so the
+            // steady-state open never walks the tree.
+            journal::complete(oxi_home, journal::APP_SUPPORT_VAULT, None);
+            retry_conversion_if_needed(oxi_home, &new)?;
             Ok(MigrationStatus::AlreadyMigrated)
         }
     }
+}
+
+/// Settle a verified cross-volume migration: run the v3→v4 conversion
+/// over the destination and record the kept source tree as a retired
+/// backup in the journal.
+fn finish_cross_fs(oxi_home: &Path, old: &Path, new: &Path) -> Result<MigrationStatus> {
+    let converted = run_conversion(new, &support_index_dir(oxi_home))?;
+    journal::complete(oxi_home, journal::APP_SUPPORT_VAULT, Some(old));
+    tracing::info!(
+        backup = %old.display(),
+        "cross-volume vault migration kept the source as a retired backup \
+         (safe to delete manually once the new layout is confirmed)"
+    );
+    Ok(MigrationStatus::Migrated { converted })
+}
+
+/// Conversion retry pass for opens where the tree already sits on the
+/// new path (marker-guarded so the steady state never walks the tree).
+fn retry_conversion_if_needed(oxi_home: &Path, new: &Path) -> Result<()> {
+    let index_dir = support_index_dir(oxi_home);
+    if !index_dir.join(CONVERSION_MARKER).exists() {
+        run_conversion(new, &index_dir)?;
+    }
+    Ok(())
+}
+
+/// Cross-volume migration path, extracted for direct testing: EXDEV
+/// cannot be reproduced on a single volume, so the journaled
+/// copy-verify-keep-source flow (including resume) is exercised
+/// through this entry point.
+#[cfg(test)]
+fn cross_fs_migrate(oxi_home: &Path, old: &Path, new: &Path) -> Result<MigrationStatus> {
+    if let Some(parent) = new.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    copy_tree_resume(old, new)?;
+    finish_cross_fs(oxi_home, old, new)
 }
 
 /// Outcome of inspecting a non-empty destination under the (true,false)
@@ -236,8 +315,9 @@ fn prepare_cruft_only_destination(dest: &Path) -> Result<CruftDestOutcome> {
 /// pure filesystem debris (`.DS_Store`, Spotlight caches, …) does not
 /// count, otherwise a stray Finder file in an empty counterpart would
 /// flip the branch decision to [`MigrationStatus::MergeRequired`] and
-/// block auto-migration.
-fn is_populated(dir: &Path) -> bool {
+/// block auto-migration. `pub(crate)` so the `migrate-home` preflight
+/// reports pending state with the same cruft-aware definition.
+pub(crate) fn is_populated(dir: &Path) -> bool {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return false;
     };
@@ -246,49 +326,89 @@ fn is_populated(dir: &Path) -> bool {
         .any(|e| !VAULT_CRUFT.iter().any(|cruft| e.file_name() == **cruft))
 }
 
-/// Move the whole old vault tree to the new location. `rename` is atomic
-/// on one volume (the common case — both paths live under `$HOME`); the
-/// cross-device fallback rebuilds the tree and removes the source. If the
-/// fallback dies midway, the next open sees both sides populated and
-/// reports [`MigrationStatus::MergeRequired`] — it never silently drops
-/// data.
-fn move_tree(old: &Path, new: &Path) -> Result<()> {
+/// How [`move_tree`] moved the tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MoveOutcome {
+    /// Same-volume `rename`: atomic, the data moved, the source is gone.
+    Renamed,
+    /// Cross-volume fallback: the tree was copied and verified, and the
+    /// source was intentionally kept as a retired backup (recorded in
+    /// the journal — never deleted here).
+    CopiedToBackup,
+}
+
+/// Move the whole old vault tree to the new location. `rename` is
+/// atomic on one volume (the common case — both paths live under the
+/// home); the cross-device fallback copies the tree with per-file
+/// verification and KEEPS the source. If the fallback dies midway, the
+/// journal stays `in_progress` and the next run resumes the copy
+/// (idempotent by content digest) — it never silently drops data and
+/// never destroys the only copy.
+fn move_tree(old: &Path, new: &Path) -> Result<MoveOutcome> {
     if let Some(parent) = new.parent() {
         std::fs::create_dir_all(parent)?;
     }
     match std::fs::rename(old, new) {
-        Ok(()) => Ok(()),
+        Ok(()) => Ok(MoveOutcome::Renamed),
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-            copy_tree(old, new)?;
-            std::fs::remove_dir_all(old)?;
-            Ok(())
+            copy_tree_resume(old, new)?;
+            Ok(MoveOutcome::CopiedToBackup)
         }
         Err(e) => Err(e.into()),
     }
 }
 
-/// Recursive verbatim copy (cross-device fallback of [`move_tree`]).
+/// Recursive verbatim copy with per-file verification and idempotent
+/// resume (cross-device fallback of [`move_tree`]): files already
+/// present at the destination with identical size and blake3 digest
+/// are skipped, so an interrupted copy continues instead of restarting.
 ///
 /// **Limitation:** file symlinks are followed and materialized into the
 /// destination via [`std::fs::copy`]; symlinked directories surface as
 /// `EISDIR` and abort the copy. The migration never sees real-world
 /// symlinks in the old default vault (macOS app-support is symlink-
-/// free), so the fallback fails safe: a partially-copied tree leaves
-/// both sides populated, and the next open reports
-/// [`MigrationStatus::MergeRequired`].
-fn copy_tree(src: &Path, dst: &Path) -> Result<()> {
+/// free), and an aborted copy leaves the source intact.
+fn copy_tree_resume(src: &Path, dst: &Path) -> Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let from = entry.path();
         let to = dst.join(entry.file_name());
         if entry.file_type()?.is_dir() {
-            copy_tree(&from, &to)?;
-        } else {
+            copy_tree_resume(&from, &to)?;
+        } else if !identical_file(&from, &to) {
             std::fs::copy(&from, &to)?;
+            if !identical_file(&from, &to) {
+                return Err(CoreError::Other(format!(
+                    "copy verification failed for {}",
+                    from.display()
+                )));
+            }
         }
     }
     Ok(())
+}
+
+/// Size-then-digest equality. Unreadable counterparts count as
+/// *different* (forcing a fresh copy), never silently equal.
+fn identical_file(a: &Path, b: &Path) -> bool {
+    let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
+        return false;
+    };
+    if !ma.is_file() || !mb.is_file() || ma.len() != mb.len() {
+        return false;
+    }
+    match (file_digest(a), file_digest(b)) {
+        (Ok(da), Ok(db)) => da == db,
+        // A destination file we cannot read back is not verified — copy.
+        _ => false,
+    }
+}
+
+fn file_digest(path: &Path) -> std::io::Result<[u8; 32]> {
+    let mut hasher = blake3::Hasher::new();
+    std::io::copy(&mut std::fs::File::open(path)?, &mut hasher)?;
+    Ok(*hasher.finalize().as_bytes())
 }
 
 /// Run the v3 → v4 conversion pass over `root`, then write the marker on
@@ -653,6 +773,18 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    /// The Oxi home for a user-home fixture: `<fixture>/.oxi`.
+    fn oxi_of(home: &Path) -> PathBuf {
+        home.join(".oxi")
+    }
+
+    /// One-line migration call used by every fixture: the fixture dir
+    /// acts as the user home, `<fixture>/.oxi` as the Oxi home (the
+    /// journal lands inside and keeps the test hermetic).
+    fn migrate(home: &Path) -> Result<MigrationStatus> {
+        maybe_migrate(&oxi_of(home), Some(home))
+    }
+
     const V3_ID: &str = "0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee";
 
     /// A canonical v3 markdown note: the seven keys the v3 typed writer
@@ -853,9 +985,9 @@ mod tests {
     fn migrates_old_default_tree_and_converts() {
         let home = TempDir::new().unwrap();
         let old = seed_old_vault(home.path());
-        let new = new_default_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
 
-        let status = maybe_migrate(home.path()).unwrap();
+        let status = migrate(home.path()).unwrap();
 
         assert_eq!(
             status,
@@ -890,7 +1022,7 @@ mod tests {
         );
         // Marker written: the pass completed cleanly.
         assert!(
-            support_index_dir(home.path())
+            support_index_dir(&oxi_of(home.path()))
                 .join(CONVERSION_MARKER)
                 .is_file()
         );
@@ -901,12 +1033,12 @@ mod tests {
         let home = TempDir::new().unwrap();
         let old = seed_old_vault(home.path());
         let old_bytes = std::fs::read_to_string(old.join("novel/first.md")).unwrap();
-        let new = new_default_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
         std::fs::create_dir_all(&new).unwrap();
         std::fs::write(new.join("other.md"), "---\nid: x\n---\nnew side\n").unwrap();
         let new_bytes = std::fs::read_to_string(new.join("other.md")).unwrap();
 
-        let status = maybe_migrate(home.path()).unwrap();
+        let status = migrate(home.path()).unwrap();
 
         assert_eq!(
             status,
@@ -933,23 +1065,23 @@ mod tests {
     #[test]
     fn tolerates_already_migrated_state() {
         let home = TempDir::new().unwrap();
-        let new = new_default_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
         std::fs::create_dir_all(&new).unwrap();
         let v4 = "---\nid: 0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee\ncreated: 2025-01-02T03:04:05Z\nupdated: 2025-01-02T03:04:06Z\nfavorite: false\n---\nbody\n";
         std::fs::write(new.join("a.md"), v4).unwrap();
 
-        let status = maybe_migrate(home.path()).unwrap();
+        let status = migrate(home.path()).unwrap();
         assert_eq!(status, MigrationStatus::AlreadyMigrated);
         assert_eq!(std::fs::read_to_string(new.join("a.md")).unwrap(), v4);
 
         // Marker written by the clean pass; a second run is a no-op.
         assert!(
-            support_index_dir(home.path())
+            support_index_dir(&oxi_of(home.path()))
                 .join(CONVERSION_MARKER)
                 .is_file()
         );
         assert_eq!(
-            maybe_migrate(home.path()).unwrap(),
+            migrate(home.path()).unwrap(),
             MigrationStatus::AlreadyMigrated
         );
     }
@@ -957,7 +1089,7 @@ mod tests {
     #[test]
     fn fresh_when_neither_exists() {
         let home = TempDir::new().unwrap();
-        assert_eq!(maybe_migrate(home.path()).unwrap(), MigrationStatus::Fresh);
+        assert_eq!(migrate(home.path()).unwrap(), MigrationStatus::Fresh);
     }
 
     #[test]
@@ -966,13 +1098,13 @@ mod tests {
         let old = seed_old_vault(home.path());
         std::fs::write(old.join("novel/broken.md"), "+++\nid = \n+++\nbody\n").unwrap();
 
-        let err = maybe_migrate(home.path()).unwrap_err();
+        let err = migrate(home.path()).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("broken.md"), "error lists the offender: {msg}");
 
         // The tree still moved and the good notes converted.
         assert!(!old.exists());
-        let new = new_default_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
         assert!(
             std::fs::read_to_string(new.join("novel/first.md"))
                 .unwrap()
@@ -980,7 +1112,7 @@ mod tests {
         );
         // No marker: the pass did not complete.
         assert!(
-            !support_index_dir(home.path())
+            !support_index_dir(&oxi_of(home.path()))
                 .join(CONVERSION_MARKER)
                 .exists()
         );
@@ -988,7 +1120,7 @@ mod tests {
         // Fixing the file and re-running converts it (retry pass).
         std::fs::write(new.join("novel/broken.md"), v3_md("")).unwrap();
         assert_eq!(
-            maybe_migrate(home.path()).unwrap(),
+            migrate(home.path()).unwrap(),
             MigrationStatus::AlreadyMigrated
         );
         assert!(
@@ -997,7 +1129,7 @@ mod tests {
                 .starts_with("---\n")
         );
         assert!(
-            support_index_dir(home.path())
+            support_index_dir(&oxi_of(home.path()))
                 .join(CONVERSION_MARKER)
                 .is_file()
         );
@@ -1095,7 +1227,7 @@ mod tests {
     fn rename_race_loser_is_already_migrated() {
         let home = TempDir::new().unwrap();
         let old = old_default_vault(home.path());
-        let new = new_default_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
         seed_old_vault(home.path());
         // Simulate the race: remove the source between is_populated()
         // and move_tree(). move_tree will report NotFound.
@@ -1123,8 +1255,9 @@ mod tests {
         )
         .unwrap();
         // Drop the marker so the (false, true) retry arm runs.
-        let _ = std::fs::remove_file(support_index_dir(home.path()).join(CONVERSION_MARKER));
-        let status = maybe_migrate(home.path()).unwrap();
+        let _ =
+            std::fs::remove_file(support_index_dir(&oxi_of(home.path())).join(CONVERSION_MARKER));
+        let status = migrate(home.path()).unwrap();
         assert_eq!(status, MigrationStatus::AlreadyMigrated);
     }
 
@@ -1137,11 +1270,11 @@ mod tests {
     fn cruft_only_destination_is_cleared_and_migrated() {
         let home = TempDir::new().unwrap();
         let old = seed_old_vault(home.path());
-        let new = new_default_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
         std::fs::create_dir_all(&new).unwrap();
         std::fs::write(new.join(".DS_Store"), b"\x00\x01\x02mac-finder").unwrap();
 
-        let status = maybe_migrate(home.path()).unwrap();
+        let status = migrate(home.path()).unwrap();
         assert!(
             matches!(status, MigrationStatus::Migrated { .. }),
             "cruft-only destination must migrate, not hard-fail: {status:?}"
@@ -1162,12 +1295,12 @@ mod tests {
     fn real_destination_entry_triggers_merge_required() {
         let home = TempDir::new().unwrap();
         let old = seed_old_vault(home.path());
-        let new = new_default_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
         std::fs::create_dir_all(&new).unwrap();
         std::fs::create_dir_all(new.join(".git")).unwrap();
         std::fs::write(new.join(".git/HEAD"), b"ref: refs/heads/main\n").unwrap();
 
-        let status = maybe_migrate(home.path()).unwrap();
+        let status = migrate(home.path()).unwrap();
         assert_eq!(
             status,
             MigrationStatus::MergeRequired {
@@ -1190,14 +1323,224 @@ mod tests {
     fn empty_destination_migrates_normally() {
         let home = TempDir::new().unwrap();
         let old = seed_old_vault(home.path());
-        let new = new_default_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
         // No creation — destination absent.
-        let status = maybe_migrate(home.path()).unwrap();
+        let status = migrate(home.path()).unwrap();
         assert!(
             matches!(status, MigrationStatus::Migrated { .. }),
             "absent destination must migrate: {status:?}"
         );
         assert!(!old.exists(), "old tree moved away");
         assert!(new.join("oximemo.toml").is_file());
+    }
+
+    // -- journaled, resumable, source-preserving migration (P0-2) ------
+
+    /// The rename path records a completed journal entry with no
+    /// retired backup, and reruns read as AlreadyMigrated.
+    #[test]
+    fn journal_marks_complete_after_rename() {
+        let home = TempDir::new().unwrap();
+        seed_old_vault(home.path());
+        assert_eq!(
+            migrate(home.path()).unwrap(),
+            MigrationStatus::Migrated { converted: 2 }
+        );
+        let entry =
+            journal::entry(&oxi_of(home.path()), journal::APP_SUPPORT_VAULT).expect("entry");
+        assert_eq!(entry.status, journal::STATUS_COMPLETE);
+        assert!(entry.retired_backup.is_none(), "rename keeps no backup");
+        assert_eq!(
+            migrate(home.path()).unwrap(),
+            MigrationStatus::AlreadyMigrated
+        );
+    }
+
+    /// Cross-volume fallback: verified copy, source kept as a retired
+    /// backup (still v3 — only the destination is converted), and the
+    /// journal prevents MergeRequired on rerun despite both sides
+    /// being populated.
+    #[test]
+    fn cross_fs_copy_preserves_source_and_journals_backup() {
+        let home = TempDir::new().unwrap();
+        let old = seed_old_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
+
+        let status = cross_fs_migrate(&oxi_of(home.path()), &old, &new).unwrap();
+
+        assert_eq!(status, MigrationStatus::Migrated { converted: 2 });
+        let old_note = std::fs::read_to_string(old.join("novel/first.md")).unwrap();
+        assert!(old_note.starts_with("+++"), "backup keeps the v3 bytes");
+        assert!(old.join("oximemo.toml").is_file(), "source tree intact");
+        assert!(
+            std::fs::read_to_string(new.join("novel/first.md"))
+                .unwrap()
+                .starts_with("---\n"),
+            "destination converted"
+        );
+        let entry =
+            journal::entry(&oxi_of(home.path()), journal::APP_SUPPORT_VAULT).expect("entry");
+        assert_eq!(entry.status, journal::STATUS_COMPLETE);
+        assert_eq!(entry.retired_backup.as_deref(), Some(old.to_str().unwrap()));
+        assert_eq!(
+            migrate(home.path()).unwrap(),
+            MigrationStatus::AlreadyMigrated,
+            "retired backup must not read as MergeRequired"
+        );
+    }
+
+    /// Crash mid-copy: journal `in_progress` + both sides populated →
+    /// the next run resumes the copy (skipping identical files) and
+    /// completes, keeping the source as the backup.
+    #[test]
+    fn interrupted_cross_fs_copy_resumes_and_completes() {
+        let home = TempDir::new().unwrap();
+        let old = seed_old_vault(home.path());
+        let new = new_default_vault(&oxi_of(home.path()));
+
+        // Simulate the crash: journal began, only part of the tree copied.
+        journal::begin(&oxi_of(home.path()), journal::APP_SUPPORT_VAULT, &old, &new);
+        std::fs::create_dir_all(new.join("novel")).unwrap();
+        std::fs::copy(old.join("oximemo.toml"), new.join("oximemo.toml")).unwrap();
+
+        let status = migrate(home.path()).unwrap();
+
+        assert!(
+            matches!(status, MigrationStatus::Migrated { .. }),
+            "{status:?}"
+        );
+        assert!(
+            new.join("_assets/img.png").is_file() && new.join(".trash/novel/old.md").is_file(),
+            "resumed copy completed the tree"
+        );
+        assert!(old.exists(), "resumed copy keeps the source as the backup");
+        let entry =
+            journal::entry(&oxi_of(home.path()), journal::APP_SUPPORT_VAULT).expect("entry");
+        assert_eq!(entry.status, journal::STATUS_COMPLETE);
+        assert_eq!(entry.retired_backup.as_deref(), Some(old.to_str().unwrap()));
+    }
+
+    // -- P1-5: .git history and permission preservation -----------------
+
+    /// P1-5: `.git` history must survive the same-volume rename intact
+    /// (the data moves; nothing is rebuilt).
+    #[test]
+    fn git_history_survives_rename_migration() {
+        let home = TempDir::new().unwrap();
+        let old = seed_old_vault(home.path());
+        let Some(head) = crate::testing::git_init_commit(&old) else {
+            eprintln!("git unavailable; skipping");
+            return;
+        };
+        let new = new_default_vault(&oxi_of(home.path()));
+
+        assert!(matches!(
+            migrate(home.path()).unwrap(),
+            MigrationStatus::Migrated { .. }
+        ));
+
+        assert!(new.join(".git/HEAD").is_file(), ".git moves with the tree");
+        assert_eq!(
+            crate::testing::git_head(&new).as_deref(),
+            Some(head.as_str()),
+            "git history works on the destination"
+        );
+        assert!(!old.exists(), "rename path: source moved away");
+    }
+
+    /// P1-5: the cross-volume copy must carry a working `.git` to the
+    /// destination AND keep the source backup's history intact.
+    #[test]
+    fn git_history_survives_cross_fs_copy_preserving_source() {
+        let home = TempDir::new().unwrap();
+        let old = seed_old_vault(home.path());
+        let Some(head) = crate::testing::git_init_commit(&old) else {
+            eprintln!("git unavailable; skipping");
+            return;
+        };
+        let new = new_default_vault(&oxi_of(home.path()));
+
+        cross_fs_migrate(&oxi_of(home.path()), &old, &new).unwrap();
+
+        assert!(new.join(".git/HEAD").is_file() && old.join(".git/HEAD").is_file());
+        assert_eq!(
+            crate::testing::git_head(&new).as_deref(),
+            Some(head.as_str()),
+            "history works on the destination"
+        );
+        assert_eq!(
+            crate::testing::git_head(&old).as_deref(),
+            Some(head.as_str()),
+            "source backup keeps its history"
+        );
+    }
+
+    /// P1-5: rename must not disturb permission bits.
+    #[cfg(unix)]
+    #[test]
+    fn permissions_survive_rename_migration() {
+        let home = TempDir::new().unwrap();
+        let old = seed_old_vault(home.path());
+        let secret = old.join("novel/secret.md");
+        let script = old.join("habits/run.sh");
+        std::fs::write(&secret, "private\n").unwrap();
+        std::fs::write(&script, "#!/bin/sh\necho hi\n").unwrap();
+        if !crate::testing::chmod_supported(&secret, 0o600)
+            || !crate::testing::chmod_supported(&script, 0o755)
+        {
+            eprintln!("chmod is a no-op on this filesystem; skipping");
+            return;
+        }
+        let new = new_default_vault(&oxi_of(home.path()));
+
+        assert!(matches!(
+            migrate(home.path()).unwrap(),
+            MigrationStatus::Migrated { .. }
+        ));
+
+        assert_eq!(
+            crate::testing::mode_of(&new.join("novel/secret.md")),
+            Some(0o600)
+        );
+        assert_eq!(
+            crate::testing::mode_of(&new.join("habits/run.sh")),
+            Some(0o755)
+        );
+    }
+
+    /// P1-5: the copy fallback must carry permission bits per file,
+    /// on the destination and on the kept source alike.
+    #[cfg(unix)]
+    #[test]
+    fn permissions_survive_cross_fs_copy() {
+        let home = TempDir::new().unwrap();
+        let old = seed_old_vault(home.path());
+        let secret = old.join("novel/secret.md");
+        let script = old.join("habits/run.sh");
+        std::fs::write(&secret, "private\n").unwrap();
+        std::fs::write(&script, "#!/bin/sh\necho hi\n").unwrap();
+        if !crate::testing::chmod_supported(&secret, 0o600)
+            || !crate::testing::chmod_supported(&script, 0o755)
+        {
+            eprintln!("chmod is a no-op on this filesystem; skipping");
+            return;
+        }
+        let new = new_default_vault(&oxi_of(home.path()));
+
+        cross_fs_migrate(&oxi_of(home.path()), &old, &new).unwrap();
+
+        assert_eq!(
+            crate::testing::mode_of(&new.join("novel/secret.md")),
+            Some(0o600)
+        );
+        assert_eq!(
+            crate::testing::mode_of(&new.join("habits/run.sh")),
+            Some(0o755)
+        );
+        assert_eq!(
+            crate::testing::mode_of(&old.join("novel/secret.md")),
+            Some(0o600),
+            "kept source keeps its modes"
+        );
     }
 }

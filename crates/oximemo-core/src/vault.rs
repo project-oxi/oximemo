@@ -72,7 +72,8 @@ fn tasks_fingerprint(cfg: &crate::tasks::TasksConfig) -> String {
 ///
 /// [`Vault::open`] runs the one-time default-vault migration
 /// (see [`crate::migrate_vault`]) before resolving paths; when both the
-/// pre-unification default vault and the new `~/.oxi/vault` exist, the
+/// pre-unification default vault and the new
+/// `~/.oxi/spaces/personal/vault` exist, the
 /// vault still opens (pointing at the new location) but carries this
 /// status so GUI/CLI can demand a manual merge instead of silently
 /// dropping either side.
@@ -221,8 +222,9 @@ impl Vault {
     }
 
     /// Open the vault selected by an already-resolved spec. Runs the
-    /// home-relative migrations (app-support → `~/.oxi/vault`, then flat
-    /// → `personal`) for `Space` specs; `Explicit` paths skip both.
+    /// home-relative migrations (app-support → `spaces/personal/vault`,
+    /// then flat vault → spaces) for `Space` specs; `Explicit` paths
+    /// skip both.
     pub fn open_spec(spec: &crate::spaces::VaultSpec) -> Result<Self> {
         // Unit-test binaries (cfg(test)) must never point custom-vault
         // namespaces at the real Application Support — one leaked redb
@@ -233,14 +235,19 @@ impl Vault {
         #[cfg(test)]
         let _ = crate::paths::isolate_index_root_for_tests();
         let mut status = VaultStatus::Ok;
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        // The migrations are OXI_HOME-aware: they resolve everything
+        // (targets, journal, legacy candidates) from the shared home,
+        // never from a raw `$HOME` read.
+        let oxi = crate::paths::oxi_home();
+        let legacy = crate::paths::user_home();
         if matches!(spec, crate::spaces::VaultSpec::Space(_)) {
-            match crate::migrate_vault::maybe_migrate(home.as_ref())? {
+            match crate::migrate_vault::maybe_migrate(&oxi, legacy.as_deref())? {
                 crate::migrate_vault::MigrationStatus::MergeRequired { old, new } => {
                     tracing::warn!(
                         old = %old.display(),
                         new = %new.display(),
-                        "both the pre-unification default vault and ~/.oxi/vault exist; \
+                        "both the pre-unification default vault and \
+                         ~/.oxi/spaces/personal/vault exist; \
                          merge them by hand (see `oximemo doctor`)"
                     );
                     status = VaultStatus::MergeRequired { old, new };
@@ -248,17 +255,18 @@ impl Vault {
                 crate::migrate_vault::MigrationStatus::Migrated { converted } => {
                     tracing::info!(
                         converted,
-                        "migrated default vault to ~/.oxi/vault (v3 notes converted to v4)"
+                        "migrated the default vault into ~/.oxi/spaces/personal/vault \
+                         (v3 notes converted to v4)"
                     );
                 }
                 _ => {}
             }
-            match crate::migrate_spaces::maybe_migrate(home.as_ref())? {
+            match crate::migrate_spaces::maybe_migrate(&oxi, legacy.as_deref())? {
                 crate::migrate_spaces::FlatMigrationStatus::MergeRequired { flat, space } => {
                     tracing::warn!(
                         flat = %flat.display(),
                         space = %space.display(),
-                        "both the flat vault and ~/.oxi/vault/personal exist; \
+                        "both the flat vault and ~/.oxi/spaces/personal/vault exist; \
                          merge them by hand (see `oximemo doctor`)"
                     );
                     status = VaultStatus::MergeRequired {
@@ -274,15 +282,18 @@ impl Vault {
         }
         let paths = Paths::resolve_spec(spec);
         let config = VaultConfig::load(&paths);
-        // Brain documents-plane glue: ensure the active space's root in
-        // `~/.oxi/brain/documents.toml` (spec 2026-08-29 cutover §2).
-        // Pure filesystem, never blocks open; brain-installed-or-not is
-        // irrelevant (C1). Ingestion itself runs as a detached
-        // `oxibrain index --documents` child owned by the desktop app.
+        // Brain documents-plane glue (unified home): record the active
+        // space's registration request. Pure filesystem inside
+        // oximemo's own private subtree — never a brain file, never a
+        // spawned child (C1: boot never blocks). A later flush
+        // (desktop boot task, `oximemo doctor`, `oximemo migrate-home`)
+        // delivers it through the oxibrain-client
+        // `register_document_root` boundary; until then the request
+        // waits in `pending_root_registration.json` (doctor-visible).
         if config.brain.enabled {
             let space = crate::brain::vault_space_name(&paths.vault);
-            let outcome = crate::brain::ensure_document_root(&paths.vault, &space);
-            tracing::debug!(?outcome, space = %space, "brain: document root ensured");
+            crate::brain::record_pending_root_registration(&paths.vault, &space);
+            tracing::debug!(space = %space, "brain: document root registration recorded");
         }
         let files = FileStore::new(paths.clone());
         Ok(Self {
@@ -3409,8 +3420,33 @@ impl Vault {
         let spaces = crate::spaces::list_spaces();
         let last_space_stale = crate::spaces::last_space()
             .filter(|n| !crate::spaces::space_vault_dir(&crate::paths::oxi_home(), n).is_dir());
+        // Unified-home layout facts (design 2026-08-30): the shared
+        // home, oximemo's private subtree, legacy candidates still on
+        // disk, retired cross-volume backups (journal), and a pending
+        // documents-root registration.
+        let oxi = crate::paths::oxi_home();
+        let (merge_old, merge_new) = match &self.status {
+            VaultStatus::MergeRequired { old, new } => (Some(old.clone()), Some(new.clone())),
+            _ => (None, None),
+        };
         let mut report = DoctorReport {
             merge_required: matches!(self.status, VaultStatus::MergeRequired { .. }),
+            merge_required_old: merge_old,
+            merge_required_new: merge_new,
+            oxi_home: oxi.display().to_string(),
+            brain_dir: crate::brain::brain_dir().display().to_string(),
+            app_private: crate::paths::app_support_dir().display().to_string(),
+            legacy_app_support_vault: crate::paths::user_home()
+                .as_deref()
+                .map(crate::migrate_vault::old_default_vault)
+                .filter(|p| p.exists())
+                .map(|p| p.display().to_string()),
+            legacy_flat_vault: oxi
+                .join("vault")
+                .exists()
+                .then(|| oxi.join("vault").display().to_string()),
+            retired_backups: crate::migration_journal::retired_backups(&oxi),
+            pending_root_registration: crate::brain::has_pending_root_registration(),
             index_locked: crate::lock::is_locked(&self.paths.meta_lock_path()),
             active_space,
             spaces,
@@ -4055,14 +4091,46 @@ fn validate_note_input(body: &str, tags: &[String]) -> Result<()> {
 #[derive(Debug, Default, serde::Serialize)]
 pub struct DoctorReport {
     pub corrupt_frontmatter: Vec<(PathBuf, String)>,
-    /// True when both the pre-unification default vault and the new
-    /// `~/.oxi/vault` exist and must be merged by hand
-    /// ([`VaultStatus::MergeRequired`]).
+    /// True when both sides of a legacy→spaces migration exist and
+    /// must be merged by hand ([`VaultStatus::MergeRequired`]); the
+    /// paths are in [`Self::merge_required_old`] / [`Self::merge_required_new`].
     pub merge_required: bool,
+    /// Source (legacy) side of a pending merge, when known.
+    #[serde(default)]
+    pub merge_required_old: Option<PathBuf>,
+    /// Destination (spaces) side of a pending merge, when known.
+    #[serde(default)]
+    pub merge_required_new: Option<PathBuf>,
+    /// The shared Oxi home (`~/.oxi`, `OXI_HOME`-aware).
+    #[serde(default)]
+    pub oxi_home: String,
+    /// The oxibrain data plane — owned and written only by oxibrain;
+    /// oximemo registers roots through the client boundary.
+    #[serde(default)]
+    pub brain_dir: String,
+    /// Oximemo's private state dir (`~/.oxi/oximemo`): settings,
+    /// migration journal, pending registration.
+    #[serde(default)]
+    pub app_private: String,
+    /// The pre-unification application-support vault, when it still
+    /// exists on disk (migration candidate or retired-backup source).
+    #[serde(default)]
+    pub legacy_app_support_vault: Option<String>,
+    /// The legacy flat vault `~/.oxi/vault`, when still present.
+    #[serde(default)]
+    pub legacy_flat_vault: Option<String>,
+    /// Verified source-tree backups from completed cross-volume
+    /// migrations (journal). Safe to delete manually.
+    #[serde(default)]
+    pub retired_backups: Vec<String>,
+    /// A documents-root registration is waiting for a flush (desktop
+    /// boot, `oximemo doctor`, `oximemo migrate-home`).
+    #[serde(default)]
+    pub pending_root_registration: bool,
     /// Active space (vault directory name; spec 2026-08-28 §5).
     #[serde(default)]
     pub active_space: String,
-    /// All space directories under ~/.oxi/vault.
+    /// All space directories under `~/.oxi/spaces/`.
     #[serde(default)]
     pub spaces: Vec<String>,
     /// A recorded `last_space` whose directory is missing (resolution
@@ -4222,7 +4290,7 @@ mod tests {
         (dir, v)
     }
 
-    // -- default-vault migration (task: ~/.oxi/vault) ----------------------
+    // -- default-vault migration (app-support → spaces) ----------------------
 
     const V3_ID: &str = "0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee";
     fn v3_md(extra: &str) -> String {
@@ -7659,78 +7727,77 @@ watcher_retry_interval_ms = 200
         assert_eq!(rec.path, "daily/2026-08-21.html");
         assert!(m.body.contains("<h1>2026-08-21</h1>"));
     }
-    // -- brain documents-plane glue on open (2026-08-29 cutover) ------
-
-    fn count_roots_for(documents: &Path, vault: &Path) -> usize {
-        let text = std::fs::read_to_string(documents).unwrap();
-        text.matches(&format!("path = \"{}\"", vault.display()))
-            .count()
-    }
+    // -- brain documents-plane glue on open (unified home) --------------
 
     #[test]
-    fn open_ensures_document_root_when_brain_enabled() {
+    fn open_records_pending_registration_when_brain_enabled() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
         let expected_vault = home.join("vault/work");
-        let brain = home.join("brain");
         std::fs::create_dir_all(&expected_vault).unwrap();
         std::fs::write(
             expected_vault.join("oximemo.toml"),
             "[brain]\nenabled = true\n",
         )
         .unwrap();
-        crate::brain::with_test_brain_dir(&brain, || {
+        crate::brain::with_test_pending_dir(&home.join("pending"), || {
             let _v = Vault::open(Some(&expected_vault)).unwrap();
-            let doc = brain.join("documents.toml");
-            let text = std::fs::read_to_string(&doc).unwrap();
-            assert!(text.contains("space = \"work\""), "text: {text}");
-            assert_eq!(count_roots_for(&doc, &expected_vault), 1);
+            let pending = crate::brain::pending_root_registration()
+                .expect("open must record the pending registration");
+            assert_eq!(pending.request.space, "work");
+            assert_eq!(pending.request.alias, "work");
+            assert_eq!(pending.request.path, expected_vault.to_string_lossy());
+            // The rules stay the brain's defaults; oximemo writes only
+            // its own pending file — never a brain file.
+            assert!(pending.request.include.is_none());
+            assert!(!home.join("brain").exists(), "no brain dir is created");
         });
     }
 
     #[test]
-    fn repeated_open_does_not_duplicate_roots() {
+    fn repeated_open_rewrites_the_same_pending_record() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
         let expected_vault = home.join("vault/personal");
-        let brain = home.join("brain");
         std::fs::create_dir_all(&expected_vault).unwrap();
         std::fs::write(
             expected_vault.join("oximemo.toml"),
             "[brain]\nenabled = true\n",
         )
         .unwrap();
-        crate::brain::with_test_brain_dir(&brain, || {
+        crate::brain::with_test_pending_dir(&home.join("pending"), || {
             let _ = Vault::open(Some(&expected_vault)).unwrap();
             let _ = Vault::open(Some(&expected_vault)).unwrap();
             let _ = Vault::open(Some(&expected_vault)).unwrap();
-            let doc = brain.join("documents.toml");
-            assert_eq!(
-                count_roots_for(&doc, &expected_vault),
-                1,
-                "idempotent ensure"
-            );
+            // The record is a single-file overwrite, so repeated opens
+            // cannot accumulate state; the flush side is idempotent via
+            // the brain's alias-keyed upsert.
+            let pending = crate::brain::pending_root_registration().expect("recorded");
+            assert_eq!(pending.request.path, expected_vault.to_string_lossy());
         });
     }
 
     #[test]
-    fn brain_disabled_means_no_documents_write() {
+    fn brain_disabled_records_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
         let expected_vault = home.join("vault/personal");
-        let brain = home.join("brain");
         std::fs::create_dir_all(&expected_vault).unwrap();
         std::fs::write(
             expected_vault.join("oximemo.toml"),
             "[brain]\nenabled = false\n",
         )
         .unwrap();
-        crate::brain::with_test_brain_dir(&brain, || {
+        crate::brain::with_test_pending_dir(&home.join("pending"), || {
             let _v = Vault::open(Some(&expected_vault)).unwrap();
             assert!(
-                !brain.join("documents.toml").exists(),
-                "disabled brain must not create documents.toml"
+                !home
+                    .join("pending")
+                    .join(crate::brain::PENDING_FILE_NAME)
+                    .exists(),
+                "disabled brain must not record a registration"
             );
+            assert!(!home.join("brain").exists());
         });
     }
 

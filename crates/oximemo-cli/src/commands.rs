@@ -1,6 +1,6 @@
 //! Command implementations — thin adapters over [`oximemo_core::Vault`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
@@ -244,17 +244,81 @@ pub fn cmd_reindex(vault: &Vault) -> Result<()> {
     Ok(())
 }
 
-/// `oximemo vault path`.
+/// `oximemo vault path` — prints the resolved vault root: the active
+/// space's vault (`~/.oxi/spaces/<space>/vault/`) by default.
 pub fn cmd_vault_path(vault: &Vault) -> Result<()> {
     println!("{}", vault.paths().vault.display());
     Ok(())
 }
 
 /// `oximemo doctor [--fix]`.
+///
+/// Before the report, a pending documents-root registration (recorded
+/// by an offline open) gets one blocking flush attempt against the
+/// configured oxibrain — the brain is additive (C1), so a failed flush
+/// is reported on stderr and the pending file simply stays.
 pub fn cmd_doctor(vault: &Vault, fix: bool) -> Result<()> {
+    let (enabled, executable) =
+        vault.with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
+    if enabled {
+        let exec = if executable.is_empty() {
+            "oxibrain".to_string()
+        } else {
+            executable
+        };
+        match oximemo_core::brain::flush_pending_registrations_blocking(Path::new(&exec)) {
+            Ok(Some(outcome)) => println!(
+                "pending root registration: {} ({})",
+                outcome.outcome, outcome.root.path
+            ),
+            Ok(None) => {}
+            Err(e) => eprintln!("pending root registration flush failed: {e:#}"),
+        }
+    }
     let report = vault.doctor(fix)?;
     let json = serde_json::to_string_pretty(&report)?;
     println!("{json}");
+    Ok(())
+}
+
+/// `oximemo migrate-home [--dry-run]` — the unified-home migrator
+/// (app-support vault → spaces, flat vault → spaces, legacy settings).
+/// Dry run prints a pure-inspection preflight report; the real run
+/// executes (or resumes) both migrators and then attempts the pending
+/// documents-root registration flush.
+pub fn cmd_migrate_home(dry_run: bool) -> Result<()> {
+    if dry_run {
+        let preflight = oximemo_core::migrate_home::preflight();
+        println!("{}", serde_json::to_string_pretty(&preflight)?);
+        return Ok(());
+    }
+    let mut run = oximemo_core::migrate_home::run()?;
+    // Executable resolution mirrors the desktop (`[brain].executable`
+    // of the active vault, empty = PATH).
+    let executable = oximemo_core::spaces::resolve_vault_spec(None, None)
+        .ok()
+        .map(|spec| oximemo_core::Paths::resolve_spec(&spec))
+        .map(|paths| oximemo_core::VaultConfig::load(&paths))
+        .map(|c| {
+            if c.brain.executable.is_empty() && c.brain.enabled {
+                "oxibrain".to_string()
+            } else {
+                c.brain.executable
+            }
+        })
+        .unwrap_or_else(|| "oxibrain".to_string());
+    match oximemo_core::brain::flush_pending_registrations_blocking(Path::new(&executable)) {
+        Ok(Some(outcome)) => {
+            run.flush_succeeded = Some(true);
+            run.flush_outcome = Some(format!("{} ({})", outcome.outcome, outcome.root.path));
+        }
+        Ok(None) => {}
+        Err(e) => {
+            run.flush_succeeded = Some(false);
+            eprintln!("pending root registration flush failed: {e:#}");
+        }
+    }
+    println!("{}", serde_json::to_string_pretty(&run)?);
     Ok(())
 }
 

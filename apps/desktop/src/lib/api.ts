@@ -151,7 +151,7 @@ export interface SpaceInfo {
   current: boolean;
 }
 
-/** Space dirs under ~/.oxi/vault. Filesystem-backed; brain not required. */
+/** Space vaults under ~/.oxi/spaces/<name>/vault. Filesystem-backed; brain not required. */
 export async function spaceList(): Promise<SpaceInfo[]> {
   return invoke<SpaceInfo[]>("space_list");
 }

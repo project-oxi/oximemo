@@ -4037,8 +4037,8 @@ dependencies = [
 
 [[package]]
 name = "oxibrain-client"
-version = "0.11.0"
-source = "git+https://github.com/a7garden/oxibrain?tag=v0.11.0#99b20ef7de9538f558e053376a04fd1c9ff98314"
+version = "0.12.0"
+source = "git+https://github.com/a7garden/oxibrain?tag=v0.12.0#05d235af7fb6c7b924ccc5aa2c43ea4c8d2168e8"
 dependencies = [
  "anyhow",
  "serde",
@@ -4049,7 +4049,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-capture"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "block2",
  "objc2 0.5.2",
@@ -4060,7 +4060,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-cli"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4080,8 +4080,9 @@ dependencies = [
 
 [[package]]
 name = "oximemo-core"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
+ "anyhow",
  "blake3",
  "fs2",
  "notify",
@@ -4108,7 +4109,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-desktop"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4137,7 +4138,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-metadata"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "oximemo-core",

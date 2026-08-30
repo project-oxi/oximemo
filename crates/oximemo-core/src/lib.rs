@@ -19,8 +19,10 @@ pub mod html;
 pub mod memo;
 pub mod metadata;
 pub mod migrate;
+pub mod migrate_home;
 pub mod migrate_spaces;
 pub mod migrate_vault;
+pub(crate) mod migration_journal;
 pub mod paths;
 pub mod props;
 pub mod schema;
@@ -28,6 +30,8 @@ pub mod spaces;
 pub mod tags;
 pub mod tasks;
 pub mod template;
+#[cfg(test)]
+pub(crate) mod testing;
 pub mod wiki;
 
 pub mod base;

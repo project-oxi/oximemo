@@ -74,7 +74,14 @@ struct AppSettings {
 /// `…/com.oximemo.app/settings.json` — app-local UI state shared by
 /// desktop boot and the CLI (same machine, same app support dir).
 pub fn app_settings_path() -> PathBuf {
-    crate::paths::app_support_dir().join("settings.json")
+    app_settings_path_in(&crate::paths::oxi_home())
+}
+
+/// [`app_settings_path`] anchored at an explicit Oxi home — used by
+/// the home migrations and tests so the settings location stays
+/// `OXI_HOME`-aware instead of re-reading the environment.
+pub fn app_settings_path_in(oxi_home: &Path) -> PathBuf {
+    oxi_home.join("oximemo").join("settings.json")
 }
 
 /// The last space the user selected. `None` when unset or the file is

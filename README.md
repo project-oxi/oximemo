@@ -184,18 +184,28 @@ Global: `--vault <PATH>` (or `OXIMEMO_VAULT`) selects a non-default vault. Outpu
 
 Notes are plain text — humans and agents can read them with anything.
 
+The default vault is the active space's vault, `~/.oxi/spaces/<space>/vault/`
+(`personal` by default; `OXI_HOME` relocates the whole `~/.oxi` tree):
+
 ```plain
-vault/
-├── memos/
-│   └── 2026/07/
-│       ├── 01991a2e-7c3f-7c91-9f3e-6b1a2e8f9c10.md
-│       └── 01991a31-9b10-70aa-8c2e-4f0a1d2b3c44.md
-├── .trash/          # soft-deleted memos
-└── config.toml      # optional vault settings
+~/.oxi/
+├── spaces/
+│   └── personal/
+│       └── vault/           # the default vault
+│           ├── <folder>/<title-slug>.md
+│           ├── _assets/     # images, referenced as oximg://
+│           ├── .trash/      # soft-deleted notes
+│           └── oximemo.toml # optional vault settings
+├── oximemo/                 # oximemo-private state (settings, index)
+└── brain/                   # oxibrain's data plane (never written by oximemo)
 ```
 
-
-Notes can also be `.html` files — frontmatter sits in a leading HTML comment (`<!-- +++ ... +++ -->`), the title is derived from the first `<h1>` (or `<title>`), and folder templates follow the same rule: a folder with `TEMPLATE.html` (and no `TEMPLATE.md`) auto-creates new notes as HTML, and a folder can ship both to drive the toolbar's split "new note" button.
+Older installs keep working: the pre-unification vaults (macOS
+Application Support, the flat `~/.oxi/vault`) are migrated into the
+spaces layout automatically — journaled, resumable, and for
+cross-volume moves the source is kept as a verified backup. Run
+`oximemo migrate-home --dry-run` to see what would happen, or
+`oximemo doctor` for the current layout.
 
 `oximemo.toml` also carries an optional `[brain]` section (`enabled`/`executable`, defaults `true`/`""` — empty means spawn `oxibrain` from PATH) for the read-only oxibrain context panel in `MemoDetail`; the panel hides itself when `enabled = false`. oxibrain ≥ 0.10.1 is required. Retired `socket`/`space` keys in existing files are ignored.
 

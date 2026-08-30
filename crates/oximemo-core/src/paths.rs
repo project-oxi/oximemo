@@ -350,6 +350,17 @@ pub fn oxi_home() -> PathBuf {
     PathBuf::from(home).join(".oxi")
 }
 
+/// The user's home directory (`$HOME`) — used only for **legacy**
+/// application-support lookups (pre-unification vault, index, and
+/// settings). `None` when `$HOME` is unset or empty: no legacy
+/// location can meaningfully exist without a home, so every legacy
+/// migration candidate is then treated as absent.
+pub fn user_home() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
