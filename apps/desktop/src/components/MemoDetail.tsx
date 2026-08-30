@@ -59,6 +59,7 @@ export function MemoDetail() {
   const [seededId, setSeededId] = useState<string | null>(null);
   const folderPickerRef = useRef<FolderComboboxHandle>(null);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     listFolders().then(setFolders).catch(() => {});
@@ -74,6 +75,11 @@ export function MemoDetail() {
     }
     if (!open && seededId !== null) setSeededId(null);
   }, [open, memo.data, seededId]);
+  // Properties + content share one scroll container now; switching notes
+  // must start reading at the top, not where the previous note ended.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [selectedId]);
   // Consume the pending task anchor as soon as the editor remounts for the
   // target memo: MemoEditorForm captures the CM6 view on its mount (via
   // `onEditorView`) and posts it here; once we have BOTH the view AND a
@@ -97,7 +103,20 @@ export function MemoDetail() {
     editorView.focus();
     editorView.dispatch({
       selection: { anchor: pos, head: pos },
-      effects: EditorView.scrollIntoView(pos, { y: "center" }),
+    });
+    // Document-flow editor (single-scroll refactor): CM's own scrollDOM
+    // has no overflow, so center the target line in the note scroller
+    // ourselves instead of relying on scrollIntoView effects.
+    const scroller = editorView.scrollDOM.closest<HTMLElement>("[data-memo-scroll]");
+    const coords = editorView.coordsAtPos(pos);
+    if (!scroller || !coords) return;
+    const box = scroller.getBoundingClientRect();
+    scroller.scrollTo({
+      top:
+        scroller.scrollTop +
+        (coords.top - box.top) -
+        box.height / 2 +
+        (coords.bottom - coords.top) / 2,
     });
   }, [editorView, selectedId, memo.data?.body, consumeTaskAnchor]);
 
@@ -312,31 +331,44 @@ export function MemoDetail() {
                 {t.done}
               </button>
             </div>
-            {memo.data && seededId === memo.data.id && (
-              <PropertyPanel memo={memo.data} folder={folder || memo.data.folder} />
-            )}
             {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
               <div className="flex h-full items-center justify-center text-text-subtle">…</div>
-            ) : memo.data.format === "html" ? (
-              <div className="flex min-h-0 flex-1 flex-col gap-2.5">
-                <HtmlNoteEditor
-                  documentId={memo.data.id}
-                  body={body}
-                  onChange={edit(setBody)}
-                />
-                <TagChipRow body={body} />
-              </div>
             ) : (
-              <MemoEditorForm
-                documentId={memo.data.id}
-                folder={folder}
-                onFolderChange={applyFolder}
-                folders={folders}
-                body={body}
-                onBodyChange={edit(setBody)}
-                folderPickerRef={folderPickerRef}
-                onEditorView={setEditorView}
-              />
+              // Single scroll container: properties + content read as one
+              // document (user prompt 2026-08-30 — many properties no longer
+              // cap the content viewport). Chrome (header, dock, history)
+              // stays fixed outside.
+              <div
+                ref={scrollRef}
+                data-memo-scroll
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+              >
+                <PropertyPanel memo={memo.data} folder={folder || memo.data.folder} />
+                {memo.data.format === "html" ? (
+                  // IDE-style split panes keep their internal scrollers; pin
+                  // the workspace to the scroller height so only the
+                  // property block flows above it.
+                  <div className="flex h-full min-h-0 shrink-0 flex-col gap-2.5">
+                    <HtmlNoteEditor
+                      documentId={memo.data.id}
+                      body={body}
+                      onChange={edit(setBody)}
+                    />
+                    <TagChipRow body={body} />
+                  </div>
+                ) : (
+                  <MemoEditorForm
+                    documentId={memo.data.id}
+                    folder={folder}
+                    onFolderChange={applyFolder}
+                    folders={folders}
+                    body={body}
+                    onBodyChange={edit(setBody)}
+                    folderPickerRef={folderPickerRef}
+                    onEditorView={setEditorView}
+                  />
+                )}
+              </div>
             )}
             {memo.data && seededId === memo.data.id && (
               <ContextDock

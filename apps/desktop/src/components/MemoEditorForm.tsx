@@ -29,6 +29,7 @@ import { cfgFromJson, parseTaskLine, type TaskLineChange, type TaskLineCfg } fro
 import { initialFromLine } from "../lib/taskPopoverSeed";
 import { dayTone, relativeDayLabel, useTodayKey } from "../lib/relativeDay";
 import { todayLocalISO } from "../lib/dates";
+import { outerScrollExtension } from "../lib/cm6OuterScroll";
 import { useUI } from "../stores/ui";
 const cx = (...xs: (string | false | null | undefined)[]) =>
   xs.filter(Boolean).join(" ");
@@ -288,6 +289,10 @@ export function MemoEditorForm({
         todayISO: todayKey,
         extraSources: [slashCompletionSource(slashDeps)],
       }),
+      // Document-flow editor: the note dialog owns scrolling (single
+      // scroll container with the property block), so CM can't keep the
+      // caret visible itself — delegate that to the outer scroller.
+      outerScrollExtension(),
       // Selection → copilot context (Claude-desktop style): the panel
       // folds whatever is highlighted into the next turn. Authoritative
       // CM6 state, not DOM selection — synced on every selection/doc
@@ -341,14 +346,13 @@ export function MemoEditorForm({
   };
 
   return (
-    <div className={cx("flex flex-1 min-h-0 flex-col gap-2.5", className)}>
+    <div className={cx("flex flex-col gap-2.5", className)}>
       <MarkdownEditor
         body={body}
         onChange={onBodyChange}
         documentId={documentId}
         editorHandleRef={editorHandleRef}
         viewHandleRef={viewHandleRef}
-        className="flex-1 min-h-0 overflow-y-auto"
         extensions={linkExtensions}
       />
       <TagChipRow body={body} />
