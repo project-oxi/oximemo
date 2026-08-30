@@ -45,6 +45,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { folderSchema, getConfig, listBases, listFacets, listMemos, searchMemos } from "../lib/api";
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
+import { TASKS_BASE_PATH } from "../lib/tasksPanel";
 import {
   buildCommands,
   buildSuggestions,
@@ -191,7 +192,9 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
         dailyEnabled,
         dailyFolder: configQ.data?.daily?.folder,
         reviewFolders,
-        bases: basesQ.data ?? [],
+        // The installed 할 일 base has its own sidebar surface; the
+        // palette lists only user queries.
+        bases: (basesQ.data ?? []).filter((b) => b.path !== TASKS_BASE_PATH),
         callbacks,
       }),
     [locale, noteView, theme, folders, facets.data, dailyEnabled, configQ.data, reviewFolders, basesQ.data, callbacks],

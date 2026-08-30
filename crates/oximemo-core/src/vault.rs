@@ -3276,34 +3276,36 @@ impl Vault {
         // One-shot installed `할 일` base (tasks spec §7.4). The marker
         // stores the seed version; a pre-v2 vault gets a structural
         // upgrade instead of a blind reseed so user edits survive. The
-        // base is user-ownable: a deleted file is never resurrected,
-        // and an unparseable file is left for the user to fix (marker
-        // stays stale → retried on the next open).
+        // base is a protected system surface (`trash_base`/`rename_base`
+        // refuse it), so a missing file is never legitimate: migrate()
+        // re-seeds it as a repair. An unparseable file is left for the
+        // user to fix (marker stays stale → retried on the next open).
         let marker = self.paths.tasks_base_seed_marker_path();
         if std::fs::read_to_string(&marker)
             .map(|s| s.trim().to_string())
             .ok()
             .as_deref()
             != Some(TASKS_BASE_SEED_VERSION)
+            || !self.paths.vault.join(TASKS_BASE_REL).exists()
         {
             self.ensure_tasks_base_seed(&marker)?;
         }
         Ok(())
     }
 
-    /// Bring the installed `할 일` base to [`TASKS_BASE_SEED_VERSION`].
-    /// Success in every terminal case (first seed, structural upgrade,
-    /// already current, name taken, deliberate deletion) advances the
-    /// marker; unreadable/unparseable files and save races leave it
-    /// stale so the next vault open retries.
+    /// Bring the installed `할 일` base to [`TASKS_BASE_SEED_VERSION`],
+    /// restoring it if missing (it is protected — see the guards in
+    /// [`Self::trash_base`]/[`Self::rename_base`]). Success in every
+    /// terminal case (first seed, repair, structural upgrade, already
+    /// current, name taken) advances the marker; unreadable/unparseable
+    /// files and save races leave it stale so the next vault open
+    /// retries.
     fn ensure_tasks_base_seed(&self, marker: &std::path::Path) -> Result<()> {
         if !self.paths.vault.join(TASKS_BASE_REL).exists() {
-            // Missing file + absent marker → first-ever seed. Missing
-            // file + present marker → deliberate deletion, never
-            // resurrected (the v1 ownership rule outlives the bump).
-            if !marker.exists() {
-                self.save_base(TASKS_BASE_REL, TASKS_BASE_MD, None)?;
-            }
+            // Missing file → first-ever seed, or repair: the base is a
+            // protected system surface, so it cannot be legitimately
+            // absent. Always restore it.
+            self.save_base(TASKS_BASE_REL, TASKS_BASE_MD, None)?;
             return self.write_tasks_seed_marker(marker);
         }
         let (yaml, mtime) = match self.load_base_raw(TASKS_BASE_REL) {
@@ -3653,6 +3655,11 @@ impl Vault {
     ) -> Result<()> {
         let from_abs = self.query_rel_path(from)?;
         let to_abs = self.query_rel_path(to)?;
+        if from == TASKS_BASE_REL {
+            return Err(CoreError::other(
+                "the built-in '할 일' base is protected and cannot be renamed",
+            ));
+        }
         if !from_abs.exists() {
             return Err(CoreError::NotFound(from.to_string()));
         }
@@ -3690,6 +3697,11 @@ impl Vault {
     /// construct it directly.
     pub fn trash_base(&self, rel: &str) -> Result<String> {
         let abs = self.query_rel_path(rel)?;
+        if rel == TASKS_BASE_REL {
+            return Err(CoreError::other(
+                "the built-in '할 일' base is protected and cannot be deleted",
+            ));
+        }
         if !abs.exists() {
             return Err(CoreError::NotFound(rel.to_string()));
         }
@@ -7879,7 +7891,7 @@ watcher_retry_interval_ms = 200
     // -- installed `할 일` base seed (tasks spec 2026-08-27 §7.4) ----
 
     #[test]
-    fn tasks_base_seeds_once_and_is_never_recreated_after_delete() {
+    fn tasks_base_is_protected_and_restored_when_missing() {
         let (t, v) = tmp_vault();
         v.migrate().unwrap();
         let abs = v.paths().vault.join(TASKS_BASE_REL);
@@ -7929,12 +7941,34 @@ watcher_retry_interval_ms = 200
         assert_eq!(run_view(2).total, 1, "지연: strictly-overdue due only");
         assert_eq!(run_view(3).total, 4, "전체: every indexed task");
         assert_eq!(run_view(4).total, 1, "날짜 없음: the undated task");
-        // Deliberate deletion is permanent: the marker suppresses the
-        // reseed on every later migrate().
+        // The installed base is a protected system file: trash and
+        // rename refuse it, so it cannot vanish through the app. A file
+        // missing anyway (external interference, or a pre-guard vault
+        // where deletion was possible) is repaired on the next open.
+        let trash_err = v.trash_base(TASKS_BASE_REL).unwrap_err();
+        assert!(
+            trash_err.to_string().contains("protected"),
+            "trash must refuse the built-in base: {trash_err}"
+        );
+        assert!(abs.exists(), "refused trash must leave the base intact");
+        let rename_err = v
+            .rename_base(TASKS_BASE_REL, "queries/renamed.query", None)
+            .unwrap_err();
+        assert!(
+            rename_err.to_string().contains("protected"),
+            "rename must refuse the built-in base: {rename_err}"
+        );
+        assert!(abs.exists(), "refused rename must leave the base intact");
         std::fs::remove_file(&abs).unwrap();
         v.migrate().unwrap();
-        assert!(!abs.exists(), "deleted base must not be resurrected");
-        assert!(v.paths().tasks_base_seed_marker_path().exists());
+        assert!(abs.exists(), "missing base must be re-seeded on open");
+        assert_eq!(std::fs::read_to_string(&abs).unwrap(), TASKS_BASE_MD);
+        assert_eq!(
+            std::fs::read_to_string(v.paths().tasks_base_seed_marker_path())
+                .unwrap()
+                .trim(),
+            "2"
+        );
         drop(t);
     }
 
@@ -8038,16 +8072,17 @@ watcher_retry_interval_ms = 200
     }
 
     #[test]
-    fn tasks_base_seed_v1_marker_and_deleted_file_stay_deleted() {
+    fn tasks_base_seed_v1_repairs_a_deleted_base_on_upgrade() {
         let (t, v) = tmp_vault();
         v.migrate().unwrap();
-        // Deleted-before-v2 stays deleted: the ownership rule outlives
-        // the version bump, only the marker advances.
+        // A v1-era vault where the (then deletable) base was removed:
+        // the version bump advances the marker AND the protected base
+        // is restored — absence is no longer a legitimate state.
         let abs = v.paths().vault.join(TASKS_BASE_REL);
         std::fs::remove_file(&abs).unwrap();
         std::fs::write(v.paths().tasks_base_seed_marker_path(), b"1").unwrap();
         v.migrate().unwrap();
-        assert!(!abs.exists(), "deleted base must not be resurrected");
+        assert!(abs.exists(), "missing base must be restored on open");
         assert_eq!(
             std::fs::read_to_string(v.paths().tasks_base_seed_marker_path())
                 .unwrap()

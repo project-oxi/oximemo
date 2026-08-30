@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SpacePicker } from "./SpacePicker";
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
 import { createQueryCollection, defaultQueryYaml } from "../lib/queryCreation";
+import { TASKS_BASE_PATH } from "../lib/tasksPanel";
 import { colorForFolder } from "../lib/color";
 import { listen } from "../lib/tauri";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, BtnMenuRoot, BtnMenuTrigger, BtnMenuPopup, BtnMenuItem, BtnMenuSeparator } from "./ContextMenu";
@@ -27,10 +28,6 @@ import type { FolderDef } from "../lib/types";
 /** Static preset-id → icon table (drives 위치 collection rows). */
 const PRESET_ICON: Record<string, (typeof COLLECTION_CATALOG)[number]["icon"]> =
   Object.fromEntries(COLLECTION_CATALOG.map((c) => [c.id, c.icon]));
-
-/** The one-shot installed `할 일` base (tasks spec §7.4) — must match
- *  the Rust `TASKS_BASE_REL` seed path in vault.rs. */
-const TASKS_BASE_PATH = "queries/할 일.query";
 
 const STATE_CLASS: Record<TagState, string> = {
   off: "bg-surface-muted text-text-muted hover:bg-surface-muted/80",
@@ -127,6 +124,10 @@ export function Sidebar({
     return () => un?.();
   }, [qc]);
   const bases = basesQ.data ?? [];
+  // The installed 할 일 base is a protected system surface with its own
+  // dedicated row below — listing it here read as a duplicate and
+  // offered a delete affordance on a file core refuses to delete.
+  const visibleBases = bases.filter((b) => b.path !== TASKS_BASE_PATH);
   const ambiguousNames = useMemo(() => {
     const seen = new Set<string>();
     const dup = new Set<string>();
@@ -227,10 +228,10 @@ export function Sidebar({
   const dailyCfg = configQ.data?.daily;
   const dailyEnabled = dailyCfg?.enabled !== false;
   const dailyFolder = dailyCfg?.folder || "daily";
-  // Tasks surface (spec 2026-08-27 §7.4/§11): the installed `할 일`
-  // base entry is gated by `[tasks] enabled` (absent = enabled, like
-  // daily) and by the base file existing — deliberate deletion is
-  // permanent, so the entry disappears with it.
+  // Tasks surface (spec 2026-08-27 §7.4/§11): gated by `[tasks] enabled`
+  // (absent = enabled, like daily). The installed base itself is a
+  // protected system file — core refuses trash/rename on it and
+  // migrate() re-seeds it if it ever goes missing.
   const tasksEnabled = configQ.data?.tasks?.enabled !== false;
   const hasTasksBase = bases.some((b) => b.path === TASKS_BASE_PATH);
   /** Pinned first-party collections (preset icon present) join the
@@ -396,10 +397,10 @@ export function Sidebar({
       )}
       {basesQ.isError ? (
         <div className="mx-2 px-2 py-1 text-[11px] text-text-subtle">{t.query_unavailable}</div>
-      ) : bases.length === 0 ? (
+      ) : visibleBases.length === 0 ? (
         <div className="mx-2 px-2 py-1 text-[11px] text-text-subtle/70">{t.query_none}</div>
       ) : (
-        bases.map((b) => {
+        visibleBases.map((b) => {
           const active = location.kind === "base" && "path" in location.source && location.source.path === b.path;
           const warn = !b.loadable || ambiguousNames.has(b.name);
           const renaming = queryNaming === b.path;
@@ -476,9 +477,8 @@ export function Sidebar({
 
       {/* TASKS — slim companion to the full `할 일` base view (the
           chevron in the panel header opens the full one in the main
-          area). Gated by the same `[tasks] enabled` + base-file-exists
-          rules as the QUERIES entry above — deliberate deletion of the
-          installed base hides both surfaces. */}
+          area). Gated by the same `[tasks] enabled` rule as the 할 일
+          row above; the installed base is protected (no user delete). */}
       {tasksEnabled && hasTasksBase && <TasksPanel />}
       {/* RECENTS — recently updated notes, one click to open. */}
       {recents.length > 0 && (

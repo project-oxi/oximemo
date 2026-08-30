@@ -15,6 +15,13 @@ import type { BaseDef, BaseRow, TaskDto } from "./types";
 /** The seed-v2 view name. Must match the Rust `TASKS_NO_DATE_VIEW`. */
 export const TASKS_NO_DATE_VIEW = "날짜 없음";
 
+/** Vault-relative path of the installed `할 일` base — must match the
+ *  Rust `TASKS_BASE_REL` seed (vault.rs). A protected system surface:
+ *  core refuses trash/rename on it, and the generic query lists
+ *  (sidebar QUERIES, palette 쿼리 열기) exclude it — the dedicated
+ *  sidebar row + TasksPanel are its only surfaces. */
+export const TASKS_BASE_PATH = "queries/할 일.query";
+
 /** Index of the base's 날짜 없음 tasks view, or -1 when the base
  *  predates seed v2 or the user renamed the view. By name, never by
  *  fixed index: user-reordered/extended bases keep working, and a

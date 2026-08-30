@@ -20,7 +20,7 @@ import YAML from "yaml";
 
 import { loadBase, runBase } from "../lib/api";
 import { dayTone, relativeDayLabel, useTodayKey } from "../lib/relativeDay";
-import { noDateViewIndex, partitionPanelRows } from "../lib/tasksPanel";
+import { noDateViewIndex, partitionPanelRows, TASKS_BASE_PATH } from "../lib/tasksPanel";
 import { useTaskToggle } from "../lib/taskToggle";
 import { useOpenTask } from "../lib/taskNav";
 import type { BaseDef, BasePage, BaseRow, RunBaseReq } from "../lib/types";
@@ -28,10 +28,6 @@ import { useUI } from "../stores/ui";
 import { TaskCheckbox } from "./TaskCheckbox";
 import { TaskFieldChip } from "./TaskFieldChip";
 import { useI18n } from "../lib/i18n";
-
-/** Vault-relative path of the installed `할 일` base — must match the
- *  Rust `TASKS_BASE_REL` seed and the sidebar's own TASKS_BASE_PATH. */
-const TASKS_BASE_PATH = "queries/할 일.query";
 
 /** View index 0 of the installed base = "오늘" (overdue + today). The
  *  base's own filter narrows to `due <= today || scheduled <= today`.
