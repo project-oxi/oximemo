@@ -52,7 +52,7 @@ objc2 = "0.5"
 objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSApplication", "NSWindow", "NSStatusBar", "NSStatusItem", "NSMenu", "NSMenuItem", "block2"] }
 
 # Errors
-objc2-foundation = { version = "0.3", features = ["NSString", "NSProcessInfo", "NSThread", "NSRunLoop"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSProcessInfo", "NSThread", "NSRunLoop", "NSTimer", "block2"] }
 thiserror = "2"
 oxibrain-client = { version = "0.12", git = "https://github.com/a7garden/oxibrain", tag = "v0.12.1" }
 anyhow = "1"

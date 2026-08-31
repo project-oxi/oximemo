@@ -16,6 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Existing `oximemo.toml` files keep their explicit value; only the
   unset default moves.
 
+### Fixed
+
+- **Idle CPU burn in the Option double-tap monitor.** The capture
+  thread's run-loop poll degenerated into a full busy spin: a global
+  `NSEvent` monitor attaches no run-loop source, so every `runMode`
+  call returned instantly (`kCFRunLoopRunFinished`) and the 50 ms
+  deadline never elapsed — 0.24–0.98 of one core burned at idle
+  (measured with `/usr/bin/time` on the new `idle_probe` example). A
+  far-future repeating `NSTimer` in the default mode now keeps the
+  mode non-empty so the poll (tightened to 20 ms) sleeps in the
+  kernel: idle cost is ~0.1% of a core. Shutdown semantics are
+  unchanged; event delivery now services within one poll interval
+  (≤20 ms).
+
 ## [0.15.0] — 2026-08-31
 
 ### Changed

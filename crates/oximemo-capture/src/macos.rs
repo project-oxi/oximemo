@@ -4,7 +4,7 @@ use super::CaptureError;
 use block2::RcBlock;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
-use objc2_foundation::{NSDate, NSRunLoop};
+use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSRunLoop, NSTimer};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
@@ -117,8 +117,29 @@ fn worker(
 
     let _ = ready_tx.send(Ok(()));
     let run_loop = NSRunLoop::currentRunLoop();
+    // A global `NSEvent` monitor attaches no run-loop source, so the
+    // default mode is empty and every `runMode` call returns instantly with
+    // `kCFRunLoopRunFinished` — the poll below then busy-spins a whole core
+    // (~25-75% measured at idle). This far-future timer exists only to keep
+    // the default mode non-empty, so `runUntilDate` sleeps the poll
+    // interval out in the kernel instead of spinning.
+    // SAFETY: the block matches the `timerWithTimeInterval:repeats:block:`
+    // signature; the timer copies it, and it stays on this thread's loop.
+    let heartbeat = unsafe {
+        NSTimer::timerWithTimeInterval_repeats_block(
+            3600.0,
+            true,
+            &RcBlock::new(|_timer: std::ptr::NonNull<NSTimer>| {}),
+        )
+    };
+    // SAFETY: `addTimer_forMode` is an ObjC call; the mode is the
+    // Foundation `NSDefaultRunLoopMode` constant.
+    unsafe { run_loop.addTimer_forMode(&heartbeat, NSDefaultRunLoopMode) };
+
+    // 20 ms poll: kernel sleeps costing ~0.02% CPU that also bound event
+    // service and shutdown latency.
     while !stop.load(Ordering::Acquire) {
-        let deadline = NSDate::dateWithTimeIntervalSinceNow(0.05);
+        let deadline = NSDate::dateWithTimeIntervalSinceNow(0.02);
         run_loop.runUntilDate(&deadline);
     }
 
@@ -128,3 +149,29 @@ fn worker(
 
 // Keep the Objective-C token type explicit in this module's API boundary.
 const _: Option<&AnyObject> = None;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Dropping the monitor must terminate the worker promptly. A
+    /// regression here either deadlocks shutdown or busy-spins a core.
+    #[test]
+    fn drop_stops_worker_promptly() {
+        let monitor = match CaptureMonitorImpl::start(350, Box::new(|| {})) {
+            Ok(monitor) => monitor,
+            // Headless CI runners lack Input Monitoring permission.
+            Err(CaptureError::PermissionDenied) => return,
+            Err(error) => panic!("{error}"),
+        };
+        let (done_tx, done_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            drop(monitor);
+            let _ = done_tx.send(());
+        });
+        assert!(
+            done_rx.recv_timeout(Duration::from_secs(3)).is_ok(),
+            "CaptureMonitorImpl::drop hung instead of stopping the worker"
+        );
+    }
+}
