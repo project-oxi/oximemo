@@ -75,7 +75,7 @@ describe("task commands in browser mode", () => {
       { SetPriority: "High" },
       "2026-08-27",
     );
-    expect(out.changes[0]?.insert_lines[0]).toBe("- [ ] task ⏫");
+    expect(out.changes[0]?.insert_lines[0]).toBe("- [ ] task [priority:: high]");
   });
 
   test("transform_task_draft validates today like the Rust command", async () => {

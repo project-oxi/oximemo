@@ -8,8 +8,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetStatus": "x"
@@ -19,7 +18,7 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [x] task ✅ 2026-08-27"
+              "- [x] task [completion:: 2026-08-27]"
             ],
             "start_line": 0
           }
@@ -37,8 +36,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": "Toggle",
       "expected": {
@@ -64,8 +62,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetStatus": "-"
@@ -75,7 +72,7 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [-] task ❌ 2026-08-27"
+              "- [-] task [cancelled:: 2026-08-27]"
             ],
             "start_line": 0
           }
@@ -93,8 +90,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": "Toggle",
       "expected": {
@@ -102,8 +98,8 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 📅 2026-09-03 🔁 every week",
-              "- [x] task 📅 2026-08-27 🔁 every week ✅ 2026-08-27"
+              "- [ ] task [due:: 2026-09-03] [repeat:: every week]",
+              "- [x] task 📅 2026-08-27 🔁 every week [completion:: 2026-08-27]"
             ],
             "start_line": 0
           }
@@ -121,8 +117,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "below",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": "Toggle",
       "expected": {
@@ -130,14 +125,14 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [x] task 📅 2026-08-27 🔁 every week ✅ 2026-08-27"
+              "- [x] task 📅 2026-08-27 🔁 every week [completion:: 2026-08-27]"
             ],
             "start_line": 0
           },
           {
             "delete_lines": 0,
             "insert_lines": [
-              "- [ ] task 📅 2026-09-03 🔁 every week"
+              "- [ ] task [due:: 2026-09-03] [repeat:: every week]"
             ],
             "start_line": 2
           }
@@ -155,8 +150,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": "Toggle",
       "expected": {
@@ -164,8 +158,8 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 🛫 2026-08-08 ⏳ 2026-08-17 📅 2026-08-27 🔁 every week",
-              "- [x] task 🛫 2026-08-01 ⏳ 2026-08-10 📅 2026-08-20 🔁 every week ✅ 2026-08-27"
+              "- [ ] task [start:: 2026-08-08] [scheduled:: 2026-08-17] [due:: 2026-08-27] [repeat:: every week]",
+              "- [x] task 🛫 2026-08-01 ⏳ 2026-08-10 📅 2026-08-20 🔁 every week [completion:: 2026-08-27]"
             ],
             "start_line": 0
           }
@@ -183,8 +177,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": "Toggle",
       "expected": {
@@ -192,8 +185,8 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 📅 2026-09-03 🔁 every week when done",
-              "- [x] task 📅 2026-08-20 🔁 every week when done ✅ 2026-08-27"
+              "- [ ] task [due:: 2026-09-03] [repeat:: every week when done]",
+              "- [x] task 📅 2026-08-20 🔁 every week when done [completion:: 2026-08-27]"
             ],
             "start_line": 0
           }
@@ -211,8 +204,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": "Toggle",
       "expected": {
@@ -220,8 +212,8 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 📅 2026-02-28 🔁 every month",
-              "- [x] task 📅 2026-01-31 🔁 every month ✅ 2026-08-27"
+              "- [ ] task [due:: 2026-02-28] [repeat:: every month]",
+              "- [x] task 📅 2026-01-31 🔁 every month [completion:: 2026-08-27]"
             ],
             "start_line": 0
           }
@@ -239,8 +231,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": "Toggle",
       "expected": {
@@ -248,8 +239,8 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] 한국어 작업 #프로젝트 #긴급 📅 2026-02-28 🔁 every month",
-              "- [x] 한국어 작업 #프로젝트 #긴급 📅 2026-01-31 🔁 every month ✅ 2026-08-27"
+              "- [ ] 한국어 작업 #프로젝트 #긴급 [due:: 2026-02-28] [repeat:: every month]",
+              "- [x] 한국어 작업 #프로젝트 #긴급 📅 2026-01-31 🔁 every month [completion:: 2026-08-27]"
             ],
             "start_line": 0
           }
@@ -267,8 +258,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": "Toggle",
       "expected": {
@@ -276,7 +266,7 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [x] task 📅 2026-08-20 🔁 every 6 months on the 2nd wednesday ✅ 2026-08-27"
+              "- [x] task 📅 2026-08-20 🔁 every 6 months on the 2nd wednesday [completion:: 2026-08-27]"
             ],
             "start_line": 0
           }
@@ -294,8 +284,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetStatus": "X"
@@ -323,8 +312,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetStatus": "X"
@@ -352,72 +340,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
-      },
-      "edit": {
-        "SetDate": {
-          "field": "Created",
-          "value": "2026-08-30"
-        }
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task ➕ 2026-08-30"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_date_created_emoji_append_when_absent",
-      "today": "2026-08-27"
-    },
-    {
-      "body": "- [ ] task ➕ 2026-08-30\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
-      },
-      "edit": {
-        "SetDate": {
-          "field": "Created",
-          "value": "2026-08-31"
-        }
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task ➕ 2026-08-31"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_date_created_emoji_replace_when_present",
-      "today": "2026-08-27"
-    },
-    {
-      "body": "- [ ] task\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -437,19 +360,18 @@
         ]
       },
       "line": 0,
-      "name": "set_date_created_dataview_append_when_absent",
+      "name": "set_date_created_append_when_absent",
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task [created:: 2026-08-30]\n",
+      "body": "- [ ] task ➕ 2026-08-30\n",
       "cfg": {
         "capture_target": "daily",
         "default_section": "할 일",
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -469,7 +391,38 @@
         ]
       },
       "line": 0,
-      "name": "set_date_created_dataview_replace_when_present",
+      "name": "set_date_created_replace_when_present_from_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task [created:: 2026-08-30]\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": []
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Created",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [created:: 2026-08-31]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_created_replace_when_present_from_dataview",
       "today": "2026-08-27"
     },
     {
@@ -480,8 +433,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -501,7 +453,7 @@
         ]
       },
       "line": 0,
-      "name": "set_date_created_emoji_clear",
+      "name": "set_date_created_clear_from_emoji",
       "today": "2026-08-27"
     },
     {
@@ -512,72 +464,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
-      },
-      "edit": {
-        "SetDate": {
-          "field": "Start",
-          "value": "2026-08-30"
-        }
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task 🛫 2026-08-30"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_date_start_emoji_append_when_absent",
-      "today": "2026-08-27"
-    },
-    {
-      "body": "- [ ] task 🛫 2026-08-30\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
-      },
-      "edit": {
-        "SetDate": {
-          "field": "Start",
-          "value": "2026-08-31"
-        }
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task 🛫 2026-08-31"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_date_start_emoji_replace_when_present",
-      "today": "2026-08-27"
-    },
-    {
-      "body": "- [ ] task\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -597,19 +484,18 @@
         ]
       },
       "line": 0,
-      "name": "set_date_start_dataview_append_when_absent",
+      "name": "set_date_start_append_when_absent",
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task [start:: 2026-08-30]\n",
+      "body": "- [ ] task 🛫 2026-08-30\n",
       "cfg": {
         "capture_target": "daily",
         "default_section": "할 일",
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -629,7 +515,38 @@
         ]
       },
       "line": 0,
-      "name": "set_date_start_dataview_replace_when_present",
+      "name": "set_date_start_replace_when_present_from_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task [start:: 2026-08-30]\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": []
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Start",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [start:: 2026-08-31]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_start_replace_when_present_from_dataview",
       "today": "2026-08-27"
     },
     {
@@ -640,8 +557,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -661,7 +577,7 @@
         ]
       },
       "line": 0,
-      "name": "set_date_start_emoji_clear",
+      "name": "set_date_start_clear_from_emoji",
       "today": "2026-08-27"
     },
     {
@@ -672,72 +588,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
-      },
-      "edit": {
-        "SetDate": {
-          "field": "Scheduled",
-          "value": "2026-08-30"
-        }
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task ⏳ 2026-08-30"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_date_scheduled_emoji_append_when_absent",
-      "today": "2026-08-27"
-    },
-    {
-      "body": "- [ ] task ⏳ 2026-08-30\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
-      },
-      "edit": {
-        "SetDate": {
-          "field": "Scheduled",
-          "value": "2026-08-31"
-        }
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task ⏳ 2026-08-31"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_date_scheduled_emoji_replace_when_present",
-      "today": "2026-08-27"
-    },
-    {
-      "body": "- [ ] task\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -757,19 +608,18 @@
         ]
       },
       "line": 0,
-      "name": "set_date_scheduled_dataview_append_when_absent",
+      "name": "set_date_scheduled_append_when_absent",
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task [scheduled:: 2026-08-30]\n",
+      "body": "- [ ] task ⏳ 2026-08-30\n",
       "cfg": {
         "capture_target": "daily",
         "default_section": "할 일",
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -789,7 +639,38 @@
         ]
       },
       "line": 0,
-      "name": "set_date_scheduled_dataview_replace_when_present",
+      "name": "set_date_scheduled_replace_when_present_from_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task [scheduled:: 2026-08-30]\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": []
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Scheduled",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [scheduled:: 2026-08-31]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_scheduled_replace_when_present_from_dataview",
       "today": "2026-08-27"
     },
     {
@@ -800,8 +681,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -821,7 +701,7 @@
         ]
       },
       "line": 0,
-      "name": "set_date_scheduled_emoji_clear",
+      "name": "set_date_scheduled_clear_from_emoji",
       "today": "2026-08-27"
     },
     {
@@ -832,72 +712,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
-      },
-      "edit": {
-        "SetDate": {
-          "field": "Due",
-          "value": "2026-08-30"
-        }
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task 📅 2026-08-30"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_date_due_emoji_append_when_absent",
-      "today": "2026-08-27"
-    },
-    {
-      "body": "- [ ] task 📅 2026-08-30\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
-      },
-      "edit": {
-        "SetDate": {
-          "field": "Due",
-          "value": "2026-08-31"
-        }
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task 📅 2026-08-31"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_date_due_emoji_replace_when_present",
-      "today": "2026-08-27"
-    },
-    {
-      "body": "- [ ] task\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -917,19 +732,18 @@
         ]
       },
       "line": 0,
-      "name": "set_date_due_dataview_append_when_absent",
+      "name": "set_date_due_append_when_absent",
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task [due:: 2026-08-30]\n",
+      "body": "- [ ] task 📅 2026-08-30\n",
       "cfg": {
         "capture_target": "daily",
         "default_section": "할 일",
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -949,7 +763,38 @@
         ]
       },
       "line": 0,
-      "name": "set_date_due_dataview_replace_when_present",
+      "name": "set_date_due_replace_when_present_from_emoji",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task [due:: 2026-08-30]\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": []
+      },
+      "edit": {
+        "SetDate": {
+          "field": "Due",
+          "value": "2026-08-31"
+        }
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [due:: 2026-08-31]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_date_due_replace_when_present_from_dataview",
       "today": "2026-08-27"
     },
     {
@@ -960,8 +805,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -981,7 +825,7 @@
         ]
       },
       "line": 0,
-      "name": "set_date_due_emoji_clear",
+      "name": "set_date_due_clear_from_emoji",
       "today": "2026-08-27"
     },
     {
@@ -992,8 +836,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -1006,14 +849,14 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task ✅ 2026-08-25"
+              "- [ ] task [completion:: 2026-08-25]"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "set_date_done_emoji_set",
+      "name": "set_date_done_set",
       "today": "2026-08-27"
     },
     {
@@ -1024,8 +867,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -1045,7 +887,7 @@
         ]
       },
       "line": 0,
-      "name": "set_date_cancelled_emoji_clear",
+      "name": "set_date_cancelled_clear_from_emoji",
       "today": "2026-08-27"
     },
     {
@@ -1056,37 +898,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
-      },
-      "edit": {
-        "SetPriority": "Highest"
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task 📅 2026-08-30 🔺"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_priority_Highest_emoji",
-      "today": "2026-08-27"
-    },
-    {
-      "body": "- [ ] task 📅 2026-08-30\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "Highest"
@@ -1103,36 +915,35 @@
         ]
       },
       "line": 0,
-      "name": "set_priority_Highest_dataview",
+      "name": "set_priority_Highest_on_emoji_due_line",
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task 📅 2026-08-30\n",
+      "body": "- [ ] task\n",
       "cfg": {
         "capture_target": "daily",
         "default_section": "할 일",
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
-        "SetPriority": "High"
+        "SetPriority": "Highest"
       },
       "expected": {
         "changes": [
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 📅 2026-08-30 ⏫"
+              "- [ ] task [priority:: highest]"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "set_priority_High_emoji",
+      "name": "set_priority_Highest_on_plain_line",
       "today": "2026-08-27"
     },
     {
@@ -1143,8 +954,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "High"
@@ -1161,36 +971,35 @@
         ]
       },
       "line": 0,
-      "name": "set_priority_High_dataview",
+      "name": "set_priority_High_on_emoji_due_line",
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task 📅 2026-08-30\n",
+      "body": "- [ ] task\n",
       "cfg": {
         "capture_target": "daily",
         "default_section": "할 일",
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
-        "SetPriority": "Medium"
+        "SetPriority": "High"
       },
       "expected": {
         "changes": [
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 📅 2026-08-30 🔼"
+              "- [ ] task [priority:: high]"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "set_priority_Medium_emoji",
+      "name": "set_priority_High_on_plain_line",
       "today": "2026-08-27"
     },
     {
@@ -1201,8 +1010,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "Medium"
@@ -1219,36 +1027,35 @@
         ]
       },
       "line": 0,
-      "name": "set_priority_Medium_dataview",
+      "name": "set_priority_Medium_on_emoji_due_line",
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task 📅 2026-08-30\n",
+      "body": "- [ ] task\n",
       "cfg": {
         "capture_target": "daily",
         "default_section": "할 일",
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
-        "SetPriority": "Low"
+        "SetPriority": "Medium"
       },
       "expected": {
         "changes": [
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 📅 2026-08-30 🔽"
+              "- [ ] task [priority:: medium]"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "set_priority_Low_emoji",
+      "name": "set_priority_Medium_on_plain_line",
       "today": "2026-08-27"
     },
     {
@@ -1259,8 +1066,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "Low"
@@ -1277,36 +1083,35 @@
         ]
       },
       "line": 0,
-      "name": "set_priority_Low_dataview",
+      "name": "set_priority_Low_on_emoji_due_line",
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task 📅 2026-08-30\n",
+      "body": "- [ ] task\n",
       "cfg": {
         "capture_target": "daily",
         "default_section": "할 일",
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
-        "SetPriority": "Lowest"
+        "SetPriority": "Low"
       },
       "expected": {
         "changes": [
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 📅 2026-08-30 ⏬"
+              "- [ ] task [priority:: low]"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "set_priority_Lowest_emoji",
+      "name": "set_priority_Low_on_plain_line",
       "today": "2026-08-27"
     },
     {
@@ -1317,8 +1122,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "Lowest"
@@ -1335,7 +1139,35 @@
         ]
       },
       "line": 0,
-      "name": "set_priority_Lowest_dataview",
+      "name": "set_priority_Lowest_on_emoji_due_line",
+      "today": "2026-08-27"
+    },
+    {
+      "body": "- [ ] task\n",
+      "cfg": {
+        "capture_target": "daily",
+        "default_section": "할 일",
+        "enabled": true,
+        "global_filter": "",
+        "recurrence_insert": "above",
+        "statuses": []
+      },
+      "edit": {
+        "SetPriority": "Lowest"
+      },
+      "expected": {
+        "changes": [
+          {
+            "delete_lines": 1,
+            "insert_lines": [
+              "- [ ] task [priority:: lowest]"
+            ],
+            "start_line": 0
+          }
+        ]
+      },
+      "line": 0,
+      "name": "set_priority_Lowest_on_plain_line",
       "today": "2026-08-27"
     },
     {
@@ -1346,8 +1178,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "None"
@@ -1364,19 +1195,18 @@
         ]
       },
       "line": 0,
-      "name": "set_priority_None_emoji",
+      "name": "set_priority_None_on_emoji_due_line",
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task 📅 2026-08-30\n",
+      "body": "- [ ] task\n",
       "cfg": {
         "capture_target": "daily",
         "default_section": "할 일",
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "None"
@@ -1386,14 +1216,14 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 📅 2026-08-30"
+              "- [ ] task"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "set_priority_None_dataview",
+      "name": "set_priority_None_on_plain_line",
       "today": "2026-08-27"
     },
     {
@@ -1404,8 +1234,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetText": "new text"
@@ -1433,8 +1262,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetText": "new"
@@ -1462,8 +1290,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetText": "new text"
@@ -1491,8 +1318,7 @@
         "enabled": true,
         "global_filter": "#task",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetText": "new"
@@ -1520,8 +1346,7 @@
         "enabled": true,
         "global_filter": "milk",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetText": "new"
@@ -1549,8 +1374,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetRecurrence": "every week"
@@ -1560,14 +1384,14 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task 🔁 every week"
+              "- [ ] task [repeat:: every week]"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "set_recurrence_add_rule_emoji",
+      "name": "set_recurrence_add_rule",
       "today": "2026-08-27"
     },
     {
@@ -1578,8 +1402,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetRecurrence": null
@@ -1600,35 +1423,6 @@
       "today": "2026-08-27"
     },
     {
-      "body": "- [ ] task\n",
-      "cfg": {
-        "capture_target": "daily",
-        "default_section": "할 일",
-        "enabled": true,
-        "global_filter": "",
-        "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
-      },
-      "edit": {
-        "SetRecurrence": "every week"
-      },
-      "expected": {
-        "changes": [
-          {
-            "delete_lines": 1,
-            "insert_lines": [
-              "- [ ] task [repeat:: every week]"
-            ],
-            "start_line": 0
-          }
-        ]
-      },
-      "line": 0,
-      "name": "set_recurrence_add_rule_dataview",
-      "today": "2026-08-27"
-    },
-    {
       "body": "- [ ] old\r\n- [ ] target 📅 2026-08-30\r\n- [ ] after\r\n",
       "cfg": {
         "capture_target": "daily",
@@ -1636,8 +1430,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetText": "new"
@@ -1665,8 +1458,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -1679,14 +1471,14 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] task  📅 2026-08-15"
+              "- [ ] task  [due:: 2026-08-15]"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "set_date_due_emoji_collapse_when_duplicate_present",
+      "name": "set_date_due_collapse_when_duplicate_emoji_present",
       "today": "2026-08-27"
     },
     {
@@ -1697,8 +1489,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "Low"
@@ -1708,7 +1499,7 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] second 🔽"
+              "- [ ] second [priority:: low]"
             ],
             "start_line": 1
           }
@@ -1726,8 +1517,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetStatus": "x"
@@ -1737,14 +1527,14 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [x] 우유 사기 #장보기 📅 2026-08-30 ✅ 2026-08-27"
+              "- [x] 우유 사기 #장보기 📅 2026-08-30 [completion:: 2026-08-27]"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "korean_description_toggle_to_done_stamps_done_emoji",
+      "name": "korean_description_toggle_to_done_stamps_done",
       "today": "2026-08-27"
     },
     {
@@ -1755,8 +1545,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -1769,14 +1558,14 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] 우유 사기 #장보기 📅 2026-09-01"
+              "- [ ] 우유 사기 #장보기 [due:: 2026-09-01]"
             ],
             "start_line": 0
           }
         ]
       },
       "line": 0,
-      "name": "korean_description_set_date_due_emoji_replace",
+      "name": "korean_description_set_date_due_replace_from_emoji",
       "today": "2026-08-27"
     },
     {
@@ -1787,8 +1576,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "Medium"
@@ -1816,8 +1604,7 @@
         "enabled": true,
         "global_filter": "milk",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetText": "새 글"
@@ -1845,8 +1632,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": "Toggle",
       "expected": {
@@ -1854,8 +1640,8 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] 주간 회의 📅 2026-09-03 🔁 every week",
-              "- [x] 주간 회의 📅 2026-08-27 🔁 every week ✅ 2026-08-27"
+              "- [ ] 주간 회의 [due:: 2026-09-03] [repeat:: every week]",
+              "- [x] 주간 회의 📅 2026-08-27 🔁 every week [completion:: 2026-08-27]"
             ],
             "start_line": 0
           }
@@ -1873,8 +1659,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -1887,7 +1672,7 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] 보고서 제출  📅 2026-08-15"
+              "- [ ] 보고서 제출  [due:: 2026-08-15]"
             ],
             "start_line": 0
           }
@@ -1905,8 +1690,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetDate": {
@@ -1919,7 +1703,7 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] 우유 사기 #장보기 📅 2026-09-01"
+              "- [ ] 우유 사기 #장보기 [due:: 2026-09-01]"
             ],
             "start_line": 1
           }
@@ -1937,8 +1721,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "Low"
@@ -1948,7 +1731,7 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "\t- [ ] child task 🔽"
+              "\t- [ ] child task [priority:: low]"
             ],
             "start_line": 1
           }
@@ -1966,8 +1749,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "emoji"
+        "statuses": []
       },
       "edit": {
         "SetPriority": "Lowest"
@@ -1977,7 +1759,7 @@
           {
             "delete_lines": 1,
             "insert_lines": [
-              "- [ ] see [x](y)  tail ⏬"
+              "- [ ] see [x](y)  tail [priority:: lowest]"
             ],
             "start_line": 0
           }
@@ -1995,8 +1777,7 @@
         "enabled": true,
         "global_filter": "",
         "recurrence_insert": "above",
-        "statuses": [],
-        "write_format": "dataview"
+        "statuses": []
       },
       "edit": {
         "SetDate": {

@@ -12,7 +12,6 @@ import { effectiveStatuses } from "./taskToggle";
 import type { StatusDef, TaskLineCfg } from "./taskLine";
 
 const cfg = (statuses: StatusDef[]): TaskLineCfg => ({
-  writeFormat: "emoji",
   globalFilter: "",
   recurrenceInsert: "above",
   statuses,

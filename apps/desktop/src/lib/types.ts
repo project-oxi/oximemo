@@ -285,7 +285,6 @@ export interface TaskStatusWireDef {
  * mirror's `TaskLineCfg`, merging the builtin status table. */
 export interface TasksWireConfig {
   enabled: boolean;
-  write_format: "emoji" | "dataview";
   global_filter: string;
   recurrence_insert: "above" | "below";
   default_section: string;

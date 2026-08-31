@@ -4,10 +4,9 @@
  * A CM6 completion source that activates only on recognized task lines
  * and offers fields NOT already present on the line. Date fields come
  * as three options each — {today} / {tomorrow} / {pick} — and every
- * selection writes a real token in the vault's `writeFormat`
- * (`📅 2026-08-27` / `[due:: 2026-08-27]`), NEVER a literal label, so
- * the Task-8 widget paints the chip the moment the doc change
- * re-runs its decoration pass.
+ * selection writes a real dataview token (`[due:: 2026-08-27]`), NEVER
+ * a literal label, so the Task-8 widget paints the chip the moment
+ * the doc change re-runs its decoration pass.
  *
  * Integration constraint (discovered empirically): CM6 allows exactly
  * ONE `autocompletion()` extension with `override` — two different
@@ -110,19 +109,9 @@ function isDateFieldLocal(field: SuggestField): field is DateField {
   return field !== "priority" && field !== "recurrence";
 }
 
-// Marker tables for the {pick} option — the prefix the user completes
-// with a typed ISO date. These mirror taskLine's private
-// DATE_FIELD_EMOJI / DATE_FIELD_DATAVIEW_KEY tables (the same wire
-// vocabulary formatDateFieldToken emits).
-const EMOJI_FOR_FIELD: Record<DateField, string> = {
-  created: "➕",
-  start: "🛫",
-  scheduled: "⏳",
-  due: "📅",
-  done: "✅",
-  cancelled: "❌",
-};
-
+// Marker table for the {pick} option — the prefix the user completes
+// with a typed ISO date. Mirrors taskLine's DATE_FIELD_DATAVIEW_KEY
+// (the same wire vocabulary formatDateFieldToken emits).
 const DATAVIEW_KEY_FOR_FIELD: Record<DateField, string> = {
   created: "created",
   start: "start",
@@ -135,11 +124,11 @@ const DATAVIEW_KEY_FOR_FIELD: Record<DateField, string> = {
 /** Bare-option tokens for the non-date fields. Same defaults the
  *  popover seeds a fresh field with; the widget decorates them
  *  immediately on doc change. */
-function formatNonDateToken(field: "priority" | "recurrence", cfg: TaskLineCfg): string {
+function formatNonDateToken(field: "priority" | "recurrence"): string {
   if (field === "priority") {
-    return cfg.writeFormat === "emoji" ? "🔼" : "[priority:: medium]";
+    return "[priority:: medium]";
   }
-  return cfg.writeFormat === "emoji" ? "🔁 every day" : "[repeat:: every day]";
+  return "[repeat:: every day]";
 }
 
 // --- Pure helper -------------------------------------------------------
@@ -224,11 +213,11 @@ export function suggestOptionsFor(
   for (const field of absent) {
     const label = labels[FIELD_LABEL_KEY[field]] ?? FIELD_LABEL_KEY[field];
     if (isDateFieldLocal(field)) {
-      options.push(buildDateOption(field, label, todayLabel, today, cfg));
-      options.push(buildDateOption(field, label, tomorrowLabel, tomorrow, cfg));
-      options.push(buildPickOption(field, label, pickLabel, cfg));
+      options.push(buildDateOption(field, label, todayLabel, today));
+      options.push(buildDateOption(field, label, tomorrowLabel, tomorrow));
+      options.push(buildPickOption(field, label, pickLabel));
     } else {
-      options.push(buildBareOption(field, label, cfg));
+      options.push(buildBareOption(field, label));
     }
   }
   return { from, to: Math.max(caret, from), options };
@@ -241,9 +230,8 @@ function buildDateOption(
   fieldLabel: string,
   suffixLabel: string,
   iso: string,
-  cfg: TaskLineCfg,
 ): TaskCompletion {
-  const insert = formatDateFieldToken(field, iso, cfg.writeFormat);
+  const insert = formatDateFieldToken(field, iso);
   return {
     label: `${fieldLabel} ${suffixLabel}`,
     detail: insert,
@@ -262,11 +250,8 @@ function buildPickOption(
   field: DateField,
   fieldLabel: string,
   pickLabel: string,
-  cfg: TaskLineCfg,
 ): TaskCompletion {
-  const insert = cfg.writeFormat === "emoji"
-    ? `${EMOJI_FOR_FIELD[field]} `
-    : `[${DATAVIEW_KEY_FOR_FIELD[field]}:: `;
+  const insert = `[${DATAVIEW_KEY_FOR_FIELD[field]}:: `;
   return {
     label: `${fieldLabel} ${pickLabel}`,
     detail: insert.trimEnd(),
@@ -284,9 +269,8 @@ function buildPickOption(
 function buildBareOption(
   field: "priority" | "recurrence",
   label: string,
-  cfg: TaskLineCfg,
 ): TaskCompletion {
-  const insert = formatNonDateToken(field, cfg);
+  const insert = formatNonDateToken(field);
   return {
     label,
     detail: insert,

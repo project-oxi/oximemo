@@ -4,6 +4,22 @@ All notable changes to oximemo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Changed
+
+- **Dataview is the only task field write format.** App-initiated
+  writes (quick-add, slash menu, editor widgets, rollover, CLI) now
+  serialize `[due:: 2026-08-31]`, `[priority:: high]`, and
+  `[repeat:: every week]` tokens — never emoji field markers (`📅`,
+  `⏫`, `🔁`). The `[tasks] write_format` setting and its settings
+  toggle are removed; existing `oximemo.toml` files carrying a leftover
+  `write_format` key keep loading (unknown keys are ignored), so no
+  migration is needed. Reading is unchanged: emoji-formatted lines
+  written by earlier versions or by Obsidian Tasks still parse, and an
+  edit splices the dataview token in place of the old emoji span.
+
 ## [0.14.0] — 2026-08-31
 
 ### Added

@@ -4,7 +4,6 @@ import { cfgFromJson, type WireTaskLineCfg } from "./taskLine";
 import { lineIsTask, TaskLineWidget, widgetRangesFor } from "./taskCheckboxes";
 
 const BASE_WIRE: WireTaskLineCfg = {
-  write_format: "emoji",
   global_filter: "",
   recurrence_insert: "above",
   statuses: [],

@@ -77,8 +77,8 @@ describe("taskLine fixtures", () => {
     // After spawn-above, the spawned occurrence should appear one line
     // above the now-completed original — the dated sibling line is the
     // anchor.
-    expect(applied).toContain("📅 2026-09-03");
-    expect(applied).toContain("✅ 2026-08-27");
+    expect(applied).toContain("[due:: 2026-09-03]");
+    expect(applied).toContain("[completion:: 2026-08-27]");
     // Original line still present (same bytes, completed).
     expect(applied).toContain("🔁 every week");
   });
@@ -105,7 +105,6 @@ describe("taskLine fixtures", () => {
 
 describe("transformTaskDraft edge cases", () => {
   const cfg = cfgFromJson({
-    write_format: "emoji",
     global_filter: "",
     recurrence_insert: "above",
     statuses: [],
@@ -113,7 +112,7 @@ describe("transformTaskDraft edge cases", () => {
   test("toggle on Todo enters Done with today stamped", () => {
     const out = transformTaskDraft("- [ ] task\n", 0, { kind: "toggle" }, "2026-08-27", cfg);
     const applied = applyChanges("- [ ] task\n", out.changes);
-    expect(applied).toBe("- [x] task ✅ 2026-08-27\n");
+    expect(applied).toBe("- [x] task [completion:: 2026-08-27]\n");
   });
 
   test("toggle on Done returns to Todo and clears done date", () => {

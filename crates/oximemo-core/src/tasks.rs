@@ -119,19 +119,11 @@ pub struct TaskStatusDef {
 #[serde(default)]
 pub struct TasksConfig {
     pub enabled: bool,
-    pub write_format: WriteFormat,
     pub global_filter: String,
     pub recurrence_insert: RecurrenceInsert,
     pub default_section: String,
     pub capture_target: CaptureTarget,
     pub statuses: Vec<TaskStatusDef>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum WriteFormat {
-    Emoji,
-    Dataview,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,7 +144,6 @@ impl Default for TasksConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            write_format: WriteFormat::Emoji,
             global_filter: String::new(),
             recurrence_insert: RecurrenceInsert::Above,
             default_section: "할 일".into(),
@@ -1127,17 +1118,6 @@ fn format_date_yyyy_mm_dd(d: Date) -> String {
     format!("{:04}-{:02}-{:02}", d.year(), u8::from(d.month()), d.day())
 }
 
-fn priority_emoji_char(p: Priority) -> Option<char> {
-    match p {
-        Priority::Highest => Some('🔺'),
-        Priority::High => Some('⏫'),
-        Priority::Medium => Some('🔼'),
-        Priority::Low => Some('🔽'),
-        Priority::Lowest => Some('⏬'),
-        Priority::None => None,
-    }
-}
-
 fn priority_dataview_word(p: Priority) -> Option<&'static str> {
     match p {
         Priority::Highest => Some("highest"),
@@ -1178,18 +1158,18 @@ pub fn render_new_task(text: &str, fields: &TaskFields, cfg: &TasksConfig) -> Re
     for (field, value) in date_fields {
         if let Some(d) = value {
             line.push(' ');
-            line.push_str(&format_date_field_token(field, d, cfg.write_format));
+            line.push_str(&format_date_field_token(field, d));
         }
     }
 
-    if let Some(token) = format_priority_token(fields.priority, cfg.write_format) {
+    if let Some(token) = format_priority_token(fields.priority) {
         line.push(' ');
         line.push_str(&token);
     }
 
     if let Some(rule) = &fields.recurrence {
         line.push(' ');
-        line.push_str(&format_recurrence_token(rule, cfg.write_format));
+        line.push_str(&format_recurrence_token(rule));
     }
 
     Ok(line)
@@ -1208,20 +1188,6 @@ fn date_field_to_task_field(f: DateField) -> TaskField {
     }
 }
 
-fn task_field_date_emoji(field: TaskField) -> char {
-    match field {
-        TaskField::Created => EMOJI_CREATED,
-        TaskField::Start => EMOJI_START,
-        TaskField::Scheduled => EMOJI_SCHEDULED,
-        TaskField::Due => EMOJI_DUE,
-        TaskField::Done => EMOJI_DONE,
-        TaskField::Cancelled => EMOJI_CANCELLED,
-        TaskField::Priority | TaskField::Recurrence => {
-            unreachable!("task_field_date_emoji called with a non-date field")
-        }
-    }
-}
-
 fn task_field_dataview_key(field: TaskField) -> &'static str {
     match field {
         TaskField::Created => "created",
@@ -1236,34 +1202,29 @@ fn task_field_dataview_key(field: TaskField) -> &'static str {
     }
 }
 
-/// Format one date field's token (spec §1 field table), shared by
-/// `render_new_task` and `transform_task_draft` so both produce
-/// identical bytes for the same field/value/format (no duplicated
+/// Format one date field's dataview token (`[due:: 2026-08-30]`),
+/// shared by `render_new_task` and `transform_task_draft` so both
+/// produce identical bytes for the same field/value (no duplicated
 /// formatting logic per spec §5/§6).
-fn format_date_field_token(field: TaskField, d: Date, fmt: WriteFormat) -> String {
-    let rendered = format_date_yyyy_mm_dd(d);
-    match fmt {
-        WriteFormat::Emoji => format!("{} {}", task_field_date_emoji(field), rendered),
-        WriteFormat::Dataview => format!("[{}:: {}]", task_field_dataview_key(field), rendered),
-    }
+fn format_date_field_token(field: TaskField, d: Date) -> String {
+    format!(
+        "[{}:: {}]",
+        task_field_dataview_key(field),
+        format_date_yyyy_mm_dd(d)
+    )
 }
 
-/// Format the priority token, or `None` for `Priority::None` (no token
-/// emitted). Shared by `render_new_task` and `transform_task_draft`.
-fn format_priority_token(p: Priority, fmt: WriteFormat) -> Option<String> {
-    match fmt {
-        WriteFormat::Emoji => priority_emoji_char(p).map(String::from),
-        WriteFormat::Dataview => priority_dataview_word(p).map(|w| format!("[priority:: {w}]")),
-    }
-}
-
-/// Format the recurrence token. Shared by `render_new_task` and
+/// Format the priority dataview token, or `None` for `Priority::None`
+/// (no token emitted). Shared by `render_new_task` and
 /// `transform_task_draft`.
-fn format_recurrence_token(rule: &str, fmt: WriteFormat) -> String {
-    match fmt {
-        WriteFormat::Emoji => format!("{EMOJI_RECURRENCE} {rule}"),
-        WriteFormat::Dataview => format!("[repeat:: {rule}]"),
-    }
+fn format_priority_token(p: Priority) -> Option<String> {
+    priority_dataview_word(p).map(|w| format!("[priority:: {w}]"))
+}
+
+/// Format the recurrence dataview token. Shared by `render_new_task`
+/// and `transform_task_draft`.
+fn format_recurrence_token(rule: &str) -> String {
+    format!("[repeat:: {rule}]")
 }
 
 /// Strip exactly `cols` leading columns from `raw`, advancing a tab to
@@ -1666,7 +1627,7 @@ pub fn transform_task_draft(
                 // shift the second field's span if both Done and
                 // Cancelled tokens existed in the source line and the
                 // stamp's range was before the clear's range.
-                let token = format_date_field_token(stamp_field, today, cfg.write_format);
+                let token = format_date_field_token(stamp_field, today);
                 line_buf = splice_field_ops(
                     raw,
                     &spans.fields,
@@ -1767,19 +1728,17 @@ pub fn transform_task_draft(
         }
         TaskEdit::SetDate { field, value } => {
             let target = date_field_to_task_field(*field);
-            let token = value.map(|d| format_date_field_token(target, d, cfg.write_format));
+            let token = value.map(|d| format_date_field_token(target, d));
             let new_line = splice_field(raw, &spans.fields, target, token);
             Ok(single_line_change(line, new_line))
         }
         TaskEdit::SetPriority(p) => {
-            let token = format_priority_token(*p, cfg.write_format);
+            let token = format_priority_token(*p);
             let new_line = splice_field(raw, &spans.fields, TaskField::Priority, token);
             Ok(single_line_change(line, new_line))
         }
         TaskEdit::SetRecurrence(rule) => {
-            let token = rule
-                .as_ref()
-                .map(|r| format_recurrence_token(r, cfg.write_format));
+            let token = rule.as_ref().map(|r| format_recurrence_token(r));
             let new_line = splice_field(raw, &spans.fields, TaskField::Recurrence, token);
             Ok(single_line_change(line, new_line))
         }
@@ -2306,7 +2265,7 @@ mod tests {
     }
 
     #[test]
-    fn render_new_task_emoji_format_includes_global_filter() {
+    fn render_new_task_includes_global_filter() {
         let mut c = cfg();
         c.global_filter = "#task".into();
         let fields = TaskFields {
@@ -2317,14 +2276,13 @@ mod tests {
         let line = render_new_task("buy milk", &fields, &c).unwrap();
         assert!(line.starts_with("- [ ] buy milk"));
         assert!(line.contains("#task"));
-        assert!(line.contains("📅 2026-08-30"));
-        assert!(line.contains('⏫'));
+        assert!(line.contains("[due:: 2026-08-30]"));
+        assert!(line.contains("[priority:: high]"));
     }
 
     #[test]
     fn render_new_task_dataview_format() {
-        let mut c = cfg();
-        c.write_format = WriteFormat::Dataview;
+        let c = cfg();
         let fields = TaskFields {
             due: Some(time::macros::date!(2026 - 08 - 30)),
             ..Default::default()
@@ -2366,7 +2324,7 @@ mod tests {
         let body = "- [ ] task 📅 2026-08-30\n";
         let out = transform_single_line(body, TaskEdit::SetPriority(Priority::High));
         assert!(out.contains("📅 2026-08-30"), "due token untouched");
-        assert!(out.contains('⏫'));
+        assert!(out.contains("[priority:: high]"));
     }
 
     #[test]
@@ -2393,7 +2351,7 @@ mod tests {
                 value: Some(time::macros::date!(2026 - 08 - 30)),
             },
         );
-        assert!(out.contains("📅 2026-08-30"));
+        assert!(out.contains("[due:: 2026-08-30]"));
     }
 
     #[test]
@@ -2453,9 +2411,9 @@ mod tests {
     fn set_recurrence_adds_and_clears_rule() {
         let body = "- [ ] task\n";
         let out = transform_single_line(body, TaskEdit::SetRecurrence(Some("every week".into())));
-        assert!(out.contains("🔁 every week"));
+        assert!(out.contains("[repeat:: every week]"));
         let out2 = transform_single_line(&out, TaskEdit::SetRecurrence(None));
-        assert!(!out2.contains('🔁'));
+        assert!(!out2.contains("[repeat::"));
     }
 
     #[test]
@@ -2641,7 +2599,7 @@ mod tests {
         let lines: Vec<&str> = out.lines().collect();
         let task_idx = lines
             .iter()
-            .position(|l| l.contains("📅 2026-09-03"))
+            .position(|l| l.contains("[due:: 2026-09-03]"))
             .unwrap();
         let child_idx = lines.iter().position(|l| l.contains("child")).unwrap();
         let unrelated_idx = lines.iter().position(|l| l.contains("unrelated")).unwrap();
@@ -2810,8 +2768,8 @@ mod tests {
         let today: Date = time::macros::date!(2026 - 08 - 27);
 
         // Build one (cfg, body, line, edit, expected_changes) row.
-        // `cfg` defaults to emoji/above; override per case for dataview,
-        // below, global filter.
+        // `cfg` defaults to dataview write tokens and above-recurrence;
+        // override per case for below-recurrence and global filter.
         let mut cases: Vec<serde_json::Value> = Vec::new();
 
         let mk = |name: &str,
@@ -2952,16 +2910,16 @@ mod tests {
             today,
         ));
 
-        // --- SetDate set: each field, emoji + dataview, present and absent
+        // --- SetDate set: each field, from emoji and dataview input forms
         for (field, label) in [
             (DateField::Created, "created"),
             (DateField::Start, "start"),
             (DateField::Scheduled, "scheduled"),
             (DateField::Due, "due"),
         ] {
-            // emoji, field absent -> append
+            // field absent -> append
             cases.push(mk(
-                &format!("set_date_{label}_emoji_append_when_absent"),
+                &format!("set_date_{label}_append_when_absent"),
                 TasksConfig::default(),
                 "- [ ] task\n",
                 0,
@@ -2971,7 +2929,7 @@ mod tests {
                 },
                 today,
             ));
-            // emoji, field present -> splice
+            // emoji input, field present -> splice the dataview token in
             let emoji_char = match field {
                 DateField::Created => "➕",
                 DateField::Start => "🛫",
@@ -2980,7 +2938,7 @@ mod tests {
                 _ => unreachable!("only the four date fields above"),
             };
             cases.push(mk(
-                &format!("set_date_{label}_emoji_replace_when_present"),
+                &format!("set_date_{label}_replace_when_present_from_emoji"),
                 TasksConfig::default(),
                 &format!("- [ ] task {emoji_char} 2026-08-30\n"),
                 0,
@@ -2990,23 +2948,7 @@ mod tests {
                 },
                 today,
             ));
-            // dataview, absent -> append
-            let cfg = TasksConfig {
-                write_format: WriteFormat::Dataview,
-                ..TasksConfig::default()
-            };
-            cases.push(mk(
-                &format!("set_date_{label}_dataview_append_when_absent"),
-                cfg.clone(),
-                "- [ ] task\n",
-                0,
-                TaskEdit::SetDate {
-                    field,
-                    value: Some(time::macros::date!(2026 - 08 - 30)),
-                },
-                today,
-            ));
-            // dataview, present -> splice
+            // dataview input, field present -> splice
             let dataview_key = match field {
                 DateField::Created => "created",
                 DateField::Start => "start",
@@ -3015,8 +2957,8 @@ mod tests {
                 _ => unreachable!("only the four date fields above"),
             };
             cases.push(mk(
-                &format!("set_date_{label}_dataview_replace_when_present"),
-                cfg,
+                &format!("set_date_{label}_replace_when_present_from_dataview"),
+                TasksConfig::default(),
                 &format!("- [ ] task [{dataview_key}:: 2026-08-30]\n"),
                 0,
                 TaskEdit::SetDate {
@@ -3025,9 +2967,9 @@ mod tests {
                 },
                 today,
             ));
-            // clear (None) emoji
+            // clear (None) from an emoji-input token
             cases.push(mk(
-                &format!("set_date_{label}_emoji_clear"),
+                &format!("set_date_{label}_clear_from_emoji"),
                 TasksConfig::default(),
                 &format!("- [ ] task {emoji_char} 2026-08-30\n"),
                 0,
@@ -3037,7 +2979,7 @@ mod tests {
         }
         // --- SetDate: done/cancelled are also date targets
         cases.push(mk(
-            "set_date_done_emoji_set",
+            "set_date_done_set",
             TasksConfig::default(),
             "- [ ] task\n",
             0,
@@ -3048,7 +2990,7 @@ mod tests {
             today,
         ));
         cases.push(mk(
-            "set_date_cancelled_emoji_clear",
+            "set_date_cancelled_clear_from_emoji",
             TasksConfig::default(),
             "- [-] task ❌ 2026-08-20\n",
             0,
@@ -3059,7 +3001,7 @@ mod tests {
             today,
         ));
 
-        // --- SetPriority every level, emoji + dataview
+        // --- SetPriority every level, on emoji-due and plain lines
         for level in [
             Priority::Highest,
             Priority::High,
@@ -3069,21 +3011,17 @@ mod tests {
             Priority::None,
         ] {
             cases.push(mk(
-                &format!("set_priority_{:?}_emoji", level),
+                &format!("set_priority_{:?}_on_emoji_due_line", level),
                 TasksConfig::default(),
                 "- [ ] task 📅 2026-08-30\n",
                 0,
                 TaskEdit::SetPriority(level),
                 today,
             ));
-            let cfg = TasksConfig {
-                write_format: WriteFormat::Dataview,
-                ..TasksConfig::default()
-            };
             cases.push(mk(
-                &format!("set_priority_{:?}_dataview", level),
-                cfg,
-                "- [ ] task 📅 2026-08-30\n",
+                &format!("set_priority_{:?}_on_plain_line", level),
+                TasksConfig::default(),
+                "- [ ] task\n",
                 0,
                 TaskEdit::SetPriority(level),
                 today,
@@ -3108,14 +3046,10 @@ mod tests {
             TaskEdit::SetText("new".into()),
             today,
         ));
-        // dataview format
-        let cfg = TasksConfig {
-            write_format: WriteFormat::Dataview,
-            ..TasksConfig::default()
-        };
+        // dataview-input field survives SetText
         cases.push(mk(
             "set_text_dataview_preserves_field",
-            cfg,
+            TasksConfig::default(),
             "- [ ] old text [due:: 2026-08-30] #tag\n",
             0,
             TaskEdit::SetText("new text".into()),
@@ -3150,7 +3084,7 @@ mod tests {
 
         // --- SetRecurrence set/clear
         cases.push(mk(
-            "set_recurrence_add_rule_emoji",
+            "set_recurrence_add_rule",
             TasksConfig::default(),
             "- [ ] task\n",
             0,
@@ -3163,18 +3097,6 @@ mod tests {
             "- [ ] task 🔁 every week\n",
             0,
             TaskEdit::SetRecurrence(None),
-            today,
-        ));
-        let cfg = TasksConfig {
-            write_format: WriteFormat::Dataview,
-            ..TasksConfig::default()
-        };
-        cases.push(mk(
-            "set_recurrence_add_rule_dataview",
-            cfg,
-            "- [ ] task\n",
-            0,
-            TaskEdit::SetRecurrence(Some("every week".into())),
             today,
         ));
 
@@ -3191,7 +3113,7 @@ mod tests {
         // --- duplicate-field collapse: scan keeps rightmost (kernel
         // only records the splice; rightmost wins is a parse-time rule)
         cases.push(mk(
-            "set_date_due_emoji_collapse_when_duplicate_present",
+            "set_date_due_collapse_when_duplicate_emoji_present",
             TasksConfig::default(),
             "- [ ] task 📅 2026-08-30 📅 2026-09-01\n",
             0,
@@ -3221,7 +3143,7 @@ mod tests {
 
         // 1. Korean description + emoji date tokens: enter Done.
         cases.push(mk(
-            "korean_description_toggle_to_done_stamps_done_emoji",
+            "korean_description_toggle_to_done_stamps_done",
             TasksConfig::default(),
             "- [ ] 우유 사기 #장보기 📅 2026-08-30\n",
             0,
@@ -3230,7 +3152,7 @@ mod tests {
         ));
         // 1b. Same line, SetDate replaces the emoji date.
         cases.push(mk(
-            "korean_description_set_date_due_emoji_replace",
+            "korean_description_set_date_due_replace_from_emoji",
             TasksConfig::default(),
             "- [ ] 우유 사기 #장보기 📅 2026-08-30\n",
             0,
@@ -3241,20 +3163,14 @@ mod tests {
             today,
         ));
         // 2. Korean description + dataview tokens: SetPriority.
-        {
-            let cfg = TasksConfig {
-                write_format: WriteFormat::Dataview,
-                ..TasksConfig::default()
-            };
-            cases.push(mk(
-                "korean_description_set_priority_high_dataview",
-                cfg,
-                "- [ ] 보고서 초안 [due:: 2026-08-30] [priority:: high]\n",
-                0,
-                TaskEdit::SetPriority(Priority::Medium),
-                today,
-            ));
-        }
+        cases.push(mk(
+            "korean_description_set_priority_high_dataview",
+            TasksConfig::default(),
+            "- [ ] 보고서 초안 [due:: 2026-08-30] [priority:: high]\n",
+            0,
+            TaskEdit::SetPriority(Priority::Medium),
+            today,
+        ));
         // 3. SetText on a Korean description preserving tags + global
         // filter substring that lives AFTER the Korean text. The find
         // must be a UTF-16 code-unit offset that still slices back to
@@ -3335,23 +3251,17 @@ mod tests {
         // 9. Markdown link before dataview fields, Korean body: the
         // same skip over multi-byte link text, plus a dataview
         // replace-in-place splice.
-        {
-            let cfg = TasksConfig {
-                write_format: WriteFormat::Dataview,
-                ..TasksConfig::default()
-            };
-            cases.push(mk(
-                "link_then_dataview_fields_korean_is_recognized",
-                cfg,
-                "- [ ] 문서 [링크](https://example.com/a) [due:: 2026-08-30] #메모\n",
-                0,
-                TaskEdit::SetDate {
-                    field: DateField::Due,
-                    value: Some(time::macros::date!(2026 - 09 - 01)),
-                },
-                today,
-            ));
-        }
+        cases.push(mk(
+            "link_then_dataview_fields_korean_is_recognized",
+            TasksConfig::default(),
+            "- [ ] 문서 [링크](https://example.com/a) [due:: 2026-08-30] #메모\n",
+            0,
+            TaskEdit::SetDate {
+                field: DateField::Due,
+                value: Some(time::macros::date!(2026 - 09 - 01)),
+            },
+            today,
+        ));
 
         let corpus = serde_json::json!({ "cases": cases });
 

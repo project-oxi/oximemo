@@ -81,9 +81,8 @@ export function overlaySlashRoute(body: string): { rest: string } | null {
 }
 
 /** Backend `[tasks]` defaults, used only while the config query is
- *  still in flight (emoji format, no global filter). */
+ *  still in flight (dataview tokens, no global filter). */
 const DEFAULT_WIRE: WireTaskLineCfg = {
-  write_format: "emoji",
   global_filter: "",
   recurrence_insert: "above",
   statuses: [],

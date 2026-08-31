@@ -28,14 +28,12 @@ import {
 } from "./taskSuggest";
 
 const BASE_WIRE: WireTaskLineCfg = {
-  write_format: "emoji",
   global_filter: "",
   recurrence_insert: "above",
   statuses: [],
 };
 
-const EMOJI_CFG: TaskLineCfg = cfgFromJson(BASE_WIRE);
-const DATAVIEW_CFG: TaskLineCfg = cfgFromJson({ ...BASE_WIRE, write_format: "dataview" });
+const CFG: TaskLineCfg = cfgFromJson(BASE_WIRE);
 
 // Minimal labels stub — only the keys the suggest reads, cast to the
 // full Dict shape (tests assert against these strings directly).
@@ -89,9 +87,9 @@ function applyOption(
 
 describe("suggestOptionsFor — recognition gate", () => {
   test("non-task line: returns null (no completions offered)", () => {
-    expect(suggestOptionsFor("just words here", EMOJI_CFG, 16, LABELS)).toBeNull();
-    expect(suggestOptionsFor("- not a task", EMOJI_CFG, 13, LABELS)).toBeNull();
-    expect(suggestOptionsFor("", EMOJI_CFG, 0, LABELS)).toBeNull();
+    expect(suggestOptionsFor("just words here", CFG, 16, LABELS)).toBeNull();
+    expect(suggestOptionsFor("- not a task", CFG, 13, LABELS)).toBeNull();
+    expect(suggestOptionsFor("", CFG, 0, LABELS)).toBeNull();
   });
 
   test("global filter: kernel containment rule (contains, not starts-with)", () => {
@@ -106,11 +104,11 @@ describe("suggestOptionsFor — recognition gate", () => {
     expect(hit).not.toBeNull();
     expect(hit!.options.length).toBeGreaterThan(0);
     // Empty global filter: any recognized checkbox line suggests.
-    expect(suggestOptionsFor("- [ ] no token", EMOJI_CFG, 14, LABELS)).not.toBeNull();
+    expect(suggestOptionsFor("- [ ] no token", CFG, 14, LABELS)).not.toBeNull();
   });
 
   test("partial token at the cursor: options with a whitespace-bounded from", () => {
-    const result = suggestOptionsFor("- [ ] one d", EMOJI_CFG, 11, LABELS);
+    const result = suggestOptionsFor("- [ ] one d", CFG, 11, LABELS);
     expect(result).not.toBeNull();
     expect(result!.options.length).toBeGreaterThan(0);
     // The token "d" starts right after the space at index 9.
@@ -121,15 +119,15 @@ describe("suggestOptionsFor — recognition gate", () => {
   test("caret mid-word (not at a boundary): null", () => {
     // Caret inside "o|ne" — prev char is a word char, so replacing
     // from the token start would clobber the task text.
-    expect(suggestOptionsFor("- [ ] one", EMOJI_CFG, 7, LABELS)).toBeNull();
-    expect(suggestOptionsFor("- [ ] one", EMOJI_CFG, 8, LABELS)).toBeNull();
+    expect(suggestOptionsFor("- [ ] one", CFG, 7, LABELS)).toBeNull();
+    expect(suggestOptionsFor("- [ ] one", CFG, 8, LABELS)).toBeNull();
   });
 });
 
 describe("suggestOptionsFor — apply-range structure guards", () => {
   test("caret 0 (before the checkbox): range clamps to a pure insertion at the checkbox end", () => {
     const line = "- [ ] task";
-    const result = suggestOptionsFor(line, EMOJI_CFG, 0, LABELS, {
+    const result = suggestOptionsFor(line, CFG, 0, LABELS, {
       todayISO: "2026-08-27",
     })!;
     expect(result).not.toBeNull();
@@ -148,7 +146,7 @@ describe("suggestOptionsFor — apply-range structure guards", () => {
 
   test("caret at end of an existing date token: token preserved (pure insertion after it)", () => {
     const line = "- [ ] task 📅 2026-08-27";
-    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS, {
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS, {
       todayISO: "2026-08-27",
     })!;
     expect(result).not.toBeNull();
@@ -168,17 +166,17 @@ describe("suggestOptionsFor — apply-range structure guards", () => {
 describe("suggestOptionsFor — code-span gate", () => {
   test("caret inside an open inline-code span at end of line: null", () => {
     const line = "- [ ] see `code";
-    expect(suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS)).toBeNull();
+    expect(suggestOptionsFor(line, CFG, line.length, LABELS)).toBeNull();
   });
 
   test("same line without the backtick: options flow", () => {
     const line = "- [ ] see code";
-    expect(suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS)).not.toBeNull();
+    expect(suggestOptionsFor(line, CFG, line.length, LABELS)).not.toBeNull();
   });
 
   test("closed code span earlier on the line does not block", () => {
     const line = "- [ ] see `x` done d";
-    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS);
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS);
     expect(result).not.toBeNull();
     expect(result!.from).toBe(line.length - 1);
   });
@@ -187,7 +185,7 @@ describe("suggestOptionsFor — code-span gate", () => {
 describe("suggestOptionsFor — absent-field filtering", () => {
   test("a bare task line offers every absent field", () => {
     const line = "- [ ] fresh ";
-    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS);
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS);
     expect(result).not.toBeNull();
     const labels = result!.options.map((o) => o.label);
     for (const prefix of [
@@ -206,7 +204,7 @@ describe("suggestOptionsFor — absent-field filtering", () => {
 
   test("present fields are excluded (emoji markers)", () => {
     const line = "- [ ] has due 📅 2026-08-30 🔺";
-    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS);
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS);
     expect(result).not.toBeNull();
     const labels = result!.options.map((o) => o.label);
     expect(labels.some((l) => l.startsWith("Due"))).toBe(false);
@@ -218,7 +216,7 @@ describe("suggestOptionsFor — absent-field filtering", () => {
 
   test("present fields are excluded (dataview markers)", () => {
     const line = "- [ ] dataview [due:: 2026-08-30]";
-    const result = suggestOptionsFor(line, DATAVIEW_CFG, line.length, LABELS);
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS);
     expect(result).not.toBeNull();
     const labels = result!.options.map((o) => o.label);
     expect(labels.some((l) => l.startsWith("Due"))).toBe(false);
@@ -227,7 +225,7 @@ describe("suggestOptionsFor — absent-field filtering", () => {
 
   test("date fields expand to three options; non-date fields to one", () => {
     const line = "- [ ] fresh ";
-    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS)!;
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS)!;
     const count = (prefix: string) =>
       result.options.filter((o) => o.label.startsWith(prefix)).length;
     for (const prefix of ["Due", "Scheduled", "Start", "Done", "Created", "Cancelled"]) {
@@ -241,121 +239,82 @@ describe("suggestOptionsFor — absent-field filtering", () => {
 });
 
 describe("suggestOptionsFor — date option ISO emission", () => {
-  test("emoji format: today option applies `📅 ISO` at the matched range", () => {
+  test("today option applies `[due:: ISO]` at the matched range", () => {
     const line = "- [ ] x";
-    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS, {
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS, {
       todayISO: "2026-08-27",
     })!;
     const dueToday = result.options.find((o) => o.label === "Due Today")!;
     expect(dueToday).toBeDefined();
     const [d] = applyOption(dueToday, result.from, result.to, line.length);
-    expect(d!.changes.insert).toBe("📅 2026-08-27");
+    expect(d!.changes.insert).toBe("[due:: 2026-08-27]");
     expect(d!.changes.from).toBe(result.from);
     expect(d!.changes.to).toBe(result.to);
-    expect(d!.selection?.anchor).toBe(result.from + "📅 2026-08-27".length);
-  });
-
-  test("dataview format: today option applies `[due:: ISO]`", () => {
-    const line = "- [ ] x";
-    const result = suggestOptionsFor(line, DATAVIEW_CFG, line.length, LABELS, {
-      todayISO: "2026-08-27",
-    })!;
-    const dueToday = result.options.find((o) => o.label === "Due Today")!;
-    const [d] = applyOption(dueToday, result.from, result.to, line.length);
-    expect(d!.changes.insert).toBe("[due:: 2026-08-27]");
+    expect(d!.selection?.anchor).toBe(result.from + "[due:: 2026-08-27]".length);
   });
 
   test("tomorrow option: ISO is today + 1 day", () => {
     const line = "- [ ] x";
-    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS, {
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS, {
       todayISO: "2026-08-27",
     })!;
     const dueTomorrow = result.options.find((o) => o.label === "Due Tomorrow")!;
     const [d] = applyOption(dueTomorrow, result.from, result.to, line.length);
-    expect(d!.changes.insert).toBe("📅 2026-08-28");
+    expect(d!.changes.insert).toBe("[due:: 2026-08-28]");
   });
 
   test("month/year rollover: tomorrow crosses the month boundary", () => {
     const line = "- [ ] x";
-    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS, {
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS, {
       todayISO: "2026-08-31",
     })!;
     const dueTomorrow = result.options.find((o) => o.label === "Due Tomorrow")!;
     const [d] = applyOption(dueTomorrow, result.from, result.to, line.length);
-    expect(d!.changes.insert).toBe("📅 2026-09-01");
+    expect(d!.changes.insert).toBe("[due:: 2026-09-01]");
   });
 
   test("pick option: marker + trailing space, cursor after; never a literal label", () => {
     const line = "- [ ] x";
-    const emoji = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS, {
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS, {
       todayISO: "2026-08-27",
     })!;
-    const [dEmoji] = applyOption(
-      emoji.options.find((o) => o.label === "Due Pick")!,
-      emoji.from,
-      emoji.to,
+    const [d] = applyOption(
+      result.options.find((o) => o.label === "Due Pick")!,
+      result.from,
+      result.to,
       line.length,
     );
-    expect(dEmoji!.changes.insert).toBe("📅 ");
-    expect(dEmoji!.changes.insert).not.toMatch(/오늘|내일|today|tomorrow/i);
-    expect(dEmoji!.selection?.anchor).toBe(emoji.from + "📅 ".length);
-
-    const dv = suggestOptionsFor(line, DATAVIEW_CFG, line.length, LABELS, {
-      todayISO: "2026-08-27",
-    })!;
-    const [dDv] = applyOption(
-      dv.options.find((o) => o.label === "Due Pick")!,
-      dv.from,
-      dv.to,
-      line.length,
-    );
-    expect(dDv!.changes.insert).toBe("[due:: ");
+    expect(d!.changes.insert).toBe("[due:: ");
+    expect(d!.changes.insert).not.toMatch(/오늘|내일|today|tomorrow/i);
+    expect(d!.selection?.anchor).toBe(result.from + "[due:: ".length);
   });
 
-  test("non-date bare options apply their default tokens in both formats", () => {
+  test("non-date bare options apply their default tokens", () => {
     const line = "- [ ] x";
-    const emoji = suggestOptionsFor(line, EMOJI_CFG, line.length, LABELS, {
+    const result = suggestOptionsFor(line, CFG, line.length, LABELS, {
       todayISO: "2026-08-27",
     })!;
     const [dPrio] = applyOption(
-      emoji.options.find((o) => o.label === "Priority")!,
-      emoji.from,
-      emoji.to,
+      result.options.find((o) => o.label === "Priority")!,
+      result.from,
+      result.to,
       line.length,
     );
-    expect(dPrio!.changes.insert).toBe("🔼");
+    expect(dPrio!.changes.insert).toBe("[priority:: medium]");
     const [dRec] = applyOption(
-      emoji.options.find((o) => o.label === "Recurrence")!,
-      emoji.from,
-      emoji.to,
+      result.options.find((o) => o.label === "Recurrence")!,
+      result.from,
+      result.to,
       line.length,
     );
-    expect(dRec!.changes.insert).toBe("🔁 every day");
-
-    const dv = suggestOptionsFor(line, DATAVIEW_CFG, line.length, LABELS, {
-      todayISO: "2026-08-27",
-    })!;
-    const [dPrioDv] = applyOption(
-      dv.options.find((o) => o.label === "Priority")!,
-      dv.from,
-      dv.to,
-      line.length,
-    );
-    expect(dPrioDv!.changes.insert).toBe("[priority:: medium]");
-    const [dRecDv] = applyOption(
-      dv.options.find((o) => o.label === "Recurrence")!,
-      dv.from,
-      dv.to,
-      line.length,
-    );
-    expect(dRecDv!.changes.insert).toBe("[repeat:: every day]");
+    expect(dRec!.changes.insert).toBe("[repeat:: every day]");
   });
 });
 
 describe("suggestOptionsFor — labels fallback", () => {
   test("missing label keys fall back to the dict key strings", () => {
     const line = "- [ ] fresh ";
-    const result = suggestOptionsFor(line, EMOJI_CFG, line.length, NO_LABELS, {
+    const result = suggestOptionsFor(line, CFG, line.length, NO_LABELS, {
       todayISO: "2026-08-27",
     });
     expect(result).not.toBeNull();
@@ -370,7 +329,7 @@ describe("suggestOptionsFor — labels fallback", () => {
 // --- Source-level (real EditorState) ------------------------------------
 
 const SOURCE_OPTS = {
-  cfg: EMOJI_CFG,
+  cfg: CFG,
   labels: LABELS,
   wiki: { suggest: async () => [] },
   todayISO: "2026-08-27",

@@ -346,8 +346,7 @@ const RECURRENCE_DEFAULT = "every week";
  *  서식 · 링크 · 쿼리 · 템플릿. 24 commands when `deps.templateBody()`
  *  yields a non-blank body, 23 otherwise (the 템플릿 command hides
  *  rather than silently inserting nothing), and 17 while `cfg` is
- *  unresolved (the 할 일 group needs write_format/statuses/
- *  global_filter). */
+ *  unresolved (the 할 일 group needs statuses/global_filter). */
 export function buildSlashCatalog(deps: SlashDeps): SlashCatalogEntry[] {
   const out: SlashCatalogEntry[] = [];
   const mint = (e: Omit<SlashCatalogEntry, "title" | "alias" | "order">) => {
@@ -376,9 +375,9 @@ export function buildSlashCatalog(deps: SlashDeps): SlashCatalogEntry[] {
       detail: () => "",
       patch: taskGroupPatch("IN_PROGRESS", () => null),
     });
-    /** Menu description line: the write-format token minus its emoji
-     *  field marker (`📅 2026-08-29` -> `2026-08-29`, `⏫` -> ``).
-     *  The vault wire format keeps the emoji; the menu must not. */
+    /** Menu description line: the write token trimmed of any leading
+     *  non-word bytes (a bare value reads cleaner in the two-line
+     *  row; the token itself lands in the vault untouched). */
     const previewToken = (token: string): string =>
       token.replace(/^[^\w[]+/u, "").trim();
     const dateCmd = (id: string, field: DateField, labelKey: DictKey, icon: SlashIcon) =>
@@ -397,7 +396,6 @@ export function buildSlashCatalog(deps: SlashDeps): SlashCatalogEntry[] {
             formatDateFieldToken(
               field,
               dateChoiceISO(choice.id, deps2.todayISO ?? todayLocalISO()),
-              deps2.cfg!.writeFormat,
             ),
           ),
         patch: taskGroupPatch("TODO", (choice, _cfg, t) => ({
@@ -416,11 +414,10 @@ export function buildSlashCatalog(deps: SlashDeps): SlashCatalogEntry[] {
       groupKey: "slash_group_task",
       icon: "priority-highest",
       choices: PRIORITY_LEVELS.map((l) => l.choice),
-      detail: (choice, deps2) =>
+      detail: (choice) =>
         previewToken(
           formatPriorityToken(
             PRIORITY_LEVELS.find((l) => l.choice.id === choice.id)?.value ?? null,
-            deps2.cfg!.writeFormat,
           ) ?? "",
         ),
       patch: taskGroupPatch("TODO", (choice) => ({
@@ -435,8 +432,8 @@ export function buildSlashCatalog(deps: SlashDeps): SlashCatalogEntry[] {
       groupKey: "slash_group_task",
       icon: "recurrence",
       choices: [BARE],
-      detail: (_choice, deps2) =>
-        previewToken(formatRecurrenceToken(RECURRENCE_DEFAULT, deps2.cfg!.writeFormat)),
+      detail: () =>
+        previewToken(formatRecurrenceToken(RECURRENCE_DEFAULT)),
       patch: taskGroupPatch("TODO", () => ({ kind: "recurrence", value: RECURRENCE_DEFAULT })),
     });
   }

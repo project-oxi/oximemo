@@ -17,13 +17,11 @@ import {
 } from "./quickAdd";
 
 const BASE_WIRE: WireTaskLineCfg = {
-  write_format: "emoji",
   global_filter: "",
   recurrence_insert: "above",
   statuses: [],
 };
 const CFG = cfgFromJson(BASE_WIRE);
-const DATAVIEW_CFG = cfgFromJson({ ...BASE_WIRE, write_format: "dataview" });
 
 const NO_FIELDS: TaskFields = {
   created: null,
@@ -131,7 +129,7 @@ describe("parseQuickAddInput", () => {
   });
 
   test("dataview [repeat:: …] tokens split too", () => {
-    const out = parseQuickAddInput("회의 [repeat:: every week]", DATAVIEW_CFG);
+    const out = parseQuickAddInput("회의 [repeat:: every week]", CFG);
     expect(out.text).toBe("회의");
     expect(out.fields.recurrence).toBe("every week");
   });

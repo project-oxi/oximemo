@@ -671,7 +671,6 @@ function TasksSection() {
     save(
       setTasksConfig({
         enabled: tasks.enabled,
-        write_format: tasks.write_format,
         global_filter: tasks.global_filter,
         recurrence_insert: tasks.recurrence_insert,
         default_section: tasks.default_section,
@@ -728,17 +727,6 @@ function TasksSection() {
         value={tasks.default_section}
         onCommit={(v) => patch({ default_section: v })}
       />
-      <div className="px-3">
-        <p className="mb-1 text-[11px] text-text-subtle">{t.tasks_write_format}</p>
-        <Segmented
-          value={tasks.write_format}
-          onChange={(v) => patch({ write_format: v })}
-          options={[
-            { value: "emoji", label: t.tasks_format_emoji },
-            { value: "dataview", label: t.tasks_format_dataview },
-          ]}
-        />
-      </div>
       <div className="px-3">
         <p className="mb-1 text-[11px] text-text-subtle">{t.tasks_recurrence_insert}</p>
         <Segmented

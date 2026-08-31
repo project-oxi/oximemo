@@ -36,8 +36,6 @@ export type Priority =
   | "lowest"
   | null;
 
-export type WriteFormat = "emoji" | "dataview";
-
 export type RecurrenceInsert = "above" | "below";
 
 export type StatusType =
@@ -55,7 +53,6 @@ export interface StatusDef {
 }
 
 export interface TaskLineCfg {
-  writeFormat: WriteFormat;
   globalFilter: string;
   recurrenceInsert: RecurrenceInsert;
   statuses: StatusDef[];
@@ -168,22 +165,6 @@ const PRIORITY_WORDS: Record<string, Priority> = {
   lowest: "lowest",
 };
 
-const PRIORITY_EMOJI_CHAR: Record<Exclude<Priority, null>, string> = {
-  highest: "🔺",
-  high: "⏫",
-  medium: "🔼",
-  low: "🔽",
-  lowest: "⏬",
-};
-
-const DATE_FIELD_EMOJI: Record<DateField, string> = {
-  created: EMOJI_CREATED,
-  start: EMOJI_START,
-  scheduled: EMOJI_SCHEDULED,
-  due: EMOJI_DUE,
-  done: EMOJI_DONE,
-  cancelled: EMOJI_CANCELLED,
-};
 
 const DATE_FIELD_DATAVIEW_KEY: Record<DateField, string> = {
   created: "created",
@@ -633,28 +614,24 @@ export function parseTaskLine(raw: string, cfg: TaskLineCfg): ParsedLine | null 
 
 // --- Token formatters --------------------------------------------------
 
-/** Write the formatted token for a date field in the cfg's writeFormat
- *  (`📅 2026-08-27` for emoji, `[due:: 2026-08-27]` for dataview).
- *  Exported so `lib/taskSuggest.ts` and the §8 slash menu can reuse
- *  the single source of truth for the wire shape rather than
- *  re-implementing both formats. */
-export function formatDateFieldToken(field: TaskField, iso: string, fmt: WriteFormat): string {
-  if (fmt === "emoji") return `${DATE_FIELD_EMOJI[field as DateField]} ${iso}`;
+/** Write the dataview token for a date field
+ *  (`[due:: 2026-08-27]`). Exported so `lib/taskSuggest.ts` and the
+ *  §8 slash menu can reuse the single source of truth for the wire
+ *  shape rather than re-implementing the token form. */
+export function formatDateFieldToken(field: TaskField, iso: string): string {
   return `[${DATE_FIELD_DATAVIEW_KEY[field as DateField]}:: ${iso}]`;
 }
 
-/** The priority token in the cfg's write format (null clears the
- *  field). Exported for the §8 slash menu's option previews. */
-export function formatPriorityToken(p: Priority, fmt: WriteFormat): string | null {
+/** The priority dataview token (null clears the field). Exported for
+ *  the §8 slash menu's option previews. */
+export function formatPriorityToken(p: Priority): string | null {
   if (p === null) return null;
-  if (fmt === "emoji") return PRIORITY_EMOJI_CHAR[p];
   return `[priority:: ${p}]`;
 }
 
-/** The recurrence token in the cfg's write format. Exported for the
- *  §8 slash menu's option previews. */
-export function formatRecurrenceToken(rule: string, fmt: WriteFormat): string {
-  if (fmt === "emoji") return `${EMOJI_RECURRENCE} ${rule}`;
+/** The recurrence dataview token. Exported for the §8 slash menu's
+ *  option previews. */
+export function formatRecurrenceToken(rule: string): string {
   return `[repeat:: ${rule}]`;
 }
 
@@ -685,11 +662,11 @@ function renderNewTask(
     ["due", fields.due],
   ];
   for (const [field, value] of dateFields) {
-    if (value) line += ` ${formatDateFieldToken(field, value, cfg.writeFormat)}`;
+    if (value) line += ` ${formatDateFieldToken(field, value)}`;
   }
-  const ptoken = formatPriorityToken(fields.priority, cfg.writeFormat);
+  const ptoken = formatPriorityToken(fields.priority);
   if (ptoken) line += ` ${ptoken}`;
-  if (fields.recurrence) line += ` ${formatRecurrenceToken(fields.recurrence, cfg.writeFormat)}`;
+  if (fields.recurrence) line += ` ${formatRecurrenceToken(fields.recurrence)}`;
   return line;
 }
 
@@ -903,18 +880,18 @@ export function transformTaskDraft(
   }
 
   if (edit.kind === "date") {
-    const token = edit.value ? formatDateFieldToken(edit.field, edit.value, cfg.writeFormat) : null;
+    const token = edit.value ? formatDateFieldToken(edit.field, edit.value) : null;
     const newLine = spliceFieldOps(raw, parsed.spans.fields, [{ field: edit.field, token }]);
     return { changes: [{ start_line: line, delete_lines: 1, insert_lines: [newLine] }] };
   }
   if (edit.kind === "priority") {
-    const token = formatPriorityToken(edit.value, cfg.writeFormat);
+    const token = formatPriorityToken(edit.value);
     const newLine = spliceFieldOps(raw, parsed.spans.fields, [{ field: "priority", token }]);
     return { changes: [{ start_line: line, delete_lines: 1, insert_lines: [newLine] }] };
   }
 
   if (edit.kind === "recurrence") {
-    const token = edit.value ? formatRecurrenceToken(edit.value, cfg.writeFormat) : null;
+    const token = edit.value ? formatRecurrenceToken(edit.value) : null;
     const newLine = spliceFieldOps(raw, parsed.spans.fields, [{ field: "recurrence", token }]);
     return { changes: [{ start_line: line, delete_lines: 1, insert_lines: [newLine] }] };
   }
@@ -943,7 +920,7 @@ export function transformTaskDraft(
   if (newIsTerminal) {
     const stampField: DateField = newType === "DONE" ? "done" : "cancelled";
     const clearField: DateField = newType === "DONE" ? "cancelled" : "done";
-    const stampToken = formatDateFieldToken(stampField, todayISO, cfg.writeFormat);
+    const stampToken = formatDateFieldToken(stampField, todayISO);
     lineBuf = spliceFieldOps(raw, parsed.spans.fields, [
       { field: stampField, token: stampToken },
       { field: clearField, token: null },
@@ -1179,7 +1156,6 @@ export interface WireTaskStatusDef {
 }
 
 export interface WireTaskLineCfg {
-  write_format: WriteFormat;
   global_filter: string;
   recurrence_insert: RecurrenceInsert;
   statuses: WireTaskStatusDef[];
@@ -1192,7 +1168,6 @@ export interface WireTaskLineCfg {
 
 export function cfgFromJson(json: WireTaskLineCfg): TaskLineCfg {
   return {
-    writeFormat: json.write_format,
     globalFilter: json.global_filter,
     recurrenceInsert: json.recurrence_insert,
     statuses: json.statuses.map((s) => ({

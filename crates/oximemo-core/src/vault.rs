@@ -55,8 +55,8 @@ const TASKS_PARSER_VERSION: u32 = 1;
 
 /// Fingerprints the extraction-affecting subset of `[tasks]` config:
 /// parser version, `enabled`, `global_filter`, `statuses`.
-/// Presentation-only fields (`write_format`, `capture_target`,
-/// `recurrence_insert`, `default_section`) are deliberately excluded —
+/// Presentation-only fields (`capture_target`, `recurrence_insert`,
+/// `default_section`) are deliberately excluded —
 /// changing them never changes what counts as a task. Stored in
 /// `<index_dir>/tasks-fingerprint`; [`Vault::migrate`] reindexes once
 /// per change.
@@ -5227,7 +5227,7 @@ watcher_retry_interval_ms = 200
         // The line really recurs in the note — the flag reflects the
         // written bytes, not just the request.
         let (note, _created) = v.open_daily(&today.to_string()).unwrap();
-        assert!(note.body.contains("🔁 every week"));
+        assert!(note.body.contains("[repeat:: every week]"));
 
         // Same fields, non-daily target: no warning.
         let inbox = v

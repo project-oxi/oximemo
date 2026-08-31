@@ -470,14 +470,12 @@ folder = "journal"
     fn tasks_section_defaults_and_overrides() {
         let c = VaultConfig::default();
         assert!(c.tasks.enabled);
-        assert_eq!(c.tasks.write_format, crate::tasks::WriteFormat::Emoji);
         assert_eq!(c.tasks.default_section, "할 일");
 
         // Round-trips through TOML.
         let s = c.to_toml().unwrap();
         let back: VaultConfig = toml::from_str(&s).unwrap();
         assert!(back.tasks.enabled);
-        assert_eq!(back.tasks.write_format, crate::tasks::WriteFormat::Emoji);
         assert_eq!(back.tasks.default_section, "할 일");
 
         // Explicit override wins.

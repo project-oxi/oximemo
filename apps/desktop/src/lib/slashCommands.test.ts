@@ -30,16 +30,14 @@ const STATUSES: StatusDef[] = [
   { symbol: "x", type: "DONE", next: " " },
   { symbol: "-", type: "CANCELLED", next: " " },
 ];
-const emojiCfg: TaskLineCfg = {
-  writeFormat: "emoji",
+const cfg: TaskLineCfg = {
   globalFilter: "#task",
   recurrenceInsert: "below",
   statuses: STATUSES,
 };
-const dvCfg: TaskLineCfg = { ...emojiCfg, writeFormat: "dataview" };
 
 const deps = (over: Partial<SlashDeps> = {}): SlashDeps => ({
-  cfg: emojiCfg,
+  cfg: cfg,
   locale: "ko",
   recency: new RecencyLog(),
   todayISO: "2026-08-29",
@@ -147,11 +145,6 @@ describe("option expansion", () => {
   test("date commands offer 오늘/내일 rows with token-preview details", () => {
     const rows = slashOptionsFor(byId("slash.due"), TEMPLATE_DEPS());
     expect(rows.map((r) => r.label)).toEqual(["마감일 · 오늘", "마감일 · 내일"]);
-    expect(rows.map((r) => r.detail)).toEqual(["2026-08-29", "2026-08-30"]);
-  });
-
-  test("dataview cfg previews the dataview token", () => {
-    const rows = slashOptionsFor(byId("slash.due"), deps({ cfg: dvCfg }));
     expect(rows.map((r) => r.detail)).toEqual(["[due:: 2026-08-29]", "[due:: 2026-08-30]"]);
   });
 
@@ -159,7 +152,13 @@ describe("option expansion", () => {
     const rows = slashOptionsFor(byId("slash.priority"), TEMPLATE_DEPS());
     expect(rows).toHaveLength(5);
     expect(rows[0]!.label).toBe("우선순위 · 최우선");
-    expect(rows.map((r) => r.detail)).toEqual(["", "", "", "", ""]);
+    expect(rows.map((r) => r.detail)).toEqual([
+      "[priority:: highest]",
+      "[priority:: high]",
+      "[priority:: medium]",
+      "[priority:: low]",
+      "[priority:: lowest]",
+    ]);
     expect(rows[4]!.choice.icon).toBe("priority-lowest");
   });
 
@@ -174,42 +173,34 @@ describe("option expansion", () => {
 describe("할 일 group apply routing", () => {
   test("ON a task line: 마감일 appends the cfg-format token, caret at line end", () => {
     const { text, caret } = pick(byId("slash.due"), "- [ ] Fix bug /마감");
-    expect(text).toBe("- [ ] Fix bug 📅 2026-08-29");
+    expect(text).toBe("- [ ] Fix bug [due:: 2026-08-29]");
     expect(caret).toBe(text.length);
   });
 
   test("ON a task line with an existing token: the token is replaced in place", () => {
     const { text } = pick(byId("slash.due"), "- [ ] Fix 📅 2026-08-01 /마감");
-    expect(text).toBe("- [ ] Fix 📅 2026-08-29");
-    expect(text.match(/📅/g)).toHaveLength(1);
+    expect(text).toBe("- [ ] Fix [due:: 2026-08-29]");
+    expect(text).not.toContain("📅");
   });
 
-  test("dataview cfg writes the dataview token on a task line", () => {
-    const dvDeps = deps({ cfg: dvCfg });
-    const cmd = buildSlashCatalog(dvDeps).find((c) => c.id === "slash.due")!;
-    const doc = "- [ ] Fix /마감";
-    const patch = cmd.patch(doc, doc.lastIndexOf("/"), doc.length, dvDeps, cmd.choices[0]!);
-    expect(applied(doc, patch.changes)).toBe("- [ ] Fix [due:: 2026-08-29]");
-  });
-
-  test("예정일/시작일 route the same way with their own emojis", () => {
-    expect(pick(byId("slash.scheduled"), "- [ ] A /예정").text).toBe("- [ ] A ⏳ 2026-08-29");
-    expect(pick(byId("slash.start"), "- [ ] A /시작").text).toBe("- [ ] A 🛫 2026-08-29");
+  test("예정일/시작일 route the same way with their own fields", () => {
+    expect(pick(byId("slash.scheduled"), "- [ ] A /예정").text).toBe("- [ ] A [scheduled:: 2026-08-29]");
+    expect(pick(byId("slash.start"), "- [ ] A /시작").text).toBe("- [ ] A [start:: 2026-08-29]");
   });
 
   test("내일 sub-option shifts a day", () => {
     const cmd = byId("slash.due");
     const tomorrow = cmd.choices[1]!;
-    expect(pick(cmd, "- [ ] A /마감", tomorrow).text).toBe("- [ ] A 📅 2026-08-30");
+    expect(pick(cmd, "- [ ] A /마감", tomorrow).text).toBe("- [ ] A [due:: 2026-08-30]");
   });
 
   test("우선순위 appends the level token on a task line", () => {
     const cmd = byId("slash.priority");
-    expect(pick(cmd, "- [ ] A /우선", cmd.choices[1]!).text).toBe("- [ ] A ⏫");
+    expect(pick(cmd, "- [ ] A /우선", cmd.choices[1]!).text).toBe("- [ ] A [priority:: high]");
   });
 
   test("반복 appends the weekly default token (popover edits the rule)", () => {
-    expect(pick(byId("slash.recurrence"), "- [ ] A /반복").text).toBe("- [ ] A 🔁 every week");
+    expect(pick(byId("slash.recurrence"), "- [ ] A /반복").text).toBe("- [ ] A [repeat:: every week]");
   });
 
   test("할 일 ON a done task line resets it to the vault's TODO symbol", () => {
@@ -232,12 +223,12 @@ describe("할 일 group apply routing", () => {
   });
 
   test("date commands off a task line promote AND stamp the field", () => {
-    expect(pick(byId("slash.due"), "보고서 /마감").text).toBe("- [ ] 보고서 #task 📅 2026-08-29");
+    expect(pick(byId("slash.due"), "보고서 /마감").text).toBe("- [ ] 보고서 #task [due:: 2026-08-29]");
   });
 
   test("a line below the trigger line is untouched (whole-line replacement only)", () => {
     const { text } = pick(byId("slash.due"), "- [ ] A /마감\n- [ ] B");
-    expect(text).toBe("- [ ] A 📅 2026-08-29\n- [ ] B");
+    expect(text).toBe("- [ ] A [due:: 2026-08-29]\n- [ ] B");
   });
 });
 

@@ -24,7 +24,6 @@ import {
 import { previewText } from "./markdownPreview";
 
 const DEFAULT_CFG = cfgFromJson({
-  write_format: "emoji",
   global_filter: "",
   recurrence_insert: "above",
   statuses: [],

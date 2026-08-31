@@ -1138,11 +1138,10 @@ async function browserFallback(
         index: { watcher_debounce_ms: 300 },
         // TasksConfig::default() parity — the widget cfg and the
         // transform_task_draft mirror below both key off these
-        // defaults (emoji format, no global filter, recurrence above,
-        // builtin status table).
+        // defaults (dataview tokens, no global filter, recurrence
+        // above, builtin status table).
         tasks: {
           enabled: true,
-          write_format: "emoji",
           global_filter: "",
           recurrence_insert: "above",
           default_section: "할 일",
@@ -1321,7 +1320,6 @@ async function browserFallback(
       }
       const edit = editFromJson((args?.edit ?? {}) as WireTaskEdit);
       const cfg: TaskLineCfg = {
-        writeFormat: "emoji",
         globalFilter: "",
         recurrenceInsert: "above",
         statuses: [],

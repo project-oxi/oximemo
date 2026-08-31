@@ -13,7 +13,6 @@ import { cfgFromJson } from "../src/lib/taskLine";
 import "../src/app.css";
 
 const cfg = cfgFromJson({
-  write_format: "emoji",
   global_filter: "",
   recurrence_insert: "below",
   statuses: [

@@ -191,7 +191,6 @@ export function previewTaskLine(
 
 /** Previews have no settings context: builtin status table only. */
 const PREVIEW_CFG: TaskLineCfg = {
-  writeFormat: "emoji",
   globalFilter: "",
   recurrenceInsert: "above",
   statuses: [],
