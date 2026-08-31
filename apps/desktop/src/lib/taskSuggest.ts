@@ -463,9 +463,11 @@ export function wikiLinkCompletionSource(config: WikiLinksConfig): CompletionSou
 // --- Extension assembly ------------------------------------------------
 
 /** An inline lucide glyph for plain-DOM completion rows: the §8 slash
- *  menu's general editor icons, which have no app.css mask classes
- *  (Plan D keeps app.css frozen). Root attrs mirror lucide's defaults
- *  and the `.ox-task-ic-*` sizing (1em, baseline-aligned). */
+ *  menu's general editor icons, which have no app.css mask classes.
+ *  Root attrs mirror lucide's defaults; SIZING lives in app.css's
+ *  tooltip-row rules (slash-notion spec) so svg glyphs and the
+ *  `.ox-task-ic-*` masks share one 20px row geometry — no inline
+ *  styles, they would outrank the stylesheet. */
 function inlineSvg(markup: string): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
@@ -475,9 +477,6 @@ function inlineSvg(markup: string): SVGSVGElement {
   svg.setAttribute("stroke-linecap", "round");
   svg.setAttribute("stroke-linejoin", "round");
   svg.setAttribute("aria-hidden", "true");
-  svg.style.width = "1em";
-  svg.style.height = "1em";
-  svg.style.verticalAlign = "-0.125em";
   svg.innerHTML = markup;
   return svg;
 }

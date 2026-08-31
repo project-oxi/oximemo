@@ -282,8 +282,21 @@ describe("ranking (palette ladder + recency)", () => {
     expect(ranked[0]!.id).toBe("slash.due");
   });
 
-  test("empty query ranks nothing (bare '/' arms no menu)", () => {
-    expect(rankSlashCommands(catalog(), "", new RecencyLog())).toEqual([]);
+  test("empty query ranks the whole catalog in curated order (bare '/' opens)", () => {
+    expect(rankSlashCommands(catalog(), "", new RecencyLog()).map((c) => c.id))
+      .toEqual(EXPECTED_IDS);
+  });
+
+  test("empty query ignores recency — curated order stays stable", () => {
+    const recency = new RecencyLog();
+    recency.record("slash.rule");
+    expect(rankSlashCommands(catalog(), "", recency).map((c) => c.id))
+      .toEqual(EXPECTED_IDS);
+  });
+
+  test("whitespace-only query behaves like empty", () => {
+    expect(rankSlashCommands(catalog(), "  ", new RecencyLog()).map((c) => c.id))
+      .toEqual(EXPECTED_IDS);
   });
 
   test("a recent pick outranks a curated-order tiebreak", () => {

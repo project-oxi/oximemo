@@ -2,8 +2,9 @@
  * The §8 slash menu's CM6 wiring (tasks spec §8, Plan D Task 3).
  *
  * `slashCompletionSource` is the CompletionSource: `slashTriggerAt`
- * decides WHEN the menu is armed (word-start '/', no whitespace in the
- * query, never inside fenced/indented/inline code), `rankSlashCommands`
+ * decides WHEN the menu is armed (word-start '/', including the bare
+ * `/` with an empty query; no whitespace in the query; never inside
+ * fenced/indented/inline code), `rankSlashCommands`
  * + `slashOptionsFor` decide WHAT it shows (palette ranking + recency,
  * sub-options for dates/priority), and each option's `apply` replays
  * the command's pure `patch` against the doc.
@@ -89,9 +90,10 @@ function slashCompletion(
 }
 
 /** The §8 CompletionSource. IME-composition-gated like the task
- *  suggest; a bare '/' arms nothing (the menu opens on the first
- *  query character) and a space inside the query disarms it —
- *  `slashTriggerAt`'s own rules, shared with no other source. */
+ *  suggest; the bare `/` opens the menu with the full catalog (spec
+ *  docs/superpowers/specs/2026-08-31-slash-notion-design.md) and a
+ *  space inside the query disarms it — `slashTriggerAt`'s own rules,
+ *  shared with no other source. */
 export function slashCompletionSource(
   deps: SlashDeps & { onPick?: (id: string) => void },
 ): CompletionSource {
@@ -101,7 +103,7 @@ export function slashCompletionSource(
     if (context.view?.composing) return null;
     const doc = context.state.doc.toString();
     const trigger = slashTriggerAt(doc, context.pos);
-    if (!trigger || trigger.query === "") return null;
+    if (!trigger) return null;
     const ranked = rankSlashCommands(buildSlashCatalog(deps), trigger.query, deps.recency);
     if (ranked.length === 0) return null;
     const options = ranked.flatMap((command) => slashOptionsFor(command, deps));
@@ -109,7 +111,17 @@ export function slashCompletionSource(
     return {
       from: trigger.from,
       to: context.pos,
-      options: options.map((opt) => slashCompletion(opt, deps)),
+      // Order pinning: with `filter: false` CM6 ranks options by
+      // position, but when the merged override turns the result into
+      // the matcher path (real editor) the tiebreak is a label
+      // localeCompare that scrambles the curated order (observed:
+      // alphabetical). `sortText` replaces the label in that compare,
+      // so every path — standalone, merged, matcher or not — shows
+      // catalog order. Zero-padded to compare as strings.
+      options: options.map((opt, i) => ({
+        ...slashCompletion(opt, deps),
+        sortText: String(i).padStart(4, "0"),
+      })),
       filter: false,
     };
   };

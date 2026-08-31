@@ -98,15 +98,21 @@ export interface SlashDeps {
 }
 
 /** Filter + score + sort slash commands with the palette's ladder.
- *  Empty query → [] (the menu opens on the first query character).
- *  Generic over the entry type so catalog callers keep their
- *  group/choices/patch payload; returns the caller's own objects,
- *  order-only mutation. */
+ *  Empty query → the full catalog in curated order (the bare `/`
+ *  opens the menu; recency applies only to typed queries). Generic
+ *  over the entry type so catalog callers keep their group/choices/
+ *  patch payload; returns the caller's own objects, order-only
+ *  mutation. */
 export function rankSlashCommands<C extends SlashCommand>(
   commands: C[],
   query: string,
   recency: RecencyLog,
 ): C[] {
+  // v2 (slash-notion spec): a bare '/' opens the menu — the empty
+  // query IS the whole catalog in curated order. Recency ranks typed
+  // queries only, so the open state is deterministic. Copy, never
+  // mutate the caller's array.
+  if (!query.trim()) return [...commands];
   // Field-mapping only: the vestigial palette fields are re-added to
   // satisfy the shared shape (rankCommands scores id/title/alias/order
   // only); `group` is synthesized and resolved back to the caller's

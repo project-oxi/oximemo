@@ -144,9 +144,11 @@ describe("rankSlashCommands", () => {
     cmd("slash.en", "Task", 2, "할 일"),
   ];
 
-  test("empty query → []", () => {
-    expect(rankSlashCommands(cmds, "", new RecencyLog())).toEqual([]);
-    expect(rankSlashCommands(cmds, "   ", new RecencyLog())).toEqual([]);
+  test("empty query → the full list in curated order (bare '/' opens)", () => {
+    expect(rankSlashCommands(cmds, "", new RecencyLog()).map((c) => c.id))
+      .toEqual(["slash.task", "slash.add", "slash.en"]);
+    expect(rankSlashCommands(cmds, "   ", new RecencyLog()).map((c) => c.id))
+      .toEqual(["slash.task", "slash.add", "slash.en"]);
   });
 
   test("exact outranks substring", () => {
