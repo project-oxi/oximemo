@@ -72,9 +72,10 @@ fn is_executable(p: &std::path::Path) -> bool {
 }
 
 /// Resolve an executable name through `PATH` (first executable hit wins),
-/// then through the standard macOS user install roots. A GUI launch
+/// then through the standard macOS user install roots plus the Oxi
+/// ecosystem's per-app managed bin dirs (`~/.oxi/<app>/bin`). A GUI launch
 /// (Finder/Dock) inherits launchd's minimal PATH (`/usr/bin:/bin:…`) —
-/// `~/.bun/bin/omp` or `~/.cargo/bin/oxios` are invisible to it. The
+/// `~/.bun/bin/omp` or `~/.oxi/oxios/bin/oxios` are invisible to it. The
 /// augmented list keeps discovery working regardless of launch context.
 fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -83,7 +84,18 @@ fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf>
     }
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
-        for rel in [".cargo/bin", ".bun/bin", ".local/bin", "bin", "go/bin"] {
+        for rel in [
+            ".oxi/oxios/bin",
+            ".oxi/oxicode/bin",
+            ".oxi/oximemo/bin",
+            ".oxi/oxibrain/bin",
+            ".oxi/bin",
+            ".cargo/bin",
+            ".bun/bin",
+            ".local/bin",
+            "bin",
+            "go/bin",
+        ] {
             dirs.push(home.join(rel));
         }
     }
@@ -1919,6 +1931,8 @@ pid_file = "/x"
         // dirs must still resolve. Skipped when no user bin dir exists (CI).
         let home = std::env::var_os("HOME").unwrap_or_default();
         let probe = [
+            std::path::Path::new(&home).join(".oxi/oxios/bin"),
+            std::path::Path::new(&home).join(".oxi/oximemo/bin"),
             std::path::Path::new(&home).join(".cargo/bin"),
             std::path::Path::new(&home).join(".bun/bin"),
             std::path::Path::new(&home).join(".local/bin"),

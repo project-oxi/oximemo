@@ -7,7 +7,7 @@
 # app in /Applications (download dmg → verify sha256 → mount → copy).
 #
 # Options (env or flags):
-#   PREFIX=/custom/bin     CLI install directory   (default: /usr/local/bin)
+#   PREFIX=/custom/bin     CLI install directory   (default: ~/.oxi/oximemo/bin)
 #   APPS_DIR=/Applications desktop app destination (default: /Applications)
 #   VERSION=v0.10.0        pin a release           (default: latest)
 #
@@ -18,7 +18,7 @@ set -euo pipefail
 
 REPO="project-oxi/oximemo"
 TARGET="aarch64-apple-darwin"
-PREFIX="${PREFIX:-/usr/local/bin}"
+PREFIX="${PREFIX:-${HOME}/.oxi/oximemo/bin}"
 APPS_DIR="${APPS_DIR:-/Applications}"
 VERSION="${VERSION:-latest}"
 WANT_APP=0
@@ -29,7 +29,7 @@ while [ $# -gt 0 ]; do
       cat <<'USAGE'
 install oximemo (CLI, and the desktop app with --app)
 
-  curl -fsSL .../install.sh | sh                  # CLI -> /usr/local/bin
+#  curl -fsSL .../install.sh | sh                  # CLI -> ~/.oxi/oximemo/bin
   curl -fsSL .../install.sh | sh -s -- --app      # + /Applications app
 
 env/flags: PREFIX=<dir> APPS_DIR=<dir> VERSION=<vX.Y.Z> --app
@@ -87,7 +87,7 @@ tar -xzf "$TMP/$TARBALL" -C "$TMP"
 if [ -w "$PREFIX" ]; then
   install -m 0755 "$TMP/oximemo" "$PREFIX/oximemo"
 else
-  command -v sudo >/dev/null 2>&1 || die "$PREFIX is not writable and sudo is unavailable — rerun with PREFIX=~/.local/bin"
+  command -v sudo >/dev/null 2>&1 || die "$PREFIX is not writable and sudo is unavailable — rerun with PREFIX=<writable dir>"
   sudo install -m 0755 "$TMP/oximemo" "$PREFIX/oximemo"
 fi
 
