@@ -24,8 +24,8 @@
 //!   failure the pending file is restored verbatim and `Ok(None)`
 //!   returned, so an unflushable registration is a normal state, not
 //!   an error.
-//! - [`vault_space_name`] — the space identity, derived from the vault
-//!   directory basename (amended spaces spec §2). There is no
+//! - [`vault_space_name`] — the space identity, derived from the canonical
+//!   `spaces/<space>/vault` layout (or an explicit vault's basename). There is no
 //!   configured space anywhere in oximemo.
 //!
 //! Flush points: the desktop boot task, `oximemo doctor`, and
@@ -86,9 +86,27 @@ pub fn brain_dir() -> PathBuf {
     crate::paths::oxi_home().join("brain")
 }
 
-/// The space name for a vault: its directory basename, or `"personal"`
-/// when the path has no usable final component (root path, empty).
+/// The space name for a vault. Canonical space vaults use the directory
+/// immediately above `vault` (`…/spaces/<space>/vault`); explicit vaults fall
+/// back to their own directory basename. Root and empty paths use `"personal"`.
 pub fn vault_space_name(vault: &Path) -> String {
+    let canonical_space = vault
+        .file_name()
+        .filter(|name| *name == crate::paths::VAULT_DEFAULT_SUBDIR)
+        .and_then(|_| vault.parent())
+        .filter(|space_dir| {
+            space_dir
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "spaces")
+        })
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty());
+    if let Some(space) = canonical_space {
+        return space.to_string();
+    }
+
     vault
         .file_name()
         .and_then(|n| n.to_str())
@@ -98,8 +116,8 @@ pub fn vault_space_name(vault: &Path) -> String {
 }
 
 /// The pure vault+space → registration request mapping. Alias and
-/// space are the vault directory basename; `None` rules mean the
-/// brain's connector defaults apply.
+/// space are the resolved space identity; `None` rules mean the brain's
+/// connector defaults apply.
 pub fn document_root_request(vault: &Path, space: &str) -> RegisterDocumentRootRequest {
     RegisterDocumentRootRequest {
         space: space.to_string(),
@@ -340,6 +358,10 @@ mod tests {
         assert!(request.exclude.is_none());
         assert!(request.max_file_bytes.is_none());
 
+        assert_eq!(
+            vault_space_name(Path::new("/Users/won/.oxi/spaces/personal/vault")),
+            "personal"
+        );
         assert_eq!(vault_space_name(Path::new("/tmp/x/work")), "work");
         assert_eq!(vault_space_name(Path::new("work")), "work");
         assert_eq!(vault_space_name(Path::new("/")), "personal");
