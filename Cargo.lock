@@ -4049,7 +4049,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-capture"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "block2",
  "objc2 0.5.2",
@@ -4060,7 +4060,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-cli"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4080,7 +4080,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-core"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4109,7 +4109,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-desktop"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4138,7 +4138,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-metadata"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "oximemo-core",
