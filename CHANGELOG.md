@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+
+- **Copilot default turn timeout raised to 600 s.** Measured on an
+  omp (`glm-5.3-flash`) turn that creates three schema-checked notes:
+  early agent rounds run 5–26 s, but late rounds at thinking=max take
+  96–140 s each, putting real work past the old 300 s default — the
+  turn was tree-killed mid-report after the notes already existed.
+  Existing `oximemo.toml` files keep their explicit value; only the
+  unset default moves.
 
 ## [0.15.0] — 2026-08-31
 

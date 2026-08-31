@@ -1126,7 +1126,7 @@ async function browserFallback(
             enabled: true,
             agent,
             executable: agent ? `/Users/demo/.local/bin/${agent}` : "",
-            timeout_secs: 300,
+            timeout_secs: 600,
           };
         })(),
         folders: [

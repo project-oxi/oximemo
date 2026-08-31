@@ -239,7 +239,7 @@ JSON 출력에 `response`, `session_id`, `phase_reached`, `evaluation_passed`, `
 enabled = true          # 마스터 스위치
 agent = ""              # 활성화된 어댑터 id (빈 값 = 미설정)
 executable = ""         # 검증된 절대 경로
-timeout_secs = 300
+timeout_secs = 600      # 300은 omp thinking=max 후반 라운드(96~140초)를 못 담는다 — 2026-08-31 실측
 ```
 
 설정 UI는 기존 좌측 레일의 **"연동" 그룹**(브레인·메타데이터와 나란히)에 "코파일럿" pane으로 붙는다. pane 내용: 마스터 토글, 탐지 실행 버튼, 후보 목록(경로·버전·capability 표시), 활성화/해제, provider 고지, 타임아웃.

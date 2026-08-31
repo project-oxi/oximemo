@@ -380,7 +380,7 @@ function CopilotSection() {
         enabled: copilot?.enabled ?? true,
         agent: copilot?.agent ?? "",
         executable: copilot?.executable ?? "",
-        timeout_secs: copilot?.timeout_secs ?? 300,
+        timeout_secs: copilot?.timeout_secs ?? 600,
         ...p,
       }),
       ["copilot-status"],
@@ -492,7 +492,7 @@ function CopilotSection() {
       {activeAgent !== "" && (
         <NumberRow
           label={t.copilot_timeout}
-          value={copilot?.timeout_secs ?? 300}
+          value={copilot?.timeout_secs ?? 600}
           min={10}
           max={3600}
           onCommit={(v) => patch({ timeout_secs: v })}

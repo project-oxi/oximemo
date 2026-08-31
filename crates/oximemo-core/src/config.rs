@@ -118,7 +118,10 @@ pub struct CopilotConfig {
     pub agent: String,
     /// Verified absolute path of the activated agent executable.
     pub executable: String,
-    /// Per-turn subprocess timeout in seconds.
+    /// Per-turn subprocess timeout in seconds. 600 (not 300): measured
+    /// 2026-08-31 — an omp glm-5.3-flash turn that creates three schema
+    /// notes needs ~510 s (late rounds at thinking=max run 96-140 s each);
+    /// 300 killed turns mid-generation after the work was already done.
     pub timeout_secs: u64,
     /// Modification time of the executable at activation, seconds since
     /// the epoch. A mismatch at turn start means the binary was swapped
@@ -132,7 +135,7 @@ impl Default for CopilotConfig {
             enabled: true,
             agent: String::new(),
             executable: String::new(),
-            timeout_secs: 300,
+            timeout_secs: 600,
             exe_mtime_secs: 0,
         }
     }
@@ -412,13 +415,13 @@ space = "work"
         assert!(c.copilot.enabled);
         assert_eq!(c.copilot.agent, "");
         assert_eq!(c.copilot.executable, "");
-        assert_eq!(c.copilot.timeout_secs, 300);
+        assert_eq!(c.copilot.timeout_secs, 600);
 
         // Round-trips through TOML.
         let s = c.to_toml().unwrap();
         let back: VaultConfig = toml::from_str(&s).unwrap();
         assert!(back.copilot.enabled);
-        assert_eq!(back.copilot.timeout_secs, 300);
+        assert_eq!(back.copilot.timeout_secs, 600);
 
         // Explicit override wins.
         let t = r#"
