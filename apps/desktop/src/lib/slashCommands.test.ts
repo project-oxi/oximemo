@@ -147,7 +147,7 @@ describe("option expansion", () => {
   test("date commands offer 오늘/내일 rows with token-preview details", () => {
     const rows = slashOptionsFor(byId("slash.due"), TEMPLATE_DEPS());
     expect(rows.map((r) => r.label)).toEqual(["마감일 · 오늘", "마감일 · 내일"]);
-    expect(rows.map((r) => r.detail)).toEqual(["📅 2026-08-29", "📅 2026-08-30"]);
+    expect(rows.map((r) => r.detail)).toEqual(["2026-08-29", "2026-08-30"]);
   });
 
   test("dataview cfg previews the dataview token", () => {
@@ -159,7 +159,7 @@ describe("option expansion", () => {
     const rows = slashOptionsFor(byId("slash.priority"), TEMPLATE_DEPS());
     expect(rows).toHaveLength(5);
     expect(rows[0]!.label).toBe("우선순위 · 최우선");
-    expect(rows.map((r) => r.detail)).toEqual(["🔺", "⏫", "🔼", "🔽", "⏬"]);
+    expect(rows.map((r) => r.detail)).toEqual(["", "", "", "", ""]);
     expect(rows[4]!.choice.icon).toBe("priority-lowest");
   });
 

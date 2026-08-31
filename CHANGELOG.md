@@ -4,6 +4,24 @@ All notable changes to oximemo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.14.0] — 2026-08-31
+
+### Added
+
+- **Slash menu v2 — Notion-style presentation.** A bare `/` opens the
+  full curated catalog immediately (the source previously waited for
+  the first query character). The completion tooltip is rebuilt:
+  panel radius/shadow, per-group section headers, and two-line rows —
+  a 16px glyph beside a 12px label over an 11px plain-text value
+  preview. Descriptions no longer render emoji field markers
+  (`📅 2026-08-31` previews as `2026-08-31`); the tokens written into
+  the vault keep the emoji wire format. Position `sortText` pins the
+  curated order in every CM6 compare path — merged-override sorting
+  was scrambling it alphabetically in the native WebKit view. IME
+  composition gate and keyboard navigation unchanged.
+- **Single-scroll memo detail.** Memo properties and content flow as
+  one document.
+
 ## [0.13.1] — 2026-08-30
 
 ### Fixed
@@ -1174,7 +1192,8 @@ vault registration goes through the oxibrain client boundary.
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/project-oxi/oximemo/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/project-oxi/oximemo/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/project-oxi/oximemo/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/project-oxi/oximemo/compare/v0.11.0...v0.12.0
