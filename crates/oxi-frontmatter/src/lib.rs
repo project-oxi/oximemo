@@ -13,6 +13,7 @@
 #![deny(missing_docs)]
 mod emit;
 mod parse;
+pub mod pdc;
 mod write;
 
 pub use emit::emit;

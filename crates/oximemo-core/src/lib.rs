@@ -24,6 +24,7 @@ pub mod migrate_spaces;
 pub mod migrate_vault;
 pub(crate) mod migration_journal;
 pub mod paths;
+pub mod pdc;
 pub mod props;
 pub mod schema;
 pub mod spaces;

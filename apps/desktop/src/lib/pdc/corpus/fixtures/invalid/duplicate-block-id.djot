@@ -1,0 +1,13 @@
+---
+format: pdc-document/1
+body: pdc-djot/1
+id: 018f47c6-934b-79d3-90c8-2aafbc571fce
+created: 2026-09-13T12:34:56.789Z
+updated: 2026-09-13T12:34:56.789Z
+title: Duplicate block IDs
+---
+{#b-018f47c6-9c8a-79af-b060-7a6a3b79016c}
+## First
+
+{#b-018f47c6-9c8a-79af-b060-7a6a3b79016c}
+## Second

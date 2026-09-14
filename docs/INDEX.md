@@ -19,12 +19,21 @@ oximemo also keeps local references (product-specific design + a pre-canonical s
 | Path | Purpose | `.md` count |
 |---|---|---|
 | `doc/` | Project design + readiness docs (project-specific; visual tokens follow canonical) | 4 |
+| `docs/` | Portable Document Contract migration plan + frozen extension registry | 2 |
 | `docs/superpowers/plans/` | Implementation plans (date-stamped) | 7 |
 | `docs/superpowers/specs/` | Design specs that produced the plans | 9 |
 | `.omp/` | OMP runtime artifacts (master reports, auto-task descriptions, pointer) | 5 |
-| Root `*.md` | `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md` | 3 |
+| Root `*.md` | `AGENTS.md`, `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md` | 4 |
 
-**Total tracked `.md` files:** 28 (4 + 7 + 9 + 5 + 3).
+**Total tracked `.md` files after this migration-plan change:** 31 (4 + 2 + 7 + 9 + 5 + 4).
+
+## Portable document migration
+
+| File | Purpose |
+|---|---|
+| `docs/PDC-MIGRATION.md` | Priority-1 plan for adopting both canonical PDC body profiles while retaining HTML as a first-class source format. |
+| `docs/pdc/X-OXIMEMO-v1.md` | Frozen `x_oximemo` extension registry (envelope keys, body attributes) for PDC migration. |
+| `docs/pdc/migration-report-v1.schema.json` | Frozen machine-readable per-document migration report schema (`oximemo-pdc-migration-report/1`). |
 
 ## `doc/` — project docs
 

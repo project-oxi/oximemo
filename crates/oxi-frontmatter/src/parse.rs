@@ -277,7 +277,7 @@ fn parse_html(original: &str, lines: &[&str]) -> Result<Parsed, ParseError> {
 /// `line_offset` is the 1-indexed number of the first line in
 /// `block_lines` in the original (LF-normalized) note, so error
 /// messages report the right line.
-fn parse_block(lines: &[&str], line_offset: usize) -> Result<Table, ParseError> {
+pub(crate) fn parse_block(lines: &[&str], line_offset: usize) -> Result<Table, ParseError> {
     let mut table: Table = IndexMap::new();
 
     let mut i = 0;

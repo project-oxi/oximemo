@@ -1,0 +1,214 @@
+{
+  "format": "pdc-document-conformance/1",
+  "revision": 3,
+  "djotBaseline": "d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7",
+  "bodyProfiles": ["pdc-djot/1", "pdc-html/1"],
+  "cases": [
+    {
+      "id": "valid-minimal",
+      "kind": "file",
+      "path": "fixtures/valid/minimal.djot",
+      "expect": "valid"
+    },
+    {
+      "id": "valid-semantics",
+      "kind": "file",
+      "path": "fixtures/valid/semantics.djot",
+      "expect": "valid"
+    },
+    {
+      "id": "valid-html-minimal",
+      "kind": "file",
+      "path": "fixtures/valid/minimal.html",
+      "expect": "valid"
+    },
+    {
+      "id": "valid-html-semantics",
+      "kind": "file",
+      "path": "fixtures/valid/semantics.html",
+      "expect": "valid"
+    },
+    {
+      "id": "legacy-html-unmarked",
+      "kind": "file",
+      "path": "fixtures/legacy/unmarked.html",
+      "expect": "legacy_html"
+    },
+    {
+      "id": "missing-envelope",
+      "kind": "file",
+      "path": "fixtures/invalid/missing-envelope.djot",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "unsupported-body",
+      "kind": "file",
+      "path": "fixtures/invalid/unsupported-body.djot",
+      "expect": "unsupported_body_version"
+    },
+    {
+      "id": "djot-transport-html-profile-mismatch",
+      "kind": "file",
+      "path": "fixtures/invalid/body-profile-mismatch.djot",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "html-transport-djot-profile-mismatch",
+      "kind": "file",
+      "path": "fixtures/invalid/body-profile-mismatch.html",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "unclosed-html-envelope",
+      "kind": "file",
+      "path": "fixtures/invalid/unclosed-html-envelope.html",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "premature-html-comment-close",
+      "kind": "file",
+      "path": "fixtures/invalid/premature-html-comment-close.html",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "noncanonical-uuid",
+      "kind": "file",
+      "path": "fixtures/invalid/noncanonical-uuid.djot",
+      "expect": "invalid_document_id"
+    },
+    {
+      "id": "duplicate-envelope-key",
+      "kind": "file",
+      "path": "fixtures/invalid/duplicate-envelope-key.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "forbidden-yaml-comment",
+      "kind": "file",
+      "path": "fixtures/invalid/forbidden-yaml-comment.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "raw-html",
+      "kind": "file",
+      "path": "fixtures/invalid/raw-html.djot",
+      "expect": "unsafe_content"
+    },
+    {
+      "id": "unsafe-html",
+      "kind": "file",
+      "path": "fixtures/invalid/unsafe-html.html",
+      "expect": "unsafe_content"
+    },
+    {
+      "id": "bom-prefix",
+      "kind": "operation",
+      "operation": "prefix-source-bytes",
+      "input": "fixtures/valid/minimal.djot",
+      "prefixHex": "efbbbf",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "invalid-calendar-timestamp",
+      "kind": "file",
+      "path": "fixtures/invalid/invalid-calendar-timestamp.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "updated-before-created",
+      "kind": "file",
+      "path": "fixtures/invalid/updated-before-created.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "deleted-without-deleted-at",
+      "kind": "file",
+      "path": "fixtures/invalid/deleted-without-deleted-at.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "document-too-large",
+      "kind": "operation",
+      "operation": "pad-body-to-total-bytes",
+      "input": "fixtures/valid/minimal.djot",
+      "totalBytes": 4194305,
+      "expect": "document_too_large"
+    },
+    {
+      "id": "document-too-complex",
+      "kind": "operation",
+      "operation": "replace-body-with-nested-block-quotes",
+      "input": "fixtures/valid/minimal.djot",
+      "containerDepth": 257,
+      "expect": "document_too_complex"
+    },
+    {
+      "id": "duplicate-block-id",
+      "kind": "file",
+      "path": "fixtures/invalid/duplicate-block-id.djot",
+      "expect": "duplicate_block_id"
+    },
+    {
+      "id": "duplicate-html-block-id",
+      "kind": "file",
+      "path": "fixtures/invalid/duplicate-block-id.html",
+      "expect": "duplicate_block_id"
+    },
+    {
+      "id": "duplicate-document-id",
+      "kind": "set",
+      "paths": [
+        "fixtures/sets/duplicate-document-id/a.djot",
+        "fixtures/sets/duplicate-document-id/b.djot",
+        "fixtures/sets/duplicate-document-id/c.html"
+      ],
+      "expect": "duplicate_document_id"
+    },
+    {
+      "id": "no-op-is-byte-identical",
+      "kind": "operation",
+      "operation": "no-op-round-trip",
+      "input": "fixtures/operations/no-op/input.djot",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "html-no-op-is-byte-identical",
+      "kind": "operation",
+      "operation": "no-op-round-trip",
+      "input": "fixtures/operations/html-no-op/input.html",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "metadata-patch-preserves-body",
+      "kind": "operation",
+      "operation": "metadata-patch",
+      "input": "fixtures/operations/metadata-patch/input.djot",
+      "patch": {
+        "updated": "2026-09-13T13:00:00.000Z",
+        "title": "After patch"
+      },
+      "expected": "fixtures/operations/metadata-patch/expected.djot",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "html-metadata-patch-preserves-body",
+      "kind": "operation",
+      "operation": "metadata-patch",
+      "input": "fixtures/operations/html-metadata-patch/input.html",
+      "patch": {
+        "updated": "2026-09-13T13:00:00.000Z",
+        "title": "After patch"
+      },
+      "expected": "fixtures/operations/html-metadata-patch/expected.html",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "external-change-blocks-overwrite",
+      "kind": "operation",
+      "operation": "external-change-before-save",
+      "input": "fixtures/operations/external-change/original.djot",
+      "external": "fixtures/operations/external-change/changed.djot",
+      "expect": "external_change_conflict"
+    }
+  ]
+}
