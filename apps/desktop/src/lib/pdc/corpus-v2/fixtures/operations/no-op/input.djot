@@ -1,0 +1,13 @@
+---
+format: pdc-document/1
+body: pdc-djot/1
+id: 018f47c6-cf78-7d12-852b-ff699c5c61b7
+created: 2026-09-13T12:34:56.789Z
+updated: 2026-09-13T12:34:56.789Z
+title: No-op
+x_sawhorse:
+  legacy_id: DOC-7
+---
+# No-op
+
+Preserve these bytes.

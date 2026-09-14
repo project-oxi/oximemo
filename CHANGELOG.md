@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-09-14
+
+### Changed
+
+- **Portable Document Contract 2 is Markdown-first.** Oximemo recognizes
+  `pdc-markdown/1` documents with safe YAML properties and preserves
+  Obsidian-compatible Markdown syntax. Authored `pdc-html/1` remains
+  first-class, while PDC 1 Djot/HTML documents remain visible read-only
+  legacy inputs and are never converted automatically.
+- **Saved queries follow `pdc-query/1`.** `.base` files and fenced `base`
+  blocks use the Obsidian Bases-compatible shape and stay read-only data;
+  they never grant execution, approval, or workflow authority.
+- The shared `pdc-document-conformance/2` revision 2 corpus is pinned to
+  Portable Document Contract commit `0ee51ea`.
+
 ## [0.16.0] — 2026-09-14
 
 ### Added

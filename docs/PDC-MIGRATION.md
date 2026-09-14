@@ -1,164 +1,176 @@
 # Portable Document Contract Migration
 
-Status: priority 1 · Stage 0 complete (2026-09-14): corpus revision 3 pinned and executed in Rust + frontend; `x_oximemo` keys and the migration-report schema frozen  
-Standard: `portable-document-contract` draft 4 (`pdc-djot/1` + `pdc-html/1`)  
-Contract: `pdc-document/1`, corpus revision 3  
-Target capabilities: Full Reader; Djot Writer/Mutator; HTML Writer/Mutator
+Status: priority 1 · Stage 0 (v2) complete (2026-09-14): `pdc-document/2` classification, safe general-YAML envelope, `pdc-query/1` gate, and the unified conformance corpus exercised in both Rust and TypeScript.
 
-This is the authoritative migration plan for Oximemo's durable user-authored note plane. The canonical external contract lives in the `portable-document-contract` repository. If this plan and the contract disagree, stop and update one deliberately before changing note bytes.
+Standard: `pdc-document/2` (upstream commit `0ee51ea`, tag `v2.0.0-draft.2`)
+
+Corpus: `pdc-document-conformance/2` revision 2 (`pdc-document-conformance/1` r3 kept as the legacy pin)
+
+Canonical profiles: `pdc-markdown/1` (lowercase `.md`) + `pdc-html/1`
+
+Query contract: `pdc-query/1`, declared at vault level (`.pdc/vault.json` `"query"`); read-only, never executed here
+Reference: `references/PDC-2.0.md`, `references/PDC-QUERY-1.0.md` in the `portable-document-contract` repository — it wins over this plan
+
+This is the authoritative migration plan for Oximemo's durable user-authored
+note plane. The v2 pivot replaces PDC v1's Djot-first design with a
+Markdown-first contract while keeping every existing file visible and
+byte-preserved.
 
 ## Invariants
 
-1. HTML remains a first-class authored format. It is never demoted to generated preview or forced through Djot.
-2. Existing `.md` and unmarked `.html` notes remain readable throughout migration.
-3. Opening, indexing, or upgrading never converts a note.
-4. Conversion writes a new target until the user reviews its machine-readable report and explicitly authorizes replacement.
-5. Unknown envelope data and unsupported body source survive every write, or the document becomes read-only.
-6. Files are source of truth; indexes, previews, derived tags, tasks, and link graphs are rebuilt projections.
-
-## Current state
-
-- Notes are `.md` or `.html`; format is derived from extension.
-- Both use `oxi-frontmatter` constrained YAML. HTML wraps the envelope in a leading comment.
-- IDs are UUIDv7. `created`, `updated`, `favorite`, a deletion timestamp, aliases, and arbitrary properties already exist.
-- The merge writer preserves unknown keys and performs atomic replacement, but the desktop note-save API does not carry the source digest captured when editing began.
-- Markdown preview uses Marked/GFM plus Oximemo preprocessing. HTML uses a CodeMirror source editor and a DOMPurify-sanitized sandboxed preview.
-- Links use `[[title]]`/aliases, assets use `oximg:` plus a short BLAKE3 name, tasks include richer Oximemo status/date/priority/recurrence semantics, and deleted files currently move under `.trash`.
+1. Canonical ordinary documents are Obsidian-compatible lowercase `.md`
+   with a safe general-YAML 1.2 Core frontmatter envelope. HTML remains a
+   first-class authored format (`pdc-html/1`), never a generated preview.
+2. Existing Djot/HTML and user files remain readable throughout migration:
+   v1 documents (`pdc-djot/1`, `pdc-html/1` under `pdc-document/1`) are
+   legacy-readable; unmarked `.md`/`.html` are visible legacy items.
+3. Opening, indexing, previewing, or upgrading never converts or rewrites
+   a note; no-op reads leave every byte unchanged.
+4. Conversion writes a new target, requires a backup and a machine-readable
+   report, and replaces the source only after explicit user authorization.
+5. Unknown user properties (any JSON-compatible value) survive every write,
+   or the document becomes read-only. Every write is atomic and guarded by
+   the source bytes or digest captured when editing began.
+6. Files are source of truth; indexes, previews, derived tags, tasks, and
+   link graphs are rebuildable projections.
 
 ## Target formats
 
-### Djot
+### Markdown (canonical)
 
-- Extension: `.djot`
-- Body profile: `pdc-djot/1`
-- Transport: the PDC `---` constrained envelope followed by Djot body source
-- Use for ordinary notes and task-bearing prose.
+- Extension: `.md`, lowercase; transport: `---` YAML frontmatter fences.
+- Envelope: `pdc-document/2` + `body: pdc-markdown/1`; required
+  `format/body/id/created/updated/title`; optional
+  `profile/lang/tags/aliases/cssclasses/favorite/deleted/deleted_at`;
+  every other top-level key is a user property, preserved losslessly.
+- Safe general YAML only: single mapping document, nonempty string keys,
+  JSON-compatible values; anchors/aliases/tags/complex keys/multi-doc
+  streams/tabs forbidden; depth cap 32, node cap 10 000
+  (`document_too_complex`); comments permitted and preserved by patches.
+- Body: CommonMark 0.31.2 + GFM. Caret block IDs `^` + `[A-Za-z0-9-]+`
+  (duplicates are `duplicate_block_id`); `pdc://document/<uuid>` and
+  relative links/assets are first-class; raw HTML is source-preserved and
+  preview-inert, with active constructs (`script`, event handlers,
+  `javascript:`/`vbscript:`) reported as `unsafe_content`; fences whose
+  info string is exactly `base` carry opaque `pdc-query/1` blocks.
 
 ### HTML
 
-- Extension: `.html`
-- Body profile: `pdc-html/1`
-- Transport: the PDC constrained envelope wrapped in the exact leading `<!--` / `-->` transport
-- Use when HTML structure, layout, or inline CSS is part of the authored source.
-- Preserve body bytes during envelope-only migration. Existing source and split/preview editing remain product features.
+- Extension: `.html`; transport unchanged from v1 (`<!--` / `---` / `-->`)
+  with the v2 envelope (`body: pdc-html/1`). Safe-authoring rules of v1
+  §6.2 apply unchanged; the HTML body scan (unsafe elements, event
+  handlers, `b-<uuid>` targets) is shared with the legacy path.
 
 ### Legacy
 
-- `.md` stays legacy Markdown until explicit conversion to a new `.djot` target.
-- An `.html` file without the PDC transport stays visible legacy HTML. It may be upgraded to PDC HTML without body conversion when it passes the HTML safety/profile checks.
-- Body-only, malformed, unsupported, and oversized files must be visible with diagnostics; they are never silently omitted.
+- `pdc-djot/1` is frozen at PDC 1 §6.1 and read through the v1 pipeline;
+  `.djot` files are never created by v2 writers.
+- Unmarked `.md` is plain Markdown (`legacy_markdown`); `.html` without
+  the exact transport is legacy HTML (`legacy_html`); readable v1
+  documents carry the legacy marker (`legacy_document_version`).
+- Body-only, malformed, unsupported, and oversized files must be visible
+  with diagnostics; they are never silently omitted or repaired.
+
+## Query plane
+
+`pdc-query/1` is declared at vault level, aligns with `.base` files and
+`base` fences, and is classified read-only: safe-YAML validation,
+`invalid_query` for malformed sources, `valid_unexecuted` for unknown view
+types/keys (including non-portable `order`/`summaries` shapes — `order` is
+a property-ref list, view `summaries` a mapping, equality spelled `==`).
+There is no execution or authorization semantics in this repository.
 
 ## Field and semantic mapping
 
-| Current Oximemo value | PDC target | Rule |
+| Current Oximemo value | PDC v2 target | Rule |
 |---|---|---|
 | memo UUID | `id` | Preserve the UUID value and canonical spelling. |
-| `created` / `updated` | same names | Normalize to UTC with exact millisecond precision. |
-| derived H1/title | `title` | Import as empty when current fallback behavior must remain dynamic; otherwise store the reviewed title. |
-| inline derived tags | `tags` | Snapshot the current extracted tags at import. In canonical documents the envelope is authoritative; Oximemo may visibly synchronize body hashtags on a user save, never during indexing. |
+| `created` / `updated` | same names | Normalize to UTC millisecond precision. |
+| derived H1/title | `title` | Store the reviewed title; empty keeps dynamic fallback. |
+| inline derived tags | `tags` | Snapshot extracted tags at import; envelope is authoritative. |
 | `favorite` | `favorite` | Direct Boolean mapping. |
-| deletion timestamp | `deleted`, `deleted_at` | Timestamp becomes `deleted: true` plus normalized `deleted_at`; absence becomes false. |
-| `aliases` property | `aliases` | Promote to the standard field. |
-| other properties | `x_oximemo` | Preserve scalars/lists directly; encode complex values as an opaque `_json` literal string. |
-
-## Links, assets, tasks, and deletion
-
-### Links
-
-- Canonical links use `pdc://document/<uuid>` in profile-native syntax.
-- Resolve a legacy wiki link only when title/alias lookup has one unambiguous target.
-- Ambiguous and unresolved links remain readable legacy text and appear in the loss report. Never apply the current oldest-note winner silently during conversion.
-
-### Assets
-
-- Read the original asset bytes, compute full SHA-256, create the PDC managed-asset path atomically, then rewrite the reference.
-- Preserve original filename/media type hints. Preserve Oximemo width hints in standard HTML attributes where possible or `data-x-oximemo-*` otherwise.
-- Missing files, hash conflicts, unsupported media, and resources over the PDC limit are reportable conflicts.
-- Garbage collection scans Djot, PDC HTML, and legacy documents and uses recoverable quarantine.
-
-### Tasks and queries
-
-- Map open/completed state to the PDC core construct.
-- Preserve status families, dates, priority, recurrence, warnings, and legacy line hash under `x_oximemo` body attributes or opaque extension data with readable text.
-- Assign a stable block UUID only when a task or block needs identity; never assign IDs merely by reading.
-- Legacy `query` fences become `pdc-query` only when their text can be preserved exactly. Execution remains governed by a separate query contract.
-
-### Deletion
-
-- Canonical soft-deleted documents remain in PDC discovery scope with `deleted: true`; do not move them under `.trash`.
-- Existing `.trash` behavior remains a legacy adapter during the compatibility window.
-- Purge remains an explicit destructive action and is never part of migration.
+| deletion timestamp | `deleted`, `deleted_at` | `deleted: true` plus normalized `deleted_at`; present exactly together. |
+| other properties | top-level user properties | Preserve scalars/lists/nested values verbatim; no reserved `x_` namespace in v2. |
 
 ## Implementation stages
 
-### Stage 0 — shared contract gate
+### Stage 0 — shared contract gate (complete)
 
-- Pin the app to PDC corpus revision 3.
-- Import all shared fixtures into Rust and frontend tests.
-- Freeze `x_oximemo` keys and the machine-readable migration-report schema before converting data.
+- Pin the app to `pdc-document/2`, corpus r2 (`8ac7a6b`→`0ee51ea` series,
+  tag `v2.0.0-draft.2`); keep the v1 r3 corpus as the legacy pin.
+- Rust classifier: v2 Markdown/HTML classification, safe general-YAML
+  walker, Markdown body scan, `.base` query gate, byte-preserving
+  metadata patches, guarded saves; unified corpus executed in
+  `oxi-frontmatter`.
+- Freeze the `x_oximemo` v1 registry as legacy-only and the
+  `oximemo-pdc-migration-report/1` schema (`target_profile` gains
+  `pdc-markdown/1`; `source_format` gains `pdc-djot-legacy/1`).
 
-Exit: the contract, schema, profile transports, and expected diagnostics have executable tests.
+Exit: contract diagnostics, preservation operations, and both corpora
+have executable tests. Remaining: TS mirror re-pointed to the v2 corpus.
 
 ### Stage 1 — Full Reader, no writes
 
-- Add `.djot` and PDC HTML classification to scanner, watcher, CLI, and desktop.
-- Parse the shared envelope before dispatching to Djot or HTML body handling.
-- Surface invalid/unsupported documents and visible legacy HTML; remove body-only silent omission.
-- Resolve PDC UUID links and verify managed assets without modifying files.
+- Add `.md`-classification, `.djot` legacy, and `.base` discovery to
+  scanner, watcher, CLI, and desktop; parse the envelope before body
+  dispatch; surface invalid/unsupported/legacy items with diagnostics.
+- Resolve `pdc://` links and verify managed assets without modifying
+  files; duplicate IDs across profiles are visible vault errors.
 
-Exit: opening and closing every fixture is byte-identical; duplicate IDs across `.djot` and `.html` are visible.
+Exit: opening and closing every fixture is byte-identical; every
+discovered file is canonical, legacy, or visibly diagnosed.
 
 ### Stage 2 — canonical creation
 
-- Add an explicit new-note format choice: Djot or HTML. Keep legacy writers available only for existing legacy files.
-- Create `.pdc/vault.json` before the first canonical write.
-- Add `TEMPLATE.djot`; retain `TEMPLATE.html` for canonical or legacy HTML according to its envelope.
-- Use a Djot-aware or plain source editor plus sanitized preview. Keep the existing HTML source/split/preview experience and bring it under the PDC HTML render policy.
+- New notes are v2 Markdown by default; HTML stays available for
+  canonical or legacy HTML according to its envelope. Create
+  `.pdc/vault.json` before the first canonical write (with optional
+  `"query": "pdc-query/1"`).
+- Canonical key order per PDC 2 §5.4; templates become `TEMPLATE.md`
+  v2 documents; Markdown editing keeps source/preview split with the
+  sanitizing render policy.
 
-Exit: new Djot and HTML notes pass corpus round-trip, sanitizer, link, asset, and task tests.
+Exit: new Markdown and HTML notes pass corpus round-trip, sanitizer,
+link, asset, and task tests.
 
 ### Stage 3 — conforming mutation
 
-- Return a source digest with every document read and require it on every body or metadata update.
-- Block, merge with an explicit report, or create a conflict copy when source bytes changed externally.
-- Ensure no-op, metadata-only, and body-only writes meet byte-preservation rules for both profiles.
-- Route all canonical note writes through the merge writer and atomic replacement path.
+- Source digest with every read, required on every update; block, merge
+  with an explicit report, or create a conflict copy on external change.
+- No-op, metadata-only, and body-only writes meet byte-preservation for
+  both profiles (comments, quoting, key order, user properties intact);
+  all canonical writes route through the atomic merge writer.
 
-Exit: external-change and byte-preservation fixtures pass through CLI and desktop save paths.
+Exit: external-change and byte-preservation fixtures pass through CLI
+and desktop save paths.
 
-### Stage 4 — dry-run importers
+### Stage 4 — explicit legacy conversion only
 
-- Implement separate importers for current Markdown and current HTML.
-- Inventory every note without reading or rewriting unrelated vault state.
-- Produce per-document JSON with `safe`, `ambiguous`, `unsafe`, `externalized`, and `unsupported` findings.
-- Build the complete UUID, link, and asset mapping before writing any converted target.
+- Dry-run importers for v1 Djot/HTML and plain Markdown produce
+  per-document `oximemo-pdc-migration-report/1` reports
+  (`safe`/`ambiguous`/`unsafe`/`externalized`/`unsupported` findings)
+  and full UUID/link/asset mappings before any write.
+- Conversion is user-authorized, new-target-first, with rebuild-and-
+  compare indexes; automatic or bulk conversion is forbidden.
 
-Exit: representative copied vaults produce deterministic plans; source trees are unchanged.
-
-### Stage 5 — user-authorized conversion
-
-- Convert safe documents to sibling targets or a new vault.
-- Keep original files and legacy readers until the user explicitly authorizes replacement.
-- Rebuild all indexes from canonical body source and compare document counts, UUIDs, links, assets, tags, and task state.
-
-Exit: all participating apps pass the same corpus revision and representative cross-app vault tests.
+Exit: representative copied vaults produce deterministic plans; source
+trees unchanged until authorized replacement.
 
 ## Non-goals
 
-- No automatic bulk conversion on application upgrade.
-- No HTML-to-Djot policy; the formats remain parallel.
+- No automatic bulk conversion on application upgrade; no Djot writing.
 - No reuse of filename, path, title, or index key as canonical identity.
-- No silent repair of malformed envelopes or unsafe HTML.
+- No silent repair of malformed envelopes or unsafe bodies.
+- No query execution engine in this change; `pdc-query/1` stays a
+  classification gate.
 - No requirement for pixel-identical previews across apps.
 
 ## Verification
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p oxi-frontmatter
+cargo test -p oximemo-core pdc
 cargo clippy -p oxi-frontmatter -p oximemo-core -p oximemo-cli -p oximemo-capture --all-targets -- -D warnings
-cargo test -p oxi-frontmatter -p oximemo-core -p oximemo-cli -p oximemo-capture
-cargo clippy -p oximemo-desktop --all-targets -- -D warnings
-cd apps/desktop && bun run build
+cd apps/desktop && bun test src/lib/pdc/corpus.test.ts && bun run build
 ```
-
-Migration-specific suites must additionally run the shared PDC corpus, copied-vault dry runs, cross-profile duplicate-ID tests, and Oximemo↔Sawhorse↔Oxibrain interoperability fixtures.

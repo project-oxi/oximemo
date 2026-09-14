@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:oximemo:pdc:migration-report:1",
   "title": "Oximemo PDC migration report (per document)",
-  "description": "Machine-readable per-document report emitted by the Oximemo PDC dry-run importers and updated by user-authorized conversion. Frozen at Stage 0 of docs/PDC-MIGRATION.md; additions are compatible, renames or removals require a new schema identifier.",
+  "description": "Machine-readable per-document report emitted by the Oximemo PDC dry-run importers and updated by user-authorized conversion. Pinned to the Markdown-first PDC 2 pivot (upstream commit 0ee51ea, tag v2.0.0-draft.2; see docs/PDC-MIGRATION.md); the schema identifier and existing fields stay frozen, additions are compatible, renames or removals require a new schema identifier.",
   "type": "object",
   "required": [
     "schema",
@@ -30,14 +30,22 @@
       "description": "SHA-256 of the exact source bytes the findings describe; guards later replacement."
     },
     "source_format": {
-      "enum": ["oximemo-markdown/1", "oximemo-html-legacy/1"]
+      "enum": [
+        "oximemo-markdown/1",
+        "oximemo-html-legacy/1",
+        "pdc-djot-legacy/1"
+      ]
     },
     "target": {
       "type": "string",
       "description": "Vault-relative candidate path. Conversion writes here first; the source is replaced only after explicit user authorization."
     },
     "target_profile": {
-      "enum": ["pdc-djot/1", "pdc-html/1"]
+      "enum": [
+        "pdc-markdown/1",
+        "pdc-html/1",
+        "pdc-djot/1"
+      ]
     },
     "document_id": {
       "type": "string",
@@ -46,10 +54,17 @@
     },
     "findings": {
       "type": "array",
-      "items": { "$ref": "#/$defs/finding" }
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
     },
     "decision": {
-      "enum": ["pending", "approved", "rejected", "converted"],
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "converted"
+      ],
       "description": "Conversion replaces the source only after an explicit user decision recorded here."
     },
     "generated_at": {
@@ -60,14 +75,26 @@
   "$defs": {
     "finding": {
       "type": "object",
-      "required": ["kind", "detail"],
+      "required": [
+        "kind",
+        "detail"
+      ],
       "properties": {
         "kind": {
-          "enum": ["safe", "ambiguous", "unsafe", "externalized", "unsupported"],
+          "enum": [
+            "safe",
+            "ambiguous",
+            "unsafe",
+            "externalized",
+            "unsupported"
+          ],
           "description": "safe: lossless mapping exists. ambiguous: more than one target interpretation. unsafe: construct fails the HTML/profile safety checks. externalized: value moved to a managed asset or extension map. unsupported: construct cannot survive conversion; source must stay readable."
         },
         "location": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Line reference or selector inside the source document."
         },
         "detail": {

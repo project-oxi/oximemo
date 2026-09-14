@@ -1,0 +1,12 @@
+filters:
+  or:
+    - 'favorite == true'
+    - 'priority >= 2'
+icon: base-icon
+custom_branding:
+  accent: "#3366cc"
+views:
+  - type: cards
+    name: Card gallery
+    order:
+      - note.updated

@@ -1,24 +1,27 @@
 /**
- * PDC Reader classification for the Oximemo frontend.
- *
- * Mirrors the normative rules of Portable Document Contract 1
- * (`portable-document-contract/references/PDC-1.0.md`): transport
- * validation (section 4), the constrained envelope grammar (section 5),
- * identity (section 7), and profile-specific body safety checks
- * (sections 6 and 11). The implementation is intentionally
- * self-contained: the vendored conformance corpus in `./corpus/` is the
- * exact behavioral gate.
+ * Mirrors the normative rules of both Portable Document Contract
+ * generations: `pdc-document/2` — canonical `pdc-markdown/1` Markdown
+ * over a safe general-YAML envelope plus `pdc-html/1`
+ * (`references/PDC-2.0.md`, upstream `0ee51ea` / `v2.0.0-draft.2`) and
+ * the frozen legacy `pdc-document/1` Djot/HTML contract
+ * (`references/PDC-1.0.md`). The implementation is intentionally
+ * self-contained: the vendored conformance corpora in `./corpus/`
+ * (v1 r3) and `./corpus-v2/` (v2 r2) are the exact behavioral gates.
  */
 
 /** Revision of the vendored conformance corpus in `./corpus/`. The
  * classifier is pinned to this revision; bumping the corpus requires
  * revisiting this file. */
+import { mapGet, parseSafeYaml, toPlain, type YamlMap } from "./yamlSafe";
+import { scanMarkdownBody } from "./markdownScan";
+
 export const CORPUS_REVISION = 3;
 
-/** Diagnostics a Reader must distinguish (PDC section 13). */
+/** Diagnostics a Reader must distinguish (PDC 2 section 13). */
 export type DiagnosticKind =
   | "invalid_transport"
   | "invalid_envelope"
+  | "invalid_query"
   | "unsupported_document_version"
   | "unsupported_body_version"
   | "invalid_document_id"
@@ -29,14 +32,19 @@ export type DiagnosticKind =
   | "external_change_conflict"
   | "legacy_html";
 
+export type DocumentExt = "djot" | "html" | "markdown";
+
 export type Classification =
   | {
       kind: "valid";
-      profile: "pdc-djot/1" | "pdc-html/1";
+      /** `true` marks a readable `pdc-document/1` legacy document. */
+      legacy: boolean;
+      profile: "pdc-djot/1" | "pdc-html/1" | "pdc-markdown/1";
       id: string;
       envelope: Record<string, unknown>;
     }
   | { kind: "legacy_html" }
+  | { kind: "legacy_markdown" }
   | { kind: "invalid"; diagnostic: DiagnosticKind; message: string };
 
 /** 4 MiB including envelope transport and body (PDC 4.1). */
@@ -46,7 +54,9 @@ const MAX_DJOT_CONTAINER_DEPTH = 256;
 
 const PROFILE_DJOT = "pdc-djot/1";
 const PROFILE_HTML = "pdc-html/1";
-const DOCUMENT_FORMAT = "pdc-document/1";
+const PROFILE_MARKDOWN = "pdc-markdown/1";
+const DOCUMENT_FORMAT_V1 = "pdc-document/1";
+const DOCUMENT_FORMAT_V2 = "pdc-document/2";
 
 /** Canonical lowercase hyphenated UUID, version nibble 1-8, variant [89ab]. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -442,7 +452,7 @@ function checkHtmlBody(body: string): DiagnosticKind | null {
   return null;
 }
 
-export function classify(ext: "djot" | "html", bytes: Uint8Array): Classification {
+export function classify(ext: DocumentExt, bytes: Uint8Array): Classification {
   if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     return invalid("invalid_transport", "document begins with a UTF-8 byte-order mark");
   }
@@ -459,11 +469,31 @@ export function classify(ext: "djot" | "html", bytes: Uint8Array): Classificatio
     return invalid("invalid_transport", "document is not valid UTF-8");
   }
 
-  const lines = text.split("\n");
+  const lines = text.split("\n").map(stripCr);
+  if (ext === "markdown") {
+    return classifyMarkdown(lines);
+  }
   const transport = parseTransport(ext, lines);
   if ("legacy" in transport) return { kind: "legacy_html" };
   if (!transport.ok) return invalid(transport.diagnostic, transport.message);
+  if (ext === "html" && envelopeDeclaresV2(transport.envelopeLines)) {
+    return classifyV2(
+      PROFILE_HTML,
+      transport.envelopeLines.join("\n") + "\n",
+      lines.slice(transport.firstBodyLine).join("\n"),
+    );
+  }
 
+  return classifyV1(ext, lines, transport);
+}
+
+/** v1 pipeline: constrained envelope grammar plus v1 semantics over the
+ * legacy Djot/HTML transports. */
+function classifyV1(
+  ext: "djot" | "html",
+  lines: string[],
+  transport: { ok: true; envelopeLines: string[]; firstBodyLine: number },
+): Classification {
   let envelope: Map<string, EnvelopeValue>;
   try {
     envelope = parseEnvelope(transport.envelopeLines);
@@ -474,12 +504,13 @@ export function classify(ext: "djot" | "html", bytes: Uint8Array): Classificatio
 
   const profile = ext === "djot" ? PROFILE_DJOT : PROFILE_HTML;
 
-  if (envelope.get("format") !== DOCUMENT_FORMAT) {
+  if (envelope.get("format") !== DOCUMENT_FORMAT_V1) {
     return invalid(
       "unsupported_document_version",
-      `unsupported format ${JSON.stringify(envelope.get("format") ?? null)}; expected "${DOCUMENT_FORMAT}"`,
+      `unsupported format ${JSON.stringify(envelope.get("format") ?? null)}; expected "${DOCUMENT_FORMAT_V1}"`,
     );
   }
+
   const declaredBody = envelope.get("body");
   if (declaredBody === (ext === "djot" ? PROFILE_HTML : PROFILE_DJOT)) {
     return invalid(
@@ -545,5 +576,211 @@ export function classify(ext: "djot" | "html", bytes: Uint8Array): Classificatio
     return invalid(bodyDiagnostic, `${bodyDiagnostic} in the ${ext} body`);
   }
 
-  return { kind: "valid", profile, id, envelope: envelopeToObject(envelope) };
+  return {
+    kind: "valid",
+    legacy: true,
+    profile,
+    id,
+    envelope: envelopeToObject(envelope),
+  };
+}
+
+/** Markdown transport (PDC 2 §4.2): `---` at byte 0 closed by the next
+ * exact `---` line. A file that does not start with the delimiter is
+ * plain Markdown (`legacy_markdown`); an unclosed delimiter is
+ * `invalid_transport`. */
+function classifyMarkdown(lines: string[]): Classification {
+  if (lines[0] !== "---") return { kind: "legacy_markdown" };
+  const close = lines.indexOf("---", 1);
+  if (close === -1) {
+    return invalid(
+      "invalid_transport",
+      "frontmatter delimiter is never closed; expected a second `---` line",
+    );
+  }
+  return classifyV2(
+    PROFILE_MARKDOWN,
+    lines.slice(1, close).join("\n") + "\n",
+    lines.slice(close + 1).join("\n"),
+  );
+}
+
+/** Lexical sniff: does this HTML envelope declare
+ * `format: pdc-document/2`? Anything else stays on the v1 path so v1
+ * diagnostics remain unchanged. */
+function envelopeDeclaresV2(envelopeLines: string[]): boolean {
+  for (const line of envelopeLines) {
+    if (line.length === 0 || line.trimStart().length !== line.length) continue;
+    if (line.startsWith("#")) continue;
+    const colon = line.indexOf(":");
+    if (colon === -1) continue;
+    if (line.slice(0, colon).trim() !== "format") continue;
+    const value = line
+      .slice(colon + 1)
+      .split(" #")[0]
+      .trim()
+      .replace(/^"(.*)"$/, "$1")
+      .replace(/^'(.*)'$/, "$1");
+    return value === DOCUMENT_FORMAT_V2;
+  }
+  return false;
+}
+
+/** v2 pipeline: safe general-YAML envelope plus v2 semantics, shared by
+ * the Markdown and HTML transports (PDC 2 §4.2–§5). */
+function classifyV2(
+  expected: "pdc-markdown/1" | "pdc-html/1",
+  envelopeText: string,
+  body: string,
+): Classification {
+  const parsed = parseSafeYaml(envelopeText);
+  if (!parsed.ok) {
+    return invalid(
+      parsed.error.kind === "too_complex" ? "document_too_complex" : "invalid_envelope",
+      parsed.error.reason,
+    );
+  }
+  const root = parsed.root;
+
+  const format = mapGet(root, "format");
+  if (format === undefined) {
+    return invalid("invalid_envelope", "required field `format` is missing or not a string");
+  }
+  if (format === DOCUMENT_FORMAT_V1) {
+    return invalid(
+      "invalid_transport",
+      "`pdc-document/1` is legacy and predates this transport",
+    );
+  }
+  if (format !== DOCUMENT_FORMAT_V2) {
+    return invalid("unsupported_document_version", "`format` names an unsupported major version");
+  }
+  const declaredBody = mapGet(root, "body");
+  if (declaredBody === undefined || typeof declaredBody !== "string") {
+    return invalid("invalid_envelope", "required field `body` is missing or not a string");
+  }
+  if (declaredBody !== expected) {
+    return invalid(
+      "invalid_transport",
+      `\`body\` must be exactly \`${expected}\` in this transport`,
+    );
+  }
+
+  const semantics = validateSemanticsV2(root);
+  if (semantics) return semantics;
+
+  const id = mapGet(root, "id") as string;
+  if (expected === PROFILE_MARKDOWN) {
+    const scan = scanMarkdownBody(body);
+    if (scan.unsafeFound) {
+      return invalid(
+        "unsafe_content",
+        "Markdown body contains active raw HTML (script, event handler, or unsafe URL); " +
+          "the source is preserved and preview must stay inert",
+      );
+    }
+    if (new Set(scan.blockIds).size !== scan.blockIds.length) {
+      return invalid("duplicate_block_id", "two targets share one caret or `b-<uuid>` block ID");
+    }
+  } else {
+    const bodyDiagnostic = checkHtmlBody(body);
+    if (bodyDiagnostic) return invalid(bodyDiagnostic, `${bodyDiagnostic} in the html body`);
+  }
+
+  return {
+    kind: "valid",
+    legacy: false,
+    profile: expected,
+    id,
+    envelope: toPlain(root) as Record<string, unknown>,
+  };
+}
+
+/** v2 envelope semantic validation (PDC 2 §5.1–5.3); returns a
+ * classification on the first violation, `null` when conforming.
+ * Unknown user properties are never inspected. */
+function validateSemanticsV2(root: YamlMap): Classification | null {
+  const requiredStr = (key: string): string | Classification => {
+    const value = mapGet(root, key);
+    if (typeof value !== "string") {
+      return invalid(
+        "invalid_envelope",
+        value === undefined
+          ? `required field \`${key}\` is missing`
+          : `\`${key}\` must be a string`,
+      );
+    }
+    return value;
+  };
+
+  const id = requiredStr("id");
+  if (typeof id !== "string") return id;
+  if (!UUID_RE.test(id)) {
+    return invalid("invalid_document_id", "`id` must be a canonical lowercase hyphenated UUID");
+  }
+  const created = requiredStr("created");
+  if (typeof created !== "string") return created;
+  if (!isCanonicalTimestamp(created)) {
+    return invalid(
+      "invalid_envelope",
+      "`created` must be a canonical UTC millisecond timestamp with a real calendar date",
+    );
+  }
+  const updated = requiredStr("updated");
+  if (typeof updated !== "string") return updated;
+  if (!isCanonicalTimestamp(updated)) {
+    return invalid(
+      "invalid_envelope",
+      "`updated` must be a canonical UTC millisecond timestamp with a real calendar date",
+    );
+  }
+  if (updated < created) {
+    return invalid("invalid_envelope", "`updated` must not be earlier than `created`");
+  }
+  // The stored title is authoritative and may be empty (PDC 2 §5.1).
+  const title = requiredStr("title");
+  if (typeof title !== "string") return title;
+
+  for (const key of ["profile", "lang"] as const) {
+    const value = mapGet(root, key);
+    if (value !== undefined && typeof value !== "string") {
+      return invalid("invalid_envelope", `\`${key}\` must be a string`);
+    }
+  }
+  for (const key of ["tags", "aliases", "cssclasses"] as const) {
+    const value = mapGet(root, key);
+    if (value === undefined) continue;
+    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+      return invalid("invalid_envelope", `\`${key}\` must be a string sequence`);
+    }
+  }
+  for (const key of ["favorite", "deleted"] as const) {
+    const value = mapGet(root, key);
+    if (value !== undefined && typeof value !== "boolean") {
+      return invalid("invalid_envelope", `\`${key}\` must be a Boolean`);
+    }
+  }
+
+  const deleted = mapGet(root, "deleted");
+  const deletedAt = mapGet(root, "deleted_at");
+  if (deletedAt !== undefined && typeof deletedAt !== "string") {
+    return invalid("invalid_envelope", "`deleted_at` must be a string timestamp");
+  }
+  if (deleted === true) {
+    if (deletedAt === undefined) {
+      return invalid(
+        "invalid_envelope",
+        "`deleted: true` requires a matching `deleted_at` timestamp",
+      );
+    }
+    if (!isCanonicalTimestamp(deletedAt as string)) {
+      return invalid(
+        "invalid_envelope",
+        "`deleted_at` must be a canonical UTC millisecond timestamp",
+      );
+    }
+  } else if (deletedAt !== undefined) {
+    return invalid("invalid_envelope", "`deleted_at` must be absent unless `deleted` is true");
+  }
+  return null;
 }

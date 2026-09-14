@@ -14,6 +14,13 @@ use serde::{Deserialize, Serialize};
 /// `schema` literal every report carries.
 pub const REPORT_SCHEMA: &str = "oximemo-pdc-migration-report/1";
 
+/// `pdc-query/1` — the vault-level query contract (PDC-QUERY-1.0),
+/// declared via `query` in `.pdc/vault.json` and carried by `.base`
+/// files and `base`-fenced blocks in `pdc-markdown/1` bodies. It is
+/// read-only: queries are never executed as part of migration and
+/// carry no authorization semantics.
+pub const QUERY_SCHEMA: &str = "pdc-query/1";
+
 /// Registry document this module mirrors.
 pub const REGISTRY_DOC: &str = "docs/pdc/X-OXIMEMO-v1.md";
 
@@ -126,17 +133,25 @@ pub enum SourceFormat {
     /// Comment-wrapped HTML memo without the PDC transport.
     #[serde(rename = "oximemo-html-legacy/1")]
     LegacyHtml,
+    /// Legacy `pdc-djot/1` document under a `pdc-document/1` envelope.
+    #[serde(rename = "pdc-djot-legacy/1")]
+    Djot,
 }
 
 /// Canonical body profile a conversion targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TargetProfile {
-    /// Djot profile.
-    #[serde(rename = "pdc-djot/1")]
-    Djot,
+    /// Canonical Markdown profile (`pdc-markdown/1`, lowercase `.md`).
+    #[serde(rename = "pdc-markdown/1")]
+    Markdown,
     /// Authored HTML profile.
     #[serde(rename = "pdc-html/1")]
     Html,
+    /// Legacy Djot profile; only produced when the user explicitly
+    /// authorizes conversion toward a v1 target (kept for v1 report
+    /// compatibility).
+    #[serde(rename = "pdc-djot/1")]
+    Djot,
 }
 
 /// Deserialization guards mirroring the frozen schema's format

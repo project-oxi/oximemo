@@ -17,9 +17,12 @@ function stripCr(line: string): string {
  * Line-index bounds [firstEnvelopeLine, closeLine) of the PDC envelope,
  * or null for a malformed transport.
  */
-function envelopeBounds(ext: "djot" | "html", lines: string[]): [number, number] | null {
+function envelopeBounds(
+  ext: "djot" | "html" | "markdown",
+  lines: string[],
+): [number, number] | null {
   const at = (i: number, value: string) => i < lines.length && stripCr(lines[i]) === value;
-  if (ext === "djot") {
+  if (ext === "djot" || ext === "markdown") {
     if (!at(0, "---")) return null;
     for (let i = 1; i < lines.length; i++) if (at(i, "---")) return [1, i];
     return null;
@@ -32,7 +35,7 @@ function envelopeBounds(ext: "djot" | "html", lines: string[]): [number, number]
 }
 
 export function patchMetadata(
-  ext: "djot" | "html",
+  ext: "djot" | "html" | "markdown",
   bytes: Uint8Array,
   patch: Record<string, string>,
 ): Uint8Array {

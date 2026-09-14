@@ -1,26 +1,51 @@
-//! Portable Document Contract (PDC) document classification and guarded
-//! metadata writes.
+//! Portable Document Contract classification and guarded metadata writes.
 //!
-//! This module implements the envelope/transport side of PDC
-//! (`pdc-document/1` with body profiles `pdc-djot/1` and `pdc-html/1`)
-//! on top of the crate's constrained-YAML grammar. It is the Stage 0
-//! slice of `docs/PDC-MIGRATION.md`: classification with diagnostics and
-//! the corpus-revision pin. Vault scanning and body rendering are later
-//! stages and deliberately out of scope here.
+//! Implements both major document planes:
 //!
-//! The implementation is tested against the vendored conformance corpus
-//! revision [`CORPUS_REVISION`] (see `tests/pdc_corpus.rs`). The
-//! canonical external specification lives in the
-//! `portable-document-contract` repository and wins over this code.
+//! - **`pdc-document/2`** (current, Markdown-first): canonical
+//!   `pdc-markdown/1` under lowercase `.md` and `pdc-html/1` under the
+//!   comment transport, over a safe general-YAML 1.2 Core envelope
+//!   ([`yaml`]) with a read-only `pdc-query/1` gate for `.base` files
+//!   ([`query`]).
+//! - **`pdc-document/1`** (frozen legacy): `pdc-djot/1` and `pdc-html/1`
+//!   over the crate's constrained-YAML grammar. v1 documents stay
+//!   readable legacy classification ([`PdcDocument::legacy`]); they are
+//!   never converted, rewritten, or re-emitted by this module.
+//!
+//! This is the Stage 0 slice of `docs/PDC-MIGRATION.md`: classification
+//! with diagnostics, the corpus pins, and byte-preserving metadata
+//! patches. Vault scanning and body rendering are later stages.
+//!
+//! The canonical external specification lives in the
+//! `portable-document-contract` repository (commit `0ee51ea`, tag
+//! `v2.0.0-draft.2`) and wins over this code; the vendored conformance
+//! corpora under `tests/fixtures/` pin the revisions exercised here.
+
+mod markdown;
+pub mod query;
+pub mod yaml;
+
+pub use query::{QueryClassification, classify_query};
+pub use yaml::{Yaml, YamlError};
 
 use crate::parse::parse_block;
 use crate::parse::{Table, Value};
 
-/// Conformance corpus revision this build is pinned to.
+/// Conformance corpus revision of the frozen legacy v1 corpus
+/// (`tests/fixtures/pdc-corpus-r3`).
 ///
-/// Every change to PDC behavior must land in the contract repository
-/// first and bump this pin together with the vendored fixtures.
+/// Every change to v1 classification behavior must land in the contract
+/// repository first and bump this pin together with the vendored
+/// fixtures.
 pub const CORPUS_REVISION: u64 = 3;
+
+/// Conformance format identifier of the Markdown-first v2 corpus
+/// (`tests/fixtures/pdc-corpus-v2-r2`).
+pub const CORPUS_V2_FORMAT: &str = "pdc-document-conformance/2";
+
+/// Conformance corpus revision the v2 classifier is pinned to
+/// (upstream commit `0ee51ea`, tag `v2.0.0-draft.2`).
+pub const CORPUS_V2_REVISION: u64 = 2;
 
 /// Maximum canonical document size in bytes, including transport and
 /// body (PDC §4.1).
@@ -36,10 +61,12 @@ const BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
 /// The file extension a PDC document was discovered under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentExt {
-    /// Canonical Djot document (`.djot`).
+    /// Legacy Djot document (`.djot`), readable under `pdc-document/1`.
     Djot,
-    /// Canonical HTML document (`.html`).
+    /// Canonical or legacy HTML document (`.html`).
     Html,
+    /// Canonical Markdown document (`.md`, lowercase).
+    Markdown,
 }
 
 /// Diagnosable outcome classes, named exactly as PDC §13 requires.
@@ -55,7 +82,7 @@ pub enum DiagnosticKind {
     InvalidTransport,
     /// Envelope failed the constrained grammar or semantic validation.
     InvalidEnvelope,
-    /// `format` is not `pdc-document/1`.
+    /// `format` is not a recognized major version for this transport.
     UnsupportedDocumentVersion,
     /// `body` names an unknown version of a known profile.
     UnsupportedBodyVersion,
@@ -69,6 +96,8 @@ pub enum DiagnosticKind {
     DocumentTooComplex,
     /// Body contains executable or otherwise nonconforming constructs.
     UnsafeContent,
+    /// A `.base` query failed `pdc-query/1` validation (PDC 2 §13).
+    InvalidQuery,
     /// Detected an external modification against the edit snapshot.
     ExternalChangeConflict,
 }
@@ -86,6 +115,7 @@ impl DiagnosticKind {
             Self::DocumentTooLarge => "document_too_large",
             Self::DocumentTooComplex => "document_too_complex",
             Self::UnsafeContent => "unsafe_content",
+            Self::InvalidQuery => "invalid_query",
             Self::ExternalChangeConflict => "external_change_conflict",
         }
     }
@@ -138,10 +168,12 @@ impl std::fmt::Display for PdcDiagnostic {
 /// Canonical body profile declared by the `body` envelope field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyProfile {
-    /// `pdc-djot/1`
+    /// `pdc-djot/1` — legacy, valid only under `pdc-document/1`.
     Djot,
     /// `pdc-html/1`
     Html,
+    /// `pdc-markdown/1` — canonical, valid only under `pdc-document/2`.
+    Markdown,
 }
 
 impl BodyProfile {
@@ -150,11 +182,13 @@ impl BodyProfile {
         match self {
             Self::Djot => "pdc-djot/1",
             Self::Html => "pdc-html/1",
+            Self::Markdown => "pdc-markdown/1",
         }
     }
 }
 
-/// A successfully classified canonical PDC document.
+/// A successfully classified PDC document (canonical v2 or readable
+/// legacy v1).
 ///
 /// The document is a projection over the original bytes; nothing here
 /// authorizes a rewrite. `body_range` locates the untouched body slice
@@ -163,24 +197,40 @@ impl BodyProfile {
 pub struct PdcDocument {
     /// Profile declared by the envelope.
     pub profile: BodyProfile,
-    /// Parsed envelope (unknown fields and extensions preserved).
-    pub envelope: Table,
+    /// Parsed envelope; unknown user properties are preserved in
+    /// source order.
+    pub envelope: Yaml,
     /// Canonical document UUID (copy of the validated `id` field).
     pub id: String,
     /// Byte range of the body slice within the classified input.
     pub body_range: std::ops::Range<usize>,
+    /// Block targets collected from the body (caret IDs for Markdown,
+    /// `b-<uuid>` targets for HTML; PDC 2 §7.2).
+    pub block_ids: Vec<String>,
+    /// Markdown only: benign raw HTML is present — preserved in source,
+    /// inert in preview (PDC 2 §6.1).
+    pub has_raw_html: bool,
+    /// `true` for readable `pdc-document/1` legacy documents
+    /// (`legacy_document_version` in PDC 2 §13).
+    pub legacy: bool,
 }
 
 /// Outcome of classifying one discovered file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Classification {
-    /// Canonical PDC document of one of the two body profiles.
+    /// Canonical v2 document, or a readable legacy v1 document
+    /// ([`PdcDocument::legacy`]).
     Valid(PdcDocument),
     /// `.html` file without the exact PDC opening transport.
     ///
     /// Legacy HTML is a visible classification, not an error; it never
     /// authorizes rewriting the file.
     LegacyHtml,
+    /// `.md` file without the exact `---` frontmatter transport.
+    ///
+    /// Plain Markdown is a visible legacy item, not an error; it never
+    /// authorizes rewriting the file (PDC 2 §4.2).
+    LegacyMarkdown,
     /// Canonical-transport document that failed validation.
     Invalid(PdcDiagnostic),
 }
@@ -726,10 +776,10 @@ pub fn classify(ext: DocumentExt, bytes: &[u8]) -> Classification {
         }
     };
     let lines = split_lines(text);
-    let span = match ext {
+    match ext {
         DocumentExt::Djot => match envelope_span_djot(&lines) {
-            Ok(s) => s,
-            Err(d) => return Classification::Invalid(d),
+            Ok(span) => classify_v1(ext, text, &lines, span),
+            Err(d) => Classification::Invalid(d),
         },
         DocumentExt::Html => {
             // A `.html` file without the exact opening transport is
@@ -742,12 +792,32 @@ pub fn classify(ext: DocumentExt, bytes: &[u8]) -> Classification {
                 return Classification::LegacyHtml;
             }
             match envelope_span_html(&lines) {
-                Ok(s) => s,
-                Err(d) => return Classification::Invalid(d),
+                Ok(span) => {
+                    if envelope_declares_v2(&lines[span.first..span.last]) {
+                        classify_v2(ext, text, &lines, span)
+                    } else {
+                        classify_v1(ext, text, &lines, span)
+                    }
+                }
+                Err(d) => Classification::Invalid(d),
             }
         }
-    };
+        DocumentExt::Markdown => match envelope_span_markdown(&lines) {
+            Ok(Some(span)) => classify_v2(ext, text, &lines, span),
+            Ok(None) => Classification::LegacyMarkdown,
+            Err(d) => Classification::Invalid(d),
+        },
+    }
+}
 
+/// v1 pipeline: constrained grammar plus v1 semantics, producing a
+/// readable legacy document (PDC 2 §4.4).
+fn classify_v1(
+    ext: DocumentExt,
+    text: &str,
+    lines: &[Line<'_>],
+    span: EnvelopeSpan,
+) -> Classification {
     let envelope_texts: Vec<&str> = lines[span.first..span.last].iter().map(|l| l.raw).collect();
     let table = match parse_block(&envelope_texts, span.first + 1) {
         Ok(t) => t,
@@ -759,16 +829,14 @@ pub fn classify(ext: DocumentExt, bytes: &[u8]) -> Classification {
             ));
         }
     };
-
     if let Err(d) = validate_semantics(ext, &table) {
         return Classification::Invalid(d);
     }
-
     let body = &text[span.body_start..];
-    if let Err(d) = validate_body(ext, body) {
-        return Classification::Invalid(d);
-    }
-
+    let (block_ids, has_raw_html) = match validate_body(ext, body) {
+        Ok(found) => found,
+        Err(d) => return Classification::Invalid(d),
+    };
     let id = match table.get("id") {
         Some(Value::Str(id)) => id.clone(),
         _ => unreachable!("validate_semantics checked a string id"),
@@ -776,13 +844,336 @@ pub fn classify(ext: DocumentExt, bytes: &[u8]) -> Classification {
     let profile = match ext {
         DocumentExt::Djot => BodyProfile::Djot,
         DocumentExt::Html => BodyProfile::Html,
+        DocumentExt::Markdown => unreachable!("markdown is a v2-only transport"),
     };
     Classification::Valid(PdcDocument {
         profile,
-        envelope: table,
+        envelope: yaml_from_table(&table),
         id,
         body_range: span.body_start..text.len(),
+        block_ids,
+        has_raw_html,
+        legacy: true,
     })
+}
+
+/// v2 pipeline: safe general-YAML envelope plus v2 semantics, shared by
+/// the Markdown and HTML transports (PDC 2 §4.2–§5).
+fn classify_v2(
+    ext: DocumentExt,
+    text: &str,
+    lines: &[Line<'_>],
+    span: EnvelopeSpan,
+) -> Classification {
+    let expected = match ext {
+        DocumentExt::Markdown => BodyProfile::Markdown,
+        DocumentExt::Html => BodyProfile::Html,
+        DocumentExt::Djot => unreachable!("djot is a v1-only transport"),
+    };
+    let mut envelope_text = String::new();
+    for line in &lines[span.first..span.last] {
+        envelope_text.push_str(line.raw);
+        envelope_text.push('\n');
+    }
+    let root = match yaml::parse_document(&envelope_text) {
+        Ok(root) => root,
+        Err(e) => {
+            return Classification::Invalid(PdcDiagnostic {
+                kind: match e.kind {
+                    yaml::YamlErrorKind::Malformed => DiagnosticKind::InvalidEnvelope,
+                    yaml::YamlErrorKind::TooComplex => DiagnosticKind::DocumentTooComplex,
+                },
+                line: e.line,
+                message: e.reason,
+            });
+        }
+    };
+
+    // Version routing: `pdc-document/2` proceeds; `pdc-document/1`
+    // never existed for this transport (invalid_transport, PDC 2 §2);
+    // any other major version is unsupported, not malformed.
+    match root.get("format").and_then(Yaml::as_str) {
+        Some("pdc-document/2") => {}
+        Some("pdc-document/1") => {
+            return Classification::Invalid(PdcDiagnostic::new(
+                DiagnosticKind::InvalidTransport,
+                "`pdc-document/1` is legacy and predates this transport",
+            ));
+        }
+        Some(_) => {
+            return Classification::Invalid(PdcDiagnostic::new(
+                DiagnosticKind::UnsupportedDocumentVersion,
+                "`format` names an unsupported major version",
+            ));
+        }
+        None => {
+            return Classification::Invalid(PdcDiagnostic::new(
+                DiagnosticKind::InvalidEnvelope,
+                "required field `format` is missing or not a string",
+            ));
+        }
+    }
+    // The transport pins the body profile exactly (PDC 2 §4.2–4.3).
+    match root.get("body").and_then(Yaml::as_str) {
+        Some(profile) if profile == expected.id_str() => {}
+        Some(_) => {
+            return Classification::Invalid(PdcDiagnostic::new(
+                DiagnosticKind::InvalidTransport,
+                format!(
+                    "`body` must be exactly `{}` in this transport",
+                    expected.id_str()
+                ),
+            ));
+        }
+        None => {
+            return Classification::Invalid(PdcDiagnostic::new(
+                DiagnosticKind::InvalidEnvelope,
+                "required field `body` is missing or not a string",
+            ));
+        }
+    }
+
+    if let Err(d) = validate_semantics_v2(&root) {
+        return Classification::Invalid(d);
+    }
+    let id = root
+        .get("id")
+        .and_then(Yaml::as_str)
+        .expect("validate_semantics_v2 checked a string id")
+        .to_string();
+
+    let body = &text[span.body_start..];
+    let (block_ids, has_raw_html) = match ext {
+        DocumentExt::Markdown => {
+            let scan = markdown::scan_markdown_body(body);
+            if scan.unsafe_found {
+                return Classification::Invalid(PdcDiagnostic::new(
+                    DiagnosticKind::UnsafeContent,
+                    "Markdown body contains active raw HTML (script, event handler, or \
+                     unsafe URL); the source is preserved and preview must stay inert",
+                ));
+            }
+            if duplicate_block_id(&scan.block_ids) {
+                return Classification::Invalid(PdcDiagnostic::new(
+                    DiagnosticKind::DuplicateBlockId,
+                    "two targets share one caret or `b-<uuid>` block ID",
+                ));
+            }
+            (scan.block_ids, scan.has_raw_html)
+        }
+        DocumentExt::Html => {
+            let scan = scan_html_body(body);
+            if scan.unsafe_found {
+                return Classification::Invalid(PdcDiagnostic::new(
+                    DiagnosticKind::UnsafeContent,
+                    "HTML body contains executable or otherwise nonconforming constructs",
+                ));
+            }
+            if duplicate_block_id(&scan.block_ids) {
+                return Classification::Invalid(PdcDiagnostic::new(
+                    DiagnosticKind::DuplicateBlockId,
+                    "two elements share one `b-<uuid>` id",
+                ));
+            }
+            (scan.block_ids, false)
+        }
+        DocumentExt::Djot => unreachable!("djot is a v1-only transport"),
+    };
+
+    Classification::Valid(PdcDocument {
+        profile: expected,
+        envelope: root,
+        id,
+        body_range: span.body_start..text.len(),
+        block_ids,
+        has_raw_html,
+        legacy: false,
+    })
+}
+
+/// Lexical sniff: does this HTML envelope declare
+/// `format: pdc-document/2`? Only a top-level plain/quoted scalar
+/// routes the document to the v2 pipeline; anything else — including a
+/// missing or oddly shaped `format` — stays on the v1 path so v1
+/// diagnostics remain unchanged.
+fn envelope_declares_v2(envelope_lines: &[Line<'_>]) -> bool {
+    for line in envelope_lines {
+        let content = line.normalized();
+        let trimmed = content.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') || content.len() != trimmed.len() {
+            continue; // blank, comment, or indented: never a top-level key
+        }
+        let Some((key, rest)) = content.split_once(':') else {
+            continue;
+        };
+        if key.trim() != "format" {
+            continue;
+        }
+        let value = rest.trim();
+        let value = value.split(" #").next().unwrap_or(value).trim();
+        return value.trim_matches('"').trim_matches('\'') == "pdc-document/2";
+    }
+    false
+}
+
+/// Markdown transport: `---` at byte 0, closed by the next exact `---`
+/// line (PDC 2 §4.2). A file that does not start with the delimiter is
+/// plain Markdown (`Ok(None)`); an unclosed delimiter is
+/// `invalid_transport`.
+fn envelope_span_markdown(lines: &[Line<'_>]) -> Result<Option<EnvelopeSpan>, PdcDiagnostic> {
+    if lines.first().map(Line::normalized) != Some("---") {
+        return Ok(None);
+    }
+    let close = lines
+        .iter()
+        .position(|l| l.start > 0 && l.normalized() == "---")
+        .ok_or_else(|| {
+            PdcDiagnostic::new(
+                DiagnosticKind::InvalidTransport,
+                "frontmatter delimiter is never closed; expected a second `---` line",
+            )
+        })?;
+    Ok(Some(EnvelopeSpan {
+        first: 1,
+        last: close,
+        body_start: lines[close].next,
+    }))
+}
+
+/// v2 envelope semantic validation shared by both transports
+/// (PDC 2 §5.1–5.3). Unknown user properties are never inspected here:
+/// any safe-YAML value is preserved.
+fn validate_semantics_v2(root: &Yaml) -> Result<(), PdcDiagnostic> {
+    let required_str = |key: &str| -> Result<&str, PdcDiagnostic> {
+        match root.get(key) {
+            Some(Yaml::Str(s)) => Ok(s),
+            Some(_) => Err(PdcDiagnostic::new(
+                DiagnosticKind::InvalidEnvelope,
+                format!("`{key}` must be a string"),
+            )),
+            None => Err(PdcDiagnostic::new(
+                DiagnosticKind::InvalidEnvelope,
+                format!("required field `{key}` is missing"),
+            )),
+        }
+    };
+
+    let id = required_str("id")?;
+    if !canonical_uuid(id) {
+        return Err(PdcDiagnostic::new(
+            DiagnosticKind::InvalidDocumentId,
+            "`id` must be a canonical lowercase hyphenated UUID",
+        ));
+    }
+    let created = parse_canonical_timestamp(required_str("created")?).map_err(|_| {
+        PdcDiagnostic::new(
+            DiagnosticKind::InvalidEnvelope,
+            "`created` must be a canonical UTC millisecond timestamp with a real calendar date",
+        )
+    })?;
+    let updated = parse_canonical_timestamp(required_str("updated")?).map_err(|_| {
+        PdcDiagnostic::new(
+            DiagnosticKind::InvalidEnvelope,
+            "`updated` must be a canonical UTC millisecond timestamp with a real calendar date",
+        )
+    })?;
+    if updated < created {
+        return Err(PdcDiagnostic::new(
+            DiagnosticKind::InvalidEnvelope,
+            "`updated` must not be earlier than `created`",
+        ));
+    }
+    // The stored title is authoritative and may be empty (PDC 2 §5.1).
+    required_str("title")?;
+
+    for key in ["profile", "lang"] {
+        if let Some(value) = root.get(key)
+            && !matches!(value, Yaml::Str(_))
+        {
+            return Err(PdcDiagnostic::new(
+                DiagnosticKind::InvalidEnvelope,
+                format!("`{key}` must be a string"),
+            ));
+        }
+    }
+    for key in ["tags", "aliases", "cssclasses"] {
+        match root.get(key) {
+            Some(Yaml::Seq(items)) => {
+                if items.iter().any(|item| !matches!(item, Yaml::Str(_))) {
+                    return Err(PdcDiagnostic::new(
+                        DiagnosticKind::InvalidEnvelope,
+                        format!("`{key}` entries must be strings"),
+                    ));
+                }
+            }
+            Some(_) => {
+                return Err(PdcDiagnostic::new(
+                    DiagnosticKind::InvalidEnvelope,
+                    format!("`{key}` must be a string sequence"),
+                ));
+            }
+            None => {}
+        }
+    }
+    for key in ["favorite", "deleted"] {
+        if let Some(value) = root.get(key)
+            && !matches!(value, Yaml::Bool(_))
+        {
+            return Err(PdcDiagnostic::new(
+                DiagnosticKind::InvalidEnvelope,
+                format!("`{key}` must be a Boolean"),
+            ));
+        }
+    }
+
+    let deleted = root.get("deleted").and_then(Yaml::as_bool);
+    let deleted_at = match root.get("deleted_at") {
+        Some(Yaml::Str(ts)) => Some(ts.as_str()),
+        Some(_) => {
+            return Err(PdcDiagnostic::new(
+                DiagnosticKind::InvalidEnvelope,
+                "`deleted_at` must be a string timestamp",
+            ));
+        }
+        None => None,
+    };
+    match (deleted, deleted_at) {
+        (None | Some(false), None) => Ok(()),
+        (None | Some(false), Some(_)) => Err(PdcDiagnostic::new(
+            DiagnosticKind::InvalidEnvelope,
+            "`deleted_at` must be absent unless `deleted` is true",
+        )),
+        (Some(true), Some(ts)) => parse_canonical_timestamp(ts).map(|_| ()).map_err(|_| {
+            PdcDiagnostic::new(
+                DiagnosticKind::InvalidEnvelope,
+                "`deleted_at` must be a canonical UTC millisecond timestamp",
+            )
+        }),
+        (Some(true), None) => Err(PdcDiagnostic::new(
+            DiagnosticKind::InvalidEnvelope,
+            "`deleted: true` requires a matching `deleted_at` timestamp",
+        )),
+    }
+}
+
+/// Convert a v1 constrained-grammar table into the general [`Yaml`]
+/// projection so both document generations share one envelope type.
+fn yaml_from_table(table: &Table) -> Yaml {
+    Yaml::Map(
+        table
+            .iter()
+            .map(|(k, v)| (k.clone(), yaml_from_value(v)))
+            .collect(),
+    )
+}
+
+fn yaml_from_value(value: &Value) -> Yaml {
+    match value {
+        Value::Bool(b) => Yaml::Bool(*b),
+        Value::Str(s) => Yaml::Str(s.clone()),
+        Value::Array(items) => Yaml::Seq(items.iter().map(|s| Yaml::Str(s.clone())).collect()),
+        Value::Map(map) => yaml_from_table(map),
+    }
 }
 
 /// Envelope-level semantic validation (PDC §5).
@@ -806,6 +1197,7 @@ fn validate_semantics(ext: DocumentExt, table: &Table) -> Result<(), PdcDiagnost
     let expected = match ext {
         DocumentExt::Djot => BodyProfile::Djot,
         DocumentExt::Html => BodyProfile::Html,
+        DocumentExt::Markdown => unreachable!("markdown is a v2-only transport"),
     };
     match table.get("body").and_then(Value::as_str_lit) {
         Some(id) if id == expected.id_str() => {}
@@ -910,8 +1302,9 @@ fn validate_semantics(ext: DocumentExt, table: &Table) -> Result<(), PdcDiagnost
     Ok(())
 }
 
-/// Body-level validation for the declared profile.
-fn validate_body(ext: DocumentExt, body: &str) -> Result<(), PdcDiagnostic> {
+/// Body-level validation for a v1 profile; returns the collected block
+/// targets. Markdown bodies are validated by [`classify_v2`].
+fn validate_body(ext: DocumentExt, body: &str) -> Result<(Vec<String>, bool), PdcDiagnostic> {
     match ext {
         DocumentExt::Djot => {
             if djot_has_raw_html(body) {
@@ -920,7 +1313,8 @@ fn validate_body(ext: DocumentExt, body: &str) -> Result<(), PdcDiagnostic> {
                     "Djot bodies must not contain raw HTML constructs",
                 ));
             }
-            if duplicate_block_id(&djot_block_ids(body)) {
+            let ids = djot_block_ids(body);
+            if duplicate_block_id(&ids) {
                 return Err(PdcDiagnostic::new(
                     DiagnosticKind::DuplicateBlockId,
                     "two targets share one `b-<uuid>` block ID",
@@ -932,6 +1326,7 @@ fn validate_body(ext: DocumentExt, body: &str) -> Result<(), PdcDiagnostic> {
                     format!("block nesting exceeds the {MAX_TARGET_DEPTH}-container limit"),
                 ));
             }
+            Ok((ids, false))
         }
         DocumentExt::Html => {
             let scan = scan_html_body(body);
@@ -947,9 +1342,10 @@ fn validate_body(ext: DocumentExt, body: &str) -> Result<(), PdcDiagnostic> {
                     "two elements share one `b-<uuid>` id",
                 ));
             }
+            Ok((scan.block_ids, false))
         }
+        DocumentExt::Markdown => unreachable!("markdown bodies are validated by classify_v2"),
     }
-    Ok(())
 }
 
 /// Guarded save: refuse to overwrite bytes that changed externally
@@ -1021,12 +1417,24 @@ pub fn patch_metadata(
                 "legacy HTML has no PDC envelope to patch",
             ));
         }
+        Classification::LegacyMarkdown => {
+            return Err(PdcDiagnostic::new(
+                DiagnosticKind::InvalidTransport,
+                "plain Markdown has no PDC envelope to patch",
+            ));
+        }
         Classification::Invalid(d) => return Err(d),
     }
     let lines = split_lines(text);
     let span = match ext {
         DocumentExt::Djot => envelope_span_djot(&lines)?,
         DocumentExt::Html => envelope_span_html(&lines)?,
+        DocumentExt::Markdown => envelope_span_markdown(&lines)?.ok_or_else(|| {
+            PdcDiagnostic::new(
+                DiagnosticKind::InvalidTransport,
+                "plain Markdown has no PDC envelope to patch",
+            )
+        })?,
     };
 
     // Map existing envelope keys to line indices (first occurrence wins;

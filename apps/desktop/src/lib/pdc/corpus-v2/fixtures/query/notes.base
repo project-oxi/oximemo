@@ -1,0 +1,22 @@
+filters:
+  and:
+    - tags.contains("standard")
+    - not:
+        - 'deleted == true'
+formulas:
+  score: "priority * 2"
+properties:
+  priority:
+    displayName: Priority
+views:
+  - type: table
+    name: Standard notes
+    limit: 50
+    order:
+      - file.name
+      - note.priority
+    summaries:
+      note.priority: Average
+  - type: list
+    name: Quick list
+    limit: 10

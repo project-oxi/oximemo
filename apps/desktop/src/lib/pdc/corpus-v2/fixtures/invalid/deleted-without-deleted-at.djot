@@ -1,0 +1,10 @@
+---
+format: pdc-document/1
+body: pdc-djot/1
+id: 018f47c7-0f16-77d0-8b6a-e86481850617
+created: 2026-09-13T12:34:56.789Z
+updated: 2026-09-13T12:34:56.789Z
+title: Incomplete tombstone
+deleted: true
+---
+# Missing deleted_at

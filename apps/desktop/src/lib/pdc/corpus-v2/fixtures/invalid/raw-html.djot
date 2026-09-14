@@ -1,0 +1,11 @@
+---
+format: pdc-document/1
+body: pdc-djot/1
+id: 018f47c6-bbdf-7d1e-b819-f4489dcc59a6
+created: 2026-09-13T12:34:56.789Z
+updated: 2026-09-13T12:34:56.789Z
+title: Raw HTML is forbidden
+---
+``` =html
+<script>alert("unsafe")</script>
+```

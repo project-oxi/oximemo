@@ -31,9 +31,9 @@ oximemo also keeps local references (product-specific design + a pre-canonical s
 
 | File | Purpose |
 |---|---|
-| `docs/PDC-MIGRATION.md` | Priority-1 plan for adopting both canonical PDC body profiles while retaining HTML as a first-class source format. |
-| `docs/pdc/X-OXIMEMO-v1.md` | Frozen `x_oximemo` extension registry (envelope keys, body attributes) for PDC migration. |
-| `docs/pdc/migration-report-v1.schema.json` | Frozen machine-readable per-document migration report schema (`oximemo-pdc-migration-report/1`). |
+| `docs/PDC-MIGRATION.md` | Priority-1 plan for the Markdown-first PDC 2 pivot (`pdc-document/2`, canonical `pdc-markdown/1` `.md` + `pdc-html/1`; legacy v1 stays readable; explicit conversion only). |
+| `docs/pdc/X-OXIMEMO-v1.md` | Frozen `x_oximemo` extension registry for legacy v1 imports (v2 preserves user properties directly and has no reserved `x_` namespace). |
+| `docs/pdc/migration-report-v1.schema.json` | Machine-readable per-document migration report schema (`oximemo-pdc-migration-report/1`), extended additively for the v2 pivot. |
 
 ## `doc/` — project docs
 
