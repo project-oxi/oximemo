@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.16.0] — 2026-09-14
+
+### Added
+
+- **Portable Document Contract foundation (Stage 0).** `oxi-frontmatter`
+  gains a `pdc.rs` module that parses and validates `pdc-djot/1` and
+  `pdc-html/1` envelopes — constrained envelope grammar, canonical
+  UUID/timestamp forms, duplicate block-ID and envelope-key detection,
+  and unknown-field preservation — and `oximemo-core` classifies
+  documents from it, demoting anything that cannot round-trip to a
+  read-only state. The desktop app mirrors the classification in
+  `src/lib/pdc/` (`classify.ts`, read-only `guard.ts`, digest-guarded
+  metadata `patch.ts`). Corpus revision 3 is pinned and executed by both
+  the Rust suite (`oxi-frontmatter` fixture corpus) and the frontend
+  suite (`corpus.test.ts`), and the per-document migration-report
+  schema (`docs/pdc/migration-report-v1.schema.json`) is frozen. No
+  user files are converted, normalized, or repaired by this change:
+  reads, indexing, and upgrade remain non-destructive, and legacy
+  Markdown/unmarked HTML stay first-class through the legacy adapters.
+
 ### Changed
 
 - **Copilot default turn timeout raised to 600 s.** Measured on an
@@ -15,6 +36,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   turn was tree-killed mid-report after the notes already existed.
   Existing `oximemo.toml` files keep their explicit value; only the
   unset default moves.
+
+### Fixed
+
+- **Brain space identity derives from the canonical spaces layout.**
+  The basename rule named every canonical space vault `vault`
+  (`~/.oxi/spaces/<space>/vault`), collapsing distinct spaces into one
+  brain identity. The space is now taken from the directory above
+  `vault` when the path matches `spaces/<space>/vault`; explicit vaults
+  keep the basename fallback.
+- **CLI install and discovery follow the oxi bin standard.**
+  `install.sh` defaults `PREFIX` to `~/.oxi/oximemo/bin`, and agent
+  discovery probes the per-app managed bin dirs
+  (`~/.oxi/{oxios,oxicode,oximemo,oxibrain}/bin`) plus the legacy
+  `~/.oxi/bin`, so GUI launches find oxi CLIs regardless of launchd's
+  minimal PATH.
 
 ## [0.15.0] — 2026-08-31
 
