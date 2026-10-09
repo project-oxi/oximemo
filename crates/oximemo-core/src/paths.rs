@@ -220,13 +220,20 @@ impl Paths {
         self.trash_root().join(rel_path)
     }
 
-    /// Convert an absolute path inside the vault to a vault-relative string.
-    /// Returns `None` if the path is outside the vault.
+    /// Convert an absolute path inside the vault to a vault-relative string
+    /// with forward slashes on every platform. Returns `None` if the path is
+    /// outside the vault or contains a non-UTF-8 component.
     pub fn relative_path(&self, abs: &Path) -> Option<String> {
-        abs.strip_prefix(&self.vault)
-            .ok()
-            .and_then(|p| p.to_str())
-            .map(|s| s.to_string())
+        let relative = abs.strip_prefix(&self.vault).ok()?;
+        let mut normalized = String::new();
+        for component in relative.components() {
+            let component = component.as_os_str().to_str()?;
+            if !normalized.is_empty() {
+                normalized.push('/');
+            }
+            normalized.push_str(component);
+        }
+        Some(normalized)
     }
 }
 
@@ -458,6 +465,13 @@ mod tests {
             p.note_path("wiki", "아키텍처", crate::memo::NoteFormat::Html),
             PathBuf::from("/tmp/v/wiki/아키텍처.html")
         );
+    }
+
+    #[test]
+    fn relative_path_uses_forward_slashes() {
+        let p = Paths::resolve(Some(Path::new("/tmp/v")));
+        let abs = p.vault.join("folder").join("child.md");
+        assert_eq!(p.relative_path(&abs).as_deref(), Some("folder/child.md"));
     }
 
     #[test]

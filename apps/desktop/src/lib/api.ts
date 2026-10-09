@@ -206,6 +206,17 @@ export async function setMetadataConfig(metadata: MetadataConfig): Promise<void>
   return invoke("set_metadata_config", { metadata });
 }
 
+export async function setSessionProviderConfig(session: {
+  endpoint: string;
+  model: string;
+  api_key_env: string;
+  allow_external: boolean;
+  auto_import_sources: boolean;
+  auto_scan_git_sources: boolean;
+}): Promise<void> {
+  return invoke("set_session_provider_config", { session });
+}
+
 export interface MetaHit {
   provider: string;
   title: string;

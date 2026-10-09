@@ -26,7 +26,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # NOTE: scoped to the three headless crates. The desktop crate
+      # NOTE: scoped to headless crates. The desktop crate
       # (apps/desktop/src-tauri) calls `tauri::generate_context!()`, which
       # embeds build.frontendDist at compile time and therefore needs a built
       # `dist/`. It is exercised by the `frontend` job and the release workflow.
@@ -34,10 +34,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: clippy
-        run: cargo clippy -p oximemo-core -p oximemo-cli -p oximemo-capture --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude oximemo-desktop --all-targets -- -D warnings
 
       - name: test
-        run: cargo test -p oximemo-core -p oximemo-cli -p oximemo-capture
+        run: cargo test --workspace --exclude oximemo-desktop
 
   # Validate the desktop crate (apps/desktop/src-tauri) too. The desktop
   # compile embeds the built `dist/` via generate_context!(), so the
@@ -78,6 +78,10 @@ jobs:
       - name: check (desktop)
         working-directory: .
         run: cargo check -p oximemo-desktop
+
+      - name: test (desktop)
+        working-directory: .
+        run: cargo test -p oximemo-desktop
 
   frontend:
     name: Frontend (typecheck + build)

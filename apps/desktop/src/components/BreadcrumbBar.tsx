@@ -10,7 +10,7 @@
  * removes the sidebar tree.
  *
  * Query mode renders one inert label with an icon reflecting the active
- * query kind (search, favorites, tag, all notes).
+ * query kind (PDC destination, search, favorites, tags, all notes).
  *
  * Overflow: when the bar exceeds the available width, leading segments are
  * hidden behind a `…` chip that restores them on click. A ResizeObserver
@@ -18,6 +18,7 @@
  */
 import { Popover } from "@base-ui-components/react";
 import {
+  BookMarked,
   ChevronDown,
   ChevronRight,
   Folder,
@@ -28,11 +29,11 @@ import {
   Star,
   Plus,
 } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { colorForFolder } from "../lib/color";
 import { useI18n } from "../lib/i18n";
-import { useUI } from "../stores/ui";
+import { useUI, type Location } from "../stores/ui";
 import { useFolderDrop } from "../lib/dropTarget";
 import { useFolderNames } from "../lib/folders";
 import type { FolderDef, FolderEntry } from "../lib/types";
@@ -94,12 +95,42 @@ function dropdownFor(
   return out;
 }
 
+/** Query-mode headline (label + icon produced together so they can never
+ *  disagree). The PDC destination names itself with the sidebar's
+ *  BookMarked icon — the two surfaces read as one place. A live search is
+ *  the narrowest filter and wins over favorites/tags. if-chain, not
+ *  nested ternaries (project rule), so the next location kind is one more
+ *  branch in one place. */
+function queryHeaderFor(
+  location: Location,
+  q: { search: string; favoritesOnly: boolean; tagFilter: Record<string, string> },
+  labels: { pdc: string; search: string; favorites: string; tags: string; all: string },
+): { icon: ReactNode; label: string } {
+  if (location.kind === "pdc") {
+    return { icon: <BookMarked size={13} aria-hidden="true" />, label: labels.pdc };
+  }
+  if (q.search) {
+    return {
+      icon: <Search size={13} aria-hidden="true" />,
+      label: labels.search.replace("{q}", q.search),
+    };
+  }
+  if (q.favoritesOnly) {
+    return { icon: <Star size={13} aria-hidden="true" />, label: labels.favorites };
+  }
+  if (Object.keys(q.tagFilter).some((k) => q.tagFilter[k] !== "off")) {
+    return { icon: <Hash size={13} aria-hidden="true" />, label: labels.tags };
+  }
+  return { icon: <Layers size={13} aria-hidden="true" />, label: labels.all };
+}
+
 export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFolderTree, saveAsQuery }: BreadcrumbBarProps) {
   const { t } = useI18n();
   const folderFilter = useUI((s) => s.folderFilter);
   const setFolderFilter = useUI((s) => s.setFolderFilter);
   const search = useUI((s) => s.search);
   const favoritesOnly = useUI((s) => s.favoritesOnly);
+  const location = useUI((s) => s.location);
   const tagFilter = useUI((s) => s.tagFilter);
   const view = useUI((s) => s.view);
 
@@ -108,18 +139,23 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
   // Mirror `collapsed` into a ref so the rAF measure loop sees fresh
   const collapsedRef = useRef(0);
   const { displayName: displayFolder } = useFolderNames();
-  // Hide in gallery mode — it has its own header.
-  if (view === "gallery") return null;
+  // Hide in gallery mode — it has its own header. The PDC destination
+  // keeps the bar: its query branch below names the destination.
+  if (view === "gallery" && location.kind !== "pdc") return null;
 
   // Query-mode label
   const query = folderFilter === null;
-  const queryLabel = search
-    ? t.query_search.replace("{q}", search)
-    : favoritesOnly
-      ? t.query_favorites
-      : Object.keys(tagFilter).some((k) => tagFilter[k] !== "off")
-        ? t.query_tags
-        : t.query_all_notes;
+  const { icon: queryIcon, label: queryLabel } = queryHeaderFor(
+    location,
+    { search, favoritesOnly, tagFilter },
+    {
+      pdc: t.pdc_documents,
+      search: t.query_search,
+      favorites: t.query_favorites,
+      tags: t.query_tags,
+      all: t.query_all_notes,
+    },
+  );
   const segs = query || folderFilter === "" ? [] : folderFilter.split("/");
   const paths: string[] = [];
   for (let i = 0; i < segs.length; i++) paths.push(segs.slice(0, i + 1).join("/"));
@@ -216,15 +252,7 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
         className="flex min-w-0 flex-1 items-center overflow-hidden text-[13px]"
       >
         <span aria-current="page" className="flex items-center gap-1.5 px-1 font-semibold text-text">
-          {search ? (
-            <Search size={13} aria-hidden="true" />
-          ) : favoritesOnly ? (
-            <Star size={13} aria-hidden="true" />
-          ) : Object.keys(tagFilter).some((k) => tagFilter[k] !== "off") ? (
-            <Hash size={13} aria-hidden="true" />
-          ) : (
-            <Layers size={13} aria-hidden="true" />
-          )}
+          {queryIcon}
           {queryLabel}
           {saveAsQuery && (
             <button

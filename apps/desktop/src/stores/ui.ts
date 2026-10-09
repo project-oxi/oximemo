@@ -45,7 +45,8 @@ export type Location =
   | { kind: "folder"; path: string } // "" = vault root
   | { kind: "all" }
   | { kind: "favorites" }
-  | { kind: "base"; source: { path: string } | { inline: string } };
+  | { kind: "base"; source: { path: string } | { inline: string } }
+  | { kind: "pdc" };
 
 interface UIState {
   search: string;
@@ -89,6 +90,9 @@ interface UIState {
   lastNonBaseLocation: Location;
   openBase: (source: { path: string } | { inline: string }) => void;
   exitBase: () => void;
+  /** Open the PDC destination: document inventory with guarded source
+   *  editing (canonical PDC 2 documents only). */
+  openPdc: () => void;
   /** Sidebar collapsed? Persisted to localStorage. */
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -257,8 +261,12 @@ export const useUI = create<UIState>((set) => ({
   search: "",
   setSearch: (s) => {
     // Starting a search first exits a base (spec §5) — the base's own
-    // filter model is the query surface there.
-    if (s !== "" && useUI.getState().location.kind === "base")
+    // filter model is the query surface there. Same for the PDC
+    // destination: the inventory does not consume the global search, so
+    // typing would otherwise stash an invisible query that leaks into
+    // whatever browse location the user opens next.
+    const kind = useUI.getState().location.kind;
+    if (s !== "" && (kind === "base" || kind === "pdc"))
       useUI.getState().exitBase();
     set({ search: s });
   },
@@ -284,9 +292,9 @@ export const useUI = create<UIState>((set) => ({
     const { location } = useUI.getState();
     // A base exits to the recorded previous non-base location (spec §5).
     if (location.kind === "base") return useUI.getState().exitBase();
-    // Query mode (favorites/all-notes) steps INTO root browse so ⌘↑ is
-    // always an escape hatch to top-level browsing; at root it's a no-op.
-    if (location.kind === "all" || location.kind === "favorites") {
+    // Query mode (favorites/all-notes) and the PDC destination step INTO
+    // root browse so ⌘↑ is always an escape hatch to top-level browsing.
+    if (location.kind === "all" || location.kind === "favorites" || location.kind === "pdc") {
       applyLocation(set, { kind: "folder", path: "" });
       return;
     }
@@ -334,6 +342,15 @@ export const useUI = create<UIState>((set) => ({
   exitBase: () => {
     const { lastNonBaseLocation } = useUI.getState();
     applyLocation(set, lastNonBaseLocation);
+  },
+  openPdc: () => {
+    const { location } = useUI.getState();
+    // Record the browse location so leaving PDC returns to it.
+    if (location.kind !== "base" && location.kind !== "pdc")
+      set({ lastNonBaseLocation: location });
+    // Entering PDC clears search; the inventory is its own surface.
+    applyLocation(set, { kind: "pdc" });
+    set({ search: "" });
   },
   folderFilter: "" as string | null,
   setFolderFilter: (f) => applyLocation(set, f === null ? { kind: "all" } : { kind: "folder", path: f }),

@@ -196,6 +196,57 @@ pub fn run() {
                 });
             }
             app.manage(AppState::new(vault, git, git_tx));
+            let collector_vault = app.state::<AppState>().vault.clone();
+            let collector_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    let (auto_import_exports, auto_scan_git) = collector_vault.with_config(|config| {
+                        (
+                            config.session.auto_import_sources,
+                            config.session.auto_scan_git_sources,
+                        )
+                    });
+                    if auto_import_exports || auto_scan_git {
+                        let paths = collector_vault.paths().clone();
+                        let result = tokio::task::spawn_blocking(move || {
+                            let recorder = oximemo_session::SessionRecorder::new(
+                                paths,
+                                oximemo_session::ProviderConfig::default(),
+                            )?;
+                            // Each stage keeps its own Result: one failing
+                            // stage must not discard the other stage's
+                            // completed work or suppress its change event.
+                            let collection = auto_import_exports
+                                .then(|| recorder.collect_registered_sources());
+                            let git_scan = auto_scan_git
+                                .then(|| recorder.scan_registered_git_sources(100));
+                            Ok::<_, oximemo_session::SessionError>((collection, git_scan))
+                        })
+                        .await;
+                        match result {
+                            Ok(Ok((collection, git_scan))) => {
+                                let (imported, captured) =
+                                    commands::auto_collection_counts(collection, git_scan);
+                                if imported > 0 || captured > 0 {
+                                    let _ = collector_app.emit("sessions:changed", ());
+                                    tracing::info!(
+                                        imported,
+                                        captured,
+                                        "session source auto-collection completed"
+                                    );
+                                }
+                            }
+                            Ok(Err(error)) => {
+                                tracing::warn!(error = %error, "session auto-collection failed")
+                            }
+                            Err(error) => {
+                                tracing::warn!(error = %error, "session auto-collection task failed")
+                            }
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                }
+            });
             let wstate = app.state::<AppState>();
             spawn_watcher(&wstate, app.handle());
             wstate.request_brain_index();
@@ -326,6 +377,7 @@ pub fn run() {
             commands::base_props,
             commands::folder_schema,
             commands::folder_template,
+            commands::set_session_provider_config,
             commands::set_metadata_config,
             commands::search_book_metadata,
             commands::search_movie_metadata,
@@ -343,6 +395,37 @@ pub fn run() {
             commands::reindex,
             commands::doctor,
             commands::vault_path,
+            commands::pdc_inventory,
+            commands::pdc_read_source,
+            commands::pdc_create_document,
+            commands::pdc_update_document,
+            commands::session_import_file,
+            commands::session_list,
+            commands::session_process,
+            commands::session_policy,
+            commands::session_set_policy,
+            commands::session_source_add,
+            commands::session_source_list,
+            commands::session_source_set_enabled,
+            commands::session_source_remove,
+            commands::session_source_preview,
+            commands::session_source_import,
+            commands::session_activity_list,
+            commands::session_activity_discard,
+            commands::session_git_source_add,
+            commands::session_git_source_list,
+            commands::session_git_source_set_enabled,
+            commands::session_git_source_remove,
+            commands::session_git_scan,
+            commands::session_codex_hook_status,
+            commands::session_codex_hook_install,
+            commands::session_codex_hook_uninstall,
+            commands::session_quarantine_list,
+            commands::session_quarantine_apply_file,
+            commands::session_quarantine_discard,
+            commands::session_review_accept,
+            commands::session_history,
+            commands::session_rollback,
             commands::memo_stats,
             commands::list_facets,
             commands::list_folders,
@@ -484,6 +567,7 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
         if let Ok(v) = oximemo_core::Vault::open(Some(&vault_path)) {
             v.reindex_path(&path);
         }
+        let _ = emit_handle.emit("memos:changed", ());
         let _ = git_tx.send(path);
         // Documents-plane reconcile (brain 0.10 cutover §2): the
         // debounced settle is oximemo's ingestion trigger. Single-flight
@@ -851,6 +935,7 @@ mod commands {
         TaskFields, TaskLineHash, TaskRef, TaskSelector,
     };
     use std::collections::BTreeMap;
+    use std::path::Path;
     use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use tauri::Manager;
@@ -1399,6 +1484,470 @@ mod commands {
         Ok(state.vault.paths().vault.display().to_string())
     }
 
+    /// PDC Stage 1 (read-only): scan the vault for visible
+    /// `.md`/`.html`/`.djot`/`.base` files and report classification,
+    /// diagnostics, duplicate document IDs, and broken `pdc://` link /
+    /// managed-asset findings. Reads `.pdc/vault.json` only — never
+    /// writes, converts, or executes anything. `.base` files stay
+    /// visible but unexecuted here regardless of the query gate.
+    #[tauri::command]
+    pub async fn pdc_inventory(
+        state: State<'_, AppState>,
+    ) -> Result<oximemo_core::pdc_inventory::PdcInventory, String> {
+        let paths = state.vault.paths().clone();
+        tokio::task::spawn_blocking(move || {
+            oximemo_core::pdc_inventory::scan(&paths).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|error| format!("PDC inventory task failed: {error}"))?
+    }
+
+    /// Read one visible UTF-8 source through inventory path-containment checks.
+    #[tauri::command]
+    pub fn pdc_read_source(
+        state: State<'_, AppState>,
+        path: String,
+    ) -> Result<oximemo_core::pdc_inventory::PdcSource, String> {
+        oximemo_core::pdc_inventory::read_source(state.vault.paths(), &path)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Create a canonical PDC 2 Markdown or HTML document.
+    #[tauri::command]
+    pub fn pdc_create_document(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        request: oximemo_core::pdc_documents::PdcCreateRequest,
+    ) -> Result<oximemo_core::pdc_documents::PdcWriteReceipt, String> {
+        let receipt = oximemo_core::pdc_documents::create_document(state.vault.paths(), request)
+            .map_err(|error| error.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(receipt)
+    }
+
+    /// Save a PDC 2 title/body edit only if the source digest still matches.
+    #[tauri::command]
+    pub fn pdc_update_document(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        path: String,
+        expected_sha256: String,
+        title: Option<String>,
+        body: Option<String>,
+    ) -> Result<oximemo_core::pdc_inventory::PdcSource, String> {
+        let source = oximemo_core::pdc_documents::update_document(
+            state.vault.paths(),
+            &path,
+            &expected_sha256,
+            title.as_deref(),
+            body.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(source)
+    }
+
+    fn session_recorder(state: &AppState) -> Result<oximemo_session::SessionRecorder, String> {
+        let config = state.vault.with_config(|config| config.session.clone());
+        oximemo_session::SessionRecorder::new(
+            state.vault.paths().clone(),
+            oximemo_session::ProviderConfig {
+                endpoint: config.endpoint,
+                model: config.model,
+                api_key_env: config.api_key_env,
+                allow_external: config.allow_external,
+            },
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    /// Fold the two auto-collection stage outcomes independently. A failed
+    /// stage logs its own error and contributes zero counts, so a succeeded
+    /// sibling stage still reports its counts (and fires `sessions:changed`).
+    /// Returns `(imported, captured)`.
+    pub(crate) fn auto_collection_counts(
+        collection: Option<
+            Result<oximemo_session::SourceCollectionReport, oximemo_session::SessionError>,
+        >,
+        git_scan: Option<Result<oximemo_session::GitScanReport, oximemo_session::SessionError>>,
+    ) -> (usize, usize) {
+        let imported = match collection {
+            Some(Ok(report)) => report.import.imported,
+            Some(Err(error)) => {
+                tracing::warn!(error = %error, "session export auto-collection failed");
+                0
+            }
+            None => 0,
+        };
+        let captured = match git_scan {
+            Some(Ok(report)) => {
+                if report.failed > 0 {
+                    tracing::warn!(
+                        failed = report.failed,
+                        "registered Git source scan had failures"
+                    );
+                }
+                report.captured
+            }
+            Some(Err(error)) => {
+                tracing::warn!(error = %error, "session Git source auto-collection failed");
+                0
+            }
+            None => 0,
+        };
+        (imported, captured)
+    }
+
+    #[tauri::command]
+    pub async fn session_import_file(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        path: String,
+    ) -> Result<oximemo_session::ImportReceipt, String> {
+        let recorder = session_recorder(&state)?;
+        let receipt =
+            tokio::task::spawn_blocking(move || recorder.import_export_file(Path::new(&path)))
+                .await
+                .map_err(|error| format!("session import task failed: {error}"))?
+                .map_err(|error| error.to_string())?;
+        let _ = app.emit("sessions:changed", ());
+        Ok(receipt)
+    }
+
+    #[tauri::command]
+    pub fn session_list(
+        state: State<'_, AppState>,
+        limit: usize,
+    ) -> Result<Vec<oximemo_session::SessionStatus>, String> {
+        session_recorder(&state)?
+            .list_sessions(limit)
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn session_process(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        limit: usize,
+        confirm_external: bool,
+    ) -> Result<oximemo_session::SessionRunReport, String> {
+        let (auto_import_sources, auto_scan_git_sources) = state.vault.with_config(|config| {
+            (
+                config.session.auto_import_sources,
+                config.session.auto_scan_git_sources,
+            )
+        });
+        let recorder = session_recorder(&state)?;
+        let report = tokio::task::spawn_blocking(move || {
+            recorder.run_with_consent(
+                limit,
+                confirm_external,
+                auto_import_sources,
+                auto_scan_git_sources,
+            )
+        })
+        .await
+        .map_err(|error| format!("session processing task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+        let _ = app.emit("sessions:changed", ());
+        let _ = app.emit("memos:changed", ());
+        Ok(report)
+    }
+
+    #[tauri::command]
+    pub fn session_policy(
+        state: State<'_, AppState>,
+    ) -> Result<oximemo_session::SessionPolicyState, String> {
+        session_recorder(&state)?
+            .policy()
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_set_policy(
+        state: State<'_, AppState>,
+        mode: oximemo_session::SessionPolicy,
+        retention_days: Option<u32>,
+    ) -> Result<oximemo_session::SessionPolicyState, String> {
+        session_recorder(&state)?
+            .set_policy(mode, retention_days)
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_source_add(
+        state: State<'_, AppState>,
+        path: String,
+        enabled: bool,
+    ) -> Result<oximemo_session::SourceRegistration, String> {
+        session_recorder(&state)?
+            .register_source_dir(Path::new(&path), enabled)
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_source_list(
+        state: State<'_, AppState>,
+    ) -> Result<Vec<oximemo_session::SourceRegistration>, String> {
+        session_recorder(&state)?
+            .list_sources()
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_source_set_enabled(
+        state: State<'_, AppState>,
+        source_id: String,
+        enabled: bool,
+    ) -> Result<oximemo_session::SourceRegistration, String> {
+        session_recorder(&state)?
+            .set_source_enabled(&source_id, enabled)
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_source_remove(
+        state: State<'_, AppState>,
+        source_id: String,
+    ) -> Result<bool, String> {
+        session_recorder(&state)?
+            .remove_source(&source_id)
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn session_source_preview(
+        state: State<'_, AppState>,
+    ) -> Result<oximemo_session::SourcePreviewReport, String> {
+        let recorder = session_recorder(&state)?;
+        tokio::task::spawn_blocking(move || recorder.preview_registered_sources())
+            .await
+            .map_err(|error| format!("session source preview task failed: {error}"))?
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn session_source_import(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        selections: Vec<oximemo_session::SourcePreviewSelection>,
+    ) -> Result<oximemo_session::SourceScanReport, String> {
+        let recorder = session_recorder(&state)?;
+        let report =
+            tokio::task::spawn_blocking(move || recorder.import_source_preview(&selections))
+                .await
+                .map_err(|error| format!("session source import task failed: {error}"))?
+                .map_err(|error| error.to_string())?;
+        let _ = app.emit("sessions:changed", ());
+        Ok(report)
+    }
+    #[tauri::command]
+    pub fn session_activity_list(
+        state: State<'_, AppState>,
+        limit: usize,
+    ) -> Result<Vec<oximemo_session::ActivityEvent>, String> {
+        session_recorder(&state)?
+            .list_activity_events(limit)
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_activity_discard(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        activity_id: String,
+    ) -> Result<(), String> {
+        session_recorder(&state)?
+            .discard_activity_event(&activity_id)
+            .map_err(|error| error.to_string())?;
+        let _ = app.emit("sessions:changed", ());
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub fn session_git_source_add(
+        state: State<'_, AppState>,
+        path: String,
+    ) -> Result<oximemo_session::GitSourceRegistration, String> {
+        session_recorder(&state)?
+            .register_git_source(Path::new(&path))
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_git_source_list(
+        state: State<'_, AppState>,
+    ) -> Result<Vec<oximemo_session::GitSourceRegistration>, String> {
+        session_recorder(&state)?
+            .list_git_sources()
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_git_source_set_enabled(
+        state: State<'_, AppState>,
+        path: String,
+        enabled: bool,
+    ) -> Result<oximemo_session::GitSourceRegistration, String> {
+        session_recorder(&state)?
+            .set_git_source_enabled(Path::new(&path), enabled)
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_git_source_remove(
+        state: State<'_, AppState>,
+        path: String,
+    ) -> Result<bool, String> {
+        session_recorder(&state)?
+            .remove_git_source(Path::new(&path))
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn session_git_scan(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        limit: usize,
+    ) -> Result<oximemo_session::GitScanReport, String> {
+        let recorder = session_recorder(&state)?;
+        let report =
+            tokio::task::spawn_blocking(move || recorder.scan_registered_git_sources(limit))
+                .await
+                .map_err(|error| format!("Git source scan task failed: {error}"))?
+                .map_err(|error| error.to_string())?;
+        if report.captured > 0 {
+            let _ = app.emit("sessions:changed", ());
+        }
+        Ok(report)
+    }
+
+    #[tauri::command]
+    pub fn session_codex_hook_status(state: State<'_, AppState>) -> Result<bool, String> {
+        let cli = bundled_cli_path()
+            .ok_or_else(|| "could not locate the bundled Oximemo CLI".to_string())?;
+        session_recorder(&state)?
+            .codex_hook_installed(&cli, &state.vault.paths().vault)
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub fn session_codex_hook_install(
+        state: State<'_, AppState>,
+        app: AppHandle,
+    ) -> Result<String, String> {
+        let cli = bundled_cli_path()
+            .ok_or_else(|| "could not locate the bundled Oximemo CLI".to_string())?;
+        let path = session_recorder(&state)?
+            .install_codex_hook(&cli, &state.vault.paths().vault)
+            .map_err(|error| error.to_string())?;
+        let _ = app.emit("sessions:changed", ());
+        Ok(path)
+    }
+
+    #[tauri::command]
+    pub fn session_codex_hook_uninstall(
+        state: State<'_, AppState>,
+        app: AppHandle,
+    ) -> Result<String, String> {
+        let cli = bundled_cli_path()
+            .ok_or_else(|| "could not locate the bundled Oximemo CLI".to_string())?;
+        let path = session_recorder(&state)?
+            .uninstall_codex_hook(&cli, &state.vault.paths().vault)
+            .map_err(|error| error.to_string())?;
+        let _ = app.emit("sessions:changed", ());
+        Ok(path)
+    }
+
+    #[tauri::command]
+    pub fn session_quarantine_list(
+        state: State<'_, AppState>,
+    ) -> Result<Vec<oximemo_session::QuarantineEntry>, String> {
+        session_recorder(&state)?
+            .list_quarantine()
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn session_quarantine_apply_file(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        session_id: String,
+        path: String,
+    ) -> Result<oximemo_session::ImportReceipt, String> {
+        let recorder = session_recorder(&state)?;
+        let receipt = tokio::task::spawn_blocking(move || {
+            recorder.apply_quarantine_file(&session_id, Path::new(&path))
+        })
+        .await
+        .map_err(|error| format!("session quarantine apply task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+        let _ = app.emit("sessions:changed", ());
+        Ok(receipt)
+    }
+
+    #[tauri::command]
+    pub fn session_quarantine_discard(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        session_id: String,
+    ) -> Result<(), String> {
+        session_recorder(&state)?
+            .discard_quarantine(&session_id)
+            .map_err(|error| error.to_string())?;
+        let _ = app.emit("sessions:changed", ());
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub async fn session_review_accept(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        record_id: String,
+        expected_sha256: String,
+    ) -> Result<oximemo_session::RecordStatus, String> {
+        let recorder = session_recorder(&state)?;
+        let record = tokio::task::spawn_blocking(move || {
+            recorder.accept_record(&record_id, &expected_sha256)
+        })
+        .await
+        .map_err(|error| format!("session review accept task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+        let _ = app.emit("sessions:changed", ());
+        let _ = app.emit("memos:changed", ());
+        Ok(record)
+    }
+
+    #[tauri::command]
+    pub fn session_history(
+        state: State<'_, AppState>,
+        record_id: String,
+    ) -> Result<Vec<oximemo_session::Revision>, String> {
+        session_recorder(&state)?
+            .history(&record_id)
+            .map_err(|error| error.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn session_rollback(
+        state: State<'_, AppState>,
+        app: AppHandle,
+        record_id: String,
+        target_revision: String,
+        base_revision: String,
+        request_key: String,
+    ) -> Result<oximemo_session::RecordStatus, String> {
+        let recorder = session_recorder(&state)?;
+        let record = tokio::task::spawn_blocking(move || {
+            recorder.rollback_record(&record_id, &target_revision, &base_revision, &request_key)
+        })
+        .await
+        .map_err(|error| format!("session rollback task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+        let _ = app.emit("memos:changed", ());
+        Ok(record)
+    }
+
     /// One row of the space picker (spec 2026-08-28 §4).
     #[derive(Debug, Clone, serde::Serialize)]
     pub struct SpaceInfo {
@@ -1774,6 +2323,17 @@ mod commands {
         state
             .vault
             .set_metadata_config(metadata)
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn set_session_provider_config(
+        state: State<'_, AppState>,
+        session: oximemo_core::config::SessionProviderConfig,
+    ) -> Result<(), String> {
+        state
+            .vault
+            .set_session_provider_config(session)
             .map_err(|e| e.to_string())
     }
 
@@ -3556,5 +4116,95 @@ mod tests {
             );
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+    }
+
+    fn collection_report(imported: usize) -> oximemo_session::SourceCollectionReport {
+        oximemo_session::SourceCollectionReport {
+            preview: oximemo_session::SourcePreviewReport {
+                scanned: 0,
+                ready: 0,
+                duplicates: 0,
+                unchanged: 0,
+                conflicts: 0,
+                failed: 0,
+                items: Vec::new(),
+            },
+            import: oximemo_session::SourceScanReport {
+                scanned: 0,
+                imported,
+                duplicates: 0,
+                failed: 0,
+                items: Vec::new(),
+            },
+        }
+    }
+
+    fn git_report(captured: usize, failed: usize) -> oximemo_session::GitScanReport {
+        oximemo_session::GitScanReport {
+            scanned: 0,
+            captured,
+            duplicates: 0,
+            failed,
+            items: Vec::new(),
+        }
+    }
+
+    /// A failed export-collection stage must not zero out a succeeded
+    /// Git scan: the scan's captures still fire `sessions:changed`.
+    #[test]
+    fn auto_collection_counts_survive_collection_failure() {
+        let (imported, captured) = super::commands::auto_collection_counts(
+            Some(Err(oximemo_session::SessionError::invalid(
+                "source dir unreadable",
+            ))),
+            Some(Ok(git_report(4, 1))),
+        );
+        assert_eq!((imported, captured), (0, 4));
+    }
+
+    /// Symmetric: a failed Git-scan stage must not discard imports from
+    /// the collection stage.
+    #[test]
+    fn auto_collection_counts_survive_git_scan_failure() {
+        let (imported, captured) = super::commands::auto_collection_counts(
+            Some(Ok(collection_report(2))),
+            Some(Err(oximemo_session::SessionError::invalid(
+                "git scan failed",
+            ))),
+        );
+        assert_eq!((imported, captured), (2, 0));
+    }
+
+    #[test]
+    fn auto_collection_counts_both_succeed_and_disabled_stays_zero() {
+        let (imported, captured) = super::commands::auto_collection_counts(
+            Some(Ok(collection_report(3))),
+            Some(Ok(git_report(5, 0))),
+        );
+        assert_eq!((imported, captured), (3, 5));
+
+        let (imported, captured) = super::commands::auto_collection_counts(None, None);
+        assert_eq!((imported, captured), (0, 0));
+    }
+
+    /// `session_set_policy` now takes the typed enum; the wire form is
+    /// unchanged (serde snake_case), and invalid values are rejected by
+    /// deserialization before the command body runs.
+    #[test]
+    fn session_policy_wire_accepts_snake_case_and_rejects_unknown() {
+        use oximemo_session::SessionPolicy;
+        assert_eq!(
+            serde_json::from_str::<SessionPolicy>("\"automatic\"").unwrap(),
+            SessionPolicy::Automatic
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionPolicy>("\"review\"").unwrap(),
+            SessionPolicy::Review
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionPolicy>("\"capture_only\"").unwrap(),
+            SessionPolicy::CaptureOnly
+        );
+        assert!(serde_json::from_str::<SessionPolicy>("\"always\"").is_err());
     }
 }

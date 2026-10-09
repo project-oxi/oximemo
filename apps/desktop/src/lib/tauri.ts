@@ -924,6 +924,13 @@ async function browserFallback(
     case "vault_path":
       return "(browser preview · localStorage)";
 
+    // PDC commands require the desktop vault filesystem.
+    case "pdc_inventory":
+    case "pdc_read_source":
+    case "pdc_create_document":
+    case "pdc_update_document":
+      throw new Error("PDC vault access is only available in the desktop app");
+
     case "reindex":
       return { memos: 0, trashed_memos: 0, added: 0, updated: 0, unchanged: 0, failed: 0 };
 
@@ -1136,6 +1143,18 @@ async function browserFallback(
         ],
         brain: { enabled: true, socket: "", space: "personal" },
         index: { watcher_debounce_ms: 300 },
+        // SessionProviderConfig defaults — the session settings rows and
+        // SessionRecorderPanel read/write this section; without a seed
+        // every toggle/commit would "succeed", invalidate ["config"], and
+        // snap back because `session` stays undefined.
+        session: {
+          endpoint: "",
+          model: "",
+          api_key_env: "",
+          allow_external: false,
+          auto_import_sources: false,
+          auto_scan_git_sources: false,
+        },
         // TasksConfig::default() parity — the widget cfg and the
         // transform_task_draft mirror below both key off these
         // defaults (dataview tokens, no global filter, recurrence
@@ -1174,7 +1193,16 @@ async function browserFallback(
     case "set_index_config":
     case "set_appearance_config":
     case "set_metadata_config":
+    case "set_session_provider_config":
       return null;
+
+    // Hook management writes ~/.codex/hooks.json — desktop-only; a silent
+    // no-op here would leave the settings row reading "not installed" and
+    // its Install click doing nothing forever.
+    case "session_codex_hook_status":
+    case "session_codex_hook_install":
+    case "session_codex_hook_uninstall":
+      throw new Error("Codex hook management is only available in the desktop app");
 
 
     case "set_folder_view": {

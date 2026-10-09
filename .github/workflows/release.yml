@@ -1,12 +1,12 @@
 name: Release
 
-# Builds the `oximemo` CLI binary and the macOS desktop app (.dmg) for
-# aarch64-apple-darwin, then publishes a GitHub Release with the artifacts.
+# Builds the `oximemo` CLI binary and macOS desktop app artifacts for
+# aarch64-apple-darwin, then publishes a GitHub Release.
 #
-# Apple signing + notarization is enabled automatically when the APPLE_*
-# secrets are present; otherwise the app is built unsigned (fine for local use).
+# Official releases require Developer ID signing, notarization, and updater
+# signing. Forks may still build unsigned artifacts.
 #
-#   git tag v0.3.0 && git push origin v0.3.0
+#   git tag v0.18.0 && git push origin v0.18.0
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g. v0.3.0)'
+        description: 'Tag to release (e.g. v0.18.0)'
         required: true
 
 permissions:
@@ -29,6 +29,20 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: Validate release source
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)"
+          TAURI_VERSION="$(jq -r '.version' apps/desktop/src-tauri/tauri.conf.json)"
+          if [[ "$RELEASE_TAG" != "v$VERSION" || "$TAURI_VERSION" != "$VERSION" ]]; then
+            echo "::error::tag, Cargo.toml, and tauri.conf.json versions must match (tag=$RELEASE_TAG, cargo=$VERSION, tauri=$TAURI_VERSION)"
+            exit 1
+          fi
+          echo "Validated release tag $RELEASE_TAG at $(git rev-parse --short HEAD)"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -83,11 +97,17 @@ jobs:
           cp "target/${{ env.TARGET }}/release/oximemo" \
              "apps/desktop/src-tauri/binaries/oximemo-${{ env.TARGET }}"
 
-      # Tauri treats a present-but-empty APPLE_CERTIFICATE as "sign requested"
-      # and fails the keychain import, so export the APPLE_* vars to
-      # $GITHUB_ENV only when the certificate secret is actually registered.
-      # Absent -> fully unsigned build; present -> sign + notarize.
-      - name: Export Apple signing env (only when configured)
+      # Validate secret availability without writing secret values to
+      # GITHUB_ENV or logs. Tauri imports the certificate into a temporary
+      # keychain and checks the identity; the resulting app is verified below.
+      - name: Ensure secure prompt helper
+        run: |
+          if ! command -v expect >/dev/null 2>&1; then
+            brew install expect
+          fi
+          command -v expect
+
+      - name: Validate release signing secrets
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -95,42 +115,144 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          if [ -n "$APPLE_CERTIFICATE" ]; then
-            {
-              echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
-              echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
-              echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
-              echo "APPLE_ID=$APPLE_ID"
-              echo "APPLE_PASSWORD=$APPLE_PASSWORD"
-              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
-            } >> "$GITHUB_ENV"
-            echo "Apple signing: enabled"
-          else
-            echo "Apple signing: disabled (no APPLE_CERTIFICATE) -> unsigned build"
-          fi
-
-      # The Tauri updater requires a signed `.app.tar.gz`. Export the signing
-      # key when the secret is registered; absent -> unsigned build (updater
-      # disabled). Mirrors the APPLE_* gate above.
-      - name: Export Tauri updater signing env (only when configured)
-        env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            {
-              echo "TAURI_SIGNING_PRIVATE_KEY=$TAURI_SIGNING_PRIVATE_KEY"
-              echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
-            } >> "$GITHUB_ENV"
-            echo "Tauri updater signing: enabled"
+          set -euo pipefail
+          require_secret() {
+            local name="$1"
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required secret: $name"
+              exit 1
+            fi
+          }
+          if [ "$GITHUB_REPOSITORY" = "project-oxi/oximemo" ]; then
+            for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+              require_secret "$name"
+            done
           else
-            echo "Tauri updater signing: disabled (no key) -> unsigned build"
+            if [ -n "$APPLE_CERTIFICATE" ]; then
+              for name in APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+                require_secret "$name"
+              done
+            fi
+            if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] && [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+              echo "::error::Missing Tauri updater signing password"
+              exit 1
+            fi
           fi
-
+          echo "Release signing prerequisites validated"
       - name: Build desktop app (.dmg + .app.tar.gz)
         working-directory: apps/desktop
-        run: cargo tauri build --target ${{ env.TARGET }}
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+          fi
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          fi
+          cargo tauri build --target ${{ env.TARGET }}
+
+      - name: Verify app signature and notarize DMG
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            if [ "$GITHUB_REPOSITORY" = "project-oxi/oximemo" ]; then
+              echo "::error::Official releases require Apple signing"
+              exit 1
+            fi
+            echo "Skipping signature verification for unsigned fork build"
+            exit 0
+          fi
+
+          BUNDLE="target/${{ env.TARGET }}/release/bundle"
+          APP="$(find "$BUNDLE/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          DMG_PATH="$(find "$BUNDLE/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          if [ -z "$APP" ] || [ -z "$DMG_PATH" ]; then
+            echo "::error::Tauri app or DMG bundle is missing"
+            exit 1
+          fi
+          export DMG_PATH
+
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          SIGNATURE="$(codesign -dv --verbose=4 "$APP" 2>&1)"
+          AUTHORITY="$(printf '%s\n' "$SIGNATURE" | awk -F= '$1 == "Authority" { print substr($0, index($0, "=") + 1); exit }')"
+          TEAM="$(printf '%s\n' "$SIGNATURE" | awk -F= '$1 == "TeamIdentifier" { print $2; exit }')"
+          if [ "$AUTHORITY" != "$APPLE_SIGNING_IDENTITY" ] || [ "$TEAM" != "$APPLE_TEAM_ID" ]; then
+            echo "::error::Built app identity does not match the configured Developer ID"
+            exit 1
+          fi
+          case "$SIGNATURE" in
+            *"flags=0x10000(runtime)"*) ;;
+            *) echo "::error::App signature lacks hardened runtime"; exit 1 ;;
+          esac
+          case "$SIGNATURE" in
+            *"Timestamp="*) ;;
+            *) echo "::error::App signature lacks a secure timestamp"; exit 1 ;;
+          esac
+          xcrun stapler validate -v "$APP"
+          spctl --assess --type execute --verbose=4 "$APP"
+
+          # notarytool prompts securely for the app-specific password when
+          # --password is omitted. Expect supplies it through the PTY, never
+          # as a process argument or workflow log value.
+          expect <<'EXPECT'
+          set timeout 120
+          log_user 0
+          set output ""
+          set prompted 0
+          spawn -noecho env -u APPLE_PASSWORD xcrun notarytool submit $env(DMG_PATH) --apple-id $env(APPLE_ID) --team-id $env(APPLE_TEAM_ID) --wait --output-format json
+          expect {
+            -re {(?i)password[^:\r\n]*:} {
+              append output $expect_out(buffer)
+              send -- "$env(APPLE_PASSWORD)\r"
+              set prompted 1
+            }
+            eof {
+              append output $expect_out(buffer)
+            }
+            timeout {
+              puts stderr "::error::Timed out waiting for the secure notarytool password prompt"
+              exit 1
+            }
+          }
+          if {$prompted} {
+            set timeout -1
+            expect eof
+            append output $expect_out(buffer)
+          }
+          set result [wait]
+          set output [string map [list $env(APPLE_PASSWORD) "<redacted>"] $output]
+          puts $output
+          if {[lindex $result 2] != 0 || [lindex $result 3] != 0} {
+            exit 1
+          }
+          if {![regexp -nocase {"status"\s*:\s*"accepted"} $output]} {
+            puts stderr "::error::Notarytool did not report an accepted DMG"
+            exit 1
+          }
+          puts "Apple notarization accepted"
+          EXPECT
+          xcrun stapler staple -v "$DMG_PATH"
+          xcrun stapler validate -v "$DMG_PATH"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+
 
       - name: Collect desktop bundle
         run: |
@@ -139,10 +261,9 @@ jobs:
           find "$BUNDLE/dmg" -name '*.dmg' -exec cp {} staging/ \;
           find "$BUNDLE/macos" -name '*.app.tar.gz' -exec cp {} staging/ \; || true
           find "$BUNDLE/macos" -name '*.app.tar.gz.sig' -exec cp {} staging/ \; || true
-          (cd staging && for f in *.dmg; do
+          (cd staging && for f in *.dmg *.app.tar.gz; do
             [ -e "$f" ] && shasum -a 256 "$f" | awk '{print $1}' > "$f.sha256"
           done) || true
-
       # Assemble the updater manifest the app polls at
       # releases/latest/download/latest.json. Only when a signed `.app.tar.gz`
       # exists — forks without the signing key still ship the .dmg + CLI.
@@ -236,17 +357,15 @@ jobs:
         with:
           key: publish-crates
 
-      # Publish in dependency topology: core resolves oxi-frontmatter from
-      # the registry, and metadata resolves oximemo-core — publishing
-      # metadata before core fails version selection (v0.11.0 postmortem).
-      # Version is read per-crate via cargo metadata (workspace-inherited and
-      # standalone versions alike — oxi-vault-git is 0.x, not the app version).
-      - name: Publish crates (frontmatter, vault-git, core, capture, metadata)
+      # Publish in dependency topology: core resolves oxi-frontmatter, while
+      # session and metadata resolve oximemo-core. Publish both before the CLI.
+      # Version comes from cargo metadata for workspace and standalone crates.
+      - name: Publish crates (frontmatter, vault-git, core, session, capture, metadata)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          for crate in oxi-frontmatter oxi-vault-git oximemo-core oximemo-capture oximemo-metadata; do
+          for crate in oxi-frontmatter oxi-vault-git oximemo-core oximemo-session oximemo-capture oximemo-metadata; do
             CV=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$crate\") | .version")
             echo "Publishing $crate@$CV"
             if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \

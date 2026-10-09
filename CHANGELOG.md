@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-10-10
+
+### Added
+
+- **PDC document inventory and guarded source editor.** Adds a surfaced document inventory with diagnostics and source editing guarded by the existing PDC contract.
+- **Assistant session recorder, separate from quick capture.** Imports only explicitly selected `cassette-session-export/1` files or files from user-registered folders. Folder preview is report-only; importing a saved preview rechecks each file digest. Opt-in export auto-import scans enabled folders every 60 seconds in the desktop app and before `session process`, without invoking a provider. Export-folder registrations can be individually enabled, disabled, and removed from Settings or the CLI.
+- **Codex and Git metadata adapters.** An explicitly installed Codex `SessionEnd` hook captures lifecycle metadata without reading transcript contents. An opt-in scanner captures commit metadata and changed paths from explicitly registered Git repositories; it never reads diffs or file contents. Both remain local and outside the transcript-processing queue.
+- **PDC 2 session output and provider consent.** Transcript-derived summaries, decisions, and tasks are PDC 2 Markdown documents under `sessions/`, with review acceptance, revision history, and guarded rollback. Remote HTTPS providers require opt-in and per-run send confirmation in the UI or `--confirm-external` in the CLI. Suspected secrets are held outside SQLite in private quarantine storage.
+- Added the [session recorder guide](docs/SESSION-RECORDER.md) and its CLI workflow to the project documentation.
+
+### Fixed
+
+- Queue selection no longer depends on SQLite JSON1. Record source lookup errors now propagate, and committed rollback receipts reject reused request keys with different targets.
+- Full reindex commits a replacement Tantivy snapshot atomically, preserving the previous search index if rebuilding fails.
+- Path-index recovery retains complete IDs from malformed lists, and trash watcher cleanup recognizes legacy `.trash/` records with either separator style.
+- Session recorder setup instructions now match the Settings navigation.
+- Recovered export-folder imports clear stale source errors after a successful import.
+- The PDC memo guard recognizes quoted and spaced top-level format keys; inventory paths remain slash-separated, and absent diagnostic lines stay hidden.
+
 ## [0.17.0] — 2026-09-14
 
 ### Changed
@@ -1270,7 +1289,11 @@ vault registration goes through the oxibrain client boundary.
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/project-oxi/oximemo/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/project-oxi/oximemo/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/project-oxi/oximemo/compare/v0.15.0...v0.16.0
+[0.15.0]: https://github.com/project-oxi/oximemo/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/project-oxi/oximemo/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/project-oxi/oximemo/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/project-oxi/oximemo/compare/v0.12.0...v0.13.0

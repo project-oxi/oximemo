@@ -100,16 +100,20 @@ fn debounce_loop(rx: mpsc::Receiver<PathBuf>, debounce: Duration, on_change: OnC
 }
 
 /// Truth-half file extensions under version control: markdown notes
-/// (`.md`), HTML notes (`.html`), the vault config (`.toml`), and saved
-/// query definitions (`.query`, query views spec §3). `.query` edits are
+/// (`.md`), HTML notes (`.html`), PDC legacy Djot (`.djot`), PDC query
+/// documents (`.base`), the vault config (`.toml`), and saved query
+/// definitions (`.query`, query views spec §3). `.query` edits are
 /// not note content — the app's watcher callback routes them to
-/// `bases:changed` instead of reindexing. Asset files under `_assets/`
-/// are excluded by the watcher's root scope, so arbitrary binary commits
-/// never land.
+/// `bases:changed` instead of reindexing. `.djot`/`.base` events are
+/// read-only PDC-plane changes: they surface as `memos:changed` so the
+/// PDC inventory view refreshes, but the reindex scan (`.md`/`.html`
+/// only) never picks them up and `.base` is never executed. Asset
+/// files under `_assets/` are excluded by the watcher's root scope, so
+/// arbitrary binary commits never land.
 fn is_user_content(p: &Path) -> bool {
     matches!(
         p.extension().and_then(|e| e.to_str()),
-        Some("md" | "html" | "markdown" | "htm" | "query")
+        Some("md" | "html" | "markdown" | "htm" | "query" | "djot" | "base")
     ) || p.file_name().is_some_and(|n| n == "oximemo.toml")
 }
 
@@ -138,5 +142,13 @@ mod tests {
         assert!(is_user_content(Path::new("oximemo.toml")));
         assert!(!is_user_content(Path::new("a.txt")));
         assert!(!is_user_content(Path::new("a.toml"))); // only the vault config name
+    }
+
+    #[test]
+    fn pdc_plane_extensions_are_user_content() {
+        // PDC legacy Djot and query documents refresh the read-only
+        // PDC view without entering the memo reindex.
+        assert!(is_user_content(Path::new("a.djot")));
+        assert!(is_user_content(Path::new("views/all.base")));
     }
 }

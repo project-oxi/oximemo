@@ -251,6 +251,17 @@ enum Cmd {
         sub: BaseCmd,
     },
 
+    /// PDC document-plane operations (index-independent).
+    Pdc {
+        #[command(subcommand)]
+        sub: PdcCmd,
+    },
+
+    /// Import and review explicit assistant-session exports.
+    Session {
+        #[command(subcommand)]
+        sub: SessionCmd,
+    },
     /// Manage extended-checkbox tasks (spec 2026-08-27).
     Task {
         #[command(subcommand)]
@@ -473,6 +484,218 @@ enum BaseCmd {
     Restore { token: String },
 }
 
+#[derive(Subcommand)]
+enum PdcCmd {
+    /// List the vault's PDC-plane files with classification outcomes,
+    /// diagnostics, duplicate IDs, and broken references (read-only;
+    /// nothing is converted, executed, or rewritten). JSON is the
+    /// agent-facing default.
+    List {
+        /// table | json | ndjson
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+    /// Read one inventoried source; `--json` also returns its SHA-256 edit token.
+    Read {
+        /// Vault-relative path of an inventoried file.
+        path: String,
+        /// Print source and digest as JSON instead of raw source bytes.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new canonical PDC 2 Markdown or HTML document.
+    Create {
+        #[arg(long)]
+        title: String,
+        #[arg(long, default_value = "")]
+        folder: String,
+        #[arg(long, default_value = "markdown", value_parser = ["markdown", "html"])]
+        profile: String,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        /// JSON value, or plain text when it is not valid JSON.
+        #[arg(long = "set", value_name = "KEY=JSON")]
+        properties: Vec<String>,
+        #[arg(long, conflicts_with = "body_stdin")]
+        body: Option<String>,
+        /// Read body source from stdin.
+        #[arg(long, conflicts_with = "body")]
+        body_stdin: bool,
+    },
+    /// Update a canonical PDC 2 title/body using the digest from `pdc read --json`.
+    Update {
+        /// Vault-relative canonical `.md` or `.html` path.
+        path: String,
+        /// Exact `sha256:<hex>` value from the source read.
+        #[arg(long)]
+        sha256: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long, conflicts_with = "body_stdin")]
+        body: Option<String>,
+        /// Read replacement body source from stdin.
+        #[arg(long, conflicts_with = "body")]
+        body_stdin: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SessionCmd {
+    /// Import one explicitly selected Cassette-format export.
+    Import { path: PathBuf },
+    /// List imported session status and linked PDC records.
+    List {
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+    /// Process queued sessions; remote providers also require --confirm-external.
+    Process {
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        /// Confirm sending transcript content to the configured remote provider.
+        #[arg(long)]
+        confirm_external: bool,
+    },
+    /// Read or update the processing policy.
+    Policy {
+        #[arg(long, value_enum)]
+        mode: Option<SessionMode>,
+        #[arg(long)]
+        retention_days: Option<u32>,
+    },
+    /// Manage explicitly registered, non-recursive export directories.
+    Source {
+        #[command(subcommand)]
+        sub: SessionSourceCmd,
+    },
+    /// Inspect captured Codex/Git metadata and manage metadata-only adapters.
+    Activity {
+        #[command(subcommand)]
+        sub: SessionActivityCmd,
+    },
+    /// Inspect, redact, or discard quarantined exports.
+    Quarantine {
+        #[command(subcommand)]
+        sub: QuarantineCmd,
+    },
+    /// Review generated PDC records before accepting them.
+    Review {
+        #[command(subcommand)]
+        sub: ReviewCmd,
+    },
+    /// Show full PDC revision snapshots for a generated record.
+    History { record_id: String },
+    /// Restore a prior PDC revision with compare-and-swap protection.
+    Rollback {
+        record_id: String,
+        #[arg(long)]
+        target_sha256: String,
+        #[arg(long)]
+        base_sha256: String,
+        /// Stable request id for crash-safe replay.
+        #[arg(long)]
+        request_key: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum SessionMode {
+    Automatic,
+    Review,
+    CaptureOnly,
+}
+
+#[derive(Subcommand)]
+enum SessionSourceCmd {
+    Add {
+        path: PathBuf,
+        #[arg(long)]
+        disabled: bool,
+    },
+    List,
+    /// Enable or disable a registered export folder by its source ID.
+    SetEnabled {
+        source_id: String,
+        #[arg(long)]
+        disabled: bool,
+    },
+    /// Remove an export-folder registration without deleting imported sessions.
+    Remove {
+        source_id: String,
+    },
+    /// Produce a metadata-only, report-only preview of registered export folders.
+    Preview,
+    /// Import only ready entries from a saved `source preview` JSON report.
+    Import {
+        preview_json: PathBuf,
+    },
+}
+#[derive(Subcommand)]
+enum SessionActivityCmd {
+    List {
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
+    /// Receive one Codex SessionEnd hook event from stdin; transcript paths are never opened.
+    CodexHook,
+    /// Add Oximemo's metadata-only Codex SessionEnd hook to ~/.codex/hooks.json.
+    CodexInstall,
+    /// Remove only Oximemo's command from ~/.codex/hooks.json.
+    CodexUninstall,
+    Git {
+        #[command(subcommand)]
+        sub: SessionGitCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum SessionGitCmd {
+    /// Register a Git repository for metadata-only collection.
+    Add {
+        path: PathBuf,
+    },
+    List,
+    SetEnabled {
+        path: PathBuf,
+        #[arg(long)]
+        disabled: bool,
+    },
+    Remove {
+        path: PathBuf,
+    },
+    Scan {
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
+}
+
+#[derive(Subcommand)]
+enum QuarantineCmd {
+    List,
+    Apply {
+        session_id: String,
+        sanitized_export: PathBuf,
+    },
+    Discard {
+        session_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReviewCmd {
+    List {
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
+    Accept {
+        record_id: String,
+        #[arg(long)]
+        sha256: String,
+    },
+}
+
 fn main() -> ExitCode {
     init_tracing();
     match run() {
@@ -507,6 +730,22 @@ fn run() -> Result<()> {
             SpaceCmd::Add { name } => commands::cmd_space_add(&name),
             SpaceCmd::Switch { name } => commands::cmd_space_switch(&name),
         };
+    }
+    // PDC operations use the vault source tree directly and must not open or
+    // migrate the memo index; the guarded writer needs only the vault paths.
+    if let Cmd::Pdc { sub } = &cli.cmd {
+        let spec =
+            oximemo_core::spaces::resolve_vault_spec(cli.vault.as_deref(), cli.space.as_deref())?;
+        let paths = oximemo_core::Paths::resolve_spec(&spec);
+        return commands::cmd_pdc(&paths, sub);
+    }
+    // Session ingestion uses only the vault's config and source paths; it
+    // never opens or migrates the memo index.
+    if let Cmd::Session { sub } = &cli.cmd {
+        let spec =
+            oximemo_core::spaces::resolve_vault_spec(cli.vault.as_deref(), cli.space.as_deref())?;
+        let paths = oximemo_core::Paths::resolve_spec(&spec);
+        return commands::cmd_session(&paths, sub);
     }
     let spec =
         oximemo_core::spaces::resolve_vault_spec(cli.vault.as_deref(), cli.space.as_deref())?;
@@ -680,10 +919,12 @@ fn run() -> Result<()> {
             BaseCmd::Restore { token } => commands::cmd_base_restore(&vault, &token),
         },
         Cmd::Task { sub } => dispatch_task(&vault, sub),
+        Cmd::Session { .. } => unreachable!(),
         // Handled before the vault is opened (see above).
         Cmd::Upgrade { .. } => unreachable!(),
         Cmd::Space { .. } => unreachable!(),
         Cmd::MigrateHome { .. } => unreachable!(),
+        Cmd::Pdc { .. } => unreachable!(),
     }
 }
 

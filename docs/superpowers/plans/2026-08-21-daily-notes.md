@@ -13,7 +13,7 @@
 - Spec: `docs/superpowers/specs/2026-08-21-daily-notes-design.md` — every task traces to a §.
 - New i18n keys go into `ko.ts` AND `en.ts` in the same commit (§5).
 - No `window.confirm` (Tauri WKWebView no-op).
-- Gates: `CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo test --workspace` + `cargo fmt --all -- --check` + `cd apps/desktop && bun run build`.
+- Gates: `cargo test --workspace` + `cargo fmt --all -- --check` + `cd apps/desktop && bun run build`.
 - English Conventional Commits (`feat:`, `test:`, `docs:`).
 - Existing code conventions: `CoreError::other(...)` for string errors; commands return `Result<NoteDto, String>` and emit `memos:changed`; browser fallback mirrors IPC semantics in `tauri.ts` `browserInvoke` switch.
 - Frontend E2E runs headless against `bun run dev` (:5173) via the browser device; localStorage seed keys `oximemo:memos:v3` / `oximemo:folders:v1`. Fresh browser locale is **English** — assert English strings.
@@ -63,7 +63,7 @@ folder = "journal"
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo test -p oximemo-core daily_section -- --nocapture`
+Run: `cargo test -p oximemo-core daily_section -- --nocapture`
 Expected: FAIL — no field `daily` on `VaultConfig`.
 
 - [ ] **Step 3: Implement** — in `config.rs`:
@@ -106,7 +106,7 @@ In `apps/desktop/src/lib/types.ts`, `Config` interface (~line 129, next to `brai
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo test -p oximemo-core daily_section`
+Run: `cargo test -p oximemo-core daily_section`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -159,7 +159,7 @@ git commit -m "feat(core): [daily] config section with enabled/folder defaults"
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo test -p oximemo-core for_date -- --nocapture`
+Run: `cargo test -p oximemo-core for_date -- --nocapture`
 Expected: FAIL — `for_date` / `parse_iso_date` not defined.
 
 - [ ] **Step 3: Implement** — in `template.rs`, free function above `TemplateCtx`:
@@ -210,7 +210,7 @@ Inside `impl TemplateCtx`, after `now`:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo test -p oximemo-core for_date parse_iso`
+Run: `cargo test -p oximemo-core for_date parse_iso`
 Expected: both PASS.
 
 - [ ] **Step 5: Commit**
@@ -325,7 +325,7 @@ git commit -m "feat(core): TemplateCtx::for_date with strict ISO date parsing"
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo test -p oximemo-core open_daily`
+Run: `cargo test -p oximemo-core open_daily`
 Expected: FAIL — no method `open_daily`.
 
 - [ ] **Step 3: Implement** — in `vault.rs` after `create_note_auto`:
@@ -397,7 +397,7 @@ Implementation notes:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo test -p oximemo-core open_daily`
+Run: `cargo test -p oximemo-core open_daily`
 Expected: 7 PASS.
 
 - [ ] **Step 5: Commit**
@@ -437,7 +437,7 @@ git commit -m "feat(core): Vault::open_daily — idempotent daily-note create-or
 
 - [ ] **Step 3: Build to verify**
 
-Run: `CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo build -p oximemo`
+Run: `cargo build -p oximemo`
 Expected: compiles clean (thin wrapper; semantics covered by Task 3 tests).
 
 - [ ] **Step 4: Commit**
@@ -857,8 +857,8 @@ git commit -m "feat(desktop): sidebar daily section — Today button and mini ca
 
 Run:
 ```bash
-CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo test --workspace
-CARGO_TARGET_DIR=/Volumes/MERCURY/PROJECTS/oximemo/target cargo fmt --all -- --check
+cargo test --workspace
+cargo fmt --all -- --check
 cd apps/desktop && bun run build
 ```
 Expected: all tests pass (149 + new), fmt clean, build green.

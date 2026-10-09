@@ -75,6 +75,30 @@ describe("location mapping (query views spec §5)", () => {
     expect(s.search).toBe("단어");
   });
 
+  test("openPdc records return location, clears search; typing a search leaves PDC", () => {
+    useUI.getState().setFolderFilter("book");
+    useUI.getState().openPdc();
+    let s = useUI.getState();
+    expect(s.location).toEqual({ kind: "pdc" });
+    expect(s.folderFilter).toBeNull();
+    expect(s.favoritesOnly).toBe(false);
+    expect(s.lastNonBaseLocation).toEqual({ kind: "folder", path: "book" });
+    expect(s.search).toBe("");
+
+    // The inventory never consumes the global search: typing must leave
+    // PDC instead of stashing an invisible query in state.
+    useUI.getState().setSearch("단어");
+    s = useUI.getState();
+    expect(s.location).toEqual({ kind: "folder", path: "book" });
+    expect(s.search).toBe("단어");
+  });
+
+  test("empty search does not leave PDC", () => {
+    useUI.getState().openPdc();
+    useUI.getState().setSearch("");
+    expect(useUI.getState().location.kind).toBe("pdc");
+  });
+
   test("navigateUp: base exits, favorites falls to root, nested folder climbs", () => {
     useUI.getState().setFolderFilter("book");
     useUI.getState().openBase({ path: "queries/a.query" });

@@ -1,0 +1,34 @@
+[package]
+name = "oximemo-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Explicit session export ingestion and grounded PDC summaries for Oximemo"
+repository = "https://github.com/project-oxi/oximemo"
+homepage = "https://github.com/project-oxi/oximemo"
+publish = true
+
+[lib]
+name = "oximemo_session"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+blake3 = { workspace = true }
+time = { workspace = true }
+sha2 = { workspace = true }
+regex = "1"
+rusqlite = { workspace = true }
+reqwest = { workspace = true }
+fs2 = { workspace = true }
+thiserror = { workspace = true }
+oximemo-core = { workspace = true }
+oxi-frontmatter = { path = "../oxi-frontmatter", version = "0.3" }
+serde_yaml_ng = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

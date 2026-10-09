@@ -1285,6 +1285,507 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
     Ok(Duration::from_secs(secs))
 }
 
+// -- explicit session imports --------------------------------------------
+
+pub fn cmd_session(paths: &oximemo_core::Paths, sub: &crate::SessionCmd) -> Result<()> {
+    use oximemo_session::{ProviderConfig, SessionPolicy, SessionRecorder};
+
+    let stored = oximemo_core::VaultConfig::load(paths).session;
+    let auto_import_sources = stored.auto_import_sources;
+    let auto_scan_git_sources = stored.auto_scan_git_sources;
+    let recorder = SessionRecorder::new(
+        paths.clone(),
+        ProviderConfig {
+            endpoint: stored.endpoint,
+            model: stored.model,
+            api_key_env: stored.api_key_env,
+            allow_external: stored.allow_external,
+        },
+    )?;
+    match sub {
+        crate::SessionCmd::Import { path } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&recorder.import_export_file(path)?)?
+            );
+        }
+        crate::SessionCmd::List { limit, format } => {
+            let format =
+                Format::from_arg(format).ok_or_else(|| anyhow!("unknown --format: {format}"))?;
+            let sessions = recorder.list_sessions(*limit)?;
+            match format {
+                Format::Json => println!("{}", serde_json::to_string_pretty(&sessions)?),
+                Format::Ndjson => {
+                    for session in sessions {
+                        println!("{}", serde_json::to_string(&session)?);
+                    }
+                }
+                Format::Table => {
+                    println!(
+                        "{:<38} {:<14} {:<14} TITLE",
+                        "SESSION ID", "STATE", "SOURCE"
+                    );
+                    for session in sessions {
+                        println!(
+                            "{:<38} {:<14} {:<14} {}",
+                            session.session_id, session.state, session.source_kind, session.title
+                        );
+                    }
+                }
+            }
+        }
+        crate::SessionCmd::Process {
+            limit,
+            confirm_external,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&recorder.run_with_consent(
+                    *limit,
+                    *confirm_external,
+                    auto_import_sources,
+                    auto_scan_git_sources,
+                )?)?
+            );
+        }
+        crate::SessionCmd::Policy {
+            mode,
+            retention_days,
+        } => {
+            let current = recorder.policy()?;
+            let next_mode = mode.map_or(current.mode, |mode| match mode {
+                crate::SessionMode::Automatic => SessionPolicy::Automatic,
+                crate::SessionMode::Review => SessionPolicy::Review,
+                crate::SessionMode::CaptureOnly => SessionPolicy::CaptureOnly,
+            });
+            let policy = if mode.is_some() || retention_days.is_some() {
+                recorder.set_policy(next_mode, retention_days.or(current.retention_days))?
+            } else {
+                current
+            };
+            println!("{}", serde_json::to_string_pretty(&policy)?);
+        }
+        crate::SessionCmd::Source { sub } => match sub {
+            crate::SessionSourceCmd::Add { path, disabled } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&recorder.register_source_dir(path, !disabled)?)?
+                );
+            }
+            crate::SessionSourceCmd::List => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&recorder.list_sources()?)?
+                );
+            }
+            crate::SessionSourceCmd::SetEnabled {
+                source_id,
+                disabled,
+            } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &recorder.set_source_enabled(source_id, !disabled)?
+                    )?
+                );
+            }
+            crate::SessionSourceCmd::Remove { source_id } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&recorder.remove_source(source_id)?)?
+                );
+            }
+            crate::SessionSourceCmd::Preview => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&recorder.preview_registered_sources()?)?
+                );
+            }
+            crate::SessionSourceCmd::Import { preview_json } => {
+                use std::io::Read as _;
+                let mut bytes = Vec::new();
+                std::fs::File::open(preview_json)
+                    .context("read source preview JSON")?
+                    .take((4 * 1024 * 1024 + 1) as u64)
+                    .read_to_end(&mut bytes)
+                    .context("read source preview JSON")?;
+                if bytes.len() > 4 * 1024 * 1024 {
+                    return Err(anyhow!("source preview JSON exceeds 4 MiB"));
+                }
+                let preview: oximemo_session::SourcePreviewReport =
+                    serde_json::from_slice(&bytes).context("parse source preview JSON")?;
+                let selections = preview
+                    .items
+                    .into_iter()
+                    .filter(|item| item.state == "ready")
+                    .map(|item| {
+                        let source_digest = item
+                            .source_digest
+                            .ok_or_else(|| anyhow!("ready preview item lacks a source digest"))?;
+                        Ok(oximemo_session::SourcePreviewSelection {
+                            source_id: item.source_id,
+                            file_name: item.file_name,
+                            source_digest,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&recorder.import_source_preview(&selections)?)?
+                );
+            }
+        },
+        crate::SessionCmd::Activity { sub } => match sub {
+            crate::SessionActivityCmd::List { limit } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&recorder.list_activity_events(*limit)?)?
+                );
+            }
+            crate::SessionActivityCmd::CodexHook => {
+                use std::io::Read as _;
+                let mut input = Vec::new();
+                std::io::stdin()
+                    .take((1024 * 1024 + 1) as u64)
+                    .read_to_end(&mut input)
+                    .context("read Codex SessionEnd hook input")?;
+                if input.len() > 1024 * 1024 {
+                    return Err(anyhow!("Codex hook input exceeds 1 MiB"));
+                }
+                println!(
+                    "{}",
+                    serde_json::to_string(&recorder.capture_codex_hook_json(&input)?)?
+                );
+            }
+            crate::SessionActivityCmd::CodexInstall => {
+                let cli = std::env::current_exe().context("locate Oximemo CLI")?;
+                let path = recorder.install_codex_hook(&cli, &paths.vault)?;
+                println!(
+                    "{}",
+                    serde_json::json!({"state":"installed","hooks_path":path})
+                );
+            }
+            crate::SessionActivityCmd::CodexUninstall => {
+                let cli = std::env::current_exe().context("locate Oximemo CLI")?;
+                let path = recorder.uninstall_codex_hook(&cli, &paths.vault)?;
+                println!(
+                    "{}",
+                    serde_json::json!({"state":"removed","hooks_path":path})
+                );
+            }
+            crate::SessionActivityCmd::Git { sub } => match sub {
+                crate::SessionGitCmd::Add { path } => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&recorder.register_git_source(path)?)?
+                    );
+                }
+                crate::SessionGitCmd::List => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&recorder.list_git_sources()?)?
+                    );
+                }
+                crate::SessionGitCmd::SetEnabled { path, disabled } => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(
+                            &recorder.set_git_source_enabled(path, !*disabled,)?
+                        )?
+                    );
+                }
+                crate::SessionGitCmd::Remove { path } => {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "path": path.to_string_lossy(),
+                            "removed": recorder.remove_git_source(path)?,
+                        })
+                    );
+                }
+                crate::SessionGitCmd::Scan { limit } => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(
+                            &recorder.scan_registered_git_sources(*limit)?
+                        )?
+                    );
+                }
+            },
+        },
+        crate::SessionCmd::Quarantine { sub } => match sub {
+            crate::QuarantineCmd::List => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&recorder.list_quarantine()?)?
+                );
+            }
+            crate::QuarantineCmd::Apply {
+                session_id,
+                sanitized_export,
+            } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &recorder.apply_quarantine_file(session_id, sanitized_export)?
+                    )?
+                );
+            }
+            crate::QuarantineCmd::Discard { session_id } => {
+                recorder.discard_quarantine(session_id)?;
+                println!(
+                    "{}",
+                    serde_json::to_string(&serde_json::json!({
+                        "session_id": session_id,
+                        "state": "discarded"
+                    }))?
+                );
+            }
+        },
+        crate::SessionCmd::Review { sub } => match sub {
+            crate::ReviewCmd::List { limit } => {
+                let records = recorder.list_review_records(*limit)?;
+                println!("{}", serde_json::to_string_pretty(&records)?);
+            }
+            crate::ReviewCmd::Accept { record_id, sha256 } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&recorder.accept_record(record_id, sha256)?)?
+                );
+            }
+        },
+        crate::SessionCmd::History { record_id } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&recorder.history(record_id)?)?
+            );
+        }
+        crate::SessionCmd::Rollback {
+            record_id,
+            target_sha256,
+            base_sha256,
+            request_key,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&recorder.rollback_record(
+                    record_id,
+                    target_sha256,
+                    base_sha256,
+                    request_key,
+                )?)?
+            );
+        }
+    }
+    Ok(())
+}
+
+// -- pdc ------------------------------------------------------------------
+
+/// `oximemo pdc …` dispatch.
+pub fn cmd_pdc(paths: &oximemo_core::Paths, sub: &crate::PdcCmd) -> Result<()> {
+    match sub {
+        crate::PdcCmd::List { format } => {
+            let fmt =
+                Format::from_arg(format).ok_or_else(|| anyhow!("unknown --format: {format}"))?;
+            cmd_pdc_list(paths, fmt)
+        }
+        crate::PdcCmd::Read { path, json } => cmd_pdc_read(paths, path, *json),
+        crate::PdcCmd::Create {
+            title,
+            folder,
+            profile,
+            tags,
+            properties,
+            body,
+            body_stdin,
+        } => cmd_pdc_create(
+            paths,
+            PdcCreateInput {
+                title,
+                folder,
+                profile,
+                tags,
+                properties,
+                body: body.as_deref(),
+                body_stdin: *body_stdin,
+            },
+        ),
+        crate::PdcCmd::Update {
+            path,
+            sha256,
+            title,
+            body,
+            body_stdin,
+        } => cmd_pdc_update(
+            paths,
+            path,
+            sha256,
+            title.as_deref(),
+            body.as_deref(),
+            *body_stdin,
+        ),
+    }
+}
+
+/// `oximemo pdc list` — print the read-only PDC document-plane
+/// inventory. Never opens the vault index, never writes a byte.
+pub fn cmd_pdc_list(paths: &oximemo_core::Paths, fmt: Format) -> Result<()> {
+    let inv = oximemo_core::pdc_inventory::scan(paths)?;
+    match fmt {
+        Format::Json => {
+            println!("{}", serde_json::to_string_pretty(&inv)?);
+        }
+        Format::Ndjson => {
+            for item in &inv.items {
+                println!("{}", serde_json::to_string(item)?);
+            }
+        }
+        Format::Table => {
+            println!(
+                "{:<34} {:<22} {:<38} DIAGNOSTIC",
+                "PATH", "CLASS", "DOCUMENT ID"
+            );
+            for e in &inv.items {
+                println!(
+                    "{:<34} {:<22} {:<38} {}",
+                    e.path,
+                    e.class.as_str(),
+                    e.document_id.as_deref().unwrap_or("-"),
+                    e.diagnostic
+                        .as_ref()
+                        .map(|d| d.code.to_string())
+                        .unwrap_or_else(|| "-".into()),
+                );
+            }
+            for d in &inv.duplicate_ids {
+                println!("duplicate id {}: {}", d.document_id, d.paths.join(", "));
+            }
+            if let Some(d) = &inv.manifest_diagnostic {
+                println!("manifest: {} ({})", d.code, d.message);
+            }
+            println!(
+                "query: {}",
+                if inv.query_enabled {
+                    "pdc-query/1 (declared, never executed)"
+                } else {
+                    "not declared"
+                }
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `oximemo pdc read <path>` — guarded source read, optionally including
+/// the digest required for a later compare-and-swap update.
+pub fn cmd_pdc_read(paths: &oximemo_core::Paths, rel: &str, json: bool) -> Result<()> {
+    let source = oximemo_core::pdc_documents::read_document(paths, rel)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&source)?);
+    } else {
+        print!("{}", source.content);
+    }
+    Ok(())
+}
+
+struct PdcCreateInput<'a> {
+    title: &'a str,
+    folder: &'a str,
+    profile: &'a str,
+    tags: &'a [String],
+    properties: &'a [String],
+    body: Option<&'a str>,
+    body_stdin: bool,
+}
+
+fn cmd_pdc_create(paths: &oximemo_core::Paths, input: PdcCreateInput<'_>) -> Result<()> {
+    let body = if input.body_stdin {
+        use std::io::Read;
+        let mut body = String::new();
+        std::io::stdin()
+            .read_to_string(&mut body)
+            .context("read PDC body from stdin")?;
+        body
+    } else {
+        input.body.unwrap_or_default().to_string()
+    };
+    let body_profile = match input.profile {
+        "markdown" => oximemo_core::pdc_documents::PdcBodyProfile::Markdown,
+        "html" => oximemo_core::pdc_documents::PdcBodyProfile::Html,
+        _ => return Err(anyhow!("unknown PDC profile: {}", input.profile)),
+    };
+    let properties = input
+        .properties
+        .iter()
+        .map(|property| {
+            let (key, value) = property
+                .split_once('=')
+                .ok_or_else(|| anyhow!("invalid --set {property:?}: expected KEY=JSON"))?;
+            let value = serde_json::from_str(value)
+                .unwrap_or_else(|_| serde_json::Value::String(value.to_string()));
+            Ok(oximemo_core::pdc_documents::PdcProperty {
+                key: key.to_string(),
+                value,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let receipt = oximemo_core::pdc_documents::create_document(
+        paths,
+        oximemo_core::pdc_documents::PdcCreateRequest {
+            folder: input.folder.to_string(),
+            title: input.title.to_string(),
+            body,
+            body_profile,
+            tags: input.tags.to_vec(),
+            properties,
+        },
+    )?;
+    println!("{}", serde_json::to_string_pretty(&receipt)?);
+    Ok(())
+}
+
+fn cmd_pdc_update(
+    paths: &oximemo_core::Paths,
+    path: &str,
+    sha256: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+    body_stdin: bool,
+) -> Result<()> {
+    if title.is_none() && body.is_none() && !body_stdin {
+        return Err(anyhow!(
+            "pdc update requires --title, --body, or --body-stdin"
+        ));
+    }
+    let stdin_body = if body_stdin {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin()
+            .read_to_string(&mut input)
+            .context("read replacement PDC body from stdin")?;
+        Some(input)
+    } else {
+        None
+    };
+    let source = oximemo_core::pdc_documents::update_document(
+        paths,
+        path,
+        sha256,
+        title,
+        stdin_body.as_deref().or(body),
+    )?;
+    let receipt = oximemo_core::pdc_documents::PdcWriteReceipt {
+        path: source.path,
+        document_id: source
+            .document_id
+            .ok_or_else(|| anyhow!("updated PDC source has no document ID"))?,
+        sha256: source.sha256,
+    };
+    println!("{}", serde_json::to_string_pretty(&receipt)?);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -39,6 +39,7 @@ libc = "0.2"
 oximemo-core = { workspace = true }
 oximemo-capture = { workspace = true }
 oximemo-metadata = { workspace = true }
+oximemo-session = { workspace = true }
 oxibrain-client = { workspace = true }
 oxi-vault-git = { workspace = true }
 

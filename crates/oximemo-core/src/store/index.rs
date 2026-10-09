@@ -18,9 +18,14 @@ use time::OffsetDateTime;
 
 use crate::error::Result;
 use crate::memo::{Cursor, MemoFilter, MemoHash, MemoId, MemoSummary};
+use uuid::Uuid;
 
 const BY_ID: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new("by_id");
 const BY_SORT: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new("by_sort");
+/// `IndexRecord::path` → the list of every claiming id. A live note and a
+/// trash copy can share the stripped relative path; watcher removals apply
+/// plane-specific filtering after looking up all claimants.
+const BY_PATH: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("by_path");
 
 /// A note's indexed metadata (no body). Stored as the index value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +94,13 @@ pub trait MemoIndex: Send + Sync {
     ) -> Result<Vec<IndexRecord>>;
     /// Notes with `updated_at >= since` (newest-first). `None` = all notes.
     fn export_since(&self, since: Option<OffsetDateTime>) -> Result<Vec<IndexRecord>>;
+    /// Ids whose record claims `path` (the stored, `.trash/`-stripped
+    /// spelling). Usually zero or one id; a live note and a tombstoned
+    /// trash copy may both claim the same path with different ids.
+    /// `None` means the lookup table is absent or empty (legacy index
+    /// that has not been backfilled yet), so the answer is unknown and
+    /// callers must fall back to a full export.
+    fn id_for_path(&self, path: &str) -> Result<Option<Vec<MemoId>>>;
     fn count(&self) -> Result<u64>;
     fn clear(&self) -> Result<()>;
 }
@@ -141,16 +153,42 @@ impl RedbIndex {
             let tx = db.begin_read()?;
             let has_by_id = tx.open_table(BY_ID).is_ok();
             let has_by_sort = tx.open_table(BY_SORT).is_ok();
-            if has_by_id && has_by_sort {
+            let has_by_path = tx.open_table(BY_PATH).is_ok();
+            if has_by_id && has_by_sort && has_by_path {
                 return Ok(Self { db });
             }
         }
         // Fresh DB or a partial schema from an interrupted first-open:
-        // run the one-time creation transaction so both tables exist
-        // before subsequent code paths assume they do.
+        // create all tables before subsequent paths assume they exist.
+        // When upgrading a legacy schema (BY_ID already has rows), the
+        // lookup table is backfilled from every readable BY_ID row in this
+        // transaction. Corrupt rows are warned about and skipped so one
+        // unreadable record does not prevent opening the vault.
         let tx = db.begin_write()?;
         let _ = tx.open_table(BY_ID)?;
         let _ = tx.open_table(BY_SORT)?;
+        {
+            let mut by_path = tx.open_table(BY_PATH)?;
+            let by_id = tx.open_table(BY_ID)?;
+            for row in by_id.iter()? {
+                let (_, value) = row?;
+                let rec: IndexRecord = match serde_json::from_slice(value.value()) {
+                    Ok(rec) => rec,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            "by_path backfill skipped unreadable index record"
+                        );
+                        continue;
+                    }
+                };
+                if rec.path.is_empty() {
+                    continue;
+                }
+                let id = rec.id.as_uuid();
+                path_add(&mut by_path, &rec.path, id.as_bytes())?;
+            }
+        }
         tx.commit()?;
         Ok(Self { db })
     }
@@ -175,6 +213,7 @@ impl RedbIndex {
         {
             let mut by_id = tx.open_table(BY_ID)?;
             let mut by_sort = tx.open_table(BY_SORT)?;
+            let mut by_path = tx.open_table(BY_PATH)?;
             for rec in recs {
                 let uuid = rec.id.as_uuid();
                 let id_slice: &[u8] = uuid.as_bytes();
@@ -184,14 +223,66 @@ impl RedbIndex {
                     let prev_rec: IndexRecord = serde_json::from_slice(prev.value())?;
                     let prev_key = encode_sort(prev_rec.updated_at, prev_rec.id);
                     by_sort.remove(&prev_key[..])?;
+                    path_remove(&mut by_path, &prev_rec.path, id_slice)?;
                 }
                 by_id.insert(id_slice, value.as_slice())?;
                 by_sort.insert(sort_key.as_slice(), id_slice)?;
+                path_add(&mut by_path, &rec.path, id_slice)?;
             }
         }
         tx.commit()?;
         Ok(())
     }
+}
+
+/// Return the complete 16-byte UUID entries in a path's id list, warning
+/// when the stored value ends with a truncated entry.
+fn complete_path_ids<'a>(path: &str, bytes: &'a [u8]) -> &'a [u8] {
+    let complete_len = bytes.len() / 16 * 16;
+    if complete_len != bytes.len() {
+        tracing::warn!(
+            path,
+            length = bytes.len(),
+            "by_path ID list has a truncated entry"
+        );
+    }
+    &bytes[..complete_len]
+}
+
+/// Append `id` to `path`'s id list in `by_path`, deduplicated. A live note
+/// and a tombstoned trash copy may share the stripped path.
+fn path_add(table: &mut redb::Table<&str, &[u8]>, path: &str, id: &[u8]) -> Result<()> {
+    let mut list: Vec<u8> = match table.get(path)? {
+        Some(guard) => guard.value().to_vec(),
+        None => Vec::new(),
+    };
+    let complete_len = complete_path_ids(path, &list).len();
+    list.truncate(complete_len);
+    if !list.chunks_exact(16).any(|existing| existing == id) {
+        list.extend_from_slice(id);
+    }
+    table.insert(path, list.as_slice())?;
+    Ok(())
+}
+
+/// Remove `id` from `path`'s id list in `by_path`, deleting the key when the
+/// list becomes empty. Missing keys/ids are ignored (idempotent cleanup).
+fn path_remove(table: &mut redb::Table<&str, &[u8]>, path: &str, id: &[u8]) -> Result<()> {
+    let kept: Vec<u8> = match table.get(path)? {
+        Some(guard) => complete_path_ids(path, guard.value())
+            .chunks_exact(16)
+            .filter(|existing| *existing != id)
+            .flatten()
+            .copied()
+            .collect(),
+        None => return Ok(()),
+    };
+    if kept.is_empty() {
+        table.remove(path)?;
+    } else {
+        table.insert(path, kept.as_slice())?;
+    }
+    Ok(())
 }
 
 /// Free function so the migration reads at the call site without the
@@ -217,15 +308,18 @@ impl MemoIndex for RedbIndex {
         {
             let mut by_id = tx.open_table(BY_ID)?;
             let mut by_sort = tx.open_table(BY_SORT)?;
+            let mut by_path = tx.open_table(BY_PATH)?;
             // A previous sort key may exist for this id (updated_at may have
             // changed); remove it before inserting the fresh one.
             if let Some(prev) = by_id.get(id_slice)? {
                 let prev_rec: IndexRecord = serde_json::from_slice(prev.value())?;
                 let prev_key = encode_sort(prev_rec.updated_at, prev_rec.id);
                 by_sort.remove(&prev_key[..])?;
+                path_remove(&mut by_path, &prev_rec.path, id_slice)?;
             }
             by_id.insert(id_slice, value.as_slice())?;
             by_sort.insert(sort_key.as_slice(), id_slice)?;
+            path_add(&mut by_path, &rec.path, id_slice)?;
         }
         tx.commit()?;
         Ok(())
@@ -238,10 +332,12 @@ impl MemoIndex for RedbIndex {
         {
             let mut by_id = tx.open_table(BY_ID)?;
             let mut by_sort = tx.open_table(BY_SORT)?;
+            let mut by_path = tx.open_table(BY_PATH)?;
             if let Some(prev) = by_id.get(id_slice)? {
                 let prev_rec: IndexRecord = serde_json::from_slice(prev.value())?;
                 let prev_key = encode_sort(prev_rec.updated_at, prev_rec.id);
                 by_sort.remove(&prev_key[..])?;
+                path_remove(&mut by_path, &prev_rec.path, id_slice)?;
             }
             by_id.remove(id_slice)?;
         }
@@ -249,6 +345,27 @@ impl MemoIndex for RedbIndex {
         Ok(())
     }
 
+    fn id_for_path(&self, path: &str) -> Result<Option<Vec<MemoId>>> {
+        let tx = self.db.begin_read()?;
+        let Ok(by_path) = tx.open_table(BY_PATH) else {
+            // Table not yet created: only possible before `open` ran its
+            // schema-creation/backfill transaction.
+            return Ok(None);
+        };
+        let Some(guard) = by_path.get(path)? else {
+            // The table is complete (backfilled atomically at creation and
+            // kept in sync by upsert/remove), so an absent key genuinely
+            // means "no record claims this path".
+            return Ok(Some(Vec::new()));
+        };
+        Ok(Some(
+            complete_path_ids(path, guard.value())
+                .chunks_exact(16)
+                .filter_map(|bytes| Uuid::from_slice(bytes).ok())
+                .map(MemoId)
+                .collect(),
+        ))
+    }
     fn get(&self, id: MemoId) -> Result<Option<IndexRecord>> {
         let uuid = id.as_uuid();
         let id_slice: &[u8] = uuid.as_bytes();
@@ -334,8 +451,10 @@ impl MemoIndex for RedbIndex {
         {
             tx.delete_table(BY_ID)?;
             tx.delete_table(BY_SORT)?;
+            tx.delete_table(BY_PATH)?;
             let _ = tx.open_table(BY_ID)?;
             let _ = tx.open_table(BY_SORT)?;
+            let _ = tx.open_table(BY_PATH)?;
         }
         tx.commit()?;
         Ok(())
@@ -400,32 +519,217 @@ mod tests {
     }
 
     #[test]
+    fn id_for_path_tracks_live_and_trash_rows_per_path() {
+        let (_t, idx) = open_tmp();
+        let live = MemoId::now();
+        let mut live_rec = rec(live, OffsetDateTime::now_utc());
+        live_rec.path = "notes/x.md".into();
+        idx.upsert(&live_rec).unwrap();
+        assert_eq!(idx.id_for_path("notes/x.md").unwrap(), Some(vec![live]));
+
+        // A tombstoned trash copy with a different id claims the same
+        // stripped path; both ids are returned.
+        let trashed = MemoId::now();
+        let mut trash_rec = rec(trashed, OffsetDateTime::now_utc());
+        trash_rec.path = "notes/x.md".into();
+        trash_rec.deleted = true;
+        idx.upsert(&trash_rec).unwrap();
+        let mut ids = idx.id_for_path("notes/x.md").unwrap().unwrap();
+        ids.sort();
+        assert_eq!(ids, vec![live, trashed]);
+
+        // An untracked path is known-empty once the table is populated.
+        assert_eq!(idx.id_for_path("notes/other.md").unwrap(), Some(Vec::new()));
+
+        // Renaming a path moves the id between path keys.
+        live_rec.path = "notes/y.md".into();
+        idx.upsert(&live_rec).unwrap();
+        assert_eq!(idx.id_for_path("notes/y.md").unwrap(), Some(vec![live]));
+        assert_eq!(idx.id_for_path("notes/x.md").unwrap(), Some(vec![trashed]));
+
+        // Removal clears the path entry when its last id goes away.
+        idx.remove(trashed).unwrap();
+        assert_eq!(idx.id_for_path("notes/x.md").unwrap(), Some(Vec::new()));
+        idx.remove(live).unwrap();
+        assert_eq!(idx.id_for_path("notes/y.md").unwrap(), Some(Vec::new()));
+    }
+
+    fn append_truncated_path_id(idx: &RedbIndex, path: &str) {
+        let tx = idx.db.begin_write().unwrap();
+        {
+            let mut by_path = tx.open_table(BY_PATH).unwrap();
+            let mut value = by_path.get(path).unwrap().unwrap().value().to_vec();
+            value.push(0xff);
+            by_path.insert(path, value.as_slice()).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn path_lookup_and_updates_tolerate_truncated_id_lists() {
+        let (_t, idx) = open_tmp();
+        let now = OffsetDateTime::now_utc();
+        let path = "notes/shared.md";
+        let mut first = rec(MemoId::now(), now);
+        first.path = path.into();
+        let mut second = rec(MemoId::now(), now);
+        second.path = path.into();
+        idx.upsert(&first).unwrap();
+        idx.upsert(&second).unwrap();
+
+        append_truncated_path_id(&idx, path);
+        let mut ids = idx.id_for_path(path).unwrap().unwrap();
+        ids.sort();
+        let mut expected = vec![first.id, second.id];
+        expected.sort();
+        assert_eq!(ids, expected);
+
+        let mut third = rec(MemoId::now(), now);
+        third.path = path.into();
+        idx.upsert(&third).unwrap();
+        let mut ids = idx.id_for_path(path).unwrap().unwrap();
+        ids.sort();
+        expected.push(third.id);
+        expected.sort();
+        assert_eq!(ids, expected);
+
+        append_truncated_path_id(&idx, path);
+        idx.remove(first.id).unwrap();
+        expected.retain(|id| *id != first.id);
+        assert_eq!(idx.id_for_path(path).unwrap(), Some(expected));
+    }
+
+    /// Seed a legacy-schema database (BY_ID rows only, no BY_PATH) the
+    /// way a pre-`by_path` oximemo vault looks on disk.
+    fn seed_legacy_db(path: &std::path::Path, recs: &[IndexRecord]) {
+        let db = redb::Database::create(path).unwrap();
+        let tx = db.begin_write().unwrap();
+        {
+            let mut by_id = tx.open_table(BY_ID).unwrap();
+            let mut by_sort = tx.open_table(BY_SORT).unwrap();
+            for rec in recs {
+                let id = rec.id.as_uuid();
+                let id_slice: &[u8] = id.as_bytes();
+                by_id
+                    .insert(id_slice, serde_json::to_vec(rec).unwrap().as_slice())
+                    .unwrap();
+                let sort_key = encode_sort(rec.updated_at, rec.id);
+                by_sort.insert(sort_key.as_slice(), id_slice).unwrap();
+            }
+        }
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn legacy_index_backfills_by_path_atomically_on_open() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("meta.redb");
+        let base = OffsetDateTime::now_utc();
+        let mut untouched = rec(MemoId::now(), base);
+        untouched.path = "notes/untouched.md".into();
+        let mut renamed = rec(MemoId::now(), base + time::Duration::seconds(1));
+        renamed.path = "notes/old.md".into();
+        seed_legacy_db(&path, &[untouched.clone(), renamed.clone()]);
+
+        let idx = RedbIndex::open(&path).unwrap();
+
+        // Every legacy record is visible through by_path right after open,
+        // including paths that are never touched afterwards.
+        assert_eq!(
+            idx.id_for_path("notes/untouched.md").unwrap(),
+            Some(vec![untouched.id])
+        );
+        assert_eq!(
+            idx.id_for_path("notes/old.md").unwrap(),
+            Some(vec![renamed.id])
+        );
+        // Known-untracked, not a legacy unknown.
+        assert_eq!(idx.id_for_path("notes/never.md").unwrap(), Some(Vec::new()));
+
+        // One path updated: the id moves to the new path key.
+        renamed.path = "notes/new.md".into();
+        idx.upsert(&renamed).unwrap();
+        assert_eq!(idx.id_for_path("notes/old.md").unwrap(), Some(Vec::new()));
+        assert_eq!(
+            idx.id_for_path("notes/new.md").unwrap(),
+            Some(vec![renamed.id])
+        );
+
+        // Deleting the record that was never updated clears its path entry.
+        idx.remove(untouched.id).unwrap();
+        assert_eq!(
+            idx.id_for_path("notes/untouched.md").unwrap(),
+            Some(Vec::new())
+        );
+        assert_eq!(
+            idx.id_for_path("notes/new.md").unwrap(),
+            Some(vec![renamed.id])
+        );
+    }
+
+    #[test]
+    fn legacy_backfill_skips_corrupt_by_id_rows() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("meta.redb");
+        let valid = rec(MemoId::now(), OffsetDateTime::now_utc());
+        let corrupt_id = MemoId::now();
+        {
+            let db = redb::Database::create(&path).unwrap();
+            let tx = db.begin_write().unwrap();
+            {
+                let mut by_id = tx.open_table(BY_ID).unwrap();
+                let _by_sort = tx.open_table(BY_SORT).unwrap();
+                let valid_id = valid.id.as_uuid();
+                let valid_id_bytes: &[u8] = valid_id.as_bytes();
+                let valid_bytes = serde_json::to_vec(&valid).unwrap();
+                by_id
+                    .insert(valid_id_bytes, valid_bytes.as_slice())
+                    .unwrap();
+                let corrupt_uuid = corrupt_id.as_uuid();
+                let corrupt_bytes: &[u8] = corrupt_uuid.as_bytes();
+                by_id.insert(corrupt_bytes, b"not-json".as_slice()).unwrap();
+            }
+            tx.commit().unwrap();
+        }
+
+        let idx = RedbIndex::open(&path).unwrap();
+        assert_eq!(idx.id_for_path(&valid.path).unwrap(), Some(vec![valid.id]));
+    }
+
+    #[test]
     fn opens_v2_file_by_upgrading_in_place() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("meta.redb");
+        let record = rec(MemoId::now(), OffsetDateTime::now_utc());
         // Seed a v2-format file the way every oximemo release to date
         // wrote it: redb 2.6, which defaults new databases to v2.
         {
             const BY_ID2: redb2::TableDefinition<&[u8], &[u8]> =
                 redb2::TableDefinition::new("by_id");
+            const BY_SORT2: redb2::TableDefinition<&[u8], &[u8]> =
+                redb2::TableDefinition::new("by_sort");
             let db = redb2::Database::create(&path).unwrap();
             let tx = db.begin_write().unwrap();
             {
-                let mut t = tx.open_table(BY_ID2).unwrap();
-                t.insert(b"k1".as_slice(), b"v1".as_slice()).unwrap();
+                let mut by_id = tx.open_table(BY_ID2).unwrap();
+                let mut by_sort = tx.open_table(BY_SORT2).unwrap();
+                let id = record.id.as_uuid();
+                let id_bytes: &[u8] = id.as_bytes();
+                let value = serde_json::to_vec(&record).unwrap();
+                by_id.insert(id_bytes, value.as_slice()).unwrap();
+                let sort_key = encode_sort(record.updated_at, record.id);
+                by_sort.insert(sort_key.as_slice(), id_bytes).unwrap();
             }
             tx.commit().unwrap();
         }
         // redb 3 alone would hard-reject this file; RedbIndex::open hops
         // it to v3 transparently and the data survives.
         let idx = RedbIndex::open(&path).unwrap();
-        let tx = idx.db.begin_read().unwrap();
-        let t = tx.open_table(BY_ID).unwrap();
-        assert_eq!(t.get(b"k1".as_slice()).unwrap().unwrap().value(), b"v1");
+        let stored = idx.get(record.id).unwrap().expect("legacy row survives");
+        assert_eq!(stored.path, "test.md");
+        assert_eq!(idx.id_for_path("test.md").unwrap(), Some(vec![record.id]));
         // Idempotent: a second open finds v3 and skips the hop. The
         // first handle must be dropped first — redb locks the file.
-        drop(t);
-        drop(tx);
         drop(idx);
         let _again = RedbIndex::open(&path).unwrap();
     }

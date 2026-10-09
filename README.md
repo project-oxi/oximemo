@@ -28,7 +28,7 @@ Two core scenarios, one vault:
 
 ## Highlights
 
-- **Files are the source of truth.** Notes are plain `.md` files with TOML frontmatter. `grep` and `cat` work. The index is just a cache — rebuildable at any time with `oximemo reindex`.
+- **Files are the source of truth.** Oximemo memo files are plain `.md` files with TOML frontmatter. Durable PDC documents use PDC 2; generated session records use its Markdown profile. Indexes are rebuildable projections.
 - **Three-tier storage, pure Rust.** Plain files + a `redb` metadata index + a `tantivy` BM25 full-text index. No SQLite, no C dependencies in the index layer.
 - **Capture that doesn't make you wait.** The overlay window is warmed up off-screen so it appears in a single frame (target ≤ 16 ms) on trigger.
 - **Human/agent parity.** Every GUI operation is a CLI operation. Agent-facing commands default to **JSON / NDJSON** for clean streaming and scripting.
@@ -37,7 +37,10 @@ Two core scenarios, one vault:
 - **Hardened against external writes.** The file watcher debounces, retries partial writes (editors, iCloud), and never crashes the indexer.
 - **HTML notes (`.html`).** `.html` files are first-class notes alongside `.md` — frontmatter lives in a leading HTML comment, the title is derived from the first `<h1>`/`<title>`, and the same TEMPLATE rule applies (`TEMPLATE.html` for HTML notes, `TEMPLATE.md` for markdown). The CLI creates HTML notes with `oximemo new --html`.
 - **oxibrain context panel.** A read-only panel in `MemoDetail` gathers recall layers from oxibrain ≥ 0.10 (no cloud). There is no daemon: each interaction spawns a short-lived `oxibrain admin serve --stdio` child, the binary resolves via PATH (`[brain].executable` overrides), and the space is derived from the vault directory name. Ingestion is oximemo-triggered: the active vault is ensured as a `documents.toml` root and `oxibrain admin index --documents` runs on boot and after settled saves.
-- **Copilot panel.** A floating window (`⌘⇧C` / bottom-right FAB) that delegates vault work — write a note, tidy up, suggest tags — to a terminal-agent CLI you explicitly activate (adapters: `oxios`, `omp`, `claude`, `codex`, `oxicode`). oximemo contains no model, no prompt, no embedding: it hands the agent a declarative context block and the bundled `oximemo` CLI + `SKILL.md` contract, one subprocess per turn. The composer supports `@` note references (attached as context chips), `/` commands (요약·태그 제안·정리·찾기·새 노트), and IME-safe input; responses render as markdown with copy actions. Approvals, sandboxing, and providers stay with the agent; the panel header always discloses the active agent and provider, and vault changes observed during a turn are linked without claiming causality. Hidden entirely when no agent is activated.
+- **Copilot panel.** A floating window (`⌘⇧C` / bottom-right FAB) that delegates vault work — write a note, tidy up, suggest tags — to a terminal-agent CLI you explicitly activate (adapters: `oxios`, `omp`, `claude`, `codex`, `oxicode`). oximemo contains no model, no prompt, no embedding: it hands the agent a declarative context block and the bundled `oximemo` CLI + `SKILL.md` contract, one subprocess per turn. The composer supports `@` note references (attached as context chips), `/` commands (summarize, suggest tags, organize, search, and create notes), and IME-safe input; responses render as markdown with copy actions. Approvals, sandboxing, and providers stay with the agent; the panel header always discloses the active agent and provider, and vault changes observed during a turn are linked without claiming causality. Hidden entirely when no agent is activated.
+- **Assistant session recorder, separate from quick capture.** Imports explicit `*.cassette-session.json` exports and optionally auto-imports from registered folders. Optional Codex `SessionEnd` capture stores lifecycle metadata only and never reads transcripts; the opt-in Git scanner stores commit metadata and changed paths, never diffs or file contents, from explicitly registered repositories. Codex/Git activity stays local and is not sent to providers. Generated session summaries are PDC 2 Markdown documents in `sessions/`, with review acceptance and per-run consent for remote HTTPS processing. See the [session recorder guide](docs/SESSION-RECORDER.md).
+
+- **PDC document inventory and guarded editor.** Discovers canonical and legacy Markdown/HTML, readable legacy Djot, and `.base` files when `pdc-query/1` is declared; surfaces unsupported documents and broken links or assets. Reads do not rewrite source; edits preserve unknown metadata and reject stale source changes.
 
 ## Table of contents
 
@@ -145,6 +148,8 @@ oximemo vault path
 <details>
 <summary><strong>Full command reference</strong></summary>
 
+```text
+
 oximemo new [TEXT] [--tag TAG]… [--category ID] [--html]   # --html creates a .html note (frontmatter in a leading HTML comment)
 oximemo list [--limit N] [--tag T] [--category ID] [--favorites] [--format table|json|ndjson]
 oximemo list --where status=stub --sort status_changed --offset 40   # property query (offset path)
@@ -164,6 +169,18 @@ oximemo category delete <ID>                           # inbox cannot be deleted
 oximemo reindex                                        # rebuild indexes from files
 oximemo doctor [--fix]                                 # audit / safe-repair
 oximemo vault path                                     # print the vault root
+oximemo session import <EXPORT.json>                    # import one explicitly selected export
+oximemo session source add <DIRECTORY>
+oximemo session source preview > session-preview.json   # report only; no session data imported
+oximemo session source import session-preview.json      # imports only unchanged "ready" preview entries
+oximemo session list
+oximemo session process [--confirm-external]
+oximemo session activity list
+oximemo session activity git add <REPOSITORY>
+oximemo session activity git list
+oximemo session activity git scan
+oximemo session activity codex-install
+oximemo session activity codex-uninstall
 oximemo upgrade [--check]                              # self-update from GitHub Releases
 ```
 
@@ -244,9 +261,7 @@ types and allowed values, card badges with color tokens, state
 transitions (e.g. the knowledge preset's `peak_status` max-merge that
 preserves the all-time high through decay/re-learn cycles), and an
 optional `[review]` block that turns the folder's header into a review
-queue ("설명 가능함" reasserts, "막힘" decays). The ⌘K action **지식 관리
-폴더 만들기** installs the full knowledge-state preset (stub → vague →
-understood → mastered, decayed) as two editable files. TEMPLATE.md
+queue ("understood" reasserts, "blocked" decays). The ⌘K action **Create Knowledge Folder** installs the full knowledge-state preset (stub → vague → understood → mastered, decayed) as two editable files. TEMPLATE.md
 frontmatter seeds new notes' properties — a quick capture into a schema
 folder starts at `status: stub`.
 
@@ -306,13 +321,17 @@ The index layers are 100% derivable from the files — corrupt or stale? One `ox
 ```
 oximemo/
 ├── crates/
-│   ├── oximemo-core/      # Pure-Rust core: store, index, search, watcher, sync
-│   ├── oximemo-cli/       # `oximemo` binary — clap adapter over oximemo-core
-│   └── oximemo-capture/   # macOS global Option double-tap monitor (objc2)
+│   ├── oxi-frontmatter/  # PDC classification and frontmatter parsing
+│   ├── oxi-vault-git/    # Git-backed vault helpers
+│   ├── oximemo-core/     # Pure-Rust store, index, search, watcher, PDC
+│   ├── oximemo-cli/      # `oximemo` binary — clap adapter over oximemo-core
+│   ├── oximemo-capture/  # macOS global Option double-tap monitor (objc2)
+│   ├── oximemo-metadata/ # Metadata integrations
+│   └── oximemo-session/  # Session exports, local recorder, PDC summaries
 ├── apps/desktop/         # Tauri 2 + React 19 desktop app
 │   ├── src-tauri/        #   Rust backend
 │   └── src/              #   React frontend (Tailwind v4, Base UI, TanStack)
-├── skills/oximemo/        # SKILL.md — agent-facing CLI guide
+├── skills/oximemo/       # SKILL.md — agent-facing CLI guide
 └── doc/DESIGN.md         # Full design document
 ```
 

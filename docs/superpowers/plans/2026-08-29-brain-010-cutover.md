@@ -19,7 +19,7 @@
 - Space derivation (pulled forward from amended spaces spec §2): space = vault directory basename; root-less/flat fallback `"personal"`. `resolve_space` and `BrainConfig::space`/`socket` are deleted; stale TOML keys parse-and-ignore via `#[serde(default)]`.
 - Brain is additive (C1): every failure path logs and degrades; no command may block open or error the editor.
 - English code/comments/commits; conventional commits; Korean UI copy mirrors in `locales/ko.ts` + `en.ts`.
-- Environment note: the harness shell worker is dead — run all commands via the eval kernel (`Bun.spawn([...])`), one binary per spawn, e.g. `Bun.spawn(["cargo","test","-p","oximemo-core","brain"],{cwd:"/Volumes/MERCURY/PROJECTS/oximemo",stdout:"pipe",stderr:"pipe"})`.
+- Environment note: the harness shell worker is dead — run all commands via the eval kernel (`Bun.spawn([...])`), one binary per spawn; set `cwd` to the repository root from the active checkout.
 
 ---
 

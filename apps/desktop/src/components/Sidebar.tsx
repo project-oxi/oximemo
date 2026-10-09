@@ -8,7 +8,7 @@
  * switcher pinned to the bottom edge. Folder browsing happens in the main area.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowUpDown, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
+import { Archive, ArrowUpDown, BookMarked, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SpacePicker } from "./SpacePicker";
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
@@ -112,6 +112,7 @@ export function Sidebar({
   // stay listed with an ambiguity marker (spec §6, UI-layer contract).
   const basesQ = useQuery({ queryKey: ["bases"], queryFn: listBases });
   const openBase = useUI((s) => s.openBase);
+  const openPdc = useUI((s) => s.openPdc);
   const location = useUI((s) => s.location);
   const [queryNaming, setQueryNaming] = useState<string | null>(null);
   useEffect(() => {
@@ -272,11 +273,14 @@ export function Sidebar({
       </div>
       <div className="grid grid-cols-4 gap-1 px-2 pt-1">
         {/* Smart collections lead the grid — the app's fixed,
-            always-present destinations. */}
+            always-present destinations. Selection is gated on the
+            authoritative `location` (not the write-through mirrors) so
+            exactly one cell highlights — PDC must not read as "all
+            notes". */}
         <NavCell
           icon={<Layers size={18} aria-hidden />}
           title={total > 0 ? `${t.all_memos} · ${total}` : t.all_memos}
-          selected={view === "memos" && !favoritesOnly && folderFilter === null}
+          selected={location.kind === "all" && view === "memos"}
           onClick={() => { setView("memos"); setFavoritesOnly(false); setFolderFilter(null); }}
         />
         <NavCell
@@ -288,8 +292,17 @@ export function Sidebar({
         <NavCell
           icon={<Images size={18} aria-hidden />}
           title={t.gallery}
-          selected={view === "gallery"}
+          selected={view === "gallery" && location.kind !== "pdc"}
           onClick={() => setView("gallery")}
+        />
+        {/* PDC destination (Stage 1): document inventory + guarded source
+            editor. A fixed smart-collection cell like all-notes/gallery —
+            never a folder row, so no pin/rename affordances apply. */}
+        <NavCell
+          icon={<BookMarked size={18} aria-hidden />}
+          title={t.pdc_documents}
+          selected={location.kind === "pdc"}
+          onClick={() => openPdc()}
         />
         <LocationCell
           path=""

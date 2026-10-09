@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Repo: `/Volumes/MERCURY/PROJECTS/oximemo`; frontend `apps/desktop`, Rust `apps/desktop/src-tauri`.
+- Repo: current Git checkout; frontend `apps/desktop`, Rust `apps/desktop/src-tauri`.
 - No JS unit-test runner exists — verification per task is `npx tsc -b` (from `apps/desktop`), `cargo check` (from `apps/desktop/src-tauri`) for Rust touches, and browser smoke on `vite --port 5199` (localStorage fallback store keys `oximemo:memos:v3`, `oximemo:folders:v1`, `oximemo:folderpins:v1`).
 - Z-index: ContextMenu Positioner is `z-[70]` (above Dialog z-50 / Popover z-60) — already handled inside `ContextMenu.tsx`; never restyle.
 - i18n: add keys to BOTH `apps/desktop/src/lib/locales/ko.ts` and `en.ts`. Korean copy is the source of truth; English mirrors.

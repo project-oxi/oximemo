@@ -84,6 +84,7 @@ import type { NamingSession } from "./FolderTile";
 import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
 import { GalleryView } from "./GalleryView";
+import { PdcView } from "./PdcView";
 import { SettingsMenu } from "./SettingsMenu";
 import { ShelfView } from "./views/ShelfView";
 import { GridView, type Cell } from "./views/GridView";
@@ -116,6 +117,10 @@ export function CardGrid() {
   const folderFilter = useUI((s) => s.folderFilter);
   const location = useUI((s) => s.location);
   const inBase = location.kind === "base";
+  // Note-listing toolbar affordances (view switcher, global search,
+  // save-as-query) belong to the note surfaces; the PDC destination
+  // carries its own header, where these would be inert controls.
+  const showNoteTools = !inBase && location.kind !== "pdc";
   const favoritesOnly = useUI((s) => s.favoritesOnly);
   const sidebarCollapsed = useUI((s) => s.sidebarCollapsed);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
@@ -1420,6 +1425,207 @@ export function CardGrid() {
     onNameCommit: commitFolderName,
   };
 
+  // Main-surface selection as early returns — the destination chain must
+  // stay flat and reorderable (project rule: no nested ternaries); each
+  // new location kind is one more branch here, not another ternary level.
+  const renderMainSurface = () => {
+    // PDC destination: document inventory + guarded source editor;
+    // bypasses the note grid/listing machinery entirely.
+    if (location.kind === "pdc") return <PdcView />;
+    if (inBase) {
+      return <BaseView source={location.source} scrollerRef={scrollerRef} onSelect={select} />;
+    }
+    if (reviewMode && schema?.review && folderFilter !== null) {
+      return <ReviewQueue folder={folderFilter} review={schema.review} preset={preset} />;
+    }
+    if (listing.isError) {
+      return (
+        <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
+          <p className="text-sm font-medium text-status-error">{t.load_error}</p>
+          <p className="max-w-md break-words text-xs text-text-subtle">{String(listing.error)}</p>
+          <button
+            type="button"
+            onClick={() => listing.refetch()}
+            className="mt-1 inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+          >
+            {t.retry}
+          </button>
+        </div>
+      );
+    }
+    if ((noteView === "grid" || noteView === "list" ? cells.length : items.length) === 0) {
+      return (
+        <div className="mt-24 flex flex-col items-center gap-4 text-center">
+          {folderFilter !== null && debounced.length === 0 ? (
+            // Browse-mode empty (no search active): the location
+            // itself is empty — a Finder folder with no items, not
+            // a filter that matched nothing. The "no match / clear
+            // filters" treatment is for query mode only.
+            <>
+              {schema ? (
+                // Schema folder (knowledge): first-party empty state —
+                // named collection, stamped-state promise, named add.
+                <>
+                  <div className="grid size-12 place-items-center rounded-full bg-surface-muted text-text-subtle">
+                    {addDomain === "book" ? (
+                      <BookOpen size={22} aria-hidden="true" />
+                    ) : addDomain === "movie" ? (
+                      <Clapperboard size={22} aria-hidden="true" />
+                    ) : (
+                      <GraduationCap size={22} aria-hidden="true" />
+                    )}
+                  </div>
+                  <p className="text-sm font-semibold text-text">
+                    {t.schema_empty_headline.replace("{name}", schemaName)}
+                  </p>
+                  <p className="-mt-2 text-xs text-text-subtle">
+                    {addDomain ? t.schema_empty_sub_search : t.schema_empty_sub}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-text-subtle">
+                  {hasMemos ? t.empty_folder_browse : t.empty_hint}
+                </p>
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => requestAdd()}
+                  className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+                >
+                  <Plus size={15} strokeWidth={2.5} />{" "}
+                  {schema ? schemaAddLabel : t.new_note_md}
+                </button>
+                {!schema && (
+                  <button
+                    type="button"
+                    onClick={startFolderCreate}
+                    className="inline-flex items-center gap-2 rounded-[var(--button-radius)] border border-line bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted shadow-sm transition-colors duration-150 hover:border-line-strong hover:text-text"
+                  >
+                    {t.folder_new}
+                  </button>
+                )}
+              </div>
+            </>
+          ) : favoritesOnly && !inSearch && includeTags.length === 0 && excludeTags.length === 0 ? (
+            // Favorites is a collection, not a filter — no tag/search
+            // narrowing is active, so this is simply an empty
+            // collection. "Clear filters" language would be wrong.
+            <p className="text-sm text-text-subtle">{t.favorites_empty}</p>
+          ) : (
+            <>
+              <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
+              {hasMemos ? (
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+                >
+                  {t.clear_filters}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onNewNote()}
+                  className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
+                >
+                  <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      );
+    }
+    if (noteView === "shelf" && shelfAvailable) {
+      return <ShelfView items={items} badges={badgeDefs} preset={preset} onSelect={select} />;
+    }
+    if (noteView === "grid") {
+      return (
+        <GridView
+          cells={visibleCells}
+          virtualizer={virtualizer}
+          cols={cols}
+          showFolderChip={folderFilter === null}
+          folders={folders}
+          badges={badgeDefs}
+          preset={preset}
+          folderEntries={folderEntries}
+          onOpenFolder={setFolderFilter}
+          onSelect={select}
+          onToggleFavorite={onToggleFavorite}
+          onMoveFolder={onMoveFolder}
+          onMoveFolderTree={moveFolderTree}
+          onCopyBody={onCopyBody}
+          onDelete={onDelete}
+          onNewNoteIn={onNewNoteIn}
+          onRenameFolder={onRenameFolder}
+          onToggleFolderPin={onToggleFolderPin}
+          namingPath={namingPath}
+          onNameCommit={commitFolderName}
+          onDeleteFolder={onDeleteFolder}
+          onExpandFolders={expandFolders}
+          folderAddLabels={folderAddLabels}
+        />
+      );
+    }
+    if (noteView === "list") return <ListView {...viewProps} />;
+    if (noteView === "timeline") return <TimelineView {...viewProps} />;
+    if (noteView === "table") {
+      return (
+        <TableView
+          items={tableRows}
+          schemas={tableSchemas}
+          folderOrder={tableFolders}
+          preset={tablePreset}
+          scrollerRef={scrollerRef}
+          onLoadMore={() => {
+            if (listing.hasNextPage) void listing.fetchNextPage();
+          }}
+          onSelect={select}
+          onToggleFavorite={(m) => onToggleFavorite(m.id, m.favorite)}
+        />
+      );
+    }
+    if (noteView === "calendar") {
+      return (
+        <CalendarView
+          memos={calendarMemosQuery.data?.items ?? []}
+          dateField={currentQueryCalendarField}
+          folders={folders}
+          onSelect={select}
+          today={todayLocalISO()}
+          locale={locale}
+          dailyFolder={dailyFolder}
+          dailyEnabled={dailyEnabled}
+          onOpenDailyNote={(date) => {
+            void openDailyNote(date)
+              .then(({ memo, created }) => {
+                select(memo.id);
+                // Fresh daily note: closing it untouched discards it
+                // (mirrors Sidebar's openDaily flow).
+                if (created) setDraftId(memo.id, memo.body);
+              })
+              .catch((e) => setToast(String(e).split("\n")[0]));
+          }}
+        />
+      );
+    }
+    return (
+      <GraphView
+        items={items}
+        folders={folders}
+        folderCards={folderCards}
+        onOpenFolder={setFolderFilter}
+        onNewFolder={startFolderCreate}
+        onMoveNote={onMoveFolder}
+        onMoveFolderTree={moveFolderTree}
+        onToggleFavorite={onToggleFavorite}
+        onDelete={onDelete}
+      />
+    );
+  };
+
   // h-dvh: the html/body/#root chain carries no height, so h-full
   // collapses to content height — the sidebar border stopped partway
   // down the window. Anchored to the viewport directly.
@@ -1440,7 +1646,7 @@ export function CardGrid() {
             onMoveNote={onMoveFolder}
             onMoveFolderTree={moveFolderTree}
             saveAsQuery={
-              !inBase && (includeTags.length > 0 || excludeTags.length > 0)
+              showNoteTools && (includeTags.length > 0 || excludeTags.length > 0)
                 ? () => {
                     createQueryCollection(t.query_from_filter, tagFilterYaml(includeTags, excludeTags, matchAll))
                       .then((path) => {
@@ -1452,7 +1658,7 @@ export function CardGrid() {
                 : undefined
             }
           />
-          {!inBase && viewSwitcher}
+          {showNoteTools && viewSwitcher}
           {!inBase && folderFilter !== null && debounced.length > 0 && (
             <button
               type="button"
@@ -1463,7 +1669,7 @@ export function CardGrid() {
               {searchScope === "folder" ? t.scope_this_folder : t.scope_all} ▾
             </button>
           )}
-          {!inBase && (
+          {showNoteTools && (
           <div className="relative w-56">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-subtle" />
             <TextCtxMenu
@@ -1679,186 +1885,10 @@ export function CardGrid() {
               the trigger covering the whole scrollable surface. */}
           <CtxRoot>
             <CtxTrigger className="min-h-full">
-            {inBase && location.kind === "base" ? (
-              <BaseView
-                source={location.source}
-                scrollerRef={scrollerRef}
-                onSelect={select}
-              />
-            ) : reviewMode && schema?.review && folderFilter !== null ? (
-              <ReviewQueue folder={folderFilter} review={schema.review} preset={preset} />
-            ) : listing.isError ? (
-              <div className="mt-24 flex flex-col items-center gap-3 px-6 text-center">
-                <p className="text-sm font-medium text-status-error">{t.load_error}</p>
-                <p className="max-w-md break-words text-xs text-text-subtle">{String(listing.error)}</p>
-                <button
-                  type="button"
-                  onClick={() => listing.refetch()}
-                  className="mt-1 inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-                >
-                  {t.retry}
-                </button>
-              </div>
-            ) : (noteView === "grid" || noteView === "list" ? cells.length : items.length) === 0 ? (
-              <div className="mt-24 flex flex-col items-center gap-4 text-center">
-                {folderFilter !== null && debounced.length === 0 ? (
-                  // Browse-mode empty (no search active): the location
-                  // itself is empty — a Finder folder with no items, not
-                  // a filter that matched nothing. The "no match / clear
-                  // filters" treatment is for query mode only.
-                  <>
-                    {schema ? (
-                      // Schema folder (knowledge): first-party empty state —
-                      // named collection, stamped-state promise, named add.
-                      <>
-                        <div className="grid size-12 place-items-center rounded-full bg-surface-muted text-text-subtle">
-                          {addDomain === "book" ? (
-                            <BookOpen size={22} aria-hidden="true" />
-                          ) : addDomain === "movie" ? (
-                            <Clapperboard size={22} aria-hidden="true" />
-                          ) : (
-                            <GraduationCap size={22} aria-hidden="true" />
-                          )}
-                        </div>
-                        <p className="text-sm font-semibold text-text">
-                          {t.schema_empty_headline.replace("{name}", schemaName)}
-                        </p>
-                        <p className="-mt-2 text-xs text-text-subtle">
-                          {addDomain ? t.schema_empty_sub_search : t.schema_empty_sub}
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-text-subtle">
-                        {hasMemos ? t.empty_folder_browse : t.empty_hint}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => requestAdd()}
-                        className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-                      >
-                        <Plus size={15} strokeWidth={2.5} />{" "}
-                        {schema ? schemaAddLabel : t.new_note_md}
-                      </button>
-                      {!schema && (
-                        <button
-                          type="button"
-                          onClick={startFolderCreate}
-                          className="inline-flex items-center gap-2 rounded-[var(--button-radius)] border border-line bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted shadow-sm transition-colors duration-150 hover:border-line-strong hover:text-text"
-                        >
-                          {t.folder_new}
-                        </button>
-                      )}
-                    </div>
-                  </>
-                ) : favoritesOnly && !inSearch && includeTags.length === 0 && excludeTags.length === 0 ? (
-                  // Favorites is a collection, not a filter — no tag/search
-                  // narrowing is active, so this is simply an empty
-                  // collection. "Clear filters" language would be wrong.
-                  <p className="text-sm text-text-subtle">{t.favorites_empty}</p>
-                ) : (
-                  <>
-                    <p className="text-sm text-text-subtle">{hasMemos ? t.no_match_hint : t.empty_hint}</p>
-                    {hasMemos ? (
-                      <button
-                        type="button"
-                        onClick={clearAllFilters}
-                        className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-                      >
-                        {t.clear_filters}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => onNewNote()}
-                        className="inline-flex items-center gap-2 rounded-[var(--button-radius)] bg-interactive-primary px-4 py-2 text-sm font-medium text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-                      >
-                        <Plus size={15} strokeWidth={2.5} /> {t.empty_cta}
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            ) : noteView === "shelf" && shelfAvailable ? (
-              <ShelfView items={items} badges={badgeDefs} preset={preset} onSelect={select} />
-            ) : noteView === "grid" ? (
-              <GridView
-                cells={visibleCells}
-                virtualizer={virtualizer}
-                cols={cols}
-                showFolderChip={folderFilter === null}
-                folders={folders}
-                badges={badgeDefs}
-                preset={preset}
-                folderEntries={folderEntries}
-                onOpenFolder={setFolderFilter}
-                onSelect={select}
-                onToggleFavorite={onToggleFavorite}
-                onMoveFolder={onMoveFolder}
-                onMoveFolderTree={moveFolderTree}
-                onCopyBody={onCopyBody}
-                onDelete={onDelete}
-                onNewNoteIn={onNewNoteIn}
-                onRenameFolder={onRenameFolder}
-                onToggleFolderPin={onToggleFolderPin}
-                namingPath={namingPath}
-                onNameCommit={commitFolderName}
-                onDeleteFolder={onDeleteFolder}
-                onExpandFolders={expandFolders}
-                folderAddLabels={folderAddLabels}
-              />
-            ) : noteView === "list" ? (
-              <ListView {...viewProps} />
-            ) : noteView === "timeline" ? (
-              <TimelineView {...viewProps} />
-            ) : noteView === "table" ? (
-              <TableView
-                items={tableRows}
-                schemas={tableSchemas}
-                folderOrder={tableFolders}
-                preset={tablePreset}
-                scrollerRef={scrollerRef}
-                onLoadMore={() => {
-                  if (listing.hasNextPage) void listing.fetchNextPage();
-                }}
-                onSelect={select}
-                onToggleFavorite={(m) => onToggleFavorite(m.id, m.favorite)}
-              />
-            ) : noteView === "calendar" ? (
-              <CalendarView
-                memos={calendarMemosQuery.data?.items ?? []}
-                dateField={currentQueryCalendarField}
-                folders={folders}
-                onSelect={select}
-                today={todayLocalISO()}
-                locale={locale}
-                dailyFolder={dailyFolder}
-                dailyEnabled={dailyEnabled}
-                onOpenDailyNote={(date) => {
-                  void openDailyNote(date)
-                    .then(({ memo, created }) => {
-                      select(memo.id);
-                      // Fresh daily note: closing it untouched discards it
-                      // (mirrors Sidebar's openDaily flow).
-                      if (created) setDraftId(memo.id, memo.body);
-                    })
-                    .catch((e) => setToast(String(e).split("\n")[0]));
-                }}
-              />
-            ) : (
-              <GraphView
-                items={items}
-                folders={folders}
-                folderCards={folderCards}
-                onOpenFolder={setFolderFilter}
-                onNewFolder={startFolderCreate}
-                onMoveNote={onMoveFolder}
-                onMoveFolderTree={moveFolderTree}
-                onToggleFavorite={onToggleFavorite}
-                onDelete={onDelete}
-              />
-            )}
+            {/* Destination/surface selection lives in renderMainSurface()
+                above: PDC bypasses the note grid/listing machinery
+                entirely. */}
+            {renderMainSurface()}
               <CtxMenu>
                 <CtxItem
                   icon={FilePlus2}

@@ -27,9 +27,12 @@ pub struct VaultConfig {
     /// Local git versioning of the vault (`oxi-vault-git`). The mechanical
     /// safety net — always local, never depends on the brain daemon.
     pub git: GitConfig,
-    /// Copilot delegation (spec 2026-08-23). `agent`/`executable` are
-    /// empty until the user explicitly activates a detected agent CLI.
+    /// Copilot delegation settings (spec 2026-08-23). The panel stays hidden
+    /// until the user explicitly activates a detected agent CLI.
     pub copilot: CopilotConfig,
+    /// Optional provider settings for explicit imported-session summarization.
+    /// Secrets are referenced by environment-variable name, never stored here.
+    pub session: SessionProviderConfig,
     /// Tasks feature (spec 2026-08-27 §11). Status symbols, write
     /// format, and capture routing for `- [ ]` checkboxes.
     #[serde(default)]
@@ -51,6 +54,7 @@ impl Default for VaultConfig {
             metadata: MetadataConfig::default(),
             git: GitConfig::default(),
             copilot: CopilotConfig::default(),
+            session: SessionProviderConfig::default(),
             tasks: crate::tasks::TasksConfig::default(),
             schema_version: 3,
         }
@@ -104,6 +108,24 @@ impl Default for GitConfig {
             adopt_foreign_repo: false,
         }
     }
+}
+
+/// OpenAI-compatible completion endpoint for explicitly imported session exports.
+/// The API key itself is supplied through `api_key_env` and never written here.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionProviderConfig {
+    /// Absolute provider endpoint; empty disables provider processing.
+    pub endpoint: String,
+    pub model: String,
+    /// Name of an environment variable containing the provider credential.
+    pub api_key_env: String,
+    /// Remote HTTPS endpoints require this explicit opt-in.
+    pub allow_external: bool,
+    /// Import new exports from explicitly registered folders automatically.
+    pub auto_import_sources: bool,
+    /// Scan metadata from explicitly registered Git repositories automatically.
+    pub auto_scan_git_sources: bool,
 }
 
 /// Copilot delegation settings (spec 2026-08-23). The panel stays hidden
@@ -364,6 +386,7 @@ impl VaultConfig {
             "brain": self.brain,
             "daily": self.daily,
             "copilot": self.copilot,
+            "session": self.session,
             "tasks": self.tasks,
         })
     }
@@ -441,6 +464,37 @@ timeout_secs = 60
         let j = c2.config_json();
         assert_eq!(j["copilot"]["agent"], "oxios");
         assert_eq!(j["copilot"]["timeout_secs"], 60);
+    }
+
+    #[test]
+    fn session_provider_config_defaults_and_roundtrips_without_credentials() {
+        let defaults = VaultConfig::default();
+        assert_eq!(defaults.session.endpoint, "");
+        assert!(!defaults.session.allow_external);
+        assert!(!defaults.session.auto_import_sources);
+        assert!(!defaults.session.auto_scan_git_sources);
+        let parsed: VaultConfig = toml::from_str(
+            r#"
+[session]
+endpoint = "https://api.example.invalid/v1"
+model = "model-x"
+api_key_env = "SESSION_API_KEY"
+allow_external = true
+auto_import_sources = true
+auto_scan_git_sources = true
+"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.session.endpoint, "https://api.example.invalid/v1");
+        assert_eq!(parsed.session.model, "model-x");
+        assert_eq!(parsed.session.api_key_env, "SESSION_API_KEY");
+        assert!(parsed.session.allow_external);
+        assert!(parsed.session.auto_import_sources);
+        assert!(parsed.session.auto_scan_git_sources);
+        assert_eq!(
+            parsed.config_json()["session"]["api_key_env"],
+            "SESSION_API_KEY"
+        );
     }
     #[test]
     fn daily_section_defaults_and_overrides() {

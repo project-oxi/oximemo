@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Repo `/Volumes/MERCURY/PROJECTS/oximemo`; frontend `apps/desktop`, core `crates/oximemo-core`, IPC `apps/desktop/src-tauri/src/lib.rs`, browser fallback `apps/desktop/src/lib/tauri.ts`.
+- Repo: current Git checkout; frontend `apps/desktop`, core `crates/oximemo-core`, IPC `apps/desktop/src-tauri/src/lib.rs`, browser fallback `apps/desktop/src/lib/tauri.ts`.
 - Tag token model MUST mirror `crates/oximemo-core/src/tags.rs` / `apps/desktop/src/lib/tags.ts` (`#` not preceded by word char; token = word-char run; NFC+lowercase normalization).
 - Verification per task: `cargo test -p oximemo-core` (Rust), `cd apps/desktop && set -o pipefail && npx tsc -b` (TS), browser smoke on `vite --port 5199`.
 - i18n keys to BOTH `ko.ts`/`en.ts`. Commits conventional. No placeholders.

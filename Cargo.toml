@@ -7,11 +7,12 @@ members = [
     "crates/oximemo-cli",
     "crates/oximemo-capture",
     "crates/oximemo-metadata",
+    "crates/oximemo-session",
     "apps/desktop/src-tauri",
 ]
 
 [workspace.package]
-version = "0.17.0"
+version = "0.18.0"
 edition = "2024"
 rust-version = "1.89"
 authors = ["oximemo"]
@@ -27,8 +28,9 @@ serde_json = "1"
 toml = "0.8"
 
 # Domain primitives
-uuid = { version = "1", features = ["v7", "serde"] }
+uuid = { version = "1", features = ["v5", "v7", "serde"] }
 blake3 = "1"
+sha2 = "0.10"
 time = { version = "0.3", features = ["serde", "serde-human-readable", "serde-well-known", "parsing", "formatting", "macros", "local-offset"] }
 
 # Storage
@@ -39,6 +41,8 @@ redb2 = { package = "redb", version = "2.6" }
 tantivy = "0.22"
 notify = "7"
 fs2 = "0.4"
+rusqlite = { version = "0.38", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
@@ -58,9 +62,10 @@ oxibrain-client = { version = "0.12", git = "https://github.com/a7garden/oxibrai
 anyhow = "1"
 oxi-vault-git = "0.1"
 
-oximemo-core = { path = "crates/oximemo-core", version = "0.17.0" }
-oximemo-capture = { path = "crates/oximemo-capture", version = "0.17.0" }
-oximemo-metadata = { path = "crates/oximemo-metadata", version = "0.17.0" }
+oximemo-core = { path = "crates/oximemo-core", version = "0.18.0" }
+oximemo-capture = { path = "crates/oximemo-capture", version = "0.18.0" }
+oximemo-metadata = { path = "crates/oximemo-metadata", version = "0.18.0" }
+oximemo-session = { path = "crates/oximemo-session", version = "0.18.0" }
 
 [profile.release]
 codegen-units = 1

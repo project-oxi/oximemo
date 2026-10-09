@@ -265,6 +265,14 @@ export interface Config {
     kmdb_key?: string;
   };
   index?: { watcher_debounce_ms?: number };
+  session?: {
+    endpoint?: string;
+    model?: string;
+    api_key_env?: string;
+    allow_external?: boolean;
+    auto_import_sources?: boolean;
+    auto_scan_git_sources?: boolean;
+  };
   /** `[tasks]` vault config (spec §11) as `get_config` serializes it —
    *  serde defaults applied, so every field is present once loaded. */
   tasks?: TasksWireConfig;

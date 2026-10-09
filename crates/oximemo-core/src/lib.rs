@@ -25,6 +25,8 @@ pub mod migrate_vault;
 pub(crate) mod migration_journal;
 pub mod paths;
 pub mod pdc;
+pub mod pdc_documents;
+pub mod pdc_inventory;
 pub mod props;
 pub mod schema;
 pub mod spaces;

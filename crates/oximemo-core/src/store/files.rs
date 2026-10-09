@@ -259,8 +259,22 @@ impl FileStore {
     /// [`crate::hash::hash_memo`]. Returns `Ok(None)` for body-only
     /// files (no identity to attach).
     pub fn read_memo(&self, path: &Path) -> Result<Option<Memo>> {
+        if matches!(
+            path.extension().and_then(|ext| ext.to_str()),
+            Some("djot" | "base")
+        ) {
+            return Ok(None);
+        }
         let fmt = crate::memo::NoteFormat::from_path(path);
         let content = std::fs::read_to_string(path)?;
+        // PDC guard (Stage 1): a file that explicitly declares
+        // `format: pdc-document/*` — valid, legacy, or invalid — is
+        // never parsed into the editable memo view, so the editor and
+        // index can never rewrite PDC source. The PDC inventory owns
+        // these files' diagnostics.
+        if crate::pdc_inventory::is_pdc_document(&content) {
+            return Ok(None);
+        }
         match Self::parse_as(&content, fmt)? {
             ParsedFile::BodyOnly { .. } => Ok(None),
             ParsedFile::Memo { fm, body, table } => {
@@ -573,6 +587,101 @@ mod tests {
         std::fs::write(&path, "no frontmatter here\n").unwrap();
         let read = store.read_memo(&path).unwrap();
         assert!(read.is_none());
+    }
+
+    /// PDC guard (Stage 1): a document that explicitly declares
+    /// `format: pdc-document/*` never enters the memo view, so the
+    /// editor/index can never rewrite PDC source. Ordinary Oximemo
+    /// `---` frontmatter stays on the memo path.
+    #[test]
+    fn pdc_documents_never_parse_as_memos() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::new(crate::paths::Paths::resolve(Some(dir.path())));
+
+        // Valid canonical PDC v2 Markdown.
+        let pdc_md = dir.path().join("pdc.md");
+        std::fs::write(
+            &pdc_md,
+            "---\n\
+             format: pdc-document/2\n\
+             body: pdc-markdown/1\n\
+             id: 018f47c6-4a77-7c52-9db8-0e5f9bcb17db\n\
+             created: 2026-09-14T12:34:56.789Z\n\
+             updated: 2026-09-14T12:34:56.789Z\n\
+             title: Canonical\n\
+             ---\n\
+             PDC body\n",
+        )
+        .unwrap();
+        assert!(store.read_memo(&pdc_md).unwrap().is_none());
+
+        // PDC-declared-invalid (unsupported future version) is still
+        // excluded — the marker, not classification success, is the gate.
+        let future = dir.path().join("future.md");
+        std::fs::write(
+            &future,
+            "---\n\
+             format: pdc-document/9\n\
+             body: pdc-markdown/1\n\
+             id: 018f47c6-4a77-7c52-9db8-0e5f9bcb17db\n\
+             created: 2026-09-14T12:34:56.789Z\n\
+             updated: 2026-09-14T12:34:56.789Z\n\
+             title: Future\n\
+             ---\n\
+             unsupported but PDC-marked\n",
+        )
+        .unwrap();
+        assert!(store.read_memo(&future).unwrap().is_none());
+
+        // Safe YAML key spellings remain within the PDC-only plane.
+        for (name, format_field) in [
+            ("quoted", "\"format\" : pdc-document/2"),
+            ("spaced", "format : pdc-document/2"),
+        ] {
+            let path = dir.path().join(format!("{name}.md"));
+            std::fs::write(
+                &path,
+                format!(
+                    "---\n{format_field}\nbody: pdc-markdown/1\n\
+                     id: 018f47c6-4a77-7c52-9db8-0e5f9bcb17db\n\
+                     created: 2026-09-14T12:34:56.789Z\n\
+                     updated: 2026-09-14T12:34:56.789Z\n\
+                     title: YAML key variant\n---\nPDC body\n"
+                ),
+            )
+            .unwrap();
+            assert!(
+                store.read_memo(&path).unwrap().is_none(),
+                "{name} PDC format key entered the memo plane"
+            );
+        }
+
+        // Canonical PDC HTML transport is excluded too.
+        let pdc_html = dir.path().join("pdc.html");
+        std::fs::write(
+            &pdc_html,
+            "<!--\n---\nformat: pdc-document/2\nbody: pdc-html/1\nid: \
+             018f47c6-4a77-7c52-9db8-0e5f9bcb17db\ncreated: \
+             2026-09-14T12:34:56.789Z\nupdated: \
+             2026-09-14T12:34:56.789Z\ntitle: H\n---\n<p>body</p>\n---\n-->\n",
+        )
+        .unwrap();
+        assert!(store.read_memo(&pdc_html).unwrap().is_none());
+
+        // Ordinary Oximemo frontmatter (no PDC marker) remains a memo.
+        let oxi = dir.path().join("oxi.md");
+        std::fs::write(
+            &oxi,
+            "---\n\
+             id: 0190aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee\n\
+             created: 2025-01-02T03:04:05Z\n\
+             updated: 2025-01-02T03:04:06Z\n\
+             ---\n\
+             ordinary note\n",
+        )
+        .unwrap();
+        let memo = store.read_memo(&oxi).unwrap().expect("ordinary memo");
+        assert!(memo.body.contains("ordinary note"));
     }
 
     #[test]

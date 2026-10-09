@@ -1,6 +1,6 @@
 # Portable Document Contract Migration
 
-Status: priority 1 · Stage 0 (v2) complete (2026-09-14): `pdc-document/2` classification, safe general-YAML envelope, `pdc-query/1` gate, and the unified conformance corpus exercised in both Rust and TypeScript.
+Status: priority 1 · Stage 0 (v2) complete (2026-09-14); Stage 1 (Full Reader, no writes) complete (2026-10-10), with inventory and guarded source-read behavior covered by core tests and a CLI smoke run.
 
 Standard: `pdc-document/2` (upstream commit `0ee51ea`, tag `v2.0.0-draft.2`)
 
@@ -106,10 +106,10 @@ There is no execution or authorization semantics in this repository.
   `oximemo-pdc-migration-report/1` schema (`target_profile` gains
   `pdc-markdown/1`; `source_format` gains `pdc-djot-legacy/1`).
 
-Exit: contract diagnostics, preservation operations, and both corpora
-have executable tests. Remaining: TS mirror re-pointed to the v2 corpus.
+Exit: contract diagnostics, preservation operations, and both pinned corpora
+have executable tests. Rust and TypeScript mirrors run v1 r3 and v2 r2.
 
-### Stage 1 — Full Reader, no writes
+### Stage 1 — Full Reader, no writes (complete)
 
 - Add `.md`-classification, `.djot` legacy, and `.base` discovery to
   scanner, watcher, CLI, and desktop; parse the envelope before body

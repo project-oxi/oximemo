@@ -115,6 +115,49 @@ impl TantivySearch {
     fn id_term(&self, id: MemoId) -> Term {
         Term::from_field_text(self.id_field, &id.to_string())
     }
+    fn queue_upsert(&self, writer: &mut IndexWriter, note: &Upsert<'_>) -> Result<()> {
+        writer.delete_term(self.id_term(note.id));
+        self.queue_document(writer, note)
+    }
+
+    fn queue_document(&self, writer: &mut IndexWriter, note: &Upsert<'_>) -> Result<()> {
+        let mut doc = doc!(
+            self.id_field => note.id.to_string(),
+            self.body_field => note.body,
+            self.tags_field => note.tags.join(" "),
+            self.aliases_field => note.aliases,
+        );
+        if let Some(title) = note.title {
+            doc.add_text(self.title_field, title);
+        }
+        writer.add_document(doc)?;
+        Ok(())
+    }
+
+    /// Replace the complete search snapshot in one commit. Readers keep
+    /// seeing the previous commit until the replacement is durable.
+    pub(crate) fn replace_all(&self, notes: &[Upsert<'_>]) -> Result<()> {
+        let mut guard = self.ensure_writer()?;
+        let writer = guard.as_mut().expect("writer initialized");
+        let result: Result<()> = (|| {
+            writer.delete_all_documents()?;
+            for note in notes {
+                self.queue_document(writer, note)?;
+            }
+            writer.commit()?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if let Err(rollback_error) = writer.rollback() {
+                return Err(CoreError::other(format!(
+                    "search index replacement failed: {error}; rollback failed: {rollback_error}"
+                )));
+            }
+            return Err(error);
+        }
+        self.reader.reload()?;
+        Ok(())
+    }
 }
 
 impl SearchIndex for TantivySearch {
@@ -128,17 +171,16 @@ impl SearchIndex for TantivySearch {
     ) -> Result<()> {
         let mut guard = self.ensure_writer()?;
         let writer = guard.as_mut().expect("writer initialized");
-        writer.delete_term(self.id_term(id));
-        let mut doc = doc!(
-            self.id_field => id.to_string(),
-            self.body_field => body,
-            self.tags_field => tags.join(" "),
-            self.aliases_field => aliases,
-        );
-        if let Some(t) = title {
-            doc.add_text(self.title_field, t);
-        }
-        writer.add_document(doc)?;
+        self.queue_upsert(
+            writer,
+            &Upsert {
+                id,
+                body,
+                title,
+                tags,
+                aliases,
+            },
+        )?;
         writer.commit()?;
         self.reader.reload()?;
         Ok(())
@@ -149,18 +191,8 @@ impl SearchIndex for TantivySearch {
         }
         let mut guard = self.ensure_writer()?;
         let writer = guard.as_mut().expect("writer initialized");
-        for n in notes {
-            writer.delete_term(self.id_term(n.id));
-            let mut doc = doc!(
-                self.id_field => n.id.to_string(),
-                self.body_field => n.body,
-                self.tags_field => n.tags.join(" "),
-                self.aliases_field => n.aliases,
-            );
-            if let Some(t) = n.title {
-                doc.add_text(self.title_field, t);
-            }
-            writer.add_document(doc)?;
+        for note in notes {
+            self.queue_upsert(writer, note)?;
         }
         writer.commit()?;
         self.reader.reload()?;
@@ -272,6 +304,29 @@ mod tests {
         assert!(title_hits.contains(&id));
     }
 
+    #[test]
+    fn replace_all_replaces_the_committed_snapshot() {
+        let dir = TempDir::new().unwrap();
+        let s = TantivySearch::open(dir.path()).unwrap();
+        let old_id = MemoId::now();
+        s.upsert(old_id, "orphaned snapshot phrase", None, &[], "")
+            .unwrap();
+
+        let current_id = MemoId::now();
+        let notes = [Upsert {
+            id: current_id,
+            body: "authoritative snapshot phrase",
+            title: None,
+            tags: &[],
+            aliases: "",
+        }];
+        s.replace_all(&notes).unwrap();
+
+        assert!(s.search("orphaned", 10).unwrap().is_empty());
+        assert_eq!(s.search("authoritative", 10).unwrap(), vec![current_id]);
+        s.replace_all(&[]).unwrap();
+        assert!(s.search("authoritative", 10).unwrap().is_empty());
+    }
     #[test]
     fn remove_drops_from_results() {
         let dir = TempDir::new().unwrap();

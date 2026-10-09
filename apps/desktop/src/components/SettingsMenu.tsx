@@ -29,6 +29,7 @@ import {
   Library,
   ListChecks,
   HardDrive,
+  MessagesSquare,
   Pin,
   PinOff,
   RefreshCw,
@@ -74,8 +75,14 @@ import {
   setDailyConfig,
   setTasksConfig,
   setGitConfig,
+  setSessionProviderConfig,
   vaultPath,
 } from "../lib/api";
+import {
+  sessionCodexHookInstall,
+  sessionCodexHookStatus,
+  sessionCodexHookUninstall,
+} from "../lib/sessionRecorder";
 
 import { useI18n, type Dict } from "../lib/i18n";
 import { useFolderNames } from "../lib/folders";
@@ -319,6 +326,144 @@ function BrainSection() {
     </div>
   );
 }
+
+/** Explicitly configured summarization provider for user-imported sessions. */
+function SessionProviderSection() {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const setError = useUI((state) => state.setError);
+  const { config, save } = useConfigSection();
+  const session = config.data?.session;
+  const [hookBusy, setHookBusy] = useState(false);
+  const [hookArmed, setHookArmed] = useState(false);
+  const [hookPath, setHookPath] = useState<string | null>(null);
+  const hookStatus = useQuery({
+    queryKey: ["session-codex-hook"],
+    queryFn: sessionCodexHookStatus,
+    staleTime: 30_000,
+  });
+  const patch = (partial: Partial<NonNullable<typeof session>>) =>
+    save(
+      setSessionProviderConfig({
+        endpoint: session?.endpoint ?? "",
+        model: session?.model ?? "",
+        api_key_env: session?.api_key_env ?? "",
+        allow_external: session?.allow_external ?? false,
+        auto_import_sources: session?.auto_import_sources ?? false,
+        auto_scan_git_sources: session?.auto_scan_git_sources ?? false,
+        ...partial,
+      }),
+    );
+  const install = !hookStatus.data;
+  const changeCodexHook = async () => {
+    // Two-click confirm: first click arms (red confirm label), second
+    // commits — window.confirm no-ops in Tauri's WKWebView (see
+    // FoldersSection/uninstall for the established pattern).
+    if (!hookArmed) {
+      setHookArmed(true);
+      return;
+    }
+    setHookArmed(false);
+    setHookBusy(true);
+    try {
+      const path = install
+        ? await sessionCodexHookInstall()
+        : await sessionCodexHookUninstall();
+      // Uninstall also resolves to a path (the removed file); keeping it
+      // would wrongly imply the hook is still installed.
+      setHookPath(install ? path : null);
+      await qc.invalidateQueries({ queryKey: ["session-codex-hook"] });
+    } catch (error) {
+      setError(String(error).split("\n")[0]);
+    } finally {
+      setHookBusy(false);
+    }
+  };
+
+  let hookLabel: string = t.session_codex_hook_install;
+  if (hookArmed) hookLabel = t.session_codex_hook_confirm_arm;
+  else if (hookStatus.data) hookLabel = t.session_codex_hook_remove;
+  // While armed, the tooltip carries the full consequence sentence
+  // (FoldersSection's armed-delete pattern).
+  let hookTitle: string | undefined;
+  if (hookArmed) {
+    if (install) hookTitle = t.session_codex_hook_install_confirm;
+    else hookTitle = t.session_codex_hook_remove_confirm;
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-text-subtle">
+        {t.session_settings_hint}
+      </p>
+      <ToggleRow
+        label={t.session_auto_import_sources}
+        checked={session?.auto_import_sources ?? false}
+        onChange={(auto_import_sources) => patch({ auto_import_sources })}
+      />
+      <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-text-subtle">
+        {t.session_auto_import_hint}
+      </p>
+      <ToggleRow
+        label={t.session_auto_scan_git_sources}
+        checked={session?.auto_scan_git_sources ?? false}
+        onChange={(auto_scan_git_sources) => patch({ auto_scan_git_sources })}
+      />
+      <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-text-subtle">
+        {t.session_auto_scan_git_hint}
+      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-sunken px-3 py-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium text-text">{t.session_codex_hook}</p>
+          <p className="mt-0.5 text-[10px] leading-relaxed text-text-subtle">
+            {t.session_codex_hook_hint}
+          </p>
+          {hookPath && <p className="mt-1 truncate font-mono text-[9px] text-text-subtle">{hookPath}</p>}
+        </div>
+        <button
+          type="button"
+          disabled={hookBusy || hookStatus.isLoading}
+          title={hookTitle}
+          onClick={() => void changeCodexHook()}
+          className={`rounded px-2.5 py-1.5 text-[11px] font-medium disabled:opacity-50 ${
+            hookArmed
+              ? "bg-status-error/15 text-status-error hover:bg-status-error/20"
+              : "bg-hue-blue/15 text-hue-blue hover:bg-hue-blue/20"
+          }`}
+        >
+          {hookLabel}
+        </button>
+      </div>
+      {hookStatus.isError && (
+        <p className="text-[10px] text-status-error">{String(hookStatus.error).split("\n")[0]}</p>
+      )}
+      <TextRow
+        label={t.session_provider_endpoint}
+        value={session?.endpoint ?? ""}
+        placeholder="http://localhost:1234/v1/chat/completions"
+        onCommit={(endpoint) => patch({ endpoint })}
+      />
+      <TextRow
+        label={t.session_provider_model}
+        value={session?.model ?? ""}
+        placeholder="model name"
+        onCommit={(model) => patch({ model })}
+      />
+      <TextRow
+        label={t.session_provider_key_env}
+        value={session?.api_key_env ?? ""}
+        placeholder="SESSION_API_KEY"
+        onCommit={(api_key_env) => patch({ api_key_env })}
+      />
+      <ToggleRow
+        label={t.session_allow_external}
+        checked={session?.allow_external ?? false}
+        onChange={(allow_external) => patch({ allow_external })}
+      />
+    </div>
+  );
+}
+
 
 /** `[copilot]` — agent delegation (spec 2026-08-23). Detection is
  *  pane-local: probing never runs at app startup (§6). Activation is
@@ -1686,6 +1831,7 @@ export function SettingsMenu() {
       group: t.settings_group_integrations,
       items: [
         { id: "brain", label: t.section_brain, icon: <Brain size={13} /> },
+        { id: "sessions", label: t.section_sessions, icon: <MessagesSquare size={13} /> },
         { id: "copilot", label: t.section_copilot, icon: <Bot size={13} /> },
       ],
     },
@@ -1830,6 +1976,13 @@ export function SettingsMenu() {
                 <section>
                   <PaneHeader title={t.section_brain} />
                   <BrainSection />
+                </section>
+              )}
+
+              {activeTab === "sessions" && (
+                <section>
+                  <PaneHeader title={t.section_sessions} />
+                  <SessionProviderSection />
                 </section>
               )}
 

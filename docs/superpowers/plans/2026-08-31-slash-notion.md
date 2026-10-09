@@ -15,7 +15,7 @@
 - Tests: `bun test` (bun:test imports), run from `apps/desktop/`.
 - Type gate: `cd apps/desktop && bunx tsc -b`.
 - Conventional commits (English), file-unit `git add` only — parallel sessions share this working tree; always `git status --short` immediately before staging and re-check the staged diff matches the intended files.
-- `/Volumes/MERCURY` EPERM transients: mass instant test failures → re-run twice before diagnosing.
+- Mounted-volume `EPERM` transients: mass instant test failures → re-run twice before diagnosing.
 - IME doctrine: never fire mid-composition (`context.view?.composing` gate stays).
 - CSS uses existing design tokens only (`--color-*`, `--radius-*`, `--shadow-*`); selectors scoped under `.cm-tooltip-autocomplete`.
 - No new npm dependencies.
@@ -354,7 +354,7 @@ Expected: clean.
 - Consumes: the auto-release-prep skill (CI gates, version from commits — 3+ `feat:` commits since v0.13.1 → minor bump expected, v0.14.0), `scripts/install.sh` (dmg download → sha256 verify → copy to /Applications).
 - Produces: published GitHub release + `/Applications/OxiMemo.app` at the new version.
 
-- [ ] **Step 1: Read and follow skill://auto-release-prep** end-to-end (it drives CI watch, bump, tag, publish, verification without questions).
+- [ ] **Step 1: Read and follow the auto-release-prep skill** end-to-end (it drives CI watch, bump, tag, publish, verification without questions).
 
 - [ ] **Step 2: Verify the release is NOT a draft** — `gh release view` (the `--generate-notes` draft footgun from memory 2026-08-29); if draft, publish it.
 

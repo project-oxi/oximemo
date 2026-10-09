@@ -110,7 +110,7 @@ trait AgentAdapter {
 oximemo가 에이전트에게 넘기는 것은 **사실의 나열**이다.
 
 ```
-vault_root: /Users/<u>/.oxi/vault
+vault_root: <active vault root>
 cli: <앱 번들의 oximemo 사이드카 절대 경로>
 skill: <앱 번들 리소스의 SKILL.md 절대 경로>
 active_memo:

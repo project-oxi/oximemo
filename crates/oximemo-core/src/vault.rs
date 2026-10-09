@@ -14,6 +14,7 @@
 //! redb's or tantivy's own single-writer locks. This keeps the agent path
 //! (`oximemo …` while the GUI is running) correct.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -46,6 +47,34 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 /// [`Vault::migrate`] reindexes once per bump so cached card previews are
 /// regenerated. Stored in `<index_dir>/index-fmt`.
 const INDEX_FORMAT_VERSION: u32 = 5;
+/// Remove the storage-only trash prefix from a vault-relative path.
+fn strip_trash_prefix(relative: &str) -> (&str, bool) {
+    let Some(rest) = relative.strip_prefix(crate::paths::TRASH_DIR) else {
+        return (relative, false);
+    };
+    match rest.strip_prefix('/') {
+        Some(stripped) => (stripped, true),
+        None => (relative, false),
+    }
+}
+
+/// Path spellings written by older watcher versions before trash paths were
+/// normalized. The second form covers Windows-native separators stored by
+/// those versions.
+fn legacy_trash_path_keys(stripped: &str, trash_event: bool) -> Vec<String> {
+    if !trash_event {
+        return Vec::new();
+    }
+    let windows_rel = stripped.replace('/', "\\");
+    vec![
+        format!("{}/{stripped}", crate::paths::TRASH_DIR),
+        format!("{}\\{windows_rel}", crate::paths::TRASH_DIR),
+    ]
+}
+
+fn index_path_matches(record_path: &str, stripped: &str, legacy_paths: &[String]) -> bool {
+    record_path == stripped || legacy_paths.iter().any(|legacy| legacy == record_path)
+}
 
 /// Extraction-parser version for `IndexRecord.tasks` (spec §3/§6). Bump
 /// when `crate::tasks::parse_tasks`'s output would change for the same
@@ -2390,8 +2419,8 @@ impl Vault {
                 };
                 if n.deleted_at.is_some_and(|t| t < cutoff) {
                     if let Some(rel) = self.paths.relative_path(&path) {
-                        let trash_rel = rel.strip_prefix(".trash/").unwrap_or(&rel).to_string();
-                        self.files.purge(&trash_rel)?;
+                        let (trash_rel, _) = strip_trash_prefix(&rel);
+                        self.files.purge(trash_rel)?;
                     } else {
                         std::fs::remove_file(&path)?;
                     }
@@ -2933,6 +2962,15 @@ impl Vault {
     pub fn set_copilot_config(&self, v: crate::config::CopilotConfig) -> Result<()> {
         self.replace_section(|c, v| c.copilot = v, v)
     }
+
+    /// `[session]` — provider endpoint settings for explicit session exports.
+    /// Credentials remain in environment variables, not the vault config.
+    pub fn set_session_provider_config(
+        &self,
+        v: crate::config::SessionProviderConfig,
+    ) -> Result<()> {
+        self.replace_section(|c, v| c.session = v, v)
+    }
     /// `[general]` — trash retention and future behavior knobs.
     pub fn set_general_config(&self, v: crate::config::GeneralConfig) -> Result<()> {
         self.replace_section(|c, v| c.general = v, v)
@@ -3118,15 +3156,18 @@ impl Vault {
     // -- maintenance ------------------------------------------------------
 
     /// Rebuild the indexes from the source-of-truth files (§5.5, §9.1).
+    /// A complete scan reconciles stale rows; parse failures skip cleanup.
     pub fn reindex(&self) -> Result<IndexStats> {
         self.ensure_initialized()?;
         let tasks_cfg = self.with_config(|c| c.tasks.clone());
         self.with_redb_and_search(|idx, search| {
             let mut stats = IndexStats::default();
+            let mut indexed_ids = BTreeSet::new();
             let mut search_owned: Vec<SearchRow> = Vec::new();
             for path in self.files.scan() {
                 match self.files.read_memo(&path) {
                     Ok(Some(note)) => {
+                        indexed_ids.insert(note.id);
                         let rel = self.paths.relative_path(&path).unwrap_or_default();
                         let fmt = crate::memo::NoteFormat::from_rel(&rel);
                         let (sbody, stitle, saliases) = search_fields(fmt, &note);
@@ -3135,7 +3176,6 @@ impl Vault {
                         match idx.get(note.id)? {
                             None => {
                                 idx.upsert(&rec)?;
-                                search_owned.push((note.id, sbody, title, note.tags, saliases));
                                 stats.added += 1;
                             }
                             Some(prev)
@@ -3148,10 +3188,10 @@ impl Vault {
                             }
                             Some(_) => {
                                 idx.upsert(&rec)?;
-                                search_owned.push((note.id, sbody, title, note.tags, saliases));
                                 stats.updated += 1;
                             }
                         }
+                        search_owned.push((note.id, sbody, title, note.tags, saliases));
                         stats.memos += 1;
                     }
                     Ok(None) => {}
@@ -3162,18 +3202,24 @@ impl Vault {
                 }
             }
             for path in self.files.scan_trash() {
-                if let Ok(Some(note)) = self.files.read_memo(&path) {
-                    let rel = self
-                        .paths
-                        .relative_path(&path)
-                        .and_then(|r| r.strip_prefix(".trash/").map(|s| s.to_string()))
-                        .unwrap_or_default();
-                    let (sbody, stitle, saliases) =
-                        search_fields(crate::memo::NoteFormat::from_rel(&rel), &note);
-                    let rec = record_of(&note, &rel, &tasks_cfg);
-                    idx.upsert(&rec)?;
-                    search_owned.push((note.id, sbody, stitle, note.tags, saliases));
-                    stats.trashed_memos += 1;
+                match self.files.read_memo(&path) {
+                    Ok(Some(note)) => {
+                        indexed_ids.insert(note.id);
+                        let rel = self.paths.relative_path(&path).unwrap_or_default();
+                        let (rel, _) = strip_trash_prefix(&rel);
+                        let rel = rel.to_string();
+                        let (sbody, stitle, saliases) =
+                            search_fields(crate::memo::NoteFormat::from_rel(&rel), &note);
+                        let rec = record_of(&note, &rel, &tasks_cfg);
+                        idx.upsert(&rec)?;
+                        search_owned.push((note.id, sbody, stitle, note.tags, saliases));
+                        stats.trashed_memos += 1;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::warn!(path = %path.display(), error = %e, "reindex: trash parse failed");
+                        stats.failed += 1;
+                    }
                 }
             }
             let batch: Vec<crate::store::search::Upsert<'_>> = search_owned
@@ -3188,7 +3234,20 @@ impl Vault {
                     },
                 )
                 .collect();
-            search.upsert_batch(&batch)?;
+            if stats.failed == 0 {
+                for stale in idx.export_since(None)? {
+                    if !indexed_ids.contains(&stale.id) {
+                        idx.remove(stale.id)?;
+                    }
+                }
+                // Replace all rows in one commit so readers keep the last
+                // complete search snapshot if rebuilding fails.
+                search.replace_all(&batch)?;
+            } else {
+                // Preserve existing searchable rows when unreadable source
+                // files make the scan incomplete.
+                search.upsert_batch(&batch)?;
+            }
             Ok(stats)
         })
     }
@@ -3369,28 +3428,149 @@ impl Vault {
         }
     }
 
-    fn do_reindex_path(&self, path: &Path) -> Result<()> {
-        if !path.exists() {
-            if let Some(id) = id_from_path(path) {
-                self.with_redb_and_search(|idx, search| {
-                    idx.remove(id)?;
-                    search.remove(id)
-                })?;
-            }
+    fn remove_indexed_path(&self, path: &Path) -> Result<()> {
+        let Some(rel) = self.paths.relative_path(path) else {
             return Ok(());
+        };
+        let (stripped, trash_event) = strip_trash_prefix(&rel);
+        let legacy_paths = legacy_trash_path_keys(stripped, trash_event);
+
+        // The live counterpart decides whether an untombstoned record at
+        // this path could still be live-backed. Inspection errors are
+        // conservative: leave the index untouched and let a full `reindex`
+        // reconcile (a missing counterpart is simply "no memo").
+        let counterpart = if trash_event {
+            self.paths.vault.join(stripped)
+        } else {
+            self.paths.trash_path(stripped)
+        };
+        let path_ids = self.with_redb(|idx| {
+            let Some(mut ids) = idx.id_for_path(stripped)? else {
+                return Ok(None);
+            };
+            for legacy_path in &legacy_paths {
+                let Some(mut legacy_ids) = idx.id_for_path(legacy_path)? else {
+                    return Ok(None);
+                };
+                ids.append(&mut legacy_ids);
+            }
+            ids.sort_unstable();
+            ids.dedup();
+            Ok(Some(ids))
+        })?;
+        let Some(ids) = path_ids else {
+            // Legacy index without `by_path` entries: fall back to the
+            // (plane-filtered) full export scan.
+            return self.remove_indexed_path_fallback(
+                stripped,
+                &legacy_paths,
+                trash_event,
+                self.counterpart_memo(&counterpart)?,
+            );
+        };
+        if ids.is_empty() {
+            // Lookup table is populated: this path and its legacy spellings
+            // have no indexed record, so there is nothing to remove.
+            return Ok(());
+        }
+        let counterpart_memo = self.counterpart_memo(&counterpart)?;
+        for id in ids {
+            let Some(record) = self.with_redb(|idx| idx.get(id))? else {
+                continue;
+            };
+            if !index_path_matches(&record.path, stripped, &legacy_paths) {
+                continue;
+            }
+            if !Self::record_plane_matches(&record, trash_event, &counterpart_memo) {
+                continue;
+            }
+            self.with_redb_and_search(|idx, search| {
+                idx.remove(record.id)?;
+                search.remove(record.id)
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Parse the opposite-plane counterpart of a removal event's path.
+    /// `Ok(None)` when it is absent or not a memo; any read error other
+    /// than a missing file is fatal so callers never delete on a blind spot.
+    fn counterpart_memo(&self, counterpart: &Path) -> Result<Option<crate::memo::Memo>> {
+        match self.files.read_memo(counterpart) {
+            Ok(memo) => Ok(memo),
+            Err(CoreError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Whether `record` belongs to the plane of the removal event. Trash
+    /// records carry the tombstone (`deleted`); an untombstoned record may
+    /// belong to either plane, in which case it only survives while the
+    /// live counterpart still parses to a memo.
+    fn record_plane_matches(
+        record: &crate::store::index::IndexRecord,
+        trash_event: bool,
+        counterpart_memo: &Option<crate::memo::Memo>,
+    ) -> bool {
+        if trash_event {
+            record.deleted || counterpart_memo.is_none()
+        } else {
+            !record.deleted
+        }
+    }
+
+    /// Pre-`by_path` fallback: same plane semantics over a full export.
+    fn remove_indexed_path_fallback(
+        &self,
+        stripped: &str,
+        legacy_paths: &[String],
+        trash_event: bool,
+        counterpart_memo: Option<crate::memo::Memo>,
+    ) -> Result<()> {
+        self.with_redb_and_search(|idx, search| {
+            for record in idx.export_since(None)? {
+                if !index_path_matches(&record.path, stripped, legacy_paths) {
+                    continue;
+                }
+                if !Self::record_plane_matches(&record, trash_event, &counterpart_memo) {
+                    continue;
+                }
+                idx.remove(record.id)?;
+                search.remove(record.id)?;
+            }
+            Ok(())
+        })
+    }
+
+    fn do_reindex_path(&self, path: &Path) -> Result<()> {
+        // `.djot`/`.base`/`.query` files are never memo-indexed, so their
+        // events — including deletions — can never match an index row;
+        // skip all index work for them.
+        if matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("djot" | "base" | "query")
+        ) {
+            return Ok(());
+        }
+        if !path.exists() {
+            return self.remove_indexed_path(path);
         }
         match self.files.read_memo(path)? {
             Some(note) => {
+                // Store the `.trash/`-stripped path, matching `reindex`'s
+                // trash records, so live and trash records cannot collide
+                // through differing path spellings.
                 let rel = self.paths.relative_path(path).unwrap_or_default();
-                let fmt = crate::memo::NoteFormat::from_rel(&rel);
+                let (stripped, _) = strip_trash_prefix(&rel);
+                let fmt = crate::memo::NoteFormat::from_rel(stripped);
                 let (sbody, stitle, saliases) = search_fields(fmt, &note);
                 let tasks_cfg = self.with_config(|c| c.tasks.clone());
                 self.with_redb_and_search(|idx, search| {
-                    idx.upsert(&record_of(&note, &rel, &tasks_cfg))?;
+                    idx.upsert(&record_of(&note, stripped, &tasks_cfg))?;
                     search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
                 })
             }
-            None => Ok(()),
+            None => self.remove_indexed_path(path),
         }
     }
 
@@ -5655,6 +5835,400 @@ watcher_retry_interval_ms = 200
         assert!(s2.unchanged >= 1);
         let _ = s1;
     }
+    #[test]
+    fn reindex_removes_deleted_and_pdc_reclassified_notes() {
+        let (_t, v) = tmp_vault();
+
+        let deleted = v
+            .create_memo("uniquereindexdeletedword".into(), None)
+            .unwrap();
+        let deleted_path = v
+            .files
+            .scan()
+            .into_iter()
+            .find(|path| {
+                v.files
+                    .read_memo(path)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|note| note.id == deleted.id)
+            })
+            .expect("deleted memo path");
+        assert!(
+            v.search_memos("uniquereindexdeletedword", 10)
+                .unwrap()
+                .iter()
+                .any(|note| note.id == deleted.id)
+        );
+        std::fs::remove_file(&deleted_path).unwrap();
+        v.reindex().unwrap();
+        assert!(
+            !v.list_memos(None, 100, MemoFilter::default())
+                .unwrap()
+                .items
+                .iter()
+                .any(|note| note.id == deleted.id)
+        );
+        assert!(
+            v.search_memos("uniquereindexdeletedword", 10)
+                .unwrap()
+                .is_empty()
+        );
+
+        let converted = v
+            .create_memo("uniquepdctransitionword".into(), None)
+            .unwrap();
+        let converted_path = v
+            .files
+            .scan()
+            .into_iter()
+            .find(|path| {
+                v.files
+                    .read_memo(path)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|note| note.id == converted.id)
+            })
+            .expect("memo path before PDC transition");
+        std::fs::write(
+            &converted_path,
+            format!(
+                "---\nformat: pdc-document/2\nbody: pdc-markdown/1\nid: {}\n\
+                 created: 2026-09-14T12:34:56.789Z\n\
+                 updated: 2026-09-14T12:34:56.789Z\n\
+                 title: PDC source\n---\nThis is now a PDC document.\n",
+                converted.id
+            ),
+        )
+        .unwrap();
+        v.reindex().unwrap();
+        assert!(
+            !v.list_memos(None, 100, MemoFilter::default())
+                .unwrap()
+                .items
+                .iter()
+                .any(|note| note.id == converted.id)
+        );
+        assert!(
+            v.search_memos("uniquepdctransitionword", 10)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn watcher_reindex_removes_deleted_and_pdc_paths() {
+        let (_t, v) = tmp_vault();
+        let deleted = v
+            .create_memo("uniquewatcherdeleteword".into(), None)
+            .unwrap();
+        let deleted_path = v
+            .files
+            .scan()
+            .into_iter()
+            .find(|path| {
+                v.files
+                    .read_memo(path)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|note| note.id == deleted.id)
+            })
+            .expect("deleted memo path");
+        std::fs::remove_file(&deleted_path).unwrap();
+        v.do_reindex_path(&deleted_path).unwrap();
+        assert!(
+            v.search_memos("uniquewatcherdeleteword", 10)
+                .unwrap()
+                .is_empty()
+        );
+
+        let pdc_note = v.create_memo("uniquewatcherpdcword".into(), None).unwrap();
+        let pdc_path = v
+            .files
+            .scan()
+            .into_iter()
+            .find(|path| {
+                v.files
+                    .read_memo(path)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|note| note.id == pdc_note.id)
+            })
+            .expect("memo path before PDC transition");
+        std::fs::write(
+            &pdc_path,
+            format!(
+                "---\nformat: pdc-document/2\nbody: pdc-markdown/1\nid: {}\n\
+                 created: 2026-09-14T12:34:56.789Z\n\
+                 updated: 2026-09-14T12:34:56.789Z\n\
+                 title: PDC source\n---\nPDC source only.\n",
+                pdc_note.id
+            ),
+        )
+        .unwrap();
+        v.do_reindex_path(&pdc_path).unwrap();
+        assert!(
+            v.search_memos("uniquewatcherpdcword", 10)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !v.list_memos(None, 100, MemoFilter::default())
+                .unwrap()
+                .items
+                .iter()
+                .any(|note| note.id == pdc_note.id)
+        );
+    }
+
+    #[test]
+    fn reindex_events_do_not_cross_the_live_and_trash_planes() {
+        let (_t, v) = tmp_vault();
+        let note = v
+            .create_memo("uniqueplanecollisionword".into(), None)
+            .unwrap();
+        let live_path = v
+            .files
+            .scan()
+            .into_iter()
+            .find(|path| {
+                v.files
+                    .read_memo(path)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|memo| memo.id == note.id)
+            })
+            .expect("live memo path");
+        let rel = live_path
+            .strip_prefix(&v.paths().vault)
+            .expect("live path is vault-relative")
+            .to_path_buf();
+        let trash_path = v.paths().trash_path(rel.to_str().unwrap());
+        std::fs::create_dir_all(trash_path.parent().unwrap()).unwrap();
+        // Tombstoned trash copy, as `delete_memo` writes it.
+        let live_bytes = std::fs::read_to_string(&live_path).unwrap();
+        std::fs::write(
+            &trash_path,
+            live_bytes.replacen("---\n", "---\ndeleted: 2026-09-14T12:34:56.789Z\n", 1),
+        )
+        .unwrap();
+        v.do_reindex_path(&trash_path).unwrap();
+        let tombstone = v
+            .with_redb(|idx| idx.get(note.id))
+            .unwrap()
+            .expect("trash record is retained");
+        assert!(tombstone.deleted);
+        assert!(
+            v.search_memos("uniqueplanecollisionword", 10)
+                .unwrap()
+                .is_empty()
+        );
+
+        // Deleting the live file must not drop the trash plane's row.
+        std::fs::remove_file(&live_path).unwrap();
+        v.do_reindex_path(&live_path).unwrap();
+        let tombstone = v
+            .with_redb(|idx| idx.get(note.id))
+            .unwrap()
+            .expect("live event must preserve the trash record");
+        assert!(tombstone.deleted);
+        assert!(
+            v.search_memos("uniqueplanecollisionword", 10)
+                .unwrap()
+                .is_empty()
+        );
+
+        // Restoring the live plane (untombstoned) and deleting the trash
+        // copy keeps the live plane's row.
+        std::fs::write(&live_path, &live_bytes).unwrap();
+        v.do_reindex_path(&live_path).unwrap();
+        std::fs::remove_file(&trash_path).unwrap();
+        v.do_reindex_path(&trash_path).unwrap();
+        let live_record = v
+            .with_redb(|idx| idx.get(note.id))
+            .unwrap()
+            .expect("trash event must preserve the live record");
+        assert!(!live_record.deleted);
+        assert!(
+            !v.search_memos("uniqueplanecollisionword", 10)
+                .unwrap()
+                .is_empty()
+        );
+
+        // With both planes gone the row is finally removed.
+        std::fs::remove_file(&live_path).unwrap();
+        v.do_reindex_path(&live_path).unwrap();
+        assert!(
+            v.with_redb(|idx| idx.get(note.id)).unwrap().is_none(),
+            "no row remains after both files disappear"
+        );
+        assert!(
+            v.search_memos("uniqueplanecollisionword", 10)
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[test]
+    fn trash_plane_with_distinct_id_is_never_removed_by_live_events() {
+        let (_t, v) = tmp_vault();
+        let live_note = v
+            .create_memo("uniqueplanedistinctlive".into(), None)
+            .unwrap();
+        let live_path = v
+            .files
+            .scan()
+            .into_iter()
+            .find(|path| {
+                v.files
+                    .read_memo(path)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|memo| memo.id == live_note.id)
+            })
+            .expect("live memo path");
+        let rel = live_path
+            .strip_prefix(&v.paths().vault)
+            .expect("live path is vault-relative")
+            .to_path_buf();
+
+        // An older, tombstoned note with a different id occupies the same
+        // relative path in the trash plane.
+        let old_id = crate::memo::MemoId::now();
+        let trash_path = v.paths().trash_path(rel.to_str().unwrap());
+        std::fs::create_dir_all(trash_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &trash_path,
+            format!(
+                "---\nid: {old_id}\ncreated: 2026-09-14T12:34:56.789Z\n\
+                 updated: 2026-09-14T12:34:56.789Z\n\
+                 deleted: 2026-09-14T12:34:56.789Z\n---\n\
+                 uniqueplanedistincttrash body\n"
+            ),
+        )
+        .unwrap();
+        v.do_reindex_path(&trash_path).unwrap();
+
+        // Deleting the live note removes only the live plane's row.
+        std::fs::remove_file(&live_path).unwrap();
+        v.do_reindex_path(&live_path).unwrap();
+        assert!(
+            v.search_memos("uniqueplanedistinctlive", 10)
+                .unwrap()
+                .is_empty()
+        );
+        let trash_record = v
+            .with_redb(|idx| idx.get(old_id))
+            .unwrap()
+            .expect("live event must preserve the trash record");
+        assert!(trash_record.deleted);
+        assert!(
+            v.search_memos("uniqueplanedistincttrash", 10)
+                .unwrap()
+                .is_empty(),
+            "soft-deleted records remain hidden from live search"
+        );
+
+        // Deleting the tombstoned trash copy removes its row too.
+        std::fs::remove_file(&trash_path).unwrap();
+        v.do_reindex_path(&trash_path).unwrap();
+        assert!(
+            v.with_redb(|idx| idx.get(old_id)).unwrap().is_none(),
+            "trash row is removed with its file"
+        );
+    }
+
+    #[test]
+    fn trash_removal_cleans_legacy_prefixed_index_paths() {
+        let (_t, v) = tmp_vault();
+        for windows_style in [false, true] {
+            let note = v
+                .create_memo(format!("uniquelegacytrashword{windows_style}"), None)
+                .unwrap();
+            let rel = v.with_redb(|idx| idx.get(note.id)).unwrap().unwrap().path;
+            v.delete_memo(note.id).unwrap();
+            let trash_path = v.paths().trash_path(&rel);
+
+            let mut record = v.with_redb(|idx| idx.get(note.id)).unwrap().unwrap();
+            record.path = if windows_style {
+                format!("{}\\{}", crate::paths::TRASH_DIR, rel.replace('/', "\\"))
+            } else {
+                format!("{}/{rel}", crate::paths::TRASH_DIR)
+            };
+            v.with_redb(|idx| idx.upsert(&record)).unwrap();
+
+            std::fs::remove_file(&trash_path).unwrap();
+            v.do_reindex_path(&trash_path).unwrap();
+            assert!(
+                v.with_redb(|idx| idx.get(note.id)).unwrap().is_none(),
+                "legacy trash-path record should be removed"
+            );
+        }
+    }
+
+    #[test]
+    fn body_only_trash_counterpart_does_not_block_live_removal() {
+        let (_t, v) = tmp_vault();
+        let note = v
+            .create_memo("uniquebodyonlycounterpart".into(), None)
+            .unwrap();
+        let live_path = v
+            .files
+            .scan()
+            .into_iter()
+            .find(|path| {
+                v.files
+                    .read_memo(path)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|memo| memo.id == note.id)
+            })
+            .expect("live memo path");
+        let rel = live_path
+            .strip_prefix(&v.paths().vault)
+            .expect("live path is vault-relative")
+            .to_path_buf();
+        let trash_path = v.paths().trash_path(rel.to_str().unwrap());
+        std::fs::create_dir_all(trash_path.parent().unwrap()).unwrap();
+        // Body-only markdown at the same relative path in trash: it never
+        // parses to a memo, so it cannot back the live note's row.
+        std::fs::write(&trash_path, "plain body-only text\n").unwrap();
+
+        std::fs::remove_file(&live_path).unwrap();
+        v.do_reindex_path(&live_path).unwrap();
+        assert!(
+            v.search_memos("uniquebodyonlycounterpart", 10)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn reindex_events_skip_non_memo_extensions() {
+        let (_t, v) = tmp_vault();
+        let note = v.create_memo("uniquedjotskipword".into(), None).unwrap();
+        let live_path = v
+            .files
+            .scan()
+            .into_iter()
+            .find(|path| {
+                v.files
+                    .read_memo(path)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|memo| memo.id == note.id)
+            })
+            .expect("live memo path");
+
+        // Non-memo extensions never touch the index, even on deletion
+        // events for paths that match no record.
+        for ext in ["djot", "base", "query"] {
+            let phantom = live_path.with_extension(ext);
+            std::fs::remove_file(&phantom).ok();
+            v.do_reindex_path(&phantom).unwrap();
+        }
+        assert!(!v.search_memos("uniquedjotskipword", 10).unwrap().is_empty());
+    }
+
     #[test]
     fn derived_tags_from_body_end_to_end() {
         let (_t, v) = tmp_vault();

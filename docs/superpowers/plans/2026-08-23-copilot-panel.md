@@ -31,7 +31,7 @@
 - `apps/desktop/src/components/SettingsMenu.tsx` — 연동 그룹 "코파일럿" pane
 - `apps/desktop/src/lib/locales/ko.ts`·`en.ts` — 문자열
 - `README.md`, `doc/DESIGN.md` — 스코프 명확화
-- `/Volumes/MERCURY/PROJECTS/oxibrain/doc/ECOSYSTEM.md` — §3.1 개정 (별 레포 커밋)
+- `oxibrain/doc/ECOSYSTEM.md` — §3.1 개정 (별 레포 커밋)
 
 ---
 

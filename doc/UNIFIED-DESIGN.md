@@ -679,4 +679,4 @@ src/
 
 ---
 
-*이 문서는 정규 스펙 `oxi-design-system` 매니지드 스킬(`~/.omp/agent/managed-skills/oxi-design-system/DESIGN.md`) 및 `oxios/web/DESIGN.md` v1.0과 값이 일치한다. 권위 순서: 매니지드 스펙 = 이 문서 > 각 프로젝트 개별 문서.*
+*이 문서는 정규 스펙 `oxi-design-system` 관리 스킬 및 `oxios/web/DESIGN.md` v1.0과 값이 일치한다. 권위 순서: 관리 스펙 = 이 문서 > 각 프로젝트 개별 문서.*
