@@ -60,3 +60,15 @@ data/
 *.p8
 *.keychain
 *.keychain-db
+
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+*.dmg
+*.app/
+*.zip
+*.tar.gz
+*.tgz
+/staging/
+/release-notes.md
