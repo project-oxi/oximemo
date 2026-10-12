@@ -89,7 +89,7 @@ jobs:
       - name: Stage CLI sidecar for app bundle
         run: |
           mkdir -p apps/desktop/src-tauri/binaries
-          cp "target/${{ env.TARGET }}/release/oximemo" \
+          install -m 755 "target/${{ env.TARGET }}/release/oximemo" \
              "apps/desktop/src-tauri/binaries/oximemo-${{ env.TARGET }}"
 
       # Validate secret availability without writing secret values to
@@ -185,6 +185,14 @@ jobs:
             exit 1
           fi
           export DMG_PATH
+
+          CLI="$APP/Contents/MacOS/oximemo"
+          test -x "$CLI"
+          VERSION="$(jq -r '.version' apps/desktop/src-tauri/tauri.conf.json)"
+          if [ "$("$CLI" --version)" != "oximemo $VERSION" ]; then
+            echo "::error::Bundled CLI version does not match the app"
+            exit 1
+          fi
 
           codesign --verify --deep --strict --verbose=2 "$APP"
           SIGNATURE="$(codesign -dv --verbose=4 "$APP" 2>&1)"
