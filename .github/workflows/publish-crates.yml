@@ -1,0 +1,85 @@
+name: Publish Rust packages
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      CARGO_REGISTRY_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish-crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@1.98.1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: publish-crates
+
+      # Publish in dependency topology: core resolves oxi-frontmatter, while
+      # session and metadata resolve oximemo-core. Publish both before the CLI.
+      # Version comes from cargo metadata for workspace and standalone crates.
+      - name: Publish crates (frontmatter, vault-git, core, session, capture, metadata)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          for crate in oxi-frontmatter oxi-vault-git oximemo-core oximemo-session oximemo-capture oximemo-metadata; do
+            CV=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$crate\") | .version")
+            echo "Publishing $crate@$CV"
+            if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \
+                 | grep -q "\"max_stable_version\":\"$CV\""; then
+              echo "$crate@$CV already published — skipping"
+            else
+              cargo publish -p "$crate"
+            fi
+            # Wait for the sparse index to propagate before the next
+            # iteration: oximemo-core resolves oxi-frontmatter from the
+            # registry, so publishing it against a not-yet-indexed
+            # dependency fails resolution (learned in the v0.10.0 run).
+            for i in $(seq 1 30); do
+              if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \
+                   | grep -q "\"max_stable_version\":\"$CV\""; then
+                echo "$crate@$CV indexed"
+                break
+              fi
+              echo "waiting for $crate@$CV to index ($i/30)…"
+              sleep 5
+            done
+          done
+
+      - name: Wait for crates.io to index oximemo-core (cli dependency)
+        run: |
+          set -euo pipefail
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          for i in $(seq 1 30); do
+            if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/oximemo-core" \
+                 | grep -q "\"max_stable_version\":\"$VERSION\""; then
+              echo "oximemo-core@$VERSION indexed"
+              exit 0
+            fi
+            echo "waiting for oximemo-core@$VERSION to index ($i/30)…"
+            sleep 10
+          done
+          echo "::error::oximemo-core@$VERSION not indexed in time"
+          exit 1
+
+      - name: Publish oximemo-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/oximemo-cli" \
+               | grep -q "\"max_stable_version\":\"$VERSION\""; then
+            echo "oximemo-cli@$VERSION already published — skipping"
+          else
+            cargo publish -p oximemo-cli
+          fi

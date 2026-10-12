@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Rust package publication now requires `oxi-frontmatter` 0.4, which exposes the repository's PDC 2 API, instead of resolving the older published 0.3 API. Package publication can run independently of native app signing.
+
 ## [0.19.0] — 2026-10-12
 
 ### Changed

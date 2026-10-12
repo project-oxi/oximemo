@@ -4099,7 +4099,7 @@ dependencies = [
 
 [[package]]
 name = "oxi-frontmatter"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "indexmap 2.14.0",
  "serde_json",
