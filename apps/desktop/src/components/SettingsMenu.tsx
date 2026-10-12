@@ -97,7 +97,7 @@ import { MetadataRegionSelect, ProviderKeys } from "./ProviderKeys";
 import { useSchemaInfo } from "../lib/folders";
 import { applyTheme, type Theme } from "../lib/theme";
 import type { FolderEntry, TaskStatusWireDef, TasksWireConfig } from "../lib/types";
-import { validSpaceName } from "./SpacePicker";
+import { validSpaceName } from "../lib/spaceName";
 const APP_VERSION = __APP_VERSION__;
 
 /** Base UI's modal stops document key events used by Radix RadioGroup.
@@ -1012,19 +1012,24 @@ function SpaceSection() {
               : "text-text-muted hover:bg-surface-muted hover:text-text")
           }
         >
-          <span className="font-mono">{s.name}</span>
-          {s.current && <Check size={13} className="text-text-subtle" />}
+          <span className="min-w-0 flex-1 truncate font-mono" title={s.name}>{s.name}</span>
+          {s.current && <Check size={13} aria-hidden className="shrink-0 text-text-subtle" />}
         </button>
       ))}
       <div className="flex items-center gap-1 px-1 py-0.5">
         <input
           value={name}
+          aria-label={t.space_name_ph}
+          aria-invalid={badName}
           placeholder={t.space_name_ph}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") create();
+            if (e.key === "Enter" && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
+              e.preventDefault();
+              create();
+            }
           }}
-          className={`w-full rounded-lg bg-surface-sunken px-2.5 py-1.5 font-mono text-xs text-text outline-none focus:ring-1 ${badName ? "ring-hue-red" : "focus:ring-line"}`}
+          className={`min-w-0 flex-1 rounded-lg bg-surface-sunken px-2.5 py-1.5 font-mono text-xs text-text outline-none focus:ring-1 ${badName ? "ring-hue-red" : "focus:ring-line"}`}
         />
         <button
           type="button"

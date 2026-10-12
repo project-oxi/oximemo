@@ -296,6 +296,7 @@
   "space_name_ph": "space name",
   "space_name_invalid": "letters, digits, - and _ only, max 64 chars",
   "space_create_confirm": "Create",
+  "space_creating": "Creating…",
   "palette_space_switch": "Switch space",
   "palette_space_new": "New space",
   "section_space": "Space",

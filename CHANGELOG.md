@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] — 2026-10-13
+
 ### Fixed
 
+- The sidebar space switcher escapes sidebar clipping, constrains long names, and keeps its scrollable list and creation controls within the viewport. Escape and outside clicks dismiss it and restore focus.
+- Space switch/create commands reveal a collapsed sidebar; hiding the sidebar clears its open popup. Space name inputs handle IME confirmation and count Unicode characters consistently with the backend.
+- Space creation disables repeat submissions while pending, uses Garden field/action controls, and exposes localized accessible input/error labels.
 - Rust package publication now requires `oxi-frontmatter` 0.4, which exposes the repository's PDC 2 API, instead of resolving the older published 0.3 API. Package publication can run independently of native app signing.
 
 ## [0.19.0] — 2026-10-12
@@ -1312,7 +1317,9 @@ vault registration goes through the oxibrain client boundary.
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.19.1...HEAD
+[0.19.1]: https://github.com/project-oxi/oximemo/compare/v0.19.0...v0.19.1
+[0.19.0]: https://github.com/project-oxi/oximemo/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/project-oxi/oximemo/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/project-oxi/oximemo/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/project-oxi/oximemo/compare/v0.15.0...v0.16.0

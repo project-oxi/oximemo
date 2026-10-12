@@ -223,6 +223,13 @@ button:focus-visible, select:focus-visible, a:focus-visible {
   background: var(--color-glass-toolbar);
 }
 .sidebar-space > div > button { min-height: 34px; padding-left: var(--space-3); padding-right: var(--space-3); }
+.space-picker-popup {
+  display: flex;
+  flex-direction: column;
+  width: min(max(264px, var(--anchor-width)), calc(100vw - 24px));
+  max-height: min(420px, var(--available-height));
+}
+.space-picker-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .sidebar-scroll { min-height: 0; flex: 1; overflow-y: auto; padding-bottom: var(--space-5); scrollbar-width: thin; }
 .glass-sidebar .sidebar-scroll > div:has(> span) { margin-top: var(--space-5); }
 .glass-sidebar .sidebar-scroll > div:first-child { margin-top: var(--space-3); }

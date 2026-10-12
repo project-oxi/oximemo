@@ -400,7 +400,7 @@ export const useUI = create<UIState>((set, get) => ({
       const v = !s.sidebarCollapsed;
       if (typeof window !== "undefined")
         window.localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0");
-      return { sidebarCollapsed: v };
+      return { sidebarCollapsed: v, spacePickerOpen: false, spacePickerCreate: false };
     }),
   error: null,
   setError: (msg) => set({ error: msg }),
@@ -453,9 +453,15 @@ export const useUI = create<UIState>((set, get) => ({
   /** One-shot settings tab request — consumed by SettingsMenu on open
    *  (⌘K 컬렉션 관리 → collections pane). */
   spacePickerOpen: false,
-  setSpacePickerOpen: (b) => set({ spacePickerOpen: b }),
+  setSpacePickerOpen: (b) => {
+    if (b && get().sidebarCollapsed) get().toggleSidebar();
+    set({ spacePickerOpen: b, spacePickerCreate: false });
+  },
   spacePickerCreate: false,
-  requestSpaceCreate: () => set({ spacePickerOpen: true, spacePickerCreate: true }),
+  requestSpaceCreate: () => {
+    get().setSpacePickerOpen(true);
+    set({ spacePickerCreate: true });
+  },
   consumeSpaceCreate: () => set({ spacePickerCreate: false }),
   settingsTab: null,
   setSettingsTab: (tab) => set({ settingsTab: tab }),

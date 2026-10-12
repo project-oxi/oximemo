@@ -27,10 +27,11 @@
   transition: opacity var(--dur-fast) var(--ease-enter), scale var(--dur-fast) var(--ease-enter);
 }
 .glass-settings[data-ending-style], .glass-palette[data-ending-style] { transition-duration: var(--dur-exit); transition-timing-function: var(--ease-exit); }
-.space-picker-popup, .note-history-content { animation: workspace-popup-enter var(--dur-fast) var(--ease-enter) both; }
+.note-history-content { animation: workspace-popup-enter var(--dur-fast) var(--ease-enter) both; }
 .settings-content { animation: workspace-pane-enter var(--dur-base) var(--ease-enter) both; }
 .glass-sidebar[data-resizing="true"] { overflow: clip; }
 .glass-sidebar > * { min-width: var(--workspace-sidebar-width); }
+.glass-sidebar > .sidebar-space { min-width: calc(var(--workspace-sidebar-width) - 2 * var(--space-3)); }
 .property-disclosure-content { display: flex; flex-direction: column; gap: var(--space-2); }
 .note-properties > button svg { transition: rotate var(--dur-fast) var(--ease-enter), transform var(--dur-fast) var(--ease-enter); }
 :where(.workspace-titlebar, .workspace-view-tools, .memo-sheet-header, .settings-header) button:not(:disabled) {
