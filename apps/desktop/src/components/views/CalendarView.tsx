@@ -106,14 +106,14 @@ export function CalendarView({
     <div data-calendar-view className="flex h-full flex-col gap-2 p-3">
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-1 text-sm">
-          <button type="button" onClick={handlePrev} aria-label="previous month"
+          <button type="button" onClick={handlePrev} aria-label={t.calendar_previous_month} title={t.calendar_previous_month}
             className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] text-text-subtle hover:bg-surface-muted hover:text-text">
             <ChevronLeft size={14} strokeWidth={2} />
           </button>
           <span className="min-w-32 text-center font-medium">
             {monthTitle(viewed.year, viewed.month, effectiveLocale)}
           </span>
-          <button type="button" onClick={handleNext} aria-label="next month"
+          <button type="button" onClick={handleNext} aria-label={t.calendar_next_month} title={t.calendar_next_month}
             className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] text-text-subtle hover:bg-surface-muted hover:text-text">
             <ChevronRight size={14} strokeWidth={2} />
           </button>
@@ -146,16 +146,27 @@ export function CalendarView({
               data-calendar-cell
               data-today={isToday || undefined}
               data-empty={empty || undefined}
-              onClick={empty && onEmptyDay ? () => onEmptyDay(cell.date) : undefined}
               className={`flex min-h-[88px] flex-col gap-0.5 bg-surface p-1 text-xs ${
                 isCurrentMonth ? "" : "opacity-40"
               } ${empty && onEmptyDay ? "cursor-pointer hover:bg-surface-muted" : ""}`}
             >
-              <div className={`text-right text-[11px] ${
-                isToday ? "font-semibold text-text" : "text-text-subtle"
-              }`}>
-                {cell.day}
-              </div>
+              {empty && onEmptyDay ? (
+                <button
+                  type="button"
+                  aria-label={t.calendar_open_daily.replace("{date}", cell.date)}
+                  aria-current={isToday ? "date" : undefined}
+                  onClick={() => onEmptyDay(cell.date)}
+                  className={`flex flex-1 flex-col items-end rounded-sm text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${isToday ? "font-semibold text-text" : "text-text-subtle"}`}
+                >
+                  {cell.day}
+                </button>
+              ) : (
+                <div className={`text-right text-[11px] ${
+                  isToday ? "font-semibold text-text" : "text-text-subtle"
+                }`}>
+                  {cell.day}
+                </div>
+              )}
               {visible.map((m) => (
                 <button
                   key={m.id}

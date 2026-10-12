@@ -1,0 +1,53 @@
+/* Text entry keeps its existing surface and border; focus remains visible through the caret. */
+body :is(
+  input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  [contenteditable="true"]
+):focus {
+  outline: none !important;
+  caret-color: var(--g-ink);
+}
+
+/* Keyboard-focused actions and navigation retain a neutral-ink outline. */
+body :is(
+  button,
+  select,
+  [role="combobox"]:not(input):not([contenteditable="true"]),
+  a,
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="range"],
+  [role="button"]:not([role="combobox"]),
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"],
+  [role="checkbox"],
+  [role="radio"],
+  [role="switch"],
+  [tabindex]:not([tabindex="-1"]):not(input):not(textarea):not(select):not([contenteditable="true"]):not([role="combobox"])
+):focus-visible:not([data-slot="select-item"]) {
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  outline: 2px solid var(--g-ink2) !important;
+  outline-offset: 2px;
+}
+
+/* Keep visible neutral markers for the custom scroll and checkbox affordances. */
+.records-scroll:focus-visible {
+  outline: 2px solid var(--g-ink2) !important;
+  outline-offset: -2px;
+}
+
+.records-checkbox input:focus-visible + .records-checkbox-box {
+  outline: 2px solid var(--g-ink2) !important;
+  outline-offset: 2px;
+}
+
+/* Popup items use a filled active row; an outer ring would be clipped by the viewport. */
+body [data-slot="select-item"][role="option"]:focus-visible {
+  outline: none !important;
+  background: var(--g-hover2);
+}

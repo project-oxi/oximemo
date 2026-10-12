@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pdc:document:envelope:2",
+  "title": "Portable Document Contract 2 parsed envelope",
+  "description": "Validates the structural data model after the safe general YAML envelope has been parsed. Normative validation must separately check transport/profile agreement, real calendar timestamps, updated ordering, YAML feature restrictions (no anchors, aliases, custom tags, complex keys, duplicate keys, multi-document streams), nesting and node caps, HTML comment safety, and the Writer-only UUIDv7 rule. Unknown top-level properties are user properties constrained to JSON-compatible values.",
+  "type": "object",
+  "required": ["format", "body", "id", "created", "updated", "title"],
+  "allOf": [
+    {
+      "if": {
+        "required": ["deleted"],
+        "properties": { "deleted": { "const": true } }
+      },
+      "then": { "required": ["deleted_at"] }
+    },
+    {
+      "if": { "required": ["deleted_at"] },
+      "then": {
+        "required": ["deleted"],
+        "properties": { "deleted": { "const": true } }
+      }
+    }
+  ],
+  "properties": {
+    "format": { "const": "pdc-document/2" },
+    "body": {
+      "type": "string",
+      "enum": ["pdc-markdown/1", "pdc-html/1"]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "created": { "$ref": "#/$defs/timestamp" },
+    "updated": { "$ref": "#/$defs/timestamp" },
+    "title": { "type": "string" },
+    "profile": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "lang": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 63
+    },
+    "tags": { "$ref": "#/$defs/uniqueStringArray" },
+    "aliases": { "$ref": "#/$defs/uniqueStringArray" },
+    "cssclasses": { "$ref": "#/$defs/uniqueStringArray" },
+    "favorite": { "type": "boolean" },
+    "deleted": { "type": "boolean" },
+    "deleted_at": { "$ref": "#/$defs/timestamp" }
+  },
+  "additionalProperties": { "$ref": "#/$defs/userValue" },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+    },
+    "uniqueStringArray": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "userValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/userValue" }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": { "$ref": "#/$defs/userValue" }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"name":"@garden/cli","version":"0.1.0","type":"module","bin":{"garden":"./garden.mjs"},"private":true}

@@ -9,26 +9,26 @@
  */
 import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Button, SegmentedControl } from "@garden/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence } from "motion/react";
 import {
   BookOpen,
-  Calendar,
-  Clock,
+  Bot,
   Clapperboard,
+  ChevronDown,
   CodeXml,
   FilePlus2,
   FolderPlus,
-  LayoutGrid,
-  Library,
-  List,
   Lock,
   LockOpen,
-  Network,
+  LayoutGrid,
+  List,
+  Command,
   PanelLeft,
   PanelLeftClose,
   Plus,
   Search,
-  Table2,
   GraduationCap,
 } from "lucide-react";
 
@@ -78,7 +78,8 @@ import {
 import type { BaseRow, FolderCard, MemoSummary, NoteFormat, ViewMode } from "../lib/types";
 
 import { MemoDetail } from "./MemoDetail";
-import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
+import { IconTool } from "./IconTool";
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, BtnMenuRoot, BtnMenuTrigger, BtnMenuPopup, BtnMenuItem } from "./ContextMenu";
 import { TextCtxMenu } from "./TextCtxMenu";
 import type { NamingSession } from "./FolderTile";
 import { CommandPalette } from "./CommandPalette";
@@ -97,6 +98,7 @@ import { CalendarView } from "./views/CalendarView";
 import { GraphView } from "./views/GraphView";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { MetadataAddDialog } from "./MetadataAddDialog";
+import { isComposingKey } from "../lib/editorKeys";
 import { ReviewQueue } from "./ReviewQueue";
 const PAGE_SIZE = 50;
 const MIN_COL_W = 240;
@@ -134,6 +136,7 @@ export function CardGrid() {
   const setView = useUI((s) => s.setView);
   const noteView = useUI((s) => s.noteView);
   const setNoteView = useUI((s) => s.setNoteView);
+  const [queryCalendarField, setQueryCalendarField] = useState(loadCalendarFieldQuery);
   const cycleTag = useUI((s) => s.cycleTag);
   const cmdPaletteOpen = useUI((s) => s.cmdPaletteOpen);
   const setCmdPaletteOpen = useUI((s) => s.setCmdPaletteOpen);
@@ -141,6 +144,7 @@ export function CardGrid() {
   const requestNewFolder = useUI((s) => s.requestNewFolder);
   const consumeFolderCreate = useUI((s) => s.consumeFolderCreate);
   const setCopilotOpen = useUI((s) => s.setCopilotOpen);
+  const copilotOpen = useUI((s) => s.copilotOpen);
   // Panel visibility is config-driven (§6): no activated agent → the
   // entry points stay hidden, no nudge.
   const copilot = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
@@ -151,6 +155,9 @@ export function CardGrid() {
     clearTagFilter();
     setFolderFilter(null);
     setFavoritesOnly(false);
+    setSearch("");
+    setLocalSearch("");
+    setDebounced("");
   };
 
   const configQ = useQuery({ queryKey: ["config"], queryFn: getConfig });
@@ -496,7 +503,11 @@ export function CardGrid() {
     scrollerRoRef.current?.disconnect();
     scrollerRoRef.current = null;
     if (!el) return;
-    const update = () => setCols(Math.max(1, Math.floor((el.clientWidth - 16) / MIN_COL_W)));
+    const update = () => {
+      const style = window.getComputedStyle(el);
+      const width = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      setCols(Math.max(1, Math.floor((width + ROW_GAP) / (MIN_COL_W + ROW_GAP))));
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -545,6 +556,7 @@ export function CardGrid() {
     void listen("memos:changed", () => {
       qc.invalidateQueries({ queryKey: ["memos"] });
       qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["trash"] });
       qc.invalidateQueries({ queryKey: ["facets"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
       qc.invalidateQueries({ queryKey: ["folders"] });
@@ -658,6 +670,21 @@ export function CardGrid() {
         qc.invalidateQueries({ queryKey: ["search"] });
         qc.invalidateQueries({ queryKey: ["facets"] });
         qc.invalidateQueries({ queryKey: ["folders"] });
+        setToast(t.memo_deleted, {
+          label: t.undo,
+          onClick: () => {
+            void restoreNotes([id])
+              .then(() => {
+                qc.invalidateQueries({ queryKey: ["memos"] });
+                qc.invalidateQueries({ queryKey: ["search"] });
+                qc.invalidateQueries({ queryKey: ["facets"] });
+                qc.invalidateQueries({ queryKey: ["folders"] });
+                qc.invalidateQueries({ queryKey: ["trash"] });
+                setToast(t.memo_restored);
+              })
+              .catch((e) => setError(String(e).split("\n")[0]));
+          },
+        });
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   };
@@ -961,6 +988,7 @@ export function CardGrid() {
   // transient overlay, so open/close never persists.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isComposingKey(e)) return;
       const cmdOpen = useUI.getState().cmdPaletteOpen;
       // ⌘N / CtrlN — new note in current folder. Inert while the palette
       // modal is open (opening MemoDetail underneath would stack two
@@ -1031,6 +1059,7 @@ export function CardGrid() {
       // Escape — clear the current search box only. Does NOT navigate; the
       // dialog/palette handlers manage their own Escape behaviour.
       if (e.key === "Escape") {
+        if (e.defaultPrevented) return;
         if (useUI.getState().selectedId) return;
         if (useUI.getState().quickAddOpen) return;
         if (cmdOpen) return;
@@ -1231,19 +1260,19 @@ export function CardGrid() {
     startFolderCreate();
   }, [requestNewFolder, folderFilter, setView, setFavoritesOnly, setFolderFilter, consumeFolderCreate, startFolderCreate]);
 
-  // Sidebar toggle is the first inline element of the header now (see
-  // <header> below). The wrapper provides the pl-1 inset and h-12 height so
-  // it aligns with sibling content.
+  // The navigation control shares the title bar in every workspace.
   const sidebarToggle = (
-    <div className="flex h-12 shrink-0 items-center pl-1">
-      <button
-        type="button"
+    <div className="workspace-sidebar-toggle">
+      <IconTool
         onClick={toggleSidebar}
-        aria-label={sidebarCollapsed ? t.show_sidebar : t.hide_sidebar}
+        data-sidebar-toggle
+        label={sidebarCollapsed ? t.show_sidebar : t.hide_sidebar}
+        aria-expanded={!sidebarCollapsed}
+        aria-controls="workspace-sidebar"
         className="rounded-[var(--button-radius)] p-1.5 text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text"
       >
         {sidebarCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
-      </button>
+      </IconTool>
     </div>
   );
 
@@ -1266,7 +1295,7 @@ export function CardGrid() {
     return def?.calendar_date_field ?? "created_at";
   }, [folderFilter, folders]);
   const currentQueryCalendarField =
-    folderFilter === null ? loadCalendarFieldQuery() : folderCalendarField;
+    folderFilter === null ? queryCalendarField : folderCalendarField;
   const dailyFolder = configQ.data?.daily?.folder ?? null;
   const dailyEnabled = configQ.data?.daily?.enabled ?? true;
 
@@ -1276,32 +1305,34 @@ export function CardGrid() {
   const viewSwitcher = (
     <div
       role="group"
-      aria-label="View mode"
-      className="inline-flex items-center gap-0.5 text-xs"
+      aria-label={t.view_mode}
+      className="workspace-view-switcher text-xs"
     >
-      {([
-        { v: "grid", Icon: LayoutGrid },
-        { v: "list", Icon: List },
-        { v: "table", Icon: Table2 },
-        { v: "timeline", Icon: Clock },
-        { v: "graph", Icon: Network },
-        { v: "calendar", Icon: Calendar },
-      ] as const).map(({ v, Icon }) => (
-        <button
-          type="button"
-          onClick={() => setNoteViewLocked(v)}
-          title={v}
-          aria-label={v}
-          className={`inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
-            noteView === v
-              ? "bg-surface-muted text-text"
-              : "text-text-subtle hover:bg-surface-muted hover:text-text"
-          }`}
-          aria-pressed={noteView === v}
-        >
-          <Icon size={13} strokeWidth={2} />
-        </button>
-      ))}
+      <SegmentedControl
+        aria-label={t.view_mode}
+        value={noteView}
+        onValueChange={setNoteViewLocked}
+        variant="filter"
+        className="workspace-view-segment"
+        options={[
+          { value: "grid", label: <><LayoutGrid size={15} aria-hidden /><span className="sr-only">{t.palette_view_grid}</span></> },
+          { value: "list", label: <><List size={16} aria-hidden /><span className="sr-only">{t.palette_view_list}</span></> },
+        ]}
+      />
+      <select
+        aria-label={t.view_mode}
+        value={noteView}
+        onChange={(event) => setNoteViewLocked(event.target.value as typeof noteView)}
+        className="h-7 max-w-28 rounded-[var(--button-radius)] border border-line bg-surface-raised px-2 text-xs text-text"
+      >
+        <option value="grid">{t.palette_view_grid}</option>
+        <option value="list">{t.palette_view_list}</option>
+        <option value="table">{t.view_table}</option>
+        <option value="timeline">{t.palette_view_timeline}</option>
+        <option value="graph">{t.palette_view_graph}</option>
+        <option value="calendar">{t.palette_view_calendar}</option>
+        {shelfAvailable && <option value="shelf">{t.view_shelf}</option>}
+      </select>
       {noteView === "calendar" && (
         <PropSelect
           label=""
@@ -1317,6 +1348,7 @@ export function CardGrid() {
           ]}
           onChange={(value) => {
             if (folderFilter === null) {
+              setQueryCalendarField(value);
               saveCalendarFieldQuery(value);
             } else {
               void setFolderCalendarField(folderFilter, value === "created_at" ? null : value)
@@ -1325,22 +1357,6 @@ export function CardGrid() {
             }
           }}
         />
-      )}
-      {shelfAvailable && (
-        <button
-          type="button"
-          onClick={() => setNoteViewLocked("shelf")}
-          title="shelf"
-          aria-label="shelf"
-          className={`inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
-            noteView === "shelf"
-              ? "bg-surface-muted text-text"
-              : "text-text-subtle hover:bg-surface-muted hover:text-text"
-          }`}
-          aria-pressed={noteView === "shelf"}
-        >
-          <Library size={13} strokeWidth={2} />
-        </button>
       )}
       {folderFilter !== null && (
         <button
@@ -1353,7 +1369,7 @@ export function CardGrid() {
           title={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
           aria-label={isLocked ? t.view_pin_locked : t.view_pin_unlocked}
           aria-pressed={isLocked}
-          className={`ml-1 inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
+          className={`view-pin ml-1 inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] transition-colors duration-150 ${
             isLocked
               ? "text-hue-amber hover:bg-hue-amber/15"
               : "text-text-subtle hover:bg-surface-muted hover:text-text"
@@ -1378,19 +1394,40 @@ export function CardGrid() {
     />
   );
 
+  const sidebarScrim = !sidebarCollapsed && (
+    <button type="button" className="sidebar-scrim" onClick={toggleSidebar} aria-label={t.hide_sidebar} />
+  );
+  const workspaceTitle = (() => {
+    if (inSearch) return t.workspace_search_title;
+    if (favoritesOnly) return t.favorite;
+    if (folderFilter === "") return t.vault_root;
+    if (folderFilter !== null) return displayFolder(folderFilter);
+    return t.all_memos;
+  })();
+  const unfiltered = !inSearch && !propActive && includeTags.length === 0 && excludeTags.length === 0 && folderFilter === null;
+  const workspaceCount = unfiltered
+    ? (favoritesOnly ? stats.data?.favorites : stats.data?.memos) ?? items.length
+    : items.length;
+  const countHasMore = !unfiltered && !inSearch && (propActive ? propQuery.hasNextPage : listing.hasNextPage);
+
   if (view === "gallery") {
     // h-dvh: see the memos return below — the height chain anchors here too.
     return (
-      <div className="flex h-dvh">
-        {!sidebarCollapsed && (
-          <Sidebar onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />
-        )}
-        <div className="flex min-w-0 flex-1 flex-col">
+      <div className="workspace-shell" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
+        {sidebarScrim}
+        <AnimatePresence initial={false}>
+          {!sidebarCollapsed && <Sidebar key="sidebar" onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />}
+        </AnimatePresence>
+        <div className="workspace-main">
           <header
             data-tauri-drag-region="deep"
-            className="flex h-12 shrink-0 items-center border-b border-line pr-4"
+            className="workspace-titlebar"
           >
             {sidebarToggle}
+            <span className="min-w-0 flex-1 text-[13px] font-medium text-text-muted">{t.gallery}</span>
+            <IconTool className="workspace-command" label={t.command_palette_title} hint="⌘K" onClick={() => setCmdPaletteOpen(true)}><Command size={16} aria-hidden /></IconTool>
+            {copilotVisible && <IconTool data-copilot-trigger className="workspace-command" label={t.copilot_fab} aria-expanded={copilotOpen} onClick={() => setCopilotOpen(!copilotOpen)}><Bot size={16} aria-hidden /></IconTool>}
+            <SettingsMenu />
           </header>
           <GalleryView />
         </div>
@@ -1630,14 +1667,15 @@ export function CardGrid() {
   // collapses to content height — the sidebar border stopped partway
   // down the window. Anchored to the viewport directly.
   return (
-    <div className="flex h-dvh">
-      {!sidebarCollapsed && (
-        <Sidebar onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />
-      )}
-      <div className="flex min-w-0 flex-1 flex-col">
+    <div className="workspace-shell" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
+      {sidebarScrim}
+      <AnimatePresence initial={false}>
+        {!sidebarCollapsed && <Sidebar key="sidebar" onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />}
+      </AnimatePresence>
+      <div className="workspace-main">
         <header
           data-tauri-drag-region="deep"
-          className="flex h-12 items-center gap-3 border-b border-line pr-4"
+          className="workspace-titlebar"
         >
           {sidebarToggle}
           <BreadcrumbBar
@@ -1658,19 +1696,20 @@ export function CardGrid() {
                 : undefined
             }
           />
-          {showNoteTools && viewSwitcher}
           {!inBase && folderFilter !== null && debounced.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setSearchScope(searchScope === "folder" ? "all" : "folder")}
-              title={searchScope === "folder" ? t.scope_this_folder : t.scope_all}
+            <select
+              aria-label={t.search_scope}
+              value={searchScope}
+              onChange={(e) => setSearchScope(e.target.value === "all" ? "all" : "folder")}
+              title={t.search_scope}
               className="h-7 shrink-0 rounded-[var(--tag-radius)] border border-line bg-surface-raised px-2.5 text-xs text-text-muted transition-colors duration-150 hover:border-line-strong"
             >
-              {searchScope === "folder" ? t.scope_this_folder : t.scope_all} ▾
-            </button>
+              <option value="folder">{t.scope_this_folder}</option>
+              <option value="all">{t.scope_all}</option>
+            </select>
           )}
           {showNoteTools && (
-          <div className="relative w-56">
+          <div className="workspace-search">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-subtle" />
             <TextCtxMenu
               render={
@@ -1682,6 +1721,7 @@ export function CardGrid() {
                     setSearch(e.target.value);
                   }}
                   placeholder={t.search_placeholder}
+                  aria-label={t.search_placeholder}
                   className="w-full rounded-[var(--input-radius)] bg-transparent py-1.5 pl-8 pr-3 text-sm placeholder:text-text-subtle shadow-[var(--input-shadow)] focus-visible:shadow-[var(--input-shadow-focus)] focus-visible:outline-none"
                 />
               }
@@ -1694,50 +1734,50 @@ export function CardGrid() {
               mode (same rule as the empty-area menu) so "new folder"
               never lands in an ambiguous location. */}
           {!inBase && folderFilter !== null && !schema && (
-            <button
-              type="button"
+            <IconTool
               onClick={startFolderCreate}
-              aria-label={t.folder_new}
-              title={t.folder_new}
+              label={t.folder_new}
               className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--button-radius)] text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text"
             >
               <FolderPlus size={15} strokeWidth={2} />
-            </button>
+            </IconTool>
           )}
-          <div className="flex shrink-0 items-center">
-            <button
+          <div className="workspace-create">
+            <Button
               type="button"
+              size="icon"
               onClick={() => requestAdd()}
               aria-label={schema ? schemaAddLabel : t.new_memo}
               title={schema ? schemaAddLabel : t.new_note_md}
-              className={`inline-flex h-7 items-center justify-center bg-interactive-primary text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90 ${
-                schema ? "rounded-[var(--button-radius)] px-2 text-[11px] font-semibold" : "w-7 rounded-l-[var(--button-radius)]"
-              }`}
+              className="workspace-new-note"
             >
-              {schema ? (
-                <>
-                  <Plus size={15} strokeWidth={2.5} /> {schemaAddLabel}
-                </>
-              ) : (
-                <Plus size={15} strokeWidth={2.5} />
-              )}
-            </button>
+              <Plus size={16} strokeWidth={2} aria-hidden />
+            </Button>
             {!schema && (
-              <button
-                type="button"
-                onClick={onNewHtmlNote}
-                aria-label={t.new_note_html}
-                title={t.new_note_html}
-                className="ml-px inline-flex h-7 items-center justify-center rounded-r-[var(--button-radius)] border-l border-interactive-primary/40 bg-interactive-primary px-1.5 font-mono text-[10px] font-semibold tracking-wider text-interactive-primary-foreground shadow-sm transition-colors duration-150 hover:bg-interactive-primary/90"
-              >
-                HTML
-              </button>
+              <BtnMenuRoot>
+                <BtnMenuTrigger render={<button type="button" aria-label={t.workspace_new_format} title={t.workspace_new_format}><ChevronDown size={12} aria-hidden /></button>} />
+                <BtnMenuPopup>
+                  <BtnMenuItem icon={FilePlus2} label={t.new_note_md} onClick={onNewNote} />
+                  <BtnMenuItem icon={CodeXml} label={t.new_note_html} onClick={onNewHtmlNote} />
+                </BtnMenuPopup>
+              </BtnMenuRoot>
             )}
           </div>
+          <IconTool className="workspace-command" label={t.command_palette_title} hint="⌘K" onClick={() => setCmdPaletteOpen(true)}><Command size={16} aria-hidden /></IconTool>
+          {copilotVisible && <IconTool data-copilot-trigger className="workspace-command" label={t.copilot_fab} aria-expanded={copilotOpen} onClick={() => setCopilotOpen(!copilotOpen)}><Bot size={16} aria-hidden /></IconTool>}
           <SettingsMenu />
         </header>
+        {showNoteTools && (
+          <section className="workspace-heading" aria-label={workspaceTitle}>
+            <div className="workspace-heading-text">
+              <h1>{workspaceTitle}</h1>
+              <p>{t.workspace_note_count.replace("{n}", `${workspaceCount}${countHasMore ? "+" : ""}`)}{inSearch && localSearch ? ` · “${localSearch}”` : ""}</p>
+            </div>
+            <div className="workspace-view-tools">{viewSwitcher}</div>
+          </section>
+        )}
         {schema && (propChips.length > 0 || schema.review) && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 pb-1.5 pt-1">
+          <div className="workspace-schema-tools flex flex-wrap items-center gap-2 border-b border-line px-4 pb-1.5 pt-1">
             {/* Badge selects become a status distribution bar: one segment
                 per option with its folder-wide count; a click filters,
                 clicking the active segment clears. Non-badge selects stay
@@ -1875,7 +1915,7 @@ export function CardGrid() {
             stopDragScroll();
           }}
           onDragEnd={stopDragScroll}
-          className={`flex-1 overflow-y-auto p-2 ${
+          className={`workspace-content ${
             fileOver ? "ring-2 ring-focus-ring ring-inset" : ""
           }`}
         >
@@ -1884,7 +1924,7 @@ export function CardGrid() {
               folder" never lands in an ambiguous location. min-h-full keeps
               the trigger covering the whole scrollable surface. */}
           <CtxRoot>
-            <CtxTrigger className="min-h-full">
+            <CtxTrigger className={noteView === "graph" ? "h-full min-h-[280px]" : "min-h-full"}>
             {/* Destination/surface selection lives in renderMainSurface()
                 above: PDC bypasses the note grid/listing machinery
                 entirely. */}

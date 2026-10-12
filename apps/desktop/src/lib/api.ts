@@ -102,8 +102,9 @@ export async function updateMemo(
   body: string | null,
   favorite: boolean | null,
   props?: PropMutation | null,
+  expectedSha256?: string | null,
 ) {
-  return invoke<Memo>("update_memo", { id, body, favorite, props: props ?? null });
+  return invoke<Memo>("update_memo", { id, body, favorite, props: props ?? null, expectedSha256: expectedSha256 ?? null });
 }
 
 export async function brainStatus(): Promise<BrainStatus> {
@@ -399,6 +400,10 @@ export async function deleteMemo(id: string) {
   return invoke<void>("delete_memo", { id });
 }
 
+export function listTrashedMemos(): Promise<MemoSummary[]> {
+  return invoke<MemoSummary[]>("list_trashed_memos");
+}
+
 export async function resetVault() {
   return invoke<null>("reset_vault");
 }
@@ -520,7 +525,7 @@ export async function cliStatus(): Promise<CliState> {
   return invoke<CliState>("cli_status");
 }
 
-/** Symlink the bundled CLI onto /usr/local/bin via a macOS admin prompt. */
+/** Install the bundled CLI in ~/.local/bin; fall back to an admin prompt for /usr/local/bin. */
 export async function installCli(): Promise<void> {
   await invoke<null>("install_cli");
 }

@@ -21,7 +21,7 @@ import { NoteCtxMenu } from "../NoteCtxMenu";
 import { colorForFolder } from "../../lib/color";
 import { relativeTime } from "../../lib/time";
 import { useI18n } from "../../lib/i18n";
-import { previewText } from "../../lib/markdownPreview";
+import { previewText, previewExcerpt } from "../../lib/markdownPreview";
 import { queryCountVersion, subscribeQueryCounts } from "../../lib/queryPreviewCounts";
 import { useUI } from "../../stores/ui";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
@@ -74,7 +74,7 @@ export function TimelineView({
   }, [items]);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 pb-12">
+    <div className="note-timeline mx-auto max-w-3xl space-y-6 pb-12">
       <FolderChipBar
         cards={folderCards}
         folderDefs={folders}
@@ -126,18 +126,20 @@ export function TimelineView({
                         >
                           <Star size={13} className={n.favorite ? "fill-hue-amber" : undefined} />
                         </button>
-                        {n.title ? (
-                          <span className="truncate text-sm font-semibold text-text">{n.title}</span>
-                        ) : (
-                          <span className="truncate text-sm text-text-subtle">{t.empty_memo}</span>
-                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onSelect(n.id); }}
+                          className={`min-w-0 truncate rounded-sm text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${n.title ? "font-semibold text-text" : "text-text-subtle"}`}
+                        >
+                          {n.title || t.empty_memo}
+                        </button>
                       </div>
                       <span className="shrink-0 text-[11px] tabular-nums text-text-subtle">
                         {relativeTime(n.updated_at, locale)}
                       </span>
                     </div>
                     <div className="mt-1 line-clamp-2 whitespace-pre-line text-xs text-text-subtle">
-                      {previewText(n.preview, 200, { thisId: n.id, resultsN: t.query_embed_results_n }) || ""}
+                      {previewText(previewExcerpt(n.preview, n.title, n.path), 200, { thisId: n.id, resultsN: t.query_embed_results_n }) || ""}
                     </div>
                     {n.tags.length > 0 && (
                       <div className="mt-1.5 flex gap-1">

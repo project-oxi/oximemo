@@ -97,6 +97,17 @@ pub fn load_template(
     folder: &str,
     fmt: crate::memo::NoteFormat,
 ) -> Option<(oxi_frontmatter::Table, String)> {
+    load_template_guarded(paths, folder, fmt).ok().flatten()
+}
+
+/// Read canonical templates without copying their envelope into the body or
+/// coercing properties the existing note adapter cannot preserve. Legacy
+/// templates remain readable in place; template files are never rewritten.
+pub fn load_template_guarded(
+    paths: &Paths,
+    folder: &str,
+    fmt: crate::memo::NoteFormat,
+) -> crate::Result<Option<(oxi_frontmatter::Table, String)>> {
     let name = match fmt {
         crate::memo::NoteFormat::Markdown => crate::paths::TEMPLATE_NAME,
         crate::memo::NoteFormat::Html => crate::paths::TEMPLATE_HTML_NAME,
@@ -106,7 +117,73 @@ pub fn load_template(
     } else {
         paths.vault.join(folder).join(name)
     };
-    let text = std::fs::read_to_string(&path).ok()?;
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if crate::pdc_inventory::is_pdc_document(&text) {
+        use oxi_frontmatter::pdc::{Classification, DocumentExt, Yaml};
+        let ext = match fmt {
+            crate::memo::NoteFormat::Markdown => DocumentExt::Markdown,
+            crate::memo::NoteFormat::Html => DocumentExt::Html,
+        };
+        let Classification::Valid(document) = oxi_frontmatter::pdc::classify(ext, text.as_bytes())
+        else {
+            return Err(crate::CoreError::other(
+                "invalid PDC template; source was left unchanged",
+            ));
+        };
+        if document.legacy {
+            return Err(crate::CoreError::other(
+                "legacy PDC templates require explicit conversion before reuse",
+            ));
+        }
+        let Yaml::Map(entries) = document.envelope else {
+            unreachable!()
+        };
+        let mut table = oxi_frontmatter::Table::new();
+        for (key, value) in entries {
+            // A template's identity/lifecycle and editor state belong to the
+            // template. They must not become properties on a fresh document.
+            if matches!(
+                key.as_str(),
+                "format"
+                    | "body"
+                    | "id"
+                    | "created"
+                    | "updated"
+                    | "title"
+                    | "deleted"
+                    | "deleted_at"
+                    | "oximemo_editor"
+            ) {
+                continue;
+            }
+            let converted = match value {
+                Yaml::Str(s) => oxi_frontmatter::Value::Str(s),
+                Yaml::Bool(b) => oxi_frontmatter::Value::Bool(b),
+                Yaml::Seq(items) => oxi_frontmatter::Value::Array(
+                    items
+                        .iter()
+                        .map(|v| v.as_str().map(str::to_string))
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| {
+                            crate::CoreError::other(
+                                "unsupported_lossless_edit: template list cannot be preserved",
+                            )
+                        })?,
+                ),
+                _ => {
+                    return Err(crate::CoreError::other(
+                        "unsupported_lossless_edit: template property cannot be preserved by this editor",
+                    ));
+                }
+            };
+            table.insert(key, converted);
+        }
+        return Ok(Some((table, text[document.body_range].to_string())));
+    }
     let crate_fmt = match fmt {
         crate::memo::NoteFormat::Markdown => oxi_frontmatter::NoteFormat::Markdown,
         crate::memo::NoteFormat::Html => oxi_frontmatter::NoteFormat::Html,
@@ -119,9 +196,9 @@ pub fn load_template(
         _ => (oxi_frontmatter::Table::new(), text),
     };
     if body.trim().is_empty() && table.is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some((table, body))
+    Ok(Some((table, body)))
 }
 
 /// Substitute template variables into a frontmatter table's string and
@@ -212,6 +289,38 @@ pub fn is_blank_body(fmt: crate::memo::NoteFormat, body: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_template_is_byte_preserved_and_does_not_leak_envelope() {
+        let directory = tempfile::tempdir().unwrap();
+        let paths = Paths {
+            vault: directory.path().join("vault"),
+            index_dir: directory.path().join("index"),
+        };
+        crate::pdc_documents::ensure_manifest(&paths.vault).unwrap();
+        let source = "---\nformat: pdc-document/2\nbody: pdc-markdown/1\nid: 018f47c6-4a77-7c52-9db8-0e5f9bcb17db\ncreated: 2026-09-14T12:34:56.789Z\nupdated: 2026-09-14T12:34:56.789Z\ntitle: Template\n# user comment\nstatus: stub\n---\n# {{date}}\n";
+        let file = paths.vault.join(crate::paths::TEMPLATE_NAME);
+        std::fs::write(&file, source).unwrap();
+        let (table, body) = load_template_guarded(&paths, "", crate::memo::NoteFormat::Markdown)
+            .unwrap()
+            .unwrap();
+        assert_eq!(body, "# {{date}}\n");
+        assert!(!table.contains_key("id"));
+        assert!(!table.contains_key("format"));
+        assert_eq!(
+            table.get("status"),
+            Some(&oxi_frontmatter::Value::Str("stub".into()))
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), source);
+        std::fs::write(
+            &file,
+            source.replace("status: stub", "status: {nested: true}"),
+        )
+        .unwrap();
+        assert!(load_template_guarded(&paths, "", crate::memo::NoteFormat::Markdown).is_err());
+        std::fs::write(&file, source.replace("pdc-document/2", "pdc-document/99")).unwrap();
+        assert!(load_template_guarded(&paths, "", crate::memo::NoteFormat::Markdown).is_err());
+    }
 
     #[test]
     fn apply_replaces_all_vars() {

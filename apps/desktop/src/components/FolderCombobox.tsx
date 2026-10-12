@@ -23,19 +23,25 @@ export interface FolderComboboxProps {
   onClose?: () => void;
   triggerAriaLabel?: string;
   className?: string;
+  popupSide?: "top" | "bottom";
 }
 
 export const FolderCombobox = forwardRef<
   FolderComboboxHandle,
   FolderComboboxProps
 >(function FolderCombobox(
-  { value, onValueChange, folders, onCreate, onClose, triggerAriaLabel, className },
+  { value, onValueChange, folders, onCreate, onClose, triggerAriaLabel, className, popupSide = "top" },
   ref,
 ) {
   const { t } = useI18n();
   const displayFolder = useFolderNames().displayName;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const closePicker = () => {
+    setOpen(false);
+    setQuery("");
+    onClose?.();
+  };
 
   useImperativeHandle(ref, () => ({
     open: () => setOpen(true),
@@ -80,33 +86,35 @@ export const FolderCombobox = forwardRef<
         }
       />
       <Popover.Portal>
-        {/* Opens upward (the trigger lives in the note dialog's bottom
-         *  toolbar) and layers above the dialog surface: z-index must sit
+        {/* Opens toward the available workspace and layers above the
+         *  dialog surface: z-index must sit
          *  on the POSITIONER — a z on the Popup loses paint order against
          *  the dialog's own z-50 surface and backdrop blur. */}
-        <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[60]">
-          <Popover.Popup className="w-72 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
+        <Popover.Positioner side={popupSide} align="start" sideOffset={4} className="z-[60]">
+          <Popover.Popup className="glass-menu w-72 p-2 animate-popover-in">
             <TextCtxMenu
               render={
                 <input
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Filter or new path…"
+                  aria-label={t.folder_picker_search}
+                  placeholder={t.folder_picker_search}
                   className="mb-2 w-full rounded-[var(--input-radius)] bg-transparent px-2 py-1 text-xs shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
                 />
               }
             />
-            <ul className="max-h-56 overflow-y-auto" role="listbox">
+            <ul className="max-h-56 overflow-y-auto" aria-label={t.folder_picker_destinations}>
               <li>
                 <button
                   type="button"
+                  aria-pressed={value === ""}
                   className={`flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs ${
                     value === "" ? "bg-surface-muted" : "hover:bg-surface-muted"
                   }`}
                   onClick={() => {
                     onValueChange("");
-                    setOpen(false);
+                    closePicker();
                   }}
                 >
                   <span>{t.folder_root}</span>
@@ -116,12 +124,13 @@ export const FolderCombobox = forwardRef<
                 <li key={f.path}>
                   <button
                     type="button"
+                    aria-pressed={value === f.path}
                     className={`flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs ${
                       value === f.path ? "bg-surface-muted" : "hover:bg-surface-muted"
                     }`}
                     onClick={() => {
                       onValueChange(f.path);
-                      setOpen(false);
+                      closePicker();
                     }}
                   >
                     <span>{displayFolder(f.path)}</span>
@@ -137,15 +146,15 @@ export const FolderCombobox = forwardRef<
                     onClick={async () => {
                       if (onCreate) await onCreate(trimmed);
                       onValueChange(trimmed);
-                      setOpen(false);
+                      closePicker();
                     }}
                   >
-                    <FolderPlus size={12} /> Create '{trimmed}'
+                    <FolderPlus size={12} /> {t.folder_picker_create.replace("{folder}", trimmed)}
                   </button>
                 </li>
               )}
               {totalRows === 0 && (
-                <li className="px-2 py-1 text-xs text-text-subtle">No folders yet.</li>
+                <li className="px-2 py-1 text-xs text-text-subtle">{t.no_folder_results}</li>
               )}
             </ul>
           </Popover.Popup>

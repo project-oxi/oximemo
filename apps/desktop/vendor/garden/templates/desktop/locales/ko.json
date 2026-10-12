@@ -1,0 +1,172 @@
+{
+  "app": "Garden",
+  "workspace": "작업 공간",
+  "documents": "문서",
+  "settings": "설정",
+  "general": "일반",
+  "appearance": "모양",
+  "theme": "다크 테마",
+  "commands": "명령",
+  "search": "명령 검색…",
+  "empty": "일치하는 명령이 없습니다",
+  "close": "닫기",
+  "minimize": "최소화",
+  "maximize": "최대화",
+  "editor": "문서 원본",
+  "settingsError": "설정 창을 열 수 없습니다.",
+  "navigationLabel": "작업 공간 탐색",
+  "toggleSidebar": "탐색 패널 전환",
+  "toggleRightPanel": "맥락 패널 전환",
+  "emptyHint": "다른 검색어를 입력해 보세요.",
+  "sampleTitle": "작업 노트",
+  "sampleTag": "안내",
+  "sampleBody": "## 다음 작업\n\n- [ ] 결정 사항 기록하기\n- [ ] 관련 문서 연결하기\n\n## 맥락\n\n원문 구조를 유지하면서 이 문서의 제목과 내용을 편집할 수 있습니다.",
+  "documentStrings": {
+    "title": "제목",
+    "titlePlaceholder": "제목 없음",
+    "properties": "프로퍼티",
+    "tags": "태그",
+    "tagsPlaceholder": "태그 추가",
+    "addTag": "태그 추가",
+    "removeTag": "태그 삭제",
+    "aliases": "별칭",
+    "aliasesPlaceholder": "별칭 추가",
+    "addAlias": "별칭 추가",
+    "removeAlias": "별칭 삭제",
+    "profile": "프로필",
+    "language": "언어",
+    "cssClasses": "CSS 클래스",
+    "favorite": "즐겨찾기",
+    "technicalFields": "문서 메타데이터",
+    "documentId": "문서 ID",
+    "format": "형식",
+    "bodyProfile": "본문 프로필",
+    "created": "만든 날짜",
+    "updated": "수정한 날짜",
+    "completeSource": "전체 원본",
+    "body": "문서 본문",
+    "diagnostic": "진단",
+    "invalidSource": "유효하지 않은 원본이므로 안전하게 편집할 수 없습니다.",
+    "unsupportedSource": "이 프로필은 읽기 전용 원본으로 표시합니다.",
+    "legacySource": "이전 문서 원본을 변환하지 않고 보존합니다.",
+    "propertyEditError": "원본 정보를 보존하며 이 프로퍼티를 수정할 수 없습니다.",
+    "jsonValue": "구조화된 값",
+    "valuePlaceholder": "값 추가",
+    "addValue": "값 추가",
+    "removeValue": "값 삭제",
+    "deleted": "삭제됨",
+    "deletedAt": "삭제한 날짜",
+    "addProperty": "프로퍼티 추가",
+    "propertyNamePlaceholder": "프로퍼티 이름",
+    "propertyType": "프로퍼티 타입",
+    "textType": "텍스트",
+    "numberType": "숫자",
+    "booleanType": "체크박스",
+    "listType": "목록",
+    "createProperty": "추가",
+    "applyPropertyType": "타입 적용",
+    "removeProperty": "프로퍼티 삭제",
+    "cancel": "취소",
+    "tablePreviewLabel": "표 원본 편집",
+    "taskTodo": "할 일",
+    "taskDone": "완료",
+    "taskToggle": "할 일 전환 · ⌘/Ctrl Enter",
+    "embedEdit": "임베드 원문 편집",
+    "embedMissing": "첨부 파일을 찾을 수 없음",
+    "codeEdit": "코드 편집",
+    "codeCopy": "코드 복사",
+    "codeCopied": "복사됨",
+    "wikiFootnote": "각주",
+    "wikiBacklink": "참조 위치로 돌아가기",
+    "slashCommands": {
+      "task": {
+        "label": "할 일",
+        "description": "체크할 항목"
+      },
+      "heading1": {
+        "label": "제목 1",
+        "description": "큰 단락 제목"
+      },
+      "heading2": {
+        "label": "제목 2",
+        "description": "단락 제목"
+      },
+      "heading3": {
+        "label": "제목 3",
+        "description": "작은 단락 제목"
+      },
+      "bulletList": {
+        "label": "글머리 목록",
+        "description": "순서 없는 목록"
+      },
+      "numberedList": {
+        "label": "번호 목록",
+        "description": "순서 있는 목록"
+      },
+      "quote": {
+        "label": "인용",
+        "description": "인용문"
+      },
+      "codeFence": {
+        "label": "코드 블록",
+        "description": "언어를 지정하는 코드"
+      },
+      "table": {
+        "label": "표",
+        "description": "두 열의 마크다운 표"
+      },
+      "divider": {
+        "label": "구분선",
+        "description": "단락 나누기"
+      },
+      "link": {
+        "label": "링크",
+        "description": "표시할 글자와 주소"
+      },
+      "image": {
+        "label": "이미지",
+        "description": "이미지 설명과 경로"
+      },
+      "wikiEmbed": {
+        "label": "임베드",
+        "description": "문서 또는 첨부 파일 삽입"
+      },
+      "wikiLink": {
+        "label": "위키 링크",
+        "description": "문서와 표시할 이름 연결"
+      },
+      "callout": {
+        "label": "콜아웃",
+        "description": "노트·팁·주의사항"
+      },
+      "highlight": {
+        "label": "하이라이트",
+        "description": "중요한 구절 강조"
+      },
+      "comment": {
+        "label": "주석",
+        "description": "문서 안에 편집 메모 남기기"
+      },
+      "footnote": {
+        "label": "각주",
+        "description": "참조와 설명 함께 추가"
+      },
+      "inlineMath": {
+        "label": "인라인 수식",
+        "description": "문장 안에 수식 삽입"
+      },
+      "displayMath": {
+        "label": "수식 블록",
+        "description": "독립된 수식 삽입"
+      },
+      "tag": {
+        "label": "태그",
+        "description": "본문에 태그 추가"
+      },
+      "blockId": {
+        "label": "블록 참조",
+        "description": "블록을 가리킬 ID 추가"
+      }
+    }
+  }
+}

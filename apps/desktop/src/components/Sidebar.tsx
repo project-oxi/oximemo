@@ -8,8 +8,12 @@
  * switcher pinned to the bottom edge. Folder browsing happens in the main area.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowUpDown, BookMarked, CalendarDays, Database, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Star, Trash2, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Archive, ArrowUpDown, BookMarked, CalendarDays, ChevronRight, Clock3, Database, FileText, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Search, Star, Trash2, TriangleAlert, X } from "lucide-react";
+import { Popover } from "@base-ui-components/react";
+import { Button } from "@garden/ui";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { motion, useIsPresent } from "motion/react";
+import { useWorkspaceMotion } from "../lib/workspaceMotion";
 import { SpacePicker } from "./SpacePicker";
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
 import { createQueryCollection, defaultQueryYaml } from "../lib/queryCreation";
@@ -19,6 +23,7 @@ import { listen } from "../lib/tauri";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, BtnMenuRoot, BtnMenuTrigger, BtnMenuPopup, BtnMenuItem, BtnMenuSeparator } from "./ContextMenu";
 import { useFolderDrop, parentOf } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
+import { relativeTime } from "../lib/time";
 import { folderDisplayName, useFolderNames, useSchemaInfo, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
 import { TasksPanel } from "./TasksPanel";
 import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
@@ -31,8 +36,8 @@ const PRESET_ICON: Record<string, (typeof COLLECTION_CATALOG)[number]["icon"]> =
 
 const STATE_CLASS: Record<TagState, string> = {
   off: "bg-surface-muted text-text-muted hover:bg-surface-muted/80",
-  in: "bg-hue-amber font-semibold text-text-inverse",
-  out: "border border-hue-amber text-hue-amber line-through",
+  in: "bg-status-info-subtle font-semibold text-status-info-on-subtle",
+  out: "border border-status-error/30 bg-status-error-subtle text-status-error-on-subtle line-through",
 };
 
 export function Sidebar({
@@ -43,7 +48,27 @@ export function Sidebar({
   /** Move a dragged folder subtree into a pinned/seeded row's folder. */
   onMoveFolderTree?: (path: string, dest: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const present = useIsPresent();
+  const timing = useWorkspaceMotion();
+  const sidebarRef = useRef<HTMLElement>(null);
+  const [resizing, setResizing] = useState(false);
+  useLayoutEffect(() => {
+    if (!present && sidebarRef.current?.contains(document.activeElement)) {
+      document.querySelector<HTMLElement>("[data-sidebar-toggle]")?.focus({ preventScroll: true });
+    }
+  }, [present]);
+  useEffect(() => {
+    if (!present) return;
+    const compact = window.matchMedia("(max-width: 700px)");
+    const enterNavigation = () => {
+      if (!compact.matches || sidebarRef.current?.contains(document.activeElement) || document.querySelector("[role=dialog], [role=menu], [role=listbox]")) return;
+      sidebarRef.current?.querySelector<HTMLButtonElement>(".sidebar-compact-close")?.focus({ preventScroll: true });
+    };
+    enterNavigation();
+    compact.addEventListener("change", enterNavigation);
+    return () => compact.removeEventListener("change", enterNavigation);
+  }, [present]);
   const facets = useQuery({ queryKey: ["facets"], queryFn: listFacets });
   const stats = useQuery({ queryKey: ["stats"], queryFn: memoStats });
   const configQ = useQuery({ queryKey: ["config"], queryFn: getConfig });
@@ -81,6 +106,7 @@ export function Sidebar({
   const total = stats.data?.memos ?? 0;
   const favoritesCount = stats.data?.favorites ?? 0;
   const recents = recentsQ.data?.items ?? [];
+  const [recentsOpen, setRecentsOpen] = useState(false);
 
   // Favorites: explicit pins only — the sidebar is curation (Finder
   // model), never a folder browser. Pin from a folder's context menu.
@@ -257,8 +283,33 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface-sunken/60 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <div data-tauri-drag-region className="h-12 shrink-0" />
+    <motion.aside
+      id="workspace-sidebar"
+      ref={sidebarRef}
+      className="glass-sidebar"
+      aria-label={t.nav_notes}
+      inert={!present}
+      data-resizing={resizing}
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width: "var(--workspace-sidebar-width)", opacity: 1, transition: timing.move }}
+      exit={{ width: 0, opacity: 0, transition: timing.move }}
+      onAnimationStart={() => setResizing(true)}
+      onAnimationComplete={() => setResizing(false)}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.defaultPrevented || !window.matchMedia("(max-width: 700px)").matches) return;
+        const target = event.target as HTMLElement;
+        if (target.closest("input, textarea, [contenteditable=true], [role=menu], [role=listbox], [role=dialog]")) return;
+        event.preventDefault();
+        useUI.getState().toggleSidebar();
+      }}
+    >
+      <div data-tauri-drag-region className="sidebar-window-handle">
+        <Button type="button" size="icon" variant="ghost" aria-label={t.hide_sidebar} onClick={() => useUI.getState().toggleSidebar()} className="sidebar-compact-close">
+          <X size={15} aria-hidden />
+        </Button>
+      </div>
+      <div className="sidebar-space"><SpacePicker /></div>
+      <div className="sidebar-scroll">
 
       {/* FAVORITES — one Finder-model curation grid: the smart
           collections (all notes / favorites / gallery), the vault
@@ -268,10 +319,10 @@ export function Sidebar({
           right-click menu). Regular pinned folders keep their rows. */}
       <div className="mt-3 flex items-center px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-          {t.favorites_section}
+          {t.nav_notes}
         </span>
       </div>
-      <div className="grid grid-cols-4 gap-1 px-2 pt-1">
+      <div className="flex flex-col gap-0.5 px-2 pt-1">
         {/* Smart collections lead the grid — the app's fixed,
             always-present destinations. Selection is gated on the
             authoritative `location` (not the write-through mirrors) so
@@ -279,13 +330,15 @@ export function Sidebar({
             notes". */}
         <NavCell
           icon={<Layers size={18} aria-hidden />}
-          title={total > 0 ? `${t.all_memos} · ${total}` : t.all_memos}
+          title={t.all_memos}
+          count={total}
           selected={location.kind === "all" && view === "memos"}
           onClick={() => { setView("memos"); setFavoritesOnly(false); setFolderFilter(null); }}
         />
         <NavCell
           icon={<Star size={18} aria-hidden />}
-          title={favoritesCount > 0 ? `${t.favorite} · ${favoritesCount}` : t.favorite}
+          title={t.favorite}
+          count={favoritesCount}
           selected={view === "memos" && favoritesOnly}
           onClick={() => { setView("memos"); setFolderFilter(null); setFavoritesOnly(true); }}
         />
@@ -295,15 +348,7 @@ export function Sidebar({
           selected={view === "gallery" && location.kind !== "pdc"}
           onClick={() => setView("gallery")}
         />
-        {/* PDC destination (Stage 1): document inventory + guarded source
-            editor. A fixed smart-collection cell like all-notes/gallery —
-            never a folder row, so no pin/rename affordances apply. */}
-        <NavCell
-          icon={<BookMarked size={18} aria-hidden />}
-          title={t.pdc_documents}
-          selected={location.kind === "pdc"}
-          onClick={() => openPdc()}
-        />
+        <p className="mt-2 px-1 py-1 text-[10px] font-semibold text-text-subtle">{t.nav_folders}</p>
         <LocationCell
           path=""
           icon={<Archive size={18} aria-hidden />}
@@ -357,6 +402,16 @@ export function Sidebar({
             onMoveFolderTree={onMoveFolderTree}
           />
         ))}
+        <p className="mt-2 px-1 py-1 text-[10px] font-semibold text-text-subtle">{t.nav_tools}</p>
+        {/* PDC destination (Stage 1): document inventory + guarded source
+            editor. A fixed smart-collection cell like all-notes/gallery —
+            never a folder row, so no pin/rename affordances apply. */}
+        <NavCell
+          icon={<BookMarked size={18} aria-hidden />}
+          title={t.pdc_documents}
+          selected={location.kind === "pdc"}
+          onClick={() => openPdc()}
+        />
       </div>
       {folderPins.map((f) => (
         <SidebarFolderRow
@@ -398,7 +453,8 @@ export function Sidebar({
             setView("memos");
             openBase({ path: TASKS_BASE_PATH });
           }}
-          className={`mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
+          aria-current={location.kind === "base" && "path" in location.source && location.source.path === TASKS_BASE_PATH ? "page" : undefined}
+          className={`sidebar-nav-item mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
             location.kind === "base" && "path" in location.source && location.source.path === TASKS_BASE_PATH
               ? "bg-surface-muted font-semibold text-text"
               : "text-text-muted hover:bg-surface-muted"
@@ -426,7 +482,8 @@ export function Sidebar({
                     setView("memos");
                     openBase({ path: b.path });
                   }}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
+                  aria-current={active ? "page" : undefined}
+                  className={`sidebar-nav-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
                     active
                       ? "bg-surface-muted font-semibold text-text"
                       : "text-text-muted hover:bg-surface-muted"
@@ -493,39 +550,14 @@ export function Sidebar({
           area). Gated by the same `[tasks] enabled` rule as the 할 일
           row above; the installed base is protected (no user delete). */}
       {tasksEnabled && hasTasksBase && <TasksPanel />}
-      {/* RECENTS — recently updated notes, one click to open. */}
-      {recents.length > 0 && (
-        <>
-          <div className="mt-3 flex items-center px-3">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-              {t.recents_section}
-            </span>
-          </div>
-          <div className="flex flex-col px-2 pt-1">
-            {recents.map((n) => (
-              <button
-                type="button"
-                onClick={() => { setView("memos"); select(n.id); }}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-text-muted hover:bg-surface-muted hover:text-text"
-              >
-                <span
-                  aria-hidden
-                  className="size-2 shrink-0 rounded-[2px]"
-                  style={{ backgroundColor: colorForFolder(n.folder, folders) }}
-                />
-                <span className="truncate">{n.title ?? t.empty_memo}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
       {/* TAGS */}
       <div className="mt-3 flex items-center justify-between px-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">{t.tags_section}</span>
         <button
           type="button"
           onClick={toggleMatchAll}
-          className="inline-flex items-center gap-1 text-[10px] font-semibold text-hue-amber"
+          aria-pressed={matchAll}
+          className="inline-flex items-center gap-1 text-[10px] font-semibold text-text-subtle"
         >
           {matchAll ? t.match_all : t.match_any} <ArrowUpDown size={10} />
         </button>
@@ -534,6 +566,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={clearTagFilter}
+          aria-pressed={!Object.values(tagFilter).some((state) => state !== "off")}
           className="rounded-md bg-surface-muted px-2 py-0.5 text-[11px] text-text-muted"
         >
           {t.all_tags}
@@ -569,6 +602,8 @@ export function Sidebar({
                 render={
                   <button
                     type="button"
+                    aria-pressed={st !== "off"}
+                    aria-label={`#${tag} · ${count} · ${st === "in" ? t.tag_filter_included : st === "out" ? t.tag_filter_excluded : t.tag_filter_off}`}
                     onClick={() => {
                       enterQueryMode();
                       cycleTag(tag);
@@ -617,13 +652,37 @@ export function Sidebar({
           );
         })}
       </div>
-      {/* SPACE — pinned to the sidebar's bottom edge (sticky inside the
-          scroll container): the vault-level context stays reachable no
-          matter how long the content above grows. */}
-      <div className="sticky bottom-0 mt-auto border-t border-line bg-surface-sunken">
-        <SpacePicker />
       </div>
-    </aside>
+      <div className="sidebar-footer">
+        <Popover.Root open={recentsOpen} onOpenChange={setRecentsOpen}>
+          <Popover.Trigger className="sidebar-recents-trigger" aria-label={t.recents_section}>
+            <Clock3 size={15} aria-hidden />
+            <span>{t.recents_section}</span>
+            <ChevronRight size={12} aria-hidden className="ml-auto" />
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Positioner side="right" align="end" sideOffset={12} className="z-[60]">
+              <Popover.Popup className="recent-popup glass-menu">
+                <Popover.Title className="recent-popup-title">{t.recents_section}</Popover.Title>
+                {recents.length === 0 && <p className="p-3 text-xs text-text-subtle">{t.workspace_no_recents}</p>}
+                {recents.map((n) => (
+                  <button key={n.id} type="button" className="recent-note" onClick={() => { setRecentsOpen(false); setView("memos"); select(n.id); }}>
+                    <FileText size={16} aria-hidden />
+                    <span className="recent-note-copy">
+                      <span className="recent-note-title">{n.title || t.empty_memo}</span>
+                      <span className="recent-note-meta">{n.folder ? folderDisplayName(n.folder, t, dailyFolder) : t.vault_root} · {relativeTime(n.updated_at, locale)}</span>
+                    </span>
+                  </button>
+                ))}
+              </Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
+        <button type="button" className="sidebar-command-trigger" aria-label={t.command_palette_title} title={`${t.command_palette_title} · ⌘K`} onClick={() => useUI.getState().setCmdPaletteOpen(true)}>
+          <Search size={15} aria-hidden />
+        </button>
+      </div>
+    </motion.aside>
   );
 }
 /** One pinned FOLDERS row: navigation + full management (inline rename,
@@ -880,24 +939,29 @@ function NavCell({
   title,
   selected,
   onClick,
+  count,
 }: {
   icon: React.ReactNode;
   title: string;
   selected: boolean;
   onClick: () => void;
+  count?: number;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
-      className={`grid size-11 place-items-center rounded-md ${
+      aria-current={selected ? "page" : undefined}
+      className={`sidebar-nav-item flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs focus-visible:outline-2 focus-visible:outline-focus-ring ${
         selected
           ? "bg-surface-muted text-text"
           : "text-text-muted hover:bg-surface-muted hover:text-text"
       }`}
     >
       {icon}
+      <span className="truncate">{title}</span>
+      {count !== undefined && <span className="sidebar-count">{count}</span>}
     </button>
   );
 }
@@ -933,13 +997,15 @@ function LocationCell({
         type="button"
         onClick={onClick}
         title={label}
-        className={`grid size-11 place-items-center rounded-md ${
+        aria-current={selected ? "page" : undefined}
+        className={`sidebar-nav-item flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs focus-visible:outline-2 focus-visible:outline-focus-ring ${
           selected
             ? "bg-surface-muted text-text"
             : "text-text-muted hover:bg-surface-muted hover:text-text"
         }`}
       >
         {icon}
+        <span className="truncate">{label}</span>
       </button>
     </div>
   );
@@ -1035,7 +1101,8 @@ function CollectionCell({
               type="button"
               onClick={() => onOpen(path)}
               title={displayFolder(path)}
-              className={`grid size-11 place-items-center rounded-md ${
+              aria-current={selected ? "page" : undefined}
+              className={`sidebar-nav-item flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs focus-visible:outline-2 focus-visible:outline-focus-ring ${
                 selected
                   ? "bg-surface-muted text-text"
                   : "text-text-muted hover:bg-surface-muted hover:text-text"
@@ -1044,6 +1111,7 @@ function CollectionCell({
               {icon ?? (
                 <Folder size={18} style={{ color: colorForFolder(path, folders) }} />
               )}
+              <span className="truncate">{displayFolder(path)}</span>
             </button>
           </div>
         }

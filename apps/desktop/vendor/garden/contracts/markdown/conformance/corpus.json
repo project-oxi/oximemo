@@ -1,0 +1,428 @@
+{
+  "format": "pdc-document-conformance/2",
+  "revision": 2,
+  "markdownBaseline": "CommonMark 0.31.2 + GFM 0.29-gfm (tables, strikethrough, task lists, autolinks)",
+  "queryContract": "pdc-query/1",
+  "bodyProfiles": ["pdc-markdown/1", "pdc-html/1"],
+  "legacyDocuments": {
+    "formats": ["pdc-document/1"],
+    "bodyProfiles": ["pdc-djot/1", "pdc-html/1"],
+    "expectation": "readable legacy; never auto-converted"
+  },
+  "cases": [
+    {
+      "id": "v2-md-minimal",
+      "kind": "file",
+      "path": "fixtures/valid/minimal.md",
+      "expect": "valid"
+    },
+    {
+      "id": "v2-md-semantics",
+      "kind": "file",
+      "path": "fixtures/valid/semantics.md",
+      "expect": "valid"
+    },
+    {
+      "id": "v2-html-minimal",
+      "kind": "file",
+      "path": "fixtures/valid/v2-minimal.html",
+      "expect": "valid"
+    },
+    {
+      "id": "v2-html-semantics",
+      "kind": "file",
+      "path": "fixtures/valid/v2-semantics.html",
+      "expect": "valid"
+    },
+    {
+      "id": "legacy-v1-djot-minimal",
+      "kind": "file",
+      "path": "fixtures/valid/minimal.djot",
+      "expect": "legacy_valid"
+    },
+    {
+      "id": "legacy-v1-djot-semantics",
+      "kind": "file",
+      "path": "fixtures/valid/semantics.djot",
+      "expect": "legacy_valid"
+    },
+    {
+      "id": "legacy-v1-html-minimal",
+      "kind": "file",
+      "path": "fixtures/valid/minimal.html",
+      "expect": "legacy_valid"
+    },
+    {
+      "id": "legacy-v1-html-semantics",
+      "kind": "file",
+      "path": "fixtures/valid/semantics.html",
+      "expect": "legacy_valid"
+    },
+    {
+      "id": "legacy-html-unmarked",
+      "kind": "file",
+      "path": "fixtures/legacy/unmarked.html",
+      "expect": "legacy_html"
+    },
+    {
+      "id": "legacy-md-unmarked",
+      "kind": "file",
+      "path": "fixtures/legacy/unmarked.md",
+      "expect": "legacy_markdown"
+    },
+    {
+      "id": "legacy-v1-missing-envelope",
+      "kind": "file",
+      "path": "fixtures/invalid/missing-envelope.djot",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "legacy-v1-unsupported-body",
+      "kind": "file",
+      "path": "fixtures/invalid/unsupported-body.djot",
+      "expect": "unsupported_body_version"
+    },
+    {
+      "id": "legacy-v1-djot-profile-mismatch",
+      "kind": "file",
+      "path": "fixtures/invalid/body-profile-mismatch.djot",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "legacy-v1-html-profile-mismatch",
+      "kind": "file",
+      "path": "fixtures/invalid/body-profile-mismatch.html",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "legacy-v1-unclosed-html-envelope",
+      "kind": "file",
+      "path": "fixtures/invalid/unclosed-html-envelope.html",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "legacy-v1-premature-comment-close",
+      "kind": "file",
+      "path": "fixtures/invalid/premature-html-comment-close.html",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "legacy-v1-noncanonical-uuid",
+      "kind": "file",
+      "path": "fixtures/invalid/noncanonical-uuid.djot",
+      "expect": "invalid_document_id"
+    },
+    {
+      "id": "legacy-v1-duplicate-envelope-key",
+      "kind": "file",
+      "path": "fixtures/invalid/duplicate-envelope-key.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "legacy-v1-forbidden-yaml-comment",
+      "kind": "file",
+      "path": "fixtures/invalid/forbidden-yaml-comment.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "legacy-v1-raw-html",
+      "kind": "file",
+      "path": "fixtures/invalid/raw-html.djot",
+      "expect": "unsafe_content"
+    },
+    {
+      "id": "legacy-v1-unsafe-html",
+      "kind": "file",
+      "path": "fixtures/invalid/unsafe-html.html",
+      "expect": "unsafe_content"
+    },
+    {
+      "id": "legacy-v1-invalid-calendar-timestamp",
+      "kind": "file",
+      "path": "fixtures/invalid/invalid-calendar-timestamp.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "legacy-v1-updated-before-created",
+      "kind": "file",
+      "path": "fixtures/invalid/updated-before-created.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "legacy-v1-deleted-without-deleted-at",
+      "kind": "file",
+      "path": "fixtures/invalid/deleted-without-deleted-at.djot",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "legacy-v1-duplicate-block-id",
+      "kind": "file",
+      "path": "fixtures/invalid/duplicate-block-id.djot",
+      "expect": "duplicate_block_id"
+    },
+    {
+      "id": "legacy-v1-duplicate-html-block-id",
+      "kind": "file",
+      "path": "fixtures/invalid/duplicate-block-id.html",
+      "expect": "duplicate_block_id"
+    },
+    {
+      "id": "v2-md-unclosed-frontmatter",
+      "kind": "file",
+      "path": "fixtures/invalid/unclosed-frontmatter.md",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "v2-md-declares-v1",
+      "kind": "file",
+      "path": "fixtures/invalid/md-declares-v1.md",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "v2-md-unsupported-version",
+      "kind": "file",
+      "path": "fixtures/invalid/unsupported-version.md",
+      "expect": "unsupported_document_version"
+    },
+    {
+      "id": "v2-md-profile-mismatch",
+      "kind": "file",
+      "path": "fixtures/invalid/md-profile-mismatch.md",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "v2-md-yaml-duplicate-key",
+      "kind": "file",
+      "path": "fixtures/invalid/yaml-duplicate-key.md",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "v2-md-yaml-anchor-alias",
+      "kind": "file",
+      "path": "fixtures/invalid/yaml-anchor-alias.md",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "v2-md-yaml-custom-tag",
+      "kind": "file",
+      "path": "fixtures/invalid/yaml-custom-tag.md",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "v2-md-yaml-tab-indent",
+      "kind": "file",
+      "path": "fixtures/invalid/yaml-tab-indent.md",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "v2-md-invalid-calendar-timestamp",
+      "kind": "file",
+      "path": "fixtures/invalid/invalid-calendar-timestamp.md",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "v2-md-updated-before-created",
+      "kind": "file",
+      "path": "fixtures/invalid/updated-before-created.md",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "v2-md-deleted-without-deleted-at",
+      "kind": "file",
+      "path": "fixtures/invalid/deleted-without-deleted-at.md",
+      "expect": "invalid_envelope"
+    },
+    {
+      "id": "v2-md-noncanonical-uuid",
+      "kind": "file",
+      "path": "fixtures/invalid/noncanonical-uuid.md",
+      "expect": "invalid_document_id"
+    },
+    {
+      "id": "v2-md-duplicate-block-id",
+      "kind": "file",
+      "path": "fixtures/invalid/duplicate-block-id.md",
+      "expect": "duplicate_block_id"
+    },
+    {
+      "id": "v2-md-unsafe-html",
+      "kind": "file",
+      "path": "fixtures/invalid/unsafe-html.md",
+      "expect": "unsafe_content"
+    },
+    {
+      "id": "query-base-file",
+      "kind": "file",
+      "path": "fixtures/query/notes.base",
+      "expect": "valid"
+    },
+    {
+      "id": "query-fenced-base",
+      "kind": "file",
+      "path": "fixtures/query/fenced-base.md",
+      "expect": "valid"
+    },
+    {
+      "id": "query-unknown-constructs-preserved",
+      "kind": "file",
+      "path": "fixtures/query/unknown-view.base",
+      "expect": "valid_unexecuted"
+    },
+    {
+      "id": "query-invalid-yaml",
+      "kind": "file",
+      "path": "fixtures/invalid/bad-yaml-query.base",
+      "expect": "invalid_query"
+    },
+    {
+      "id": "v2-md-bom-prefix",
+      "kind": "operation",
+      "operation": "prefix-source-bytes",
+      "input": "fixtures/valid/minimal.md",
+      "prefixHex": "efbbbf",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "legacy-v1-bom-prefix",
+      "kind": "operation",
+      "operation": "prefix-source-bytes",
+      "input": "fixtures/valid/minimal.djot",
+      "prefixHex": "efbbbf",
+      "expect": "invalid_transport"
+    },
+    {
+      "id": "v2-md-too-large",
+      "kind": "operation",
+      "operation": "pad-body-to-total-bytes",
+      "input": "fixtures/valid/minimal.md",
+      "totalBytes": 4194305,
+      "expect": "document_too_large"
+    },
+    {
+      "id": "v2-md-yaml-too-deep",
+      "kind": "operation",
+      "operation": "replace-envelope-with-yaml-mapping-depth",
+      "input": "fixtures/valid/minimal.md",
+      "depth": 33,
+      "expect": "document_too_complex"
+    },
+    {
+      "id": "legacy-v1-djot-too-large",
+      "kind": "operation",
+      "operation": "pad-body-to-total-bytes",
+      "input": "fixtures/valid/minimal.djot",
+      "totalBytes": 4194305,
+      "expect": "document_too_large"
+    },
+    {
+      "id": "legacy-v1-djot-too-complex",
+      "kind": "operation",
+      "operation": "replace-body-with-nested-block-quotes",
+      "input": "fixtures/valid/minimal.djot",
+      "containerDepth": 257,
+      "expect": "document_too_complex"
+    },
+    {
+      "id": "duplicate-document-id",
+      "kind": "set",
+      "paths": [
+        "fixtures/sets/duplicate-document-id/a.djot",
+        "fixtures/sets/duplicate-document-id/b.djot",
+        "fixtures/sets/duplicate-document-id/c.html"
+      ],
+      "expect": "duplicate_document_id"
+    },
+    {
+      "id": "legacy-v1-djot-no-op",
+      "kind": "operation",
+      "operation": "no-op-round-trip",
+      "input": "fixtures/operations/no-op/input.djot",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "legacy-v1-html-no-op",
+      "kind": "operation",
+      "operation": "no-op-round-trip",
+      "input": "fixtures/operations/html-no-op/input.html",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "legacy-v1-djot-metadata-patch",
+      "kind": "operation",
+      "operation": "metadata-patch",
+      "input": "fixtures/operations/metadata-patch/input.djot",
+      "patch": {
+        "updated": "2026-09-13T13:00:00.000Z",
+        "title": "After patch"
+      },
+      "expected": "fixtures/operations/metadata-patch/expected.djot",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "legacy-v1-html-metadata-patch",
+      "kind": "operation",
+      "operation": "metadata-patch",
+      "input": "fixtures/operations/html-metadata-patch/input.html",
+      "patch": {
+        "updated": "2026-09-13T13:00:00.000Z",
+        "title": "After patch"
+      },
+      "expected": "fixtures/operations/html-metadata-patch/expected.html",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "legacy-v1-external-change",
+      "kind": "operation",
+      "operation": "external-change-before-save",
+      "input": "fixtures/operations/external-change/original.djot",
+      "external": "fixtures/operations/external-change/changed.djot",
+      "expect": "external_change_conflict"
+    },
+    {
+      "id": "v2-md-no-op",
+      "kind": "operation",
+      "operation": "no-op-round-trip",
+      "input": "fixtures/operations/no-op-md/input.md",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "v2-md-metadata-patch",
+      "kind": "operation",
+      "operation": "metadata-patch",
+      "input": "fixtures/operations/md-metadata-patch/input.md",
+      "patch": {
+        "updated": "2026-09-14T13:00:00.000Z",
+        "title": "After patch"
+      },
+      "expected": "fixtures/operations/md-metadata-patch/expected.md",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "v2-md-external-change",
+      "kind": "operation",
+      "operation": "external-change-before-save",
+      "input": "fixtures/operations/md-external-change/original.md",
+      "external": "fixtures/operations/md-external-change/changed.md",
+      "expect": "external_change_conflict"
+    },
+    {
+      "id": "v2-html-no-op",
+      "kind": "operation",
+      "operation": "no-op-round-trip",
+      "input": "fixtures/operations/no-op-html2/input.html",
+      "expect": "byte-identical"
+    },
+    {
+      "id": "v2-html-metadata-patch",
+      "kind": "operation",
+      "operation": "metadata-patch",
+      "input": "fixtures/operations/html2-metadata-patch/input.html",
+      "patch": {
+        "updated": "2026-09-14T13:00:00.000Z",
+        "title": "After patch"
+      },
+      "expected": "fixtures/operations/html2-metadata-patch/expected.html",
+      "expect": "byte-identical"
+    }
+  ]
+}

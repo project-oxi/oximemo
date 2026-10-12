@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { addTask, createCapture, getConfig } from "../lib/api";
 import { todayLocalISO } from "../lib/dates";
+import { isComposingKey } from "../lib/editorKeys";
 import {
   buildQuickAddTarget,
   DAILY_RECURRENCE_WARNING_EVENT,
@@ -42,6 +43,7 @@ export function CaptureOverlay() {
   }, []);
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.defaultPrevented || isComposingKey(e.nativeEvent)) return;
     if (e.key === "Escape") {
       void closeCurrentWindow();
     } else if (e.key === "Enter" && !e.shiftKey) {
@@ -89,11 +91,13 @@ export function CaptureOverlay() {
   return (
     <div className="relative isolate flex h-screen w-full items-end justify-center p-2">
       <QuickCaptureForm
+        className="capture-form"
         body={value}
         onBodyChange={setValue}
         bodyRef={ref}
         bodyProps={{
           placeholder: t.capture_placeholder,
+          "aria-label": t.capture_placeholder,
           onKeyDown: onKey,
         }}
         hint={`↵ ${t.capture_save} · esc ${t.close}`}

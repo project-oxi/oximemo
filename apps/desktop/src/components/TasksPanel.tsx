@@ -264,24 +264,22 @@ function PanelTaskRow({
   const chipDate = task.due ?? task.scheduled;
   const dateField = task.due ? "due" : "scheduled";
   return (
-    <button
-      type="button"
-      onClick={() => void open(task.task_ref)}
+    <div
       className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text"
     >
-      <span
-        onClick={(e) => e.stopPropagation()}
-        className="inline-flex items-center"
+      <TaskCheckbox
+        statusType={task.status_type}
+        label={task.text}
+        onToggle={onToggle}
+      />
+      <button
+        type="button"
+        onClick={() => void open(task.task_ref)}
+        className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        title={task.text}
       >
-        <TaskCheckbox
-          statusType={task.status_type}
-          label={task.text}
-          onToggle={onToggle}
-        />
-      </span>
-      <span className="min-w-0 flex-1 truncate" title={task.text}>
         {task.text || "—"}
-      </span>
+      </button>
       {chipDate && (
         <span className="shrink-0">
           <TaskFieldChip
@@ -291,6 +289,6 @@ function PanelTaskRow({
           />
         </span>
       )}
-    </button>
+    </div>
   );
 }

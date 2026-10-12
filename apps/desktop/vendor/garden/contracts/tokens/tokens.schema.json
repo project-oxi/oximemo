@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://garden.local/contracts/tokens/tokens.schema.json",
+  "title": "Garden token source",
+  "type": "object",
+  "required": [
+    "meta",
+    "color",
+    "typography",
+    "spacing",
+    "radius",
+    "shadow",
+    "motion"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "meta": {
+      "type": "object",
+      "required": [
+        "name",
+        "id",
+        "version",
+        "tokens_are"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "tokens_are": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "color": {
+      "type": "object",
+      "required": [
+        "primitive",
+        "semantic"
+      ],
+      "properties": {
+        "primitive": {
+          "type": "object",
+          "minProperties": 1
+        },
+        "semantic": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/semanticColor"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "typography": {
+      "type": "object",
+      "required": [
+        "family",
+        "scale_px",
+        "weights"
+      ]
+    },
+    "spacing": {
+      "type": "object",
+      "required": [
+        "unit_px",
+        "grid",
+        "component",
+        "layout"
+      ],
+      "properties": {
+        "unit_px": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "grid": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "component": {
+          "type": "object"
+        },
+        "layout": {
+          "type": "object",
+          "required": [
+            "pageGutter",
+            "pageGutterCompact",
+            "contentMax",
+            "documentMax",
+            "settingsMax",
+            "settingsNav",
+            "panelWidth",
+            "sectionGap",
+            "groupGap",
+            "rowGap",
+            "fieldGap",
+            "propertyLabelWidth",
+            "settingsRowMinHeight",
+            "panelHeaderHeight",
+            "railWidth",
+            "settingsTopPadding"
+          ],
+          "additionalProperties": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        }
+      }
+    },
+    "radius": {
+      "type": "object",
+      "required": [
+        "chip",
+        "control",
+        "card",
+        "lg",
+        "xl",
+        "composer",
+        "pill"
+      ],
+      "properties": {
+        "card": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "shadow": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "motion": {
+      "type": "object",
+      "required": [
+        "durations_ms",
+        "curves",
+        "reduced_motion"
+      ]
+    }
+  },
+  "$defs": {
+    "semanticColor": {
+      "type": "object",
+      "properties": {
+        "light": {
+          "$ref": "#/$defs/colorValue"
+        },
+        "dark": {
+          "$ref": "#/$defs/colorValue"
+        },
+        "expr": {
+          "type": "object",
+          "required": [
+            "ref",
+            "alpha"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string"
+            },
+            "alpha": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "maps": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "light",
+            "dark"
+          ]
+        },
+        {
+          "required": [
+            "expr"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "colorValue": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        {
+          "type": "object",
+          "required": [
+            "hex",
+            "alpha"
+          ],
+          "properties": {
+            "hex": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "alpha": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

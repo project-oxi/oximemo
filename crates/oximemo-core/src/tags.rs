@@ -14,6 +14,11 @@ fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
+/// Continuation characters for hyphenated and nested inline tags.
+pub(crate) fn is_tag_char(c: char) -> bool {
+    is_word(c) || c == '-' || c == '/'
+}
+
 /// Extract, NFC-normalize, and lowercase the inline `#tags` in `body`.
 /// Order = first occurrence; duplicates removed after normalization. The
 /// body's display casing is NOT altered here (the highlighter preserves it).
@@ -24,10 +29,10 @@ pub fn extract_tags(body: &str) -> Vec<String> {
     while i < chars.len() {
         if chars[i] == '#' {
             let prev_ok = i == 0 || !is_word(chars[i - 1]);
-            if prev_ok {
+            if prev_ok && chars.get(i + 1).is_some_and(|c| is_word(*c)) {
                 let start = i + 1;
                 let mut j = start;
-                while j < chars.len() && is_word(chars[j]) {
+                while j < chars.len() && is_tag_char(chars[j]) {
                     j += 1;
                 }
                 if j > start {
@@ -57,10 +62,10 @@ pub fn rewrite_tag(body: &str, old_norm: &str, new_id: &str) -> String {
     while i < chars.len() {
         if chars[i] == '#' {
             let prev_ok = i == 0 || !is_word(chars[i - 1]);
-            if prev_ok {
+            if prev_ok && chars.get(i + 1).is_some_and(|c| is_word(*c)) {
                 let start = i + 1;
                 let mut j = start;
-                while j < chars.len() && is_word(chars[j]) {
+                while j < chars.len() && is_tag_char(chars[j]) {
                     j += 1;
                 }
                 if j > start {
@@ -134,6 +139,23 @@ mod tests {
     #[test]
     fn hash_at_line_start() {
         assert_eq!(extract_tags("line1\n#two"), vec!["two"]);
+    }
+
+    #[test]
+    fn hyphenated_and_nested_tags_keep_the_whole_token() {
+        assert_eq!(
+            extract_tags("#ui-audit #UI-AUDIT #프로젝트/ui-test, #other."),
+            vec!["ui-audit", "프로젝트/ui-test", "other"]
+        );
+        assert!(extract_tags("#--- #/ # Heading C#m7").is_empty());
+        assert_eq!(
+            rewrite_tag("#ui #ui-audit #ui/audit", "ui", "#test"),
+            "#test #ui-audit #ui/audit"
+        );
+        assert_eq!(
+            rewrite_tag("#UI-AUDIT #프로젝트/ui-test", "ui-audit", "#완료/test"),
+            "#완료/test #프로젝트/ui-test"
+        );
     }
 
     #[test]

@@ -631,6 +631,12 @@ async function browserFallback(
         denials: agent === "claude" ? ["Write"] : null,
       };
     }
+    case "list_trashed_memos": {
+      return Object.values(loadStore())
+        .filter((note) => note.deleted_at != null)
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id))
+        .map(summaryOf);
+    }
     case "list_memos": {
       const after = (args?.after as string | null | undefined) ?? null;
       const limit = (args?.limit as number | undefined) ?? 50;

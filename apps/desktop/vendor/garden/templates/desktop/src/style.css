@@ -1,0 +1,39 @@
+@source "../vendor/garden/packages/ui/src";
+
+html,
+body,
+#root,
+.desktop-root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+body {
+  overflow: hidden;
+  color: var(--g-ink);
+  background: var(--g-page);
+}
+
+.desktop-native-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--g-space-2);
+  padding-inline: var(--g-space-1);
+}
+
+.desktop-native-controls__button {
+  color: var(--g-ink-muted);
+}
+
+.desktop-native-controls__button:hover { color: var(--g-ink); }
+
+.desktop-error {
+  margin: 16px 0;
+  color: var(--g-danger);
+  font-size: var(--text-body);
+}

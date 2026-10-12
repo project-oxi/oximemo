@@ -1,0 +1,7 @@
+/* Garden UI — font wiring (non-generated).
+ * beautifului components read --font-inter / --font-mono-face; substitute freely.
+ */
+:root {
+  --font-inter: "Inter Variable";
+  --font-mono-face: "JetBrains Mono Variable";
+}

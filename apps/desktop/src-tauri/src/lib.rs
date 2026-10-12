@@ -125,23 +125,26 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            // Build the main window in code rather than from tauri.conf.json so
-            // we can set the traffic-light inset: the config schema has no
-            // trafficLightPosition key, and only the builder reaches tao's
-            // resize-persistent positioning. Lowering the lights aligns them
-            // with the 48px header instead of the default top-of-window spot.
-            tauri::WebviewWindowBuilder::new(
-                app,
-                "main",
-                tauri::WebviewUrl::App("index.html".into()),
-            )
-            .title("oximemo")
-            .inner_size(1100.0, 720.0)
-            .min_inner_size(720.0, 480.0)
-            .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true)
-            .traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0))
-            .build()?;
+            // Keep geometry in Tauri config; create manually so the builder can
+            // apply tao's resize-persistent traffic-light inset. `create: false`
+            // prevents Tauri from opening a second main window automatically.
+            let main_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .ok_or_else(|| anyhow::anyhow!("missing main window configuration"))?;
+            let main_window = tauri::WebviewWindowBuilder::from_config(app, main_config)?
+                .traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0))
+                .build()?;
+            tracing::debug!(
+                configured_width = main_config.width,
+                configured_height = main_config.height,
+                size = ?main_window.inner_size(),
+                scale_factor = ?main_window.scale_factor(),
+                "main window created"
+            );
             let cli_vault = std::env::var("OXIMEMO_VAULT")
                 .ok()
                 .map(PathBuf::from)
@@ -338,6 +341,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            WindowEvent::Resized(size) if window.label() == "main" => {
+                tracing::debug!(width = size.width, height = size.height, "main window resized");
+            }
             // The main window never really closes. macOS keeps an app alive
             // after its last window is dismissed; intercept the red traffic
             // light so the window (and its React state) is only hidden, not
@@ -435,6 +441,7 @@ pub fn run() {
             commands::rename_folder,
             commands::move_folder,
             commands::restore_notes,
+            commands::list_trashed_memos,
             commands::graph_data,
             commands::get_config,
             commands::set_folder_view,
@@ -935,7 +942,7 @@ mod commands {
         TaskFields, TaskLineHash, TaskRef, TaskSelector,
     };
     use std::collections::BTreeMap;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use tauri::Manager;
@@ -990,8 +997,10 @@ mod commands {
         state: State<'_, AppState>,
         id: String,
     ) -> Result<oximemo_core::memo::NoteDto, String> {
-        let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
-        let memo = state.vault.get_memo(id).map_err(|e| e.to_string())?;
+        let memo = state
+            .vault
+            .resolve_memo_target(&id)
+            .map_err(|e| e.to_string())?;
         Ok(state.vault.note_dto(&memo))
     }
 
@@ -1073,11 +1082,12 @@ mod commands {
         body: Option<String>,
         favorite: Option<bool>,
         props: Option<oximemo_core::PropMutation>,
+        expected_sha256: Option<String>,
     ) -> Result<oximemo_core::memo::NoteDto, String> {
         let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
         let memo = state
             .vault
-            .update_note_with(id, body, favorite, props)
+            .update_note_with_snapshot(id, body, favorite, props, expected_sha256.as_deref())
             .map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(state.vault.note_dto(&memo))
@@ -2056,7 +2066,14 @@ mod commands {
         Ok(ids.into_iter().map(|id| id.to_string()).collect())
     }
 
-    /// Undo for `delete_folder`: bring the trashed notes back live.
+    #[tauri::command]
+    pub fn list_trashed_memos(
+        state: State<'_, AppState>,
+    ) -> Result<Vec<oximemo_core::MemoSummary>, String> {
+        state.vault.list_trashed_memos().map_err(|e| e.to_string())
+    }
+
+    /// Restore notes to their original folders after note or folder deletion.
     #[tauri::command]
     pub fn restore_notes(
         state: State<'_, AppState>,
@@ -2594,18 +2611,19 @@ mod commands {
     }
 
     // -- CLI command install ------------------------------------------------
-    // The app ships the `oximemo` CLI as a Tauri externalBin sidecar; these
-    // expose it on PATH via an explicit Settings action (macOS auth dialog).
+    // The app ships the `oximemo` CLI as a Tauri externalBin sidecar. Install
+    // it in the user's bin directory first; use an authorized system-wide
+    // fallback only when the user directory cannot be written.
 
-    /// State of the `oximemo` shell command on `/usr/local/bin`.
+    /// State of the CLI links in the user's bin and `/usr/local/bin`.
     #[derive(serde::Serialize)]
     #[serde(rename_all = "lowercase")]
     pub enum CliState {
-        /// Symlink present and points at this app's bundled CLI.
+        /// A link points at this app's bundled CLI.
         Installed,
-        /// No symlink present.
+        /// Neither managed path exists.
         NotInstalled,
-        /// Symlink missing or points elsewhere (e.g. app moved post-install).
+        /// A managed path exists but does not point at this app's bundled CLI.
         Stale,
     }
 
@@ -2620,43 +2638,116 @@ mod commands {
         // during bundling (input `oximemo-<triple>` → bundled `oximemo`).
         Some(dir.join("oximemo"))
     }
+    fn user_cli_link() -> Option<PathBuf> {
+        std::env::var_os("HOME").map(|home| {
+            PathBuf::from(home)
+                .join(".local")
+                .join("bin")
+                .join("oximemo")
+        })
+    }
+
+    fn cli_link_matches(link: &Path, bundled: &Path) -> bool {
+        let Ok(link_target) = std::fs::read_link(link) else {
+            return false;
+        };
+        let Some(expected) = std::fs::canonicalize(bundled).ok() else {
+            return false;
+        };
+        let target = if link_target.is_absolute() {
+            link_target
+        } else {
+            let Some(parent) = link.parent() else {
+                return false;
+            };
+            parent.join(link_target)
+        };
+        std::fs::canonicalize(target).is_ok_and(|actual| actual == expected)
+    }
+
+    pub(super) fn cli_state_for_paths(
+        user_link: Option<&Path>,
+        system_link: &Path,
+        bundled: &Path,
+    ) -> CliState {
+        if user_link.is_some_and(|link| cli_link_matches(link, bundled))
+            || cli_link_matches(system_link, bundled)
+        {
+            CliState::Installed
+        } else if user_link.is_some_and(|link| std::fs::symlink_metadata(link).is_ok())
+            || std::fs::symlink_metadata(system_link).is_ok()
+        {
+            CliState::Stale
+        } else {
+            CliState::NotInstalled
+        }
+    }
 
     #[tauri::command]
     pub fn cli_status() -> Result<CliState, String> {
-        let link = std::path::Path::new("/usr/local/bin/oximemo");
         let Some(bundled) = bundled_cli_path() else {
             return Ok(CliState::NotInstalled);
         };
-        let same = |a: &std::path::Path, b: &std::path::Path| {
-            std::fs::canonicalize(a).ok() == std::fs::canonicalize(b).ok()
-        };
-        match std::fs::read_link(link) {
-            Ok(target) if same(&target, &bundled) => Ok(CliState::Installed),
-            Ok(_) => Ok(CliState::Stale),
-            // Not a symlink: absent → NotInstalled, a stray copy → Stale.
-            Err(_) => Ok(if link.exists() {
-                CliState::Stale
-            } else {
-                CliState::NotInstalled
-            }),
-        }
+        let user_link = user_cli_link();
+        let system_link = Path::new("/usr/local/bin/oximemo");
+        Ok(cli_state_for_paths(
+            user_link.as_deref(),
+            system_link,
+            &bundled,
+        ))
     }
 
     #[tauri::command]
     pub fn install_cli() -> Result<(), String> {
         let target =
             bundled_cli_path().ok_or_else(|| "could not locate the app bundle".to_string())?;
-        if !target.exists() {
+        if !target.is_file() {
             return Err("bundled CLI binary is missing".to_string());
         }
-        // Shell-quote the path; app-bundle paths never contain a quote, guard.
-        let q = target.display().to_string().replace('\'', "'\"'\"'");
-        run_admin(&format!("ln -sf '{q}' /usr/local/bin/oximemo"))
+
+        let local_error = match user_cli_link() {
+            Some(link) => match install_cli_link(&target, &link) {
+                Ok(()) => return Ok(()),
+                Err(error) => error,
+            },
+            None => "HOME is not set".to_string(),
+        };
+
+        let system_link = Path::new("/usr/local/bin/oximemo");
+        let script = cli_install_script(&target, system_link);
+        run_admin(
+            &script,
+            "OxiMemo needs administrator permission to install the oximemo command in /usr/local/bin.",
+        )
+        .map_err(|admin_error| {
+            format!(
+                "user-level installation failed ({local_error}); system-wide installation failed ({admin_error})"
+            )
+        })
     }
 
     #[tauri::command]
     pub fn uninstall_cli() -> Result<(), String> {
-        run_admin("rm -f /usr/local/bin/oximemo")
+        let target =
+            bundled_cli_path().ok_or_else(|| "could not locate the app bundle".to_string())?;
+        let user_link = user_cli_link().filter(|link| cli_link_matches(link, &target));
+        let system_link = Path::new("/usr/local/bin/oximemo");
+        let system_installed = cli_link_matches(system_link, &target);
+
+        if user_link.is_none() && !system_installed {
+            return Err("no OxiMemo CLI link to this app was found".to_string());
+        }
+        if system_installed {
+            run_admin(
+                "rm -f /usr/local/bin/oximemo",
+                "OxiMemo needs administrator permission to remove the system-wide oximemo command.",
+            )?;
+        }
+        if let Some(link) = user_link {
+            std::fs::remove_file(&link)
+                .map_err(|error| format!("could not remove {}: {error}", link.display()))?;
+        }
+        Ok(())
     }
 
     /// Show (or dismiss, when already visible) the quick-capture overlay.
@@ -3495,22 +3586,70 @@ mod commands {
         Ok(TaskDraftTransformJson::from_core(&t))
     }
 
-    /// Run a shell snippet with administrator privileges via osascript. macOS
-    /// shows its standard auth dialog once; cancelling surfaces as an error.
-    fn run_admin(shell_script: &str) -> Result<(), String> {
+    /// Run a shell snippet with administrator privileges via osascript.
+    /// macOS explains why authorization is needed and surfaces cancellation
+    /// or command failures to the caller.
+    fn run_admin(shell_script: &str, prompt: &str) -> Result<(), String> {
         let output = std::process::Command::new("osascript")
             .arg("-e")
             .arg(format!(
-                "do shell script {} with administrator privileges",
-                applescript_string(shell_script)
+                "do shell script {} with administrator privileges with prompt {}",
+                applescript_string(shell_script),
+                applescript_string(prompt)
             ))
             .output()
             .map_err(|e| e.to_string())?;
         if output.status.success() {
             Ok(())
         } else {
-            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            Err(if !stderr.is_empty() {
+                stderr
+            } else if !stdout.is_empty() {
+                stdout
+            } else {
+                format!("osascript exited with {}", output.status)
+            })
         }
+    }
+
+    pub(super) fn install_cli_link(target: &Path, link: &Path) -> Result<(), String> {
+        let parent = link
+            .parent()
+            .ok_or_else(|| "CLI install path has no parent directory".to_string())?;
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+        let output = std::process::Command::new("/bin/ln")
+            .args(["-sfn"])
+            .arg(target)
+            .arg(link)
+            .output()
+            .map_err(|error| error.to_string())?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(if stderr.is_empty() {
+                format!("ln exited with {}", output.status)
+            } else {
+                stderr
+            })
+        }
+    }
+
+    pub(super) fn cli_install_script(target: &Path, link: &Path) -> String {
+        let parent = link.parent().expect("CLI link path has a parent");
+        format!(
+            "mkdir -p {} && ln -sfn {} {}",
+            shell_quote(&parent.display().to_string()),
+            shell_quote(&target.display().to_string()),
+            shell_quote(&link.display().to_string()),
+        )
+    }
+
+    fn shell_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\"'\"'"))
     }
 
     /// Quote `s` as an AppleScript double-quoted string literal.
@@ -4206,5 +4345,56 @@ mod tests {
             SessionPolicy::CaptureOnly
         );
         assert!(serde_json::from_str::<SessionPolicy>("\"always\"").is_err());
+    }
+    #[test]
+    fn user_cli_install_replaces_copy_and_status_tracks_the_bundle_link() {
+        use super::commands::{CliState, cli_state_for_paths, install_cli_link};
+
+        let dir = tempfile::tempdir().unwrap();
+        let bundled_dir = dir.path().join("OxiMemo.app/Contents/MacOS");
+        std::fs::create_dir_all(&bundled_dir).unwrap();
+        let bundled = bundled_dir.join("oximemo");
+        std::fs::write(&bundled, b"bundled CLI").unwrap();
+
+        let user_bin = dir.path().join(".local/bin");
+        let user_link = user_bin.join("oximemo");
+        std::fs::create_dir_all(&user_bin).unwrap();
+        std::fs::write(&user_link, b"previous CLI copy").unwrap();
+        let system_link = dir.path().join("usr/local/bin/oximemo");
+
+        assert!(matches!(
+            cli_state_for_paths(Some(&user_link), &system_link, &bundled),
+            CliState::Stale
+        ));
+        install_cli_link(&bundled, &user_link).unwrap();
+        assert_eq!(std::fs::read_link(&user_link).unwrap(), bundled);
+        assert!(matches!(
+            cli_state_for_paths(Some(&user_link), &system_link, &bundled),
+            CliState::Installed
+        ));
+    }
+
+    #[test]
+    fn admin_cli_install_script_creates_missing_bin_directory() {
+        use super::commands::cli_install_script;
+
+        let dir = tempfile::tempdir().unwrap();
+        let bundled_dir = dir.path().join("OxiMemo's Bundle/Contents/MacOS");
+        std::fs::create_dir_all(&bundled_dir).unwrap();
+        let bundled = bundled_dir.join("oximemo");
+        std::fs::write(&bundled, b"bundled CLI").unwrap();
+        let link = dir.path().join("usr/local/bin/oximemo");
+
+        let output = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(cli_install_script(&bundled, &link))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(std::fs::read_link(&link).unwrap(), bundled);
     }
 }

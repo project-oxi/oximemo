@@ -1,0 +1,7 @@
+{
+  "version":"garden-native/1",
+  "commands":{
+    "open_settings":{"arguments":{},"result":"void"},
+    "daemon_health":{"arguments":{},"result":"unknown"}
+  }
+}

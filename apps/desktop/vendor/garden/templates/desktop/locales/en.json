@@ -1,0 +1,172 @@
+{
+  "app": "Garden",
+  "workspace": "Workspace",
+  "documents": "Documents",
+  "settings": "Settings",
+  "general": "General",
+  "appearance": "Appearance",
+  "theme": "Dark theme",
+  "commands": "Commands",
+  "search": "Search commands…",
+  "empty": "No matching commands",
+  "close": "Close",
+  "minimize": "Minimize",
+  "maximize": "Maximize",
+  "editor": "Document source",
+  "settingsError": "Unable to open settings.",
+  "navigationLabel": "Workspace navigation",
+  "toggleSidebar": "Toggle navigation",
+  "toggleRightPanel": "Toggle context panel",
+  "emptyHint": "Try another search term.",
+  "sampleTitle": "Working notes",
+  "sampleTag": "guide",
+  "sampleBody": "## Next actions\n\n- [ ] Capture the decision\n- [ ] Link related notes\n\n## Context\n\nEdit this document while keeping its source structure.",
+  "documentStrings": {
+    "title": "Title",
+    "titlePlaceholder": "Untitled",
+    "properties": "Properties",
+    "tags": "Tags",
+    "tagsPlaceholder": "Add a tag",
+    "addTag": "Add tag",
+    "removeTag": "Remove tag",
+    "aliases": "Aliases",
+    "aliasesPlaceholder": "Add an alias",
+    "addAlias": "Add alias",
+    "removeAlias": "Remove alias",
+    "profile": "Profile",
+    "language": "Language",
+    "cssClasses": "CSS classes",
+    "favorite": "Favorite",
+    "technicalFields": "Document metadata",
+    "documentId": "Document ID",
+    "format": "Format",
+    "bodyProfile": "Body profile",
+    "created": "Created",
+    "updated": "Updated",
+    "completeSource": "Complete source",
+    "body": "Document body",
+    "diagnostic": "Diagnostic",
+    "invalidSource": "This source is invalid and cannot be edited safely.",
+    "unsupportedSource": "This profile is displayed as read-only source.",
+    "legacySource": "Legacy source is preserved without conversion.",
+    "propertyEditError": "This property could not be changed without losing source information.",
+    "jsonValue": "Structured value",
+    "valuePlaceholder": "Add a value",
+    "addValue": "Add value",
+    "removeValue": "Remove value",
+    "deleted": "Deleted",
+    "deletedAt": "Deleted at",
+    "addProperty": "Add property",
+    "propertyNamePlaceholder": "Property name",
+    "propertyType": "Property type",
+    "textType": "Text",
+    "numberType": "Number",
+    "booleanType": "Checkbox",
+    "listType": "List",
+    "createProperty": "Add",
+    "applyPropertyType": "Apply type",
+    "removeProperty": "Remove property",
+    "cancel": "Cancel",
+    "tablePreviewLabel": "Edit table source",
+    "taskTodo": "To do",
+    "taskDone": "Done",
+    "taskToggle": "Toggle task · ⌘/Ctrl Enter",
+    "embedEdit": "Edit embed source",
+    "embedMissing": "Unresolved attachment",
+    "codeEdit": "Edit code",
+    "codeCopy": "Copy code",
+    "codeCopied": "Copied",
+    "wikiFootnote": "Footnote",
+    "wikiBacklink": "Back to reference",
+    "slashCommands": {
+      "task": {
+        "label": "Task",
+        "description": "Track something to do"
+      },
+      "heading1": {
+        "label": "Heading 1",
+        "description": "Large section heading"
+      },
+      "heading2": {
+        "label": "Heading 2",
+        "description": "Section heading"
+      },
+      "heading3": {
+        "label": "Heading 3",
+        "description": "Small section heading"
+      },
+      "bulletList": {
+        "label": "Bullet list",
+        "description": "Unordered items"
+      },
+      "numberedList": {
+        "label": "Numbered list",
+        "description": "Ordered steps"
+      },
+      "quote": {
+        "label": "Quote",
+        "description": "Quoted text"
+      },
+      "codeFence": {
+        "label": "Code block",
+        "description": "Fenced code with a language"
+      },
+      "table": {
+        "label": "Table",
+        "description": "Two-column Markdown table"
+      },
+      "divider": {
+        "label": "Divider",
+        "description": "Separate sections"
+      },
+      "link": {
+        "label": "Link",
+        "description": "Link text and destination"
+      },
+      "image": {
+        "label": "Image",
+        "description": "Image description and source"
+      },
+      "wikiEmbed": {
+        "label": "Embed",
+        "description": "Embed a note or attachment"
+      },
+      "wikiLink": {
+        "label": "Wiki link",
+        "description": "Link a note with an optional label"
+      },
+      "callout": {
+        "label": "Callout",
+        "description": "A note, tip, or warning"
+      },
+      "highlight": {
+        "label": "Highlight",
+        "description": "Emphasize a passage"
+      },
+      "comment": {
+        "label": "Comment",
+        "description": "Leave an editorial comment"
+      },
+      "footnote": {
+        "label": "Footnote",
+        "description": "Add a reference and definition"
+      },
+      "inlineMath": {
+        "label": "Inline math",
+        "description": "A formula within a line"
+      },
+      "displayMath": {
+        "label": "Math block",
+        "description": "A displayed formula"
+      },
+      "tag": {
+        "label": "Tag",
+        "description": "Add an inline tag"
+      },
+      "blockId": {
+        "label": "Block reference",
+        "description": "Give a block a stable reference"
+      }
+    }
+  }
+}

@@ -112,6 +112,7 @@ mod tests {
         let id = MemoId::now();
         let now = OffsetDateTime::now_utc();
         Memo {
+            source_sha256: None,
             id,
             created_at: now,
             updated_at: now,

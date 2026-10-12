@@ -120,7 +120,31 @@ have executable tests. Rust and TypeScript mirrors run v1 r3 and v2 r2.
 Exit: opening and closing every fixture is byte-identical; every
 discovered file is canonical, legacy, or visibly diagnosed.
 
-### Stage 2 — canonical creation
+### Stage 2 — canonical creation (in progress)
+
+2026-10-12: newly installed preset templates now use the canonical note writer,
+including UUIDv7 identity, timestamps, vault manifest and atomic create-if-absent.
+Reinstalling a preset preserves its existing template bytes. The canonical
+template reader keeps preset defaults and body separate from identity/lifecycle
+metadata. The preset installation and inheritance checks pass; the full Stage 2
+exit remains open. Input refinements retain the existing lossless Markdown source
+editor and guarded save path.
+
+2026-10-12: the template reader recognizes canonical PDC 2 envelopes and
+keeps identity/lifecycle metadata out of a new note's body. Creation refuses
+unsupported template property shapes and invalid/legacy PDC templates instead
+of coercing them; existing template files remain unchanged. This advances the
+open template safety gate; preset emission was subsequently completed above.
+
+2026-10-11: ordinary desktop/CLI Markdown and HTML creation now uses the
+canonical writer and vault manifest. Oximemo's supported source editor adapter
+preserves envelope bytes and captures the exact source digest on read; stale
+saves are rejected. Unsupported property shapes and foreign/legacy PDC notes
+retain the guarded PDC source editor. Canonical tombstones move to the visible
+`_trash/` tree; existing `.trash/` files remain readable. No user document was
+converted or rewritten as part of this change. Templates still use the existing
+legacy adapter; the template migration and full Stage 2 exit gate remain open.
+
 
 - New notes are v2 Markdown by default; HTML stays available for
   canonical or legacy HTML according to its envelope. Create

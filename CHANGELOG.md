@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-10-12
+
+### Changed
+
+- The desktop workspace uses compact monochrome glass surfaces, configurable window sizing, a full-window immersive editor, system theme detection by default, and public Garden controls with reduced-motion support.
+
+### Fixed
+
+- Markdown live preview retains clicked positions, exposes the caret after focused window resizing, and advances through existing emphasis closers when typing Markdown. IME confirmation no longer triggers save/close or global shortcuts, and quick capture resets its visible draft when reopened.
+- Native Tauri dependencies use the exact Garden pins. Main-window size follows configuration, compact settings use a horizontal category strip, and app chrome and editor syntax use the requested monochrome palette.
+- Newly installed preset templates use canonical PDC 2 creation with atomic create-if-absent; existing preset files remain byte-preserved.
+- Empty calendar days open daily notes with keyboard-accessible date buttons. Query-calendar date-field changes update immediately. Image attachment controls show supported formats, restore editor focus, place an unchanged cursor after the inserted image, and report failed attachments while preserving successful files in a batch.
+- Deleted memos can be restored from Storage settings after the undo toast expires. Individual deletions now offer undo. Sidebar task checkboxes and tag filter states are accessible, and folder pickers refresh counts, clear completed searches, and use localized labels.
+- HTML source undo history survives switching through preview mode. Settings fields cancel only their current draft on Escape and expose field names and selected options.
+- Search scope opens an actual folder/all selector. Hyphenated and nested inline tags stay intact in note tags, task descriptions, and tag renames.
+- Note cards and list/timeline rows can be opened with Tab and Enter/Space; folder rows and tiles use the same keyboard behavior without activating a parent from a child control.
+- Calendar month navigation uses localized accessible names and tooltips. Backlink previews omit a repeated opening title.
+- CLI installation now prefers `~/.local/bin/oximemo`, requests administrator authorization only for the `/usr/local/bin/oximemo` fallback, and reports installation errors in the desktop UI.
+
 ## [0.18.0] — 2026-10-10
 
 ### Added

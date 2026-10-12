@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://garden.local/contracts/ui-spec/ui-spec.schema.json",
+  "title": "Garden UI contract",
+  "type": "object",
+  "required": [
+    "version",
+    "platform",
+    "tokens",
+    "strings",
+    "primaryWindow",
+    "settingsWindow",
+    "commandPalette",
+    "feedback",
+    "shellSurfaces",
+    "pageHeader"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": "garden-ui/1"
+    },
+    "platform": {
+      "const": "react-webview"
+    },
+    "tokens": {
+      "type": "string"
+    },
+    "strings": {
+      "type": "object",
+      "required": [
+        "source",
+        "fallback",
+        "frameworkComponentsRequireProps"
+      ]
+    },
+    "primaryWindow": {
+      "type": "object",
+      "required": [
+        "titlebar",
+        "corners",
+        "regions",
+        "sidebar"
+      ],
+      "properties": {
+        "titlebar": {
+          "type": "object",
+          "required": [
+            "height",
+            "decoration",
+            "platforms",
+            "slots",
+            "dragRegion",
+            "defaultControls",
+            "identity",
+            "composition"
+          ],
+          "properties": {
+            "height": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "decoration": {
+              "const": "platform-adaptive"
+            },
+            "platforms": {
+              "type": "object",
+              "required": [
+                "macOS",
+                "otherDesktop"
+              ],
+              "properties": {
+                "macOS": {
+                  "type": "object",
+                  "required": [
+                    "tauriDecorations",
+                    "titlebarStyle",
+                    "windowCornerOwnership"
+                  ],
+                  "properties": {
+                    "tauriDecorations": {
+                      "const": true
+                    },
+                    "titlebarStyle": {
+                      "const": "native-overlay"
+                    },
+                    "windowCornerOwnership": {
+                      "const": "NSWindow"
+                    }
+                  }
+                },
+                "otherDesktop": {
+                  "type": "object",
+                  "required": [
+                    "tauriDecorations",
+                    "titlebarStyle"
+                  ],
+                  "properties": {
+                    "tauriDecorations": {
+                      "const": false
+                    },
+                    "titlebarStyle": {
+                      "const": "garden-custom"
+                    }
+                  }
+                }
+              }
+            },
+            "slots": {
+              "const": [
+                "left",
+                "center",
+                "right"
+              ]
+            },
+            "dragRegion": {
+              "const": "empty titlebar area only"
+            },
+            "defaultControls": {
+              "const": [
+                "left-pane-toggle",
+                "command-field",
+                "right-pane-toggle-when-present"
+              ]
+            },
+            "identity": {
+              "const": "no-app-name-or-logo"
+            },
+            "composition": {
+              "const": "shell-owned defaults; explicit custom mode for documented exception"
+            }
+          }
+        },
+        "corners": {
+          "type": "object",
+          "required": [
+            "window",
+            "controls"
+          ],
+          "properties": {
+            "window": {
+              "const": "operating-system-owned; NSWindow on macOS"
+            },
+            "controls": {
+              "const": "existing radius tokens; superellipse when supported"
+            }
+          }
+        }
+      }
+    },
+    "settingsWindow": {
+      "type": "object",
+      "required": [
+        "layout",
+        "sectionNavigation",
+        "content"
+      ]
+    },
+    "commandPalette": {
+      "type": "object",
+      "required": [
+        "shortcut",
+        "focus",
+        "keys",
+        "modal",
+        "entry"
+      ],
+      "properties": {
+        "entry": {
+          "const": "field-like button at titlebar upper right"
+        }
+      }
+    },
+    "focus": {
+      "type": "object",
+      "required": [
+        "textFields",
+        "keyboardControls",
+        "linksAndSelection"
+      ],
+      "properties": {
+        "textFields": {
+          "const": "caret-and-stable-surface; no-perimeter-ring"
+        },
+        "keyboardControls": {
+          "const": "visible-neutral-ink-indicator"
+        },
+        "linksAndSelection": {
+          "const": "accent-token"
+        }
+      }
+    },
+    "feedback": {
+      "type": "object",
+      "required": [
+        "toast",
+        "banner",
+        "inlineError",
+        "emptyState",
+        "overlay"
+      ]
+    },
+    "shellSurfaces": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "petOverlay",
+          "tray",
+          "quickChat",
+          "globalShortcut"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "pageHeader": {
+      "type": "object",
+      "required": [
+        "default",
+        "description"
+      ],
+      "properties": {
+        "default": {
+          "const": "task title and relevant actions"
+        },
+        "description": {
+          "const": "operational constraints only; no filler or conversational subtitle"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

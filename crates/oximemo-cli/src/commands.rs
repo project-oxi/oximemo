@@ -83,11 +83,11 @@ pub fn cmd_new(
     };
     // An empty body is only acceptable when a folder template will fill it.
     if body.is_empty()
-        && oximemo_core::template::load_template(
+        && oximemo_core::template::load_template_guarded(
             vault.paths(),
             folder.as_deref().unwrap_or(""),
             fmt,
-        )
+        )?
         .is_none()
     {
         return Err(anyhow!("refusing to create an empty note"));

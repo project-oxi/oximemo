@@ -13,7 +13,7 @@ import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
 
 
 import { relativeTime } from "../lib/time";
-import { renderPreviewMarkdown } from "../lib/markdownPreview";
+import { renderPreviewMarkdown, previewExcerpt } from "../lib/markdownPreview";
 import { queryCountVersion, subscribeQueryCounts } from "../lib/queryPreviewCounts";
 import { useUI } from "../stores/ui";
 import { CtxRoot, CtxTrigger } from "./ContextMenu";
@@ -49,12 +49,12 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
   const previewHtml = useMemo(
     () =>
       memo.preview
-        ? renderPreviewMarkdown(memo.preview, 200, {
+        ? renderPreviewMarkdown(previewExcerpt(memo.preview, memo.title, memo.path), 200, {
             thisId: memo.id,
             resultsN: t.query_embed_results_n,
           })
         : "",
-    [memo.preview, memo.id, t.query_embed_results_n, queryCountVer],
+    [memo.preview, memo.title, memo.id, t.query_embed_results_n, queryCountVer],
   );
   return (
     <CtxRoot>
@@ -72,7 +72,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
             }}
             onDragEnd={() => setDraggingNote(null)}
             onClick={() => onSelect(memo.id)}
-            className="group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm"
+            className="note-card group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus-ring"
           />
         }
       >
@@ -138,9 +138,18 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
       >
         <Star size={14} className={memo.favorite ? "fill-hue-amber" : undefined} />
       </button>
+      <h3 className="mt-2 text-sm font-semibold leading-snug text-text">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onSelect(memo.id); }}
+          className="block w-full line-clamp-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        >
+          {memo.title || t.empty_memo}
+        </button>
+      </h3>
       {memo.preview ? (
         <div
-          className="md-preview mt-2 line-clamp-4 flex-1 text-sm leading-relaxed text-text"
+          className="md-preview mt-1 line-clamp-3 min-h-0 flex-1 text-xs leading-relaxed text-text-muted"
           dangerouslySetInnerHTML={{ __html: previewHtml }}
         />
       ) : (

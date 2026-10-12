@@ -9,6 +9,9 @@ apps/desktop/dist
 apps/desktop/src-tauri/gen
 apps/desktop/src-tauri/binaries
 apps/desktop/*.tsbuildinfo
+apps/mobile/node_modules
+apps/mobile/dist
+apps/mobile/src-tauri/gen
 *.tsbuildinfo
 
 # --- Environment / secrets ---
@@ -48,3 +51,12 @@ data/
 
 # --- Local git worktrees ---
 .worktrees/
+
+# --- Workspace package dependencies ---
+**/node_modules/
+
+# --- Private signing material ---
+*.p12
+*.p8
+*.keychain
+*.keychain-db

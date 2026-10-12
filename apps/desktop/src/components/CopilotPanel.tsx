@@ -8,7 +8,7 @@
  * Layering: the note editor is a z-50 dialog — this window sits at z-[60]
  * so the copilot stays usable WHILE a note is open, exactly like the
  * selection-context flow it serves (§7 selection block). The entry points
- * are the bottom-right FAB and ⌘⇧C, both above every dialog layer.
+ * are the workspace and note toolbars, plus ⌘⇧C.
  *
  * Revision 2026-08-24 (composer UX): conversation state lives in the ui
  * store (survives close/reopen, in-memory only); the composer
@@ -19,7 +19,10 @@
  */
 import { useQuery, useQueryClient, useQueries } from "@tanstack/react-query";
 import { Bot, Check, ChevronDown, Copy, Loader2, MessageSquarePlus, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { motion, useIsPresent } from "motion/react";
+import { useWorkspaceMotion } from "../lib/workspaceMotion";
 
 import { useI18n } from "../lib/i18n";
 import { useUI, type CopilotEntry, type CopilotRetryPayload } from "../stores/ui";
@@ -59,6 +62,49 @@ export function CopilotPanel() {
   const qc = useQueryClient();
   const setCopilotOpen = useUI((s) => s.setCopilotOpen);
   const selectedId = useUI((s) => s.selectedId);
+  // Keep one portal container so changing note context preserves the
+  // composer and its draft. Nest the layer inside an open note dialog's
+  // focus boundary; otherwise the modal hides the companion from assistive
+  // technology even though it is painted above the backdrop.
+  const [layer] = useState(() => document.createElement("div"));
+  const present = useIsPresent();
+  const timing = useWorkspaceMotion();
+  useLayoutEffect(() => {
+    if (!present && layer.contains(document.activeElement)) {
+      const trigger = document.querySelector<HTMLElement>(".memo-sheet [data-copilot-trigger]")
+        ?? document.querySelector<HTMLElement>(".workspace-titlebar [data-copilot-trigger]");
+      trigger?.focus({ preventScroll: true });
+    }
+  }, [present, layer]);
+  useLayoutEffect(() => {
+    let frame = 0;
+    let attempts = 0;
+    const attach = () => {
+      const sheet = selectedId ? document.querySelector<HTMLElement>(".memo-sheet") : null;
+      const target = sheet ?? document.body;
+      if (layer.parentElement !== target) {
+        const focused = layer.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+        target.appendChild(layer);
+        if (sheet) {
+          // If focus was already in the composer when the modal opened,
+          // Base UI may mark individual siblings before this layer moves.
+          // Clear only its managed hiding on the newly inside content;
+          // intentional aria-hidden icons remain unchanged.
+          if (layer.hasAttribute("data-base-ui-inert")) layer.removeAttribute("aria-hidden");
+          layer.querySelectorAll('[data-base-ui-inert][aria-hidden="true"]').forEach((element) => {
+            element.removeAttribute("aria-hidden");
+          });
+        }
+        focused?.focus({ preventScroll: true });
+      }
+      // Base UI mounts its portal in a layout effect. Give that commit a
+      // bounded opportunity to install the sheet before attaching to it.
+      if (selectedId && !sheet && attempts++ < 3) frame = requestAnimationFrame(attach);
+    };
+    attach();
+    return () => cancelAnimationFrame(frame);
+  }, [selectedId, layer]);
+  useLayoutEffect(() => () => layer.remove(), [layer]);
   const selection = useUI((s) => s.copilotSelection);
   const setCopilotSelection = useUI((s) => s.setCopilotSelection);
   const setError = useUI((s) => s.setError);
@@ -224,8 +270,12 @@ export function CopilotPanel() {
   );
   const emptyCards: CopilotCommandId[] = ["summary", "tags", "find", "new", "tidy"];
 
-  return (
-    <aside
+  return createPortal(
+    <motion.aside
+      inert={!present}
+      initial={{ opacity: 0, y: timing.reduce ? 0 : 8 }}
+      animate={{ opacity: 1, y: 0, transition: timing.enter }}
+      exit={{ opacity: 0, y: timing.reduce ? 0 : 4, transition: timing.exit }}
       aria-label={t.copilot_panel_title}
       onKeyDown={(e) => {
         // Esc outside the textarea (focus on a link/button) closes the
@@ -234,7 +284,7 @@ export function CopilotPanel() {
           setCopilotOpen(false);
         }
       }}
-      className="fixed bottom-6 right-6 z-[60] flex h-[min(72vh,580px)] w-[min(92vw,400px)] flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-2xl"
+      className="glass-copilot fixed bottom-6 right-6 z-[60] flex h-[min(72vh,580px)] w-[min(92vw,380px)] flex-col overflow-hidden"
     >
       {/* Header: agent + provider are always visible (§12) — the user
           should never have to wonder where their data is going. */}
@@ -420,7 +470,8 @@ export function CopilotPanel() {
         focusSignal={focusSignal}
         onEscPanel={() => setCopilotOpen(false)}
       />
-    </aside>
+    </motion.aside>,
+    layer,
   );
 }
 /** One row: user turn (with its attached-context chips), agent turn, or

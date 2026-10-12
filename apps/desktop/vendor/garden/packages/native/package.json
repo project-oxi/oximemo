@@ -1,0 +1,1 @@
+{"name":"@garden/native","version":"0.1.0","private":true,"type":"module","exports":{".":"./src/commands.ts"},"scripts":{"build":"tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --skipLibCheck src/commands.ts"}}

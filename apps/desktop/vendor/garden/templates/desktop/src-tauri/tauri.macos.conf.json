@@ -1,0 +1,10 @@
+{
+  "app": {
+    "windows": [{
+      "label": "main", "title": "Garden", "width": 1200, "height": 800,
+      "minWidth": 720, "minHeight": 480, "decorations": true,
+      "titleBarStyle": "Overlay", "hiddenTitle": true,
+      "trafficLightPosition": {"x": 14, "y": 20}
+    }]
+  }
+}

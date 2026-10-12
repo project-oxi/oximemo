@@ -16,6 +16,8 @@
 
 // --- Public types (mirrored; match the brief exactly) -------------------
 
+import { isTagChar } from "./tags";
+
 export type TaskField =
   | "created"
   | "start"
@@ -253,9 +255,9 @@ export function tagSpansOf(s: string): Range[] {
     const ch = s[i];
     if (ch === "#") {
       const prev = i > 0 ? s[i - 1] : "";
-      if (!isWordChar(prev)) {
+      if (!isWordChar(prev) && isWordChar(s[i + 1] ?? "")) {
         let j = i + 1;
-        while (j < s.length && isWordChar(s[j])) j++;
+        while (j < s.length && isTagChar(s[j])) j++;
         if (j > i + 1) {
           spans.push({ start: i, end: j });
           i = j;

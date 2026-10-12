@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://garden.dev/contracts/daemon-protocol/1",
+  "title": "garden daemon protocol v1",
+  "description": "One JSON request and response per Unix-domain-socket connection, framed by a newline.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["id", "method"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "method": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "params": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "success": {
+      "type": "object",
+      "required": ["id", "ok", "result"],
+      "properties": {
+        "id": { "type": "string" },
+        "ok": { "const": true },
+        "result": {}
+      },
+      "additionalProperties": false
+    },
+    "failure": {
+      "type": "object",
+      "required": ["id", "ok", "error"],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "handshake": {
+      "type": "object",
+      "required": ["protocol", "name", "version", "pid", "startedAt", "runtime", "capabilities"],
+      "properties": {
+        "protocol": { "const": "garden-daemon/1" },
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "pid": { "type": "integer", "minimum": 1 },
+        "startedAt": { "type": "integer", "minimum": 0, "description": "Unix epoch milliseconds." },
+        "runtime": {
+          "type": "object",
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "const": "bun" },
+            "version": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "additionalProperties": false
+    },
+    "health": {
+      "type": "object",
+      "required": ["status", "pid", "startedAt", "uptimeMs", "queue"],
+      "properties": {
+        "status": { "enum": ["ok", "draining"] },
+        "pid": { "type": "integer", "minimum": 1 },
+        "startedAt": { "type": "integer", "minimum": 0 },
+        "uptimeMs": { "type": "integer", "minimum": 0 },
+        "queue": {
+          "type": "object",
+          "required": ["queued", "leased", "draining"],
+          "properties": {
+            "queued": { "type": "integer", "minimum": 0 },
+            "leased": { "type": "integer", "minimum": 0 },
+            "draining": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -258,7 +258,12 @@ fn path_add(table: &mut redb::Table<&str, &[u8]>, path: &str, id: &[u8]) -> Resu
     };
     let complete_len = complete_path_ids(path, &list).len();
     list.truncate(complete_len);
-    if !list.chunks_exact(16).any(|existing| existing == id) {
+    if !list
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .any(|existing| existing == id)
+    {
         list.extend_from_slice(id);
     }
     table.insert(path, list.as_slice())?;
@@ -270,7 +275,9 @@ fn path_add(table: &mut redb::Table<&str, &[u8]>, path: &str, id: &[u8]) -> Resu
 fn path_remove(table: &mut redb::Table<&str, &[u8]>, path: &str, id: &[u8]) -> Result<()> {
     let kept: Vec<u8> = match table.get(path)? {
         Some(guard) => complete_path_ids(path, guard.value())
-            .chunks_exact(16)
+            .as_chunks::<16>()
+            .0
+            .iter()
             .filter(|existing| *existing != id)
             .flatten()
             .copied()
@@ -360,7 +367,9 @@ impl MemoIndex for RedbIndex {
         };
         Ok(Some(
             complete_path_ids(path, guard.value())
-                .chunks_exact(16)
+                .as_chunks::<16>()
+                .0
+                .iter()
                 .filter_map(|bytes| Uuid::from_slice(bytes).ok())
                 .map(MemoId)
                 .collect(),

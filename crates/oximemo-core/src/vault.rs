@@ -24,7 +24,8 @@ use time::OffsetDateTime;
 
 use parking_lot::RwLock;
 
-use oxi_frontmatter::{Mutation, Synthesize, WriteOutcome, write_document};
+use crate::memo_pdc::write_document;
+use oxi_frontmatter::{Mutation, Synthesize, WriteOutcome};
 
 use crate::config::VaultConfig;
 use crate::error::{CoreError, Result};
@@ -49,13 +50,15 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const INDEX_FORMAT_VERSION: u32 = 5;
 /// Remove the storage-only trash prefix from a vault-relative path.
 fn strip_trash_prefix(relative: &str) -> (&str, bool) {
-    let Some(rest) = relative.strip_prefix(crate::paths::TRASH_DIR) else {
-        return (relative, false);
-    };
-    match rest.strip_prefix('/') {
-        Some(stripped) => (stripped, true),
-        None => (relative, false),
+    for directory in [crate::paths::TRASH_DIR, crate::paths::PDC_TRASH_DIR] {
+        if let Some(rest) = relative
+            .strip_prefix(directory)
+            .and_then(|rest| rest.strip_prefix('/'))
+        {
+            return (rest, true);
+        }
     }
+    (relative, false)
 }
 
 /// Path spellings written by older watcher versions before trash paths were
@@ -446,7 +449,26 @@ impl Vault {
         std::fs::create_dir_all(&dir)?;
         let tmpl = dir.join(crate::paths::TEMPLATE_NAME);
         if !tmpl.exists() {
-            oxi_frontmatter::atomic_write(&tmpl, template_md.as_bytes())?;
+            let oxi_frontmatter::Parsed::Memo { table, body } =
+                oxi_frontmatter::parse(template_md, oxi_frontmatter::NoteFormat::Markdown)
+                    .map_err(|error| CoreError::other(error.to_string()))?
+            else {
+                return Err(CoreError::other("preset requires a property envelope"));
+            };
+            let props = crate::props::props_from_table(&table);
+            // Preset source is an app-owned skeleton, not an existing user
+            // document. New templates use the same canonical writer as notes;
+            // create-if-absent also preserves a file installed concurrently.
+            match crate::memo_pdc::create(
+                &self.paths.vault,
+                &tmpl,
+                &body,
+                oxi_frontmatter::NoteFormat::Markdown,
+                &props,
+            ) {
+                Err(CoreError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                result => result?,
+            }
         }
         let schema = dir.join(crate::paths::SCHEMA_NAME);
         if !schema.exists() {
@@ -531,12 +553,19 @@ impl Vault {
         // rename(2) atomically replaces an empty destination); only
         // non-empty ones are. Silently allowed when the trash subtree is
         // absent or empty.
-        let trash_from = self.paths.trash_path(from);
-        let trash_to = self.paths.trash_path(to);
-        if trash_from.is_dir() && trash_to_is_nonempty(&trash_to) {
-            return Err(CoreError::other(format!(
-                "trashed notes under '{to}' already exist"
-            )));
+        let trash_moves = [
+            (self.paths.trash_path(from), self.paths.trash_path(to)),
+            (
+                self.paths.canonical_trash_path(from),
+                self.paths.canonical_trash_path(to),
+            ),
+        ];
+        for (trash_from, trash_to) in &trash_moves {
+            if trash_from.is_dir() && trash_to_is_nonempty(trash_to) {
+                return Err(CoreError::other(format!(
+                    "trashed notes under '{to}' already exist"
+                )));
+            }
         }
         if let Some(parent) = to_dir.parent() {
             std::fs::create_dir_all(parent)?;
@@ -552,11 +581,13 @@ impl Vault {
         // reading `.trash/<from>/` and rebuilding records at the old path.
         // The trash subtree is optional — many folders have no trashed
         // notes — so the move is a silent no-op when the source is absent.
-        if trash_from.is_dir() {
-            if let Some(parent) = trash_to.parent() {
-                std::fs::create_dir_all(parent)?;
+        for (trash_from, trash_to) in trash_moves {
+            if trash_from.is_dir() {
+                if let Some(parent) = trash_to.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::rename(trash_from, trash_to)?;
             }
-            std::fs::rename(&trash_from, &trash_to)?;
         }
 
         // Re-path index records under `from/`. Live notes: read the file
@@ -1116,7 +1147,7 @@ impl Vault {
                 .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
             return Ok((memo, rel, live));
         }
-        let trash = self.paths.trash_path(&rel);
+        let trash = self.files.trash_path(&rel);
         if trash.exists() {
             let memo = self
                 .files
@@ -1230,7 +1261,7 @@ impl Vault {
         // depends on that stamp.
         let counter = crate::template::count_notes(&self.paths, folder) + 1;
         let ctx = crate::template::TemplateCtx::now(folder, counter);
-        let tmpl = crate::template::load_template(&self.paths, folder, fmt);
+        let tmpl = crate::template::load_template_guarded(&self.paths, folder, fmt)?;
         let blank = crate::template::is_blank_body(fmt, &body);
         let (body, tmpl_props) = match &tmpl {
             Some((table, t)) => {
@@ -1245,19 +1276,12 @@ impl Vault {
             }
             None => (body, Default::default()),
         };
-        let mut mutation = Mutation::default();
-        for (k, v) in &tmpl_props {
-            mutation
-                .set_props
-                .insert(k.clone(), Some(v.to_frontmatter()));
-        }
         let tags = tags_of(fmt, &body);
         validate_note_input(&body, &tags)?;
         let now = OffsetDateTime::now_utc();
-        // The on-disk id/created are synthesized by write_document
-        // (Synthesize::Yes on a missing file). We derive the filename
+        // The canonical writer generates id/created. We derive the filename
         // from the body so the path is stable before the file exists,
-        // then let write_document produce the canonical block, then
+        // then let the guarded PDC writer produce the canonical block, then
         // read the typed Memo back so the in-memory model and the
         // file agree.
         let base = FileStore::derive_filename_from_body(&body, fmt, now);
@@ -1266,9 +1290,8 @@ impl Vault {
             std::fs::create_dir_all(parent)?;
         }
         let crate_fmt = to_crate_fmt(fmt);
-        write_document(&path, &body, crate_fmt, mutation, Synthesize::Yes, now)
-            .map_err(crate::store::files::frontmatter_error_to_core)?;
-        // Read back: write_document just synthesized id/created/updated
+        crate::memo_pdc::create(&self.paths.vault, &path, &body, crate_fmt, &tmpl_props)?;
+        // Read back the canonical id/created/updated from the committed source
         // (the typed values are only known after the disk write).
         let note = self
             .files
@@ -1283,20 +1306,23 @@ impl Vault {
     /// with `TEMPLATE.html` but no `TEMPLATE.md` produces html notes;
     /// everything else defaults to markdown (spec §D8).
     pub fn create_note_auto(&self, folder: &str, body: String) -> Result<Memo> {
-        let fmt =
-            if crate::template::load_template(&self.paths, folder, crate::memo::NoteFormat::Html)
-                .is_some()
-                && crate::template::load_template(
-                    &self.paths,
-                    folder,
-                    crate::memo::NoteFormat::Markdown,
-                )
-                .is_none()
-            {
-                crate::memo::NoteFormat::Html
-            } else {
-                crate::memo::NoteFormat::Markdown
-            };
+        let fmt = if crate::template::load_template_guarded(
+            &self.paths,
+            folder,
+            crate::memo::NoteFormat::Html,
+        )?
+        .is_some()
+            && crate::template::load_template_guarded(
+                &self.paths,
+                folder,
+                crate::memo::NoteFormat::Markdown,
+            )?
+            .is_none()
+        {
+            crate::memo::NoteFormat::Html
+        } else {
+            crate::memo::NoteFormat::Markdown
+        };
         self.create_note(folder, body, fmt)
     }
     /// Quick-capture entry: write into the Inbox (`idea` preset)
@@ -1384,6 +1410,7 @@ impl Vault {
                     };
                     let now = OffsetDateTime::now_utc();
                     let note = Memo {
+                        source_sha256: None,
                         id: MemoId::now(),
                         created_at: now,
                         updated_at: now,
@@ -1422,10 +1449,16 @@ impl Vault {
             return Ok((note, rel.clone(), abs, false));
         }
         // Format follows the folder's templates (create_note_auto rule).
-        let md_t =
-            crate::template::load_template(&self.paths, folder, crate::memo::NoteFormat::Markdown);
-        let html_t =
-            crate::template::load_template(&self.paths, folder, crate::memo::NoteFormat::Html);
+        let md_t = crate::template::load_template_guarded(
+            &self.paths,
+            folder,
+            crate::memo::NoteFormat::Markdown,
+        )?;
+        let html_t = crate::template::load_template_guarded(
+            &self.paths,
+            folder,
+            crate::memo::NoteFormat::Html,
+        )?;
         let fmt = if html_t.is_some() && md_t.is_none() {
             crate::memo::NoteFormat::Html
         } else {
@@ -1462,7 +1495,7 @@ impl Vault {
                     .ok_or_else(|| CoreError::NotFound(id.to_string()));
             }
             // Maybe in trash.
-            let trash = self.paths.trash_path(&rec.path);
+            let trash = self.files.trash_path(&rec.path);
             if trash.exists() {
                 return self
                     .files
@@ -1485,6 +1518,36 @@ impl Vault {
         }
         Err(CoreError::NotFound(id.to_string()))
     }
+    /// Resolve an editor wiki-link title/alias, or an explicit UUID.
+    /// Ambiguous names stay unresolved rather than choosing an arbitrary note.
+    pub fn resolve_memo_target(&self, target: &str) -> Result<Memo> {
+        if let Ok(id) = MemoId::parse(target) {
+            return self.get_memo(id);
+        }
+        let normalized = target.to_ascii_lowercase();
+        let records = self.snapshot()?;
+        let matches: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                !record.deleted
+                    && (record
+                        .title
+                        .as_ref()
+                        .is_some_and(|title| title.to_ascii_lowercase() == normalized)
+                        || crate::props::aliases_of(&record.props)
+                            .iter()
+                            .any(|alias| alias.to_ascii_lowercase() == normalized))
+            })
+            .collect();
+        match matches.as_slice() {
+            [record] => self.get_memo(record.id),
+            [] => Err(CoreError::NotFound(target.into())),
+            _ => Err(CoreError::other(
+                "ambiguous_note_link: more than one note has this title or alias",
+            )),
+        }
+    }
+
     /// Resolve the note's on-disk file: the indexed live path when it
     /// exists, the trash path otherwise (mirrors [`Vault::get_memo`]'s
     /// live→trash fallback). Returns `None` when neither exists.
@@ -1499,7 +1562,7 @@ impl Vault {
         if live.exists() {
             return Some(live);
         }
-        let trash = self.paths.trash_path(&rel);
+        let trash = self.files.trash_path(&rel);
         trash.exists().then_some(trash)
     }
 
@@ -1523,6 +1586,18 @@ impl Vault {
         body: Option<String>,
         favorite: Option<bool>,
         props: Option<crate::props::PropMutation>,
+    ) -> Result<Memo> {
+        self.update_note_with_snapshot(id, body, favorite, props, None)
+    }
+
+    /// Update against the source digest captured by the canonical editor.
+    pub fn update_note_with_snapshot(
+        &self,
+        id: MemoId,
+        body: Option<String>,
+        favorite: Option<bool>,
+        props: Option<crate::props::PropMutation>,
+        expected_sha256: Option<&str>,
     ) -> Result<Memo> {
         let mut note = self.get_memo(id)?;
         let tasks_cfg = self.with_config(|c| c.tasks.clone());
@@ -1583,14 +1658,58 @@ impl Vault {
         note.updated_at = OffsetDateTime::now_utc();
         note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.props);
 
-        let old_path = self.paths.vault.join(&old_rel);
+        let old_path = self
+            .note_file_path(&note)
+            .unwrap_or_else(|| self.paths.vault.join(&old_rel));
 
-        // If the title changed (or old path doesn't exist), compute new path.
         let new_title = note_title(fmt, &note.body);
         let needs_rename = old_title != new_title && old_path.exists();
         let now = OffsetDateTime::now_utc();
         let crate_fmt = to_crate_fmt(fmt);
-        if needs_rename {
+        if note.source_sha256.is_some() {
+            let outcome = crate::memo_pdc::update(
+                &old_path,
+                &note.body,
+                crate_fmt,
+                mutation.clone(),
+                expected_sha256.or(note.source_sha256.as_deref()),
+            )?;
+            let destination = if needs_rename {
+                let folder = old_rel.rfind('/').map(|i| &old_rel[..i]).unwrap_or("");
+                let base = FileStore::derive_filename(&note, fmt);
+                let destination = if note.deleted_at.is_some() {
+                    let live = self.files.unique_note_path(folder, &base, fmt);
+                    let rel = self.paths.relative_path(&live).unwrap_or_default();
+                    self.paths.canonical_trash_path(&rel)
+                } else {
+                    self.files.unique_note_path(folder, &base, fmt)
+                };
+                if destination.exists() {
+                    return Err(CoreError::other("rename destination already exists"));
+                }
+                std::fs::rename(&old_path, &destination)?;
+                destination
+            } else {
+                old_path.clone()
+            };
+            note = self
+                .files
+                .read_memo(&destination)?
+                .ok_or_else(|| CoreError::other("canonical source is now read-only"))?;
+            if outcome != WriteOutcome::NoOp || needs_rename {
+                let relative = self.paths.relative_path(&destination).unwrap_or_default();
+                let (rel, _) = strip_trash_prefix(&relative);
+                let (sbody, stitle, saliases) = search_fields(fmt, &note);
+                self.with_redb_and_search(|idx, search| {
+                    idx.upsert(&record_of(&note, rel, &tasks_cfg))?;
+                    if note.deleted_at.is_some() {
+                        search.remove(note.id)
+                    } else {
+                        search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+                    }
+                })?;
+            }
+        } else if needs_rename {
             // Derive new filename and folder from old path. Stage the
             // old bytes at the new path first so write_document's
             // `existing` table (parsed at write time) carries the
@@ -1641,7 +1760,7 @@ impl Vault {
                 // the same identity trick as the rename branch — so
                 // write_document carries the original id/created
                 // forward instead of minting a fresh identity.
-                let trash = self.paths.trash_path(&old_rel);
+                let trash = self.files.trash_path(&old_rel);
                 let src = if trash.exists() {
                     Some(trash)
                 } else {
@@ -1779,7 +1898,10 @@ impl Vault {
                         OffsetDateTime::now_utc(),
                     )
                     .map_err(crate::store::files::frontmatter_error_to_core)?;
-                    updates.push((updated, r.path.clone()));
+                    let saved = self.files.read_memo(&abs)?.ok_or_else(|| {
+                        CoreError::other("link update produced an unreadable source")
+                    })?;
+                    updates.push((saved, r.path.clone()));
                 }
             }
             if !updates.is_empty() {
@@ -2325,6 +2447,46 @@ impl Vault {
         let rec = self.with_redb(|idx| idx.get(id))?;
         let rel = rec.as_ref().map(|r| r.path.clone()).unwrap_or_default();
         let fmt = crate::memo::NoteFormat::from_rel(&rel);
+        let canonical_path = self.paths.vault.join(&rel);
+        if std::fs::read_to_string(&canonical_path)
+            .ok()
+            .is_some_and(|source| crate::memo_pdc::projection(&source, to_crate_fmt(fmt)).is_some())
+        {
+            let trash = self.paths.canonical_trash_path(&rel);
+            if trash.exists() {
+                return Err(CoreError::other("trash destination already exists"));
+            }
+            crate::memo_pdc::update(
+                &canonical_path,
+                &note.body,
+                to_crate_fmt(fmt),
+                Mutation {
+                    deleted: Some(Some(OffsetDateTime::now_utc())),
+                    ..Default::default()
+                },
+                note.source_sha256.as_deref(),
+            )?;
+            if let Some(parent) = trash.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::rename(&canonical_path, &trash)?;
+            let saved = self
+                .files
+                .read_memo(&trash)?
+                .ok_or_else(|| CoreError::other("canonical source is read-only"))?;
+            let tasks_cfg = self.with_config(|c| c.tasks.clone());
+            let (sbody, stitle, saliases) = search_fields(fmt, &saved);
+            self.with_redb_and_search(|idx, search| {
+                idx.upsert(&record_of(&saved, &rel, &tasks_cfg))?;
+                if saved.deleted_at.is_some() {
+                    search.remove(saved.id)
+                } else {
+                    search.upsert(saved.id, &sbody, stitle.as_deref(), &saved.tags, &saliases)
+                }
+            })?;
+            return Ok(());
+        }
+
         let now = OffsetDateTime::now_utc();
         note.deleted_at = Some(now);
         note.updated_at = now;
@@ -2334,7 +2496,7 @@ impl Vault {
         // `deleted` key is canonical and unknown keys survive.
         if !rel.is_empty() {
             self.files.move_to_trash(&rel)?;
-            let trash_abs = self.paths.trash_path(&rel);
+            let trash_abs = self.files.trash_path(&rel);
             if let Some(parent) = trash_abs.parent() {
                 std::fs::create_dir_all(parent)?;
             }
@@ -2365,6 +2527,43 @@ impl Vault {
         let rec = self.with_redb(|idx| idx.get(id))?;
         let rel = rec.as_ref().map(|r| r.path.clone()).unwrap_or_default();
         let fmt = crate::memo::NoteFormat::from_rel(&rel);
+        let canonical_path = self.files.trash_path(&rel);
+        if std::fs::read_to_string(&canonical_path)
+            .ok()
+            .is_some_and(|source| crate::memo_pdc::projection(&source, to_crate_fmt(fmt)).is_some())
+        {
+            let live = self.paths.vault.join(&rel);
+            if live.exists() {
+                return Err(CoreError::other("restore destination already exists"));
+            }
+            crate::memo_pdc::update(
+                &canonical_path,
+                &note.body,
+                to_crate_fmt(fmt),
+                Mutation {
+                    deleted: Some(None),
+                    ..Default::default()
+                },
+                note.source_sha256.as_deref(),
+            )?;
+            self.files.restore_from_trash(&rel)?;
+            let saved = self
+                .files
+                .read_memo(&live)?
+                .ok_or_else(|| CoreError::other("canonical source is read-only"))?;
+            let tasks_cfg = self.with_config(|c| c.tasks.clone());
+            let (sbody, stitle, saliases) = search_fields(fmt, &saved);
+            self.with_redb_and_search(|idx, search| {
+                idx.upsert(&record_of(&saved, &rel, &tasks_cfg))?;
+                if saved.deleted_at.is_some() {
+                    search.remove(saved.id)
+                } else {
+                    search.upsert(saved.id, &sbody, stitle.as_deref(), &saved.tags, &saliases)
+                }
+            })?;
+            return Ok(saved);
+        }
+
         note.deleted_at = None;
         note.updated_at = OffsetDateTime::now_utc();
         note.hash = hash::hash_memo(note.body.as_bytes(), note.favorite, &note.props);
@@ -2418,12 +2617,7 @@ impl Vault {
                     continue;
                 };
                 if n.deleted_at.is_some_and(|t| t < cutoff) {
-                    if let Some(rel) = self.paths.relative_path(&path) {
-                        let (trash_rel, _) = strip_trash_prefix(&rel);
-                        self.files.purge(trash_rel)?;
-                    } else {
-                        std::fs::remove_file(&path)?;
-                    }
+                    std::fs::remove_file(&path)?;
                     idx.remove(n.id)?;
                     search.remove(n.id)?;
                     purged += 1;
@@ -2435,6 +2629,23 @@ impl Vault {
     }
 
     // -- queries ----------------------------------------------------------
+
+    /// Indexed tombstones available for restoration. Reading the trash
+    /// never rewrites its documents or includes live notes.
+    pub fn list_trashed_memos(&self) -> Result<Vec<MemoSummary>> {
+        let mut items: Vec<_> = self
+            .snapshot()?
+            .iter()
+            .filter(|record| record.deleted)
+            .map(|record| record.to_summary())
+            .collect();
+        items.sort_by(|a, b| {
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        Ok(items)
+    }
 
     pub fn list_memos(
         &self,
@@ -2657,7 +2868,9 @@ impl Vault {
             .flatten()
             .map(|r| r.path)
             .unwrap_or_default();
-        crate::memo::NoteDto::from_memo(memo, &rel)
+        let mut dto = crate::memo::NoteDto::from_memo(memo, &rel);
+        dto.source_sha256 = memo.source_sha256.clone();
+        dto
     }
 
     /// Tag + color counts over live (non-deleted) notes for the sidebar (§4.2).
@@ -3114,7 +3327,7 @@ impl Vault {
         let path = if live.exists() {
             live
         } else {
-            let trash = self.paths.trash_path(&rec.path);
+            let trash = self.files.trash_path(&rec.path);
             if !trash.exists() {
                 tracing::warn!(id = %rec.id, "export_manifest: file missing; keeping indexed hash");
                 return None;
@@ -3180,6 +3393,8 @@ impl Vault {
                             }
                             Some(prev)
                                 if prev.hash == rec.hash
+                                    && prev.path == rec.path
+                                    && prev.deleted == rec.deleted
                                     && prev.preview == rec.preview
                                     && prev.tasks == rec.tasks
                                     && prev.tasks_truncated == rec.tasks_truncated =>
@@ -3442,7 +3657,7 @@ impl Vault {
         let counterpart = if trash_event {
             self.paths.vault.join(stripped)
         } else {
-            self.paths.trash_path(stripped)
+            self.files.trash_path(stripped)
         };
         let path_ids = self.with_redb(|idx| {
             let Some(mut ids) = idx.id_for_path(stripped)? else {
@@ -3560,14 +3775,20 @@ impl Vault {
                 // Store the `.trash/`-stripped path, matching `reindex`'s
                 // trash records, so live and trash records cannot collide
                 // through differing path spellings.
-                let rel = self.paths.relative_path(path).unwrap_or_default();
+                let Some(rel) = self.paths.relative_path(path).filter(|rel| !rel.is_empty()) else {
+                    return Ok(());
+                };
                 let (stripped, _) = strip_trash_prefix(&rel);
                 let fmt = crate::memo::NoteFormat::from_rel(stripped);
                 let (sbody, stitle, saliases) = search_fields(fmt, &note);
                 let tasks_cfg = self.with_config(|c| c.tasks.clone());
                 self.with_redb_and_search(|idx, search| {
                     idx.upsert(&record_of(&note, stripped, &tasks_cfg))?;
-                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+                    if note.deleted_at.is_some() {
+                        search.remove(note.id)
+                    } else {
+                        search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+                    }
                 })
             }
             None => self.remove_indexed_path(path),
@@ -3728,12 +3949,16 @@ impl Vault {
             for path in self.files.scan() {
                 std::fs::remove_file(&path)?;
             }
-            // Wipe the trash.
-            let trash = self.paths.trash_root();
-            if trash.exists() {
-                std::fs::remove_dir_all(&trash)?;
-                std::fs::create_dir_all(&trash)?;
+            // Wipe both legacy and discovery-visible canonical trash.
+            for trash in [
+                self.paths.trash_root(),
+                self.paths.vault.join(crate::paths::PDC_TRASH_DIR),
+            ] {
+                if trash.exists() {
+                    std::fs::remove_dir_all(&trash)?;
+                }
             }
+            std::fs::create_dir_all(self.paths.trash_root())?;
             idx.clear()?;
             search.clear()?;
             Ok(())
@@ -4113,12 +4338,12 @@ fn record_of(n: &Memo, path: &str, tasks_cfg: &crate::tasks::TasksConfig) -> Ind
         hash: n.hash.clone(),
         favorite: n.favorite,
         path: path.to_string(),
-        title: note_title(fmt, &n.body),
+        title: crate::memo_pdc::title(n, fmt),
         tags: n.tags.clone(),
         deleted: n.deleted_at.is_some(),
         deleted_at: n.deleted_at,
         preview: preview_of(fmt, &n.body),
-        props: n.props.clone(),
+        props: crate::memo_pdc::visible_props(&n.props),
         tasks: parsed.tasks,
         tasks_truncated: parsed.truncated,
     }
@@ -4446,7 +4671,10 @@ fn collect_folder_dirs(
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || name == crate::paths::ASSETS_DIR {
+        if name.starts_with('.')
+            || name == crate::paths::ASSETS_DIR
+            || (rel.is_empty() && name == crate::paths::PDC_TRASH_DIR)
+        {
             continue;
         }
         let child_rel = if rel.is_empty() {
@@ -4480,6 +4708,130 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let v = Vault::open(Some(dir.path())).unwrap();
         (dir, v)
+    }
+
+    #[test]
+    fn canonical_editor_receipt_is_bound_to_the_bytes_read() {
+        let (_t, v) = tmp_vault();
+        let note = v.create_note_auto("", "# Snapshot".into()).unwrap();
+        let dto = v.note_dto(&note);
+        let path = v.note_file_path(&note).unwrap();
+        let external = std::fs::read_to_string(&path).unwrap() + "\nExternal text";
+        std::fs::write(&path, &external).unwrap();
+        // Constructing a DTO from an older read must never attach a newer digest.
+        assert_eq!(v.note_dto(&note).source_sha256, dto.source_sha256);
+        assert!(
+            v.update_note_with_snapshot(
+                note.id,
+                Some("# Local text".into()),
+                None,
+                None,
+                dto.source_sha256.as_deref()
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("external_change_conflict")
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(), external);
+    }
+
+    #[test]
+    fn canonical_folder_delete_keeps_discoverable_tombstones_and_restores_their_identity() {
+        let (_t, v) = tmp_vault();
+        let note = v
+            .create_note_auto("folder/sub", "# Recoverable".into())
+            .unwrap();
+        let ids = v.delete_folder("folder").unwrap();
+        assert_eq!(ids, vec![note.id]);
+        let inventory = crate::pdc_inventory::scan(&v.paths).unwrap();
+        assert!(
+            inventory
+                .items
+                .iter()
+                .any(|entry| entry.path == "_trash/folder/sub/Recoverable.md"
+                    && entry.class == crate::pdc_inventory::PdcEntryClass::Document)
+        );
+        v.reindex().unwrap();
+        assert!(
+            v.list_memos(None, 100, MemoFilter::default())
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        let restored = v.restore_memo(note.id).unwrap();
+        assert_eq!(restored.id, note.id);
+        assert_eq!(restored.created_at, note.created_at);
+        assert_eq!(restored.body, note.body);
+        assert!(v.paths.vault.join("folder/sub/Recoverable.md").is_file());
+        assert!(
+            !v.paths
+                .canonical_trash_path("folder/sub/Recoverable.md")
+                .exists()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn watcher_alias_events_preserve_note_placement_and_reopening() {
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        let alias = temp.path().join("alias");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let vault = Vault::open(Some(&alias)).unwrap();
+        // Seed the existing-format file to focus on watcher placement.
+        std::fs::create_dir(real.join("daily")).unwrap();
+        let id = MemoId::now();
+        let source = format!(
+            "---\nid: {id}\ncreated: 2026-09-14T12:34:56.789Z\nupdated: 2026-09-14T12:34:56.789Z\n---\n# Daily"
+        );
+        let path = real.join("daily/note.md");
+        std::fs::write(&path, source).unwrap();
+        vault.do_reindex_path(&path).unwrap();
+        assert_eq!(vault.get_note_summary(id).unwrap().path, "daily/note.md");
+        assert_eq!(vault.get_memo(id).unwrap().body, "# Daily");
+        let mut stale = vault.with_redb(|index| index.get(id)).unwrap().unwrap();
+        stale.path.clear();
+        vault.with_redb(|index| index.upsert(&stale)).unwrap();
+        assert_eq!(vault.reindex().unwrap().updated, 1);
+        assert_eq!(vault.get_note_summary(id).unwrap().path, "daily/note.md");
+        assert_eq!(vault.get_memo(id).unwrap().body, "# Daily");
+    }
+
+    #[test]
+    fn editor_wiki_targets_resolve_titles_aliases_and_ids_without_choosing_duplicates() {
+        let (_t, vault) = tmp_vault();
+        let first = vault.create_note_auto("", "# First".into()).unwrap();
+        assert_eq!(vault.resolve_memo_target("First").unwrap().id, first.id);
+        assert_eq!(
+            vault.resolve_memo_target(&first.id.to_string()).unwrap().id,
+            first.id
+        );
+        vault
+            .update_note_with(
+                first.id,
+                None,
+                None,
+                Some(crate::props::PropMutation {
+                    sets: vec![(
+                        "aliases".into(),
+                        crate::props::PropValue::List(vec!["Alternate".into()]),
+                    )],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+        assert_eq!(vault.resolve_memo_target("Alternate").unwrap().id, first.id);
+        let second = vault.create_note_auto("", "# First".into()).unwrap();
+        assert!(
+            vault
+                .resolve_memo_target("First")
+                .unwrap_err()
+                .to_string()
+                .contains("ambiguous_note_link")
+        );
+        vault.delete_memo(second.id).unwrap();
+        assert_eq!(vault.resolve_memo_target("First").unwrap().id, first.id);
     }
 
     // -- default-vault migration (app-support → spaces) ----------------------
@@ -6003,6 +6355,12 @@ watcher_retry_interval_ms = 200
             .strip_prefix(&v.paths().vault)
             .expect("live path is vault-relative")
             .to_path_buf();
+        // Exercise the historical timestamp tombstone grammar explicitly.
+        let legacy = format!(
+            "---\nid: {}\ncreated: 2026-09-14T12:34:56.789Z\nupdated: 2026-09-14T12:34:56.789Z\n---\n{}",
+            note.id, note.body
+        );
+        std::fs::write(&live_path, legacy).unwrap();
         let trash_path = v.paths().trash_path(rel.to_str().unwrap());
         std::fs::create_dir_all(trash_path.parent().unwrap()).unwrap();
         // Tombstoned trash copy, as `delete_memo` writes it.
@@ -6146,7 +6504,7 @@ watcher_retry_interval_ms = 200
                 .unwrap();
             let rel = v.with_redb(|idx| idx.get(note.id)).unwrap().unwrap().path;
             v.delete_memo(note.id).unwrap();
-            let trash_path = v.paths().trash_path(&rel);
+            let trash_path = v.paths().canonical_trash_path(&rel);
 
             let mut record = v.with_redb(|idx| idx.get(note.id)).unwrap().unwrap();
             record.path = if windows_style {
@@ -6378,6 +6736,57 @@ watcher_retry_interval_ms = 200
         assert_eq!(back.len(), 2);
         assert!(v.paths.vault.join("doomed").is_dir()); // restore recreates parents
         assert!(v.get_memo(a.id).unwrap().deleted_at.is_none());
+    }
+
+    #[test]
+    fn trash_listing_survives_reindex_and_restore_without_rewriting_source() {
+        let (_t, v) = tmp_vault();
+        let note = v
+            .create_note(
+                "inbox",
+                "# Restore me\n\n- [ ] Keep #ui-audit\n".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.create_note(
+            "",
+            "# Stay live\n".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+        assert!(v.list_trashed_memos().unwrap().is_empty());
+        let before = v.get_memo(note.id).unwrap();
+        let path = v.with_redb(|idx| idx.get(note.id)).unwrap().unwrap().path;
+        v.delete_memo(note.id).unwrap();
+        let trash = v.files.trash_path(&path);
+        let bytes = std::fs::read(&trash).unwrap();
+        let items = v.list_trashed_memos().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, note.id);
+        assert_eq!(items[0].path, path);
+        assert!(items[0].deleted);
+        assert_eq!(std::fs::read(&trash).unwrap(), bytes);
+        v.reindex().unwrap();
+        assert_eq!(v.list_trashed_memos().unwrap()[0].id, note.id);
+        let live = v.paths.vault.join(&path);
+        std::fs::write(&live, b"Do not overwrite an existing document").unwrap();
+        assert!(v.restore_notes(&[note.id]).is_err());
+        assert_eq!(
+            std::fs::read(&live).unwrap(),
+            b"Do not overwrite an existing document"
+        );
+        assert_eq!(std::fs::read(&trash).unwrap(), bytes);
+        std::fs::remove_file(&live).unwrap();
+        v.restore_notes(&[note.id]).unwrap();
+        assert!(v.list_trashed_memos().unwrap().is_empty());
+        let restored = v.get_memo(note.id).unwrap();
+        assert_eq!(restored.id, before.id);
+        assert_eq!(
+            v.with_redb(|idx| idx.get(note.id)).unwrap().unwrap().path,
+            path
+        );
+        assert_eq!(restored.body, before.body);
+        assert_eq!(restored.tags, before.tags);
     }
 
     #[test]
@@ -6917,11 +7326,11 @@ watcher_retry_interval_ms = 200
         // Trash subtree moved with the rename: file now under the new
         // trash path, old trash dir is gone.
         assert!(
-            v.paths().trash_path("book/Ghost.md").exists(),
+            v.paths().canonical_trash_path("book/Ghost.md").exists(),
             "tombstone file moved to .trash/<to>/..."
         );
         assert!(
-            !v.paths().trash_path("novel").exists(),
+            !v.paths().canonical_trash_path("novel").exists(),
             "old .trash/<from>/ subtree is gone"
         );
         // restore_memo must find the trash file at the re-pathed location
@@ -6933,7 +7342,7 @@ watcher_retry_interval_ms = 200
             "note restored to live tree under new folder"
         );
         assert!(
-            !v.paths().trash_path("book/Ghost.md").exists(),
+            !v.paths().canonical_trash_path("book/Ghost.md").exists(),
             "trash file is gone after restore"
         );
     }
@@ -6959,7 +7368,7 @@ watcher_retry_interval_ms = 200
         v.delete_memo(leaked.id).unwrap();
         v.delete_folder("other").unwrap();
         assert!(
-            v.paths().trash_path("other/Leak.md").exists(),
+            v.paths().canonical_trash_path("other/Leak.md").exists(),
             "seeded leak: trash file present, live folder gone"
         );
         // Seed the rename source: live folder + pin + a tombstone under
@@ -6985,7 +7394,9 @@ watcher_retry_interval_ms = 200
             .unwrap();
         v.delete_memo(from_trash.id).unwrap();
         assert!(
-            v.paths().trash_path("novel/FromTrash.md").exists(),
+            v.paths()
+                .canonical_trash_path("novel/FromTrash.md")
+                .exists(),
             "seeded trash under source folder"
         );
         // Rename must Err BEFORE moving anything.
@@ -7002,7 +7413,9 @@ watcher_retry_interval_ms = 200
             "source note intact"
         );
         assert!(
-            v.paths().trash_path("novel/FromTrash.md").exists(),
+            v.paths()
+                .canonical_trash_path("novel/FromTrash.md")
+                .exists(),
             "source trash subtree not touched by the failed rename"
         );
         assert!(
@@ -7015,7 +7428,7 @@ watcher_retry_interval_ms = 200
         );
         // Pre-existing leak still parked at the same trash path.
         assert!(
-            v.paths().trash_path("other/Leak.md").exists(),
+            v.paths().canonical_trash_path("other/Leak.md").exists(),
             "pre-existing leak still in place"
         );
         let _ = pinned;
@@ -7041,13 +7454,13 @@ watcher_retry_interval_ms = 200
         v.delete_folder("other").unwrap();
         // Manually prune the trashed file (purge does this) but leave
         // the parent directory empty — that's the bug scenario.
-        std::fs::remove_file(v.paths().trash_path("other/Leak.md")).unwrap();
+        std::fs::remove_file(v.paths().canonical_trash_path("other/Leak.md")).unwrap();
         assert!(
-            v.paths().trash_path("other").is_dir(),
+            v.paths().canonical_trash_path("other").is_dir(),
             "empty .trash/other/ left behind"
         );
         assert!(
-            !trash_to_is_nonempty(&v.paths().trash_path("other")),
+            !trash_to_is_nonempty(&v.paths().canonical_trash_path("other")),
             "guard's emptiness check sees an empty dir"
         );
         // Seed rename source with a tombstone under it so the trash
@@ -7068,8 +7481,12 @@ watcher_retry_interval_ms = 200
         assert!(!v.paths().vault.join("novel").exists());
         // Trash subtree landed inside the previously-empty target dir;
         // the empty-dir entry survived as the parent of the new subtree.
-        assert!(v.paths().trash_path("other/FromTrash.md").exists());
-        assert!(!v.paths().trash_path("novel").exists());
+        assert!(
+            v.paths()
+                .canonical_trash_path("other/FromTrash.md")
+                .exists()
+        );
+        assert!(!v.paths().canonical_trash_path("novel").exists());
     }
 
     #[test]
@@ -7792,7 +8209,29 @@ watcher_retry_interval_ms = 200
         v.install_collection("book", "책").unwrap();
         let root = v.paths().vault.join("책");
         let tmpl = std::fs::read_to_string(root.join("TEMPLATE.md")).unwrap();
-        assert!(tmpl.starts_with("---\nkind: book\nstatus: reading\n"));
+        assert!(matches!(
+            oxi_frontmatter::pdc::classify(
+                oxi_frontmatter::pdc::DocumentExt::Markdown,
+                tmpl.as_bytes()
+            ),
+            oxi_frontmatter::pdc::Classification::Valid(document) if !document.legacy
+        ));
+        let (defaults, body) = crate::template::load_template_guarded(
+            v.paths(),
+            "책",
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            defaults.get("kind"),
+            Some(&oxi_frontmatter::Value::Str("book".into()))
+        );
+        assert_eq!(
+            defaults.get("status"),
+            Some(&oxi_frontmatter::Value::Str("reading".into()))
+        );
+        assert_eq!(body, "\n# \n");
         let schema = v.folder_schema("책").unwrap().unwrap();
         assert_eq!(schema.meta.preset.as_deref(), Some("book"));
         assert!(schema.properties.contains_key("author"));
@@ -7800,6 +8239,10 @@ watcher_retry_interval_ms = 200
         // skip-if-exists: a user-edited schema survives reinstall.
         std::fs::write(root.join("SCHEMA.toml"), "[workspace]\nname = \"내 책\"\n").unwrap();
         v.install_collection("book", "책").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("TEMPLATE.md")).unwrap(),
+            tmpl
+        );
         assert!(
             std::fs::read_to_string(root.join("SCHEMA.toml"))
                 .unwrap()

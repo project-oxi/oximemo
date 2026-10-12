@@ -112,8 +112,8 @@ export function GalleryView() {
   const items = assets.data ?? [];
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
+    <div className="gallery-workspace flex h-full flex-col">
+      <div className="gallery-heading flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-text">
           <Images size={15} /> {t.gallery}
           {items.length > 0 && (
@@ -141,7 +141,7 @@ export function GalleryView() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="gallery-content flex-1 overflow-y-auto">
         {assets.isLoading ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
             {Array.from({ length: 12 }).map((_, i) => (

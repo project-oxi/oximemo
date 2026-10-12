@@ -249,7 +249,7 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
         ref={wrapRef}
         aria-label={t.breadcrumb_label}
         data-tauri-drag-region="false"
-        className="flex min-w-0 flex-1 items-center overflow-hidden text-[13px]"
+        className="flex min-w-24 flex-1 items-center overflow-hidden text-[13px]"
       >
         <span aria-current="page" className="flex items-center gap-1.5 px-1 font-semibold text-text">
           {queryIcon}
@@ -275,7 +275,7 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
       ref={wrapRef}
       aria-label={t.breadcrumb_label}
       data-tauri-drag-region="false"
-      className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden text-[13px]"
+      className="flex min-w-24 flex-1 items-center gap-0.5 overflow-hidden text-[13px]"
     >
       <SegmentButton
         label={t.vault_root}

@@ -13,6 +13,7 @@ export type PropValue = { Str: string } | { Bool: boolean } | { List: string[] }
 export type Props = Record<string, PropValue>;
 
 export interface Memo {
+  source_sha256?: string;
   id: MemoId;
   created_at: string;
   updated_at: string;

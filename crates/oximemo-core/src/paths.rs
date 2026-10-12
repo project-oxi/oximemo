@@ -29,6 +29,8 @@ pub const META_DB_NAME: &str = "meta.redb";
 pub const META_LOCK_NAME: &str = "meta.redb.lock";
 pub const SEARCH_SUBDIR: &str = "search";
 pub const TRASH_DIR: &str = ".trash";
+/// Discovery-visible trash for canonical PDC documents.
+pub const PDC_TRASH_DIR: &str = "_trash";
 pub const ASSETS_DIR: &str = "_assets";
 pub const BY_VAULT_SUBDIR: &str = "by-vault";
 pub const CONFIG_NAME: &str = "oximemo.toml";
@@ -216,6 +218,10 @@ impl Paths {
     }
 
     /// Trash path preserving the original relative location.
+    pub fn canonical_trash_path(&self, rel_path: &str) -> PathBuf {
+        self.vault.join(PDC_TRASH_DIR).join(rel_path)
+    }
+
     pub fn trash_path(&self, rel_path: &str) -> PathBuf {
         self.trash_root().join(rel_path)
     }
@@ -224,7 +230,30 @@ impl Paths {
     /// with forward slashes on every platform. Returns `None` if the path is
     /// outside the vault or contains a non-UTF-8 component.
     pub fn relative_path(&self, abs: &Path) -> Option<String> {
-        let relative = abs.strip_prefix(&self.vault).ok()?;
+        let relative = match abs.strip_prefix(&self.vault) {
+            Ok(relative) => relative.to_path_buf(),
+            Err(_) => {
+                // macOS watcher events can spell /tmp as /private/tmp.
+                // Resolve only this alias fallback; also support removal events
+                // by resolving the surviving parent instead of the missing file.
+                let root = std::fs::canonicalize(&self.vault).ok()?;
+                let path = std::fs::canonicalize(abs)
+                    .or_else(|_| {
+                        Ok::<_, std::io::Error>(
+                            std::fs::canonicalize(
+                                abs.parent()
+                                    .ok_or_else(|| std::io::Error::other("path has no parent"))?,
+                            )?
+                            .join(
+                                abs.file_name()
+                                    .ok_or_else(|| std::io::Error::other("path has no filename"))?,
+                            ),
+                        )
+                    })
+                    .ok()?;
+                path.strip_prefix(root).ok()?.to_path_buf()
+            }
+        };
         let mut normalized = String::new();
         for component in relative.components() {
             let component = component.as_os_str().to_str()?;
@@ -472,6 +501,33 @@ mod tests {
         let p = Paths::resolve(Some(Path::new("/tmp/v")));
         let abs = p.vault.join("folder").join("child.md");
         assert_eq!(p.relative_path(&abs).as_deref(), Some("folder/child.md"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relative_path_accepts_watcher_aliases_and_removed_files_but_not_outside_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        let alias = temp.path().join("alias");
+        std::fs::create_dir_all(real.join("folder")).unwrap();
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let paths = Paths::resolve(Some(&alias));
+        let file = real.join("folder/note.md");
+        std::fs::write(&file, "body").unwrap();
+        assert_eq!(
+            paths.relative_path(&file).as_deref(),
+            Some("folder/note.md")
+        );
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(
+            paths.relative_path(&file).as_deref(),
+            Some("folder/note.md")
+        );
+        assert!(
+            paths
+                .relative_path(&temp.path().join("outside.md"))
+                .is_none()
+        );
     }
 
     #[test]

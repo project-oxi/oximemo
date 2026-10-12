@@ -1,0 +1,117 @@
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
+ * Garden UI integration · user-approved Oxi Glass palette and geometry.
+ * Rule exceptions: garden.json; details in docs/decisions/0001-garden-ui-integration.md.
+ * App chrome only; document source and authored HTML remain isolated. */
+:root, .dark {
+  --g-ink: var(--color-text);
+  --g-ink2: var(--color-text-muted);
+  --g-ink3: var(--color-text-subtle);
+  --g-page: var(--color-paper-2);
+  --g-canvas: var(--color-paper);
+  --g-surface: var(--color-surface-raised);
+  --g-inset: var(--color-control);
+  --g-hover: var(--color-control);
+  --g-hover2: var(--color-control-hover);
+  --g-field: var(--color-paper-2);
+  --g-line: var(--color-line);
+  --g-line-strong: var(--color-line-strong);
+  --g-primary: var(--color-interactive-primary);
+  --g-primary-ink: var(--color-interactive-primary-foreground);
+  --g-accent: var(--color-accent);
+  --g-accent-ink: var(--color-selection-ink);
+  --g-accent-tint: var(--color-selection);
+  --g-success: var(--color-status-success);
+  --g-warning: var(--color-status-warning);
+  --g-danger: var(--color-status-error);
+  --g-success-tint: var(--color-status-success-subtle);
+  --g-warning-tint: var(--color-status-warning-subtle);
+  --g-danger-tint: var(--color-status-error-subtle);
+  --radius-control: var(--button-radius);
+  --radius-chip: var(--tag-radius);
+  --radius-card: var(--card-radius);
+  --g-layout-document-max: var(--memo-reading-width);
+  --g-layout-settings-row-min-height: 44px;
+  --g-layout-row-gap: var(--space-3);
+  --g-layout-group-gap: var(--space-5);
+  --text-ui: var(--text-body);
+  --shadow-inset-field: var(--input-shadow);
+  --shadow-btn: 0 1px 3px var(--color-glass-shadow);
+  --shadow-overlay: var(--glass-shadow-float);
+}
+
+/* The public segmented control owns radio/arrow behavior. App density is
+ * shared across preference groups instead of repeated per-option classes. */
+.settings-content .g-segmented-control {
+  width: 100%;
+  padding: 3px;
+  gap: 2px;
+}
+.settings-content .g-segmented-control__item {
+  flex: 1 1 0;
+  min-height: 28px;
+  padding-inline: var(--space-2);
+  font-size: var(--text-body);
+  font-weight: 500;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.settings-content { container: oxi-settings-content / inline-size; }
+.settings-choice { width: 100%; min-width: 0; }
+.settings-row {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule-width) solid var(--color-line);
+  border-radius: var(--card-radius);
+  background: var(--color-paper-2);
+}
+.settings-row .g-settings-row__label {
+  color: var(--color-text-muted);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.settings-toggle-row, .settings-number-row { grid-template-columns: minmax(0, 1fr) auto; }
+.settings-text-row { grid-template-columns: minmax(0, 1fr); row-gap: var(--space-2); }
+.settings-text-row .g-settings-row__control { width: 100%; }
+.settings-appearance-group .g-settings-group__header { margin-bottom: var(--space-2); }
+.settings-appearance-group .g-settings-group__rows > .settings-row {
+  border: 0;
+  border-bottom: var(--rule-width) solid var(--color-line);
+  border-radius: 0;
+  background: transparent;
+}
+.settings-appearance-group .g-settings-group__rows > .settings-row:last-child { border-bottom: 0; }
+.settings-choice-row { grid-template-columns: minmax(0, 1fr) minmax(0, 260px); }
+@container oxi-settings-content (max-width: 400px) {
+  .settings-choice-row { grid-template-columns: minmax(0, 1fr); row-gap: var(--space-2); }
+  .settings-choice-row .g-settings-row__control { justify-content: flex-start; }
+}
+/* GSettingsGroup has its own container-based stacking. Boolean and number
+ * controls remain beside their wrapping label, even in a narrow group. */
+@container g-settings-group (max-width: 560px) {
+  .settings-toggle-row, .settings-number-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .settings-toggle-row .g-settings-row__control, .settings-number-row .g-settings-row__control { justify-content: flex-end; }
+}
+
+.workspace-view-segment[data-variant="filter"] .g-segmented-control__item {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--color-text-muted);
+}
+.workspace-view-segment .g-segmented-control__label { display: inline-flex; align-items: center; }
+.workspace-view-segment svg { flex-shrink: 0; }
+.workspace-view-segment .g-segmented-control__item[data-state="checked"] {
+  color: var(--color-selection-ink);
+  background: var(--color-selection);
+}
+.workspace-view-segment .g-segmented-control__item:hover { background: var(--color-control-hover); }
+.workspace-tooltip {
+  z-index: 80;
+  max-width: min(280px, var(--radix-tooltip-content-available-width, calc(100vw - 16px)));
+  pointer-events: none;
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-tooltip { animation: none !important; }
+}

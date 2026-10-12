@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Garden personal framework standard",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "profile", "authority", "pins", "stack", "rules"],
+  "properties": {
+    "$schema": {"type":"string"},
+    "version": {"const":"garden-framework/1"},
+    "profile": {"const":"garden-personal/1"},
+    "authority": {"const":"README.md"},
+    "pins": {"const":"../pins.json"},
+    "stack": {"type":"object","required":["ui","desktop","service","documents"],"additionalProperties":{"type":"array","items":{"type":"string"}}},
+    "rules": {
+      "type":"array",
+      "items": {
+        "type":"object",
+        "additionalProperties":false,
+        "required":["id","level","overridable","verification","requirement"],
+        "properties": {
+          "id":{"type":"string","pattern":"^[a-z]+\\.[a-z-]+$"},
+          "level":{"enum":["required","default"]},
+          "overridable":{"type":"boolean"},
+          "verification":{"enum":["doctor","runtime","review","conformance"]},
+          "requirement":{"type":"string","pattern":"\\S"}
+        }
+      }
+    }
+  }
+}

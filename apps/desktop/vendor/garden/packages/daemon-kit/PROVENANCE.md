@@ -1,0 +1,5 @@
+# Provenance
+
+This package generalizes operational behavior observed in the private `farm` workspace at `core/src/watchdog.ts`, `queue.ts`, `gatekeeper.ts`, `control-server.ts`, and `control-shutdown-state.ts` (source HEAD `bfc3c5f3afcfee88b1f4a65db9e1eae3d132fa0b`, inspected 2026-09-27). The extracted behaviors are heartbeat age decisions and cooldowns, one-writer queue ownership, request idempotency, lease reclaim, boot reconciliation, transactional audit plus outbox writes, newline-framed Unix socket control, and shutdown drain receipts.
+
+The farm checkout has no top-level license declaration or license file. This package was implemented from the documented behavior and public interfaces rather than copying farm source files. The farm-specific task schema, provider policy, approval system, route set, filesystem reports, finance and marketing domains, and watchdog host actions remain in farm. Recheck provenance and licensing before moving any farm implementation text or tests verbatim into this package.

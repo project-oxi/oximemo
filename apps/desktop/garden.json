@@ -1,0 +1,32 @@
+{
+  "garden": "0.1.0",
+  "track": "desktop",
+  "adoptions": [
+    "ui"
+  ],
+  "standards": {
+    "profile": "garden-personal/1",
+    "exceptions": [
+      {
+        "rule": "shell.layout",
+        "reason": "Keep the owner-approved 52px Liquid Glass workbench, grouped settings navigation and full-window immersive note layout.",
+        "decision": "docs/decisions/0001-garden-ui-integration.md"
+      },
+      {
+        "rule": "ui.tokens",
+        "reason": "Map Garden controls to the owner-requested monochrome macOS palette, inverse neutral actions and 6px control corners through an app-owned token adapter.",
+        "decision": "docs/decisions/0001-garden-ui-integration.md"
+      },
+      {
+        "rule": "stack.ui",
+        "reason": "Adopt public Garden controls incrementally while retaining Base UI ownership of existing modal and nested-popup focus boundaries.",
+        "decision": "docs/decisions/0001-garden-ui-integration.md"
+      },
+      {
+        "rule": "stack.desktop",
+        "reason": "This UI adoption retains the existing Tauri Rust workspace, native titlebar, capture window and host adapters.",
+        "decision": "docs/decisions/0001-garden-ui-integration.md"
+      }
+    ]
+  }
+}

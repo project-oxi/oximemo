@@ -7,7 +7,7 @@
  */
 import { Popover } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { memo as reactMemo, useEffect, useState } from "react";
 import { Brain, Link2 } from "lucide-react";
 
 import { brainGather, brainStatus, createMemo, getBacklinks, getConfig } from "../lib/api";
@@ -22,6 +22,9 @@ export interface ContextDockProps {
   title: string | null;
   tags: string[];
   dirty: boolean;
+  saving?: boolean;
+  saveBlocked?: boolean;
+  onNavigateMemo: (id: string) => void;
 }
 
 type OpenCard = "links" | "brain" | null;
@@ -60,10 +63,9 @@ function droppedCount(value: unknown): number | null {
   return null;
 }
 
-export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
+export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags, dirty, saving, saveBlocked, onNavigateMemo }: ContextDockProps) {
   const { t } = useI18n();
   const qc = useQueryClient();
-  const select = useUI((s) => s.select);
   const setDraftId = useUI((s) => s.setDraftId);
   const setError = useUI((s) => s.setError);
 
@@ -135,18 +137,18 @@ export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
       .then((n) => {
         setOpen(null);
         setDraftId(n.id);
-        select(n.id);
+        onNavigateMemo(n.id);
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   };
 
   const navigateToBacklink = (id: string) => {
     setOpen(null);
-    select(id);
+    onNavigateMemo(id);
   };
 
   return (
-    <div className="flex items-center gap-1 border-t border-line px-1 py-1 text-xs text-text-subtle">
+    <div className="context-dock flex items-center gap-1 border-t border-line px-1 py-1 text-xs text-text-subtle">
       <Popover.Root open={open === "links"} onOpenChange={(o) => setOpen(o ? "links" : null)}>
         <Popover.Trigger
           render={
@@ -214,7 +216,7 @@ export function ContextDock({ noteId, title, tags, dirty }: ContextDockProps) {
         </Popover.Root>
       )}
 
-      <span className="ml-auto">{dirty ? t.dock_saving : t.dock_saved}</span>
+      <span className="ml-auto">{saveBlocked ? t.dock_unsaved : saving ? t.dock_saving : dirty ? t.dock_pending : t.dock_saved}</span>
     </div>
   );
-}
+});

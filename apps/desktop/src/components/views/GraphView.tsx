@@ -55,7 +55,7 @@ function emptyBrowserGraph(items: MemoSummary[] = []): GraphData {
       title: n.title,
       folder: n.folder,
       connections: 0,
-      color: "oklch(0.72 0.14 250)",
+      color: "var(--color-folder-marker)",
     })),
     edges,
   };
@@ -94,7 +94,7 @@ export function GraphView({
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [data.nodes.length === 0]);
 
   const nodes = useMemo<SimNode[]>(
     () =>
@@ -177,6 +177,7 @@ export function GraphView({
         if (n.y > size.h - 10) n.y = size.h - 10;
       }
       prev = next;
+      for (let i = 0; i < nodes.length; i++) Object.assign(nodes[i], next[i]);
       force((f) => ({ tick: f.tick + 1 }));
       raf = window.requestAnimationFrame(step);
     };
@@ -187,13 +188,13 @@ export function GraphView({
   if (nodes.length === 0) {
     return (
       <div ref={ref} className="flex h-full items-center justify-center text-sm text-text-subtle">
-        No notes to graph yet.
+        {t.graph_empty}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-[280px] flex-col">
       <FolderChipBar
         cards={folderCards}
         folderDefs={folders}

@@ -17,6 +17,7 @@ pub mod error;
 pub mod hash;
 pub mod html;
 pub mod memo;
+mod memo_pdc;
 pub mod metadata;
 pub mod migrate;
 pub mod migrate_home;

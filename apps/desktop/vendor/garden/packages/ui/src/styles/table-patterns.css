@@ -1,0 +1,94 @@
+.g-table-container {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.g-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  color: var(--ink);
+  font-size: var(--text-ui, 13px);
+  line-height: 1.45;
+  text-align: left;
+}
+
+.g-table--fixed { width: 100%; table-layout: fixed; }
+.g-table--fixed .g-table__head { white-space: normal; }
+
+.g-table__head,
+.g-table__cell {
+  min-width: 0;
+  padding: var(--g-space-2) var(--g-space-3);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.g-table__head {
+  color: var(--ink-2);
+  font-size: var(--text-caption, 12px);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.g-table__footer .g-table__cell {
+  border-top: 1px solid var(--line-strong);
+  border-bottom: 0;
+  font-weight: 500;
+}
+
+.g-table__caption {
+  padding: var(--g-space-2) var(--g-space-3);
+  color: var(--ink-2);
+  font-size: var(--text-caption, 12px);
+  text-align: left;
+}
+
+.g-table__body .g-table__row:hover > .g-table__cell {
+  background: var(--hover);
+}
+
+.g-data-table {
+  width: 100%;
+  min-width: 0;
+  color: var(--ink);
+}
+
+.g-data-table__sort {
+  display: inline-flex;
+  min-width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--g-space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.g-data-table__sort-indicator {
+  color: var(--ink-3);
+  font-size: var(--text-micro);
+  line-height: 1;
+}
+
+.g-table__head[data-sort-direction="ascending"] .g-data-table__sort-indicator,
+.g-table__head[data-sort-direction="descending"] .g-data-table__sort-indicator {
+  color: var(--ink);
+}
+
+.g-data-table__empty {
+  color: var(--ink-2);
+  text-align: center;
+}
+
+.g-table-container:focus-visible { outline: 2px solid var(--g-accent, var(--accent)); outline-offset: -2px; }

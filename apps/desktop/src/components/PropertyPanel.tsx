@@ -15,7 +15,7 @@
 import { Popover, } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calendar, ChevronRight, ListChecks, Pencil, Plus, Sparkles, SquareCheck, Tags, TriangleAlert, Type, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { memo as reactMemo, useEffect, useMemo, useState } from "react";
 import {
   folderSchema,
   getConfig,
@@ -41,6 +41,7 @@ import type {
 } from "../lib/types";
 import { inferredType } from "../lib/tableModel";
 import { PropCellEditor } from "./propEditors";
+import { AnimatedDisclosure } from "./AnimatedDisclosure";
 
 function members(v: PropValue | undefined): string[] {
   if (!v) return [];
@@ -460,7 +461,7 @@ function MetadataFill({
   );
 }
 
-export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) {
+export const PropertyPanel = reactMemo(function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const draftId = useUI((s) => s.draftId);
@@ -557,9 +558,10 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
   ));
 
   return (
-    <div className="flex shrink-0 flex-col gap-1.5 border-b border-line pb-2.5">
+    <div className="note-properties flex shrink-0 flex-col gap-1.5 border-b border-line pb-2.5">
       <button
         type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
         className="flex items-center gap-1 self-start text-[10px] font-semibold uppercase tracking-wide text-text-subtle transition-colors duration-150 hover:text-text"
       >
@@ -575,8 +577,7 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
           </span>
         )}
       </button>
-      {expanded && (
-        <>
+      <AnimatedDisclosure open={expanded}>
           {rows.length > 0 ? (
             <div className="flex flex-col">{rows}</div>
           ) : (
@@ -616,8 +617,7 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
               {t.prop_updated} {isoToLocalDate(memo.updated_at)}
             </span>
           </div>
-        </>
-      )}
+      </AnimatedDisclosure>
     </div>
   );
-}
+});

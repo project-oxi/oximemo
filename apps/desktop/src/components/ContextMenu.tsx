@@ -36,7 +36,7 @@ export const CtxRoot = ContextMenu.Root;
 export const CtxTrigger = ContextMenu.Trigger;
 
 const POPUP_CLS =
-  "min-w-44 rounded-lg border border-line bg-surface-raised p-1 text-sm text-text shadow-lg outline-none";
+  "glass-menu min-w-44 rounded-lg p-1 text-sm text-text outline-none";
 
 /** Portal + Positioner (z-70, above Dialog z-50 and Popover z-60) + Popup. */
 export function CtxMenu({ children }: { children: ReactNode }) {

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "garden",
+    "track",
+    "adoptions",
+    "standards"
+  ],
+  "properties": {
+    "garden": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "track": {
+      "enum": [
+        "framework",
+        "desktop",
+        "service"
+      ]
+    },
+    "adoptions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "ui",
+          "markdown",
+          "daemon"
+        ]
+      }
+    },
+    "standards": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "exceptions"
+      ],
+      "properties": {
+        "profile": {
+          "type": "string",
+          "const": "garden-personal/1"
+        },
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rule",
+              "reason",
+              "decision"
+            ],
+            "properties": {
+              "rule": {
+                "type": "string",
+                "pattern": "^[a-z]+\\.[a-z-]+$"
+              },
+              "reason": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "decision": {
+                "type": "string",
+                "pattern": "^docs/decisions/[^/]+\\.md$"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

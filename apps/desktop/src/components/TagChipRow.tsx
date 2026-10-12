@@ -9,7 +9,7 @@
  * Renders nothing when the body has no tags, so empty state is just an
  * empty row.
  */
-import { useMemo } from "react";
+import { useDeferredValue, useMemo } from "react";
 
 import { extractTags } from "../lib/tags";
 
@@ -19,7 +19,8 @@ interface TagChipRowProps {
 }
 
 export function TagChipRow({ body, onTagClick }: TagChipRowProps) {
-  const tags = useMemo(() => extractTags(body), [body]);
+  const deferredBody = useDeferredValue(body);
+  const tags = useMemo(() => extractTags(deferredBody), [deferredBody]);
   if (tags.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1">

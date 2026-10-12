@@ -37,7 +37,7 @@ export function HtmlNoteEditor({ body, onChange, documentId, className }: Props)
     <div className={`flex min-h-0 flex-1 flex-col gap-2 ${className ?? ""}`}>
       <div
         role="tablist"
-        aria-label="HTML editor mode"
+        aria-label={t.html_editor_mode}
         className="flex w-fit items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5"
       >
         {modes.map((m) => (
@@ -58,15 +58,14 @@ export function HtmlNoteEditor({ body, onChange, documentId, className }: Props)
         ))}
       </div>
       <div className="flex min-h-0 flex-1 gap-2">
-        {mode !== "preview" && (
-          <HtmlEditor
-            body={body}
-            onChange={onChange}
-            documentId={documentId}
-            autoFocus={mode === "edit"}
-            className={`min-h-0 overflow-y-auto ${mode === "split" ? "w-1/2" : "flex-1"}`}
-          />
-        )}
+        {/* Keep the source view mounted so preview mode retains undo/cursor state. */}
+        <HtmlEditor
+          body={body}
+          onChange={onChange}
+          documentId={documentId}
+          autoFocus={mode === "edit"}
+          className={`min-h-0 overflow-y-auto ${mode === "preview" ? "hidden" : mode === "split" ? "w-1/2" : "flex-1"}`}
+        />
         {mode !== "edit" && (
           <HtmlPreview
             body={body}

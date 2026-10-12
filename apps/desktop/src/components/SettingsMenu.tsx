@@ -8,10 +8,12 @@
  * CardGrid header.
  */
 import { Dialog } from "@base-ui-components/react";
+import { Button, GSettingsGroup, GSettingsRow, Input, SegmentedControl, Switch, type SegmentedControlProps } from "@garden/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type ReactNode,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -87,6 +89,7 @@ import {
 import { useI18n, type Dict } from "../lib/i18n";
 import { useFolderNames } from "../lib/folders";
 import { useUI } from "../stores/ui";
+import { TrashSection } from "./TrashSection";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { checkForUpdate, type UpdateAvailable } from "../lib/updater";
 import { COLLECTION_CATALOG, SYSTEM_COLLECTIONS, type DictKey } from "../lib/collectionCatalog";
@@ -97,32 +100,23 @@ import type { FolderEntry, TaskStatusWireDef, TasksWireConfig } from "../lib/typ
 import { validSpaceName } from "./SpacePicker";
 const APP_VERSION = __APP_VERSION__;
 
-function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-}: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-}) {
+/** Base UI's modal stops document key events used by Radix RadioGroup.
+ * Keep Garden's public control and adapt arrow selection at the host boundary. */
+function SettingsChoice<T extends string>(props: SegmentedControlProps<T>) {
   return (
-    <div className="flex rounded-lg bg-surface-muted p-0.5">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          className={
-            "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors " +
-            (o.value === value
-              ? "bg-surface-raised text-text shadow-sm"
-              : "text-text-muted hover:text-text")
-          }
-        >
-          {o.label}
-        </button>
-      ))}
+    <div className="settings-choice" onKeyDownCapture={(event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-slot=segmented-control-item]:not(:disabled)"));
+      const current = items.findIndex((item) => item === event.target);
+      if (current < 0) return;
+      const available = props.options.filter((option) => !option.disabled);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + items.length) % items.length;
+      event.preventDefault();
+      props.onValueChange(available[next].value);
+      items[next].focus();
+    }}>
+      <SegmentedControl {...props} />
     </div>
   );
 }
@@ -155,28 +149,16 @@ export function ToggleRow({
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
+  const id = useId();
   return (
-    <div className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
-      <span className="text-xs text-text-muted">{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
+    <GSettingsRow label={label} htmlFor={id} className="settings-row settings-toggle-row">
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={onChange}
         aria-label={label}
-        onClick={() => onChange(!checked)}
-        className={
-          "relative h-5 w-9 shrink-0 rounded-full transition-colors " +
-          (checked ? "bg-interactive-primary" : "bg-line")
-        }
-      >
-        <span
-          className={
-            "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-surface-raised shadow transition-transform " +
-            (checked ? "translate-x-[18px]" : "translate-x-0")
-          }
-        />
-      </button>
-    </div>
+      />
+    </GSettingsRow>
   );
 }
 
@@ -194,6 +176,7 @@ function NumberRow({
   max: number;
   onCommit: (v: number) => void;
 }) {
+  const id = useId();
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
   const commit = () => {
@@ -207,10 +190,11 @@ function NumberRow({
     if (clamped !== value) onCommit(clamped);
   };
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-sunken px-3 py-2">
-      <span className="min-w-0 truncate text-xs text-text-muted">{label}</span>
-      <input
+    <GSettingsRow label={label} htmlFor={id} className="settings-row settings-number-row">
+      <Input
+        id={id}
         type="number"
+        aria-label={label}
         value={draft}
         min={min}
         max={max}
@@ -219,10 +203,15 @@ function NumberRow({
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
+          else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            setDraft(String(value));
+          }
         }}
-        className="w-16 shrink-0 rounded-md bg-surface-raised px-2 py-1 text-right font-mono text-xs text-text outline-none focus:ring-1 focus:ring-line"
+        className="w-20 shrink-0 bg-surface-raised px-2 text-right font-mono"
       />
-    </div>
+    </GSettingsRow>
   );
 }
 
@@ -238,6 +227,7 @@ function TextRow({
   placeholder?: string;
   onCommit: (v: string) => void;
 }) {
+  const id = useId();
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   const commit = () => {
@@ -245,20 +235,25 @@ function TextRow({
     if (v !== value) onCommit(v);
   };
   return (
-    <div className="rounded-lg bg-surface-sunken px-3 py-2">
-      <p className="mb-1 text-[11px] text-text-subtle">{label}</p>
-      <input
+    <GSettingsRow label={label} htmlFor={id} className="settings-row settings-text-row">
+      <Input
+        id={id}
+        aria-label={label}
         value={draft}
         placeholder={placeholder}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
-          else if (e.key === "Escape") setDraft(value);
+          else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            setDraft(value);
+          }
         }}
-        className="w-full rounded-md bg-surface-raised px-2 py-1 font-mono text-xs text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
+        className="bg-surface-raised px-2 font-mono"
       />
-    </div>
+    </GSettingsRow>
   );
 }
 
@@ -547,6 +542,11 @@ function CopilotSection() {
         onChange={(v) => patch({ enabled: v })}
       />
 
+      {activeAgent === "" && (
+        <p className="rounded-lg bg-surface-sunken px-3 py-2 text-xs leading-relaxed text-text-muted" role="status">
+          {t.copilot_not_configured}
+        </p>
+      )}
       {activeAgent !== "" ? (
         <div className="rounded-lg bg-surface-sunken px-3 py-2">
           <div className="flex items-center justify-between">
@@ -704,7 +704,11 @@ function CaptureSection() {
   const { config, save } = useConfigSection();
   const capture = config.data?.capture;
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-3">
+      <p className="text-xs leading-relaxed text-text-muted">{t.capture_howto}</p>
+      <details className="rounded-lg border border-line p-3">
+        <summary className="cursor-pointer text-xs font-medium text-text">{t.capture_advanced}</summary>
+        <div className="mt-3 space-y-1.5">
       <NumberRow
         label={t.capture_threshold}
         value={capture?.double_tap_threshold_ms ?? 350}
@@ -733,6 +737,8 @@ function CaptureSection() {
           )
         }
       />
+        </div>
+      </details>
     </div>
   );
 }
@@ -858,9 +864,10 @@ function TasksSection() {
       />
       <div className="px-3">
         <p className="mb-1 text-[11px] text-text-subtle">{t.tasks_capture_target}</p>
-        <Segmented
+        <SettingsChoice
+          aria-label={t.tasks_capture_target}
           value={tasks.capture_target}
-          onChange={(v) => patch({ capture_target: v })}
+          onValueChange={(v) => patch({ capture_target: v })}
           options={[
             { value: "daily", label: t.tasks_target_daily },
             { value: "inbox", label: t.tasks_target_inbox },
@@ -874,9 +881,10 @@ function TasksSection() {
       />
       <div className="px-3">
         <p className="mb-1 text-[11px] text-text-subtle">{t.tasks_recurrence_insert}</p>
-        <Segmented
+        <SettingsChoice
+          aria-label={t.tasks_recurrence_insert}
           value={tasks.recurrence_insert}
-          onChange={(v) => patch({ recurrence_insert: v })}
+          onValueChange={(v) => patch({ recurrence_insert: v })}
           options={[
             { value: "above", label: t.tasks_recurrence_above },
             { value: "below", label: t.tasks_recurrence_below },
@@ -1377,7 +1385,7 @@ function CollectionsSection() {
                   >
                     <ChevronDown
                       size={13}
-                      className={"transition-transform duration-150 " + (isOpen ? "" : "rotate-180")}
+                      className={"transition-transform duration-150 " + (isOpen ? "rotate-180" : "")}
                     />
                   </button>
                 )}
@@ -1463,9 +1471,10 @@ function CollectionsSection() {
                   )}
                   <div>
                     <p className="mb-1 text-[11px] text-text-subtle">{t.collection_default_view}</p>
-                    <Segmented
+                    <SettingsChoice
+                      aria-label={t.collection_default_view}
                       value={config.data?.folders?.find((f) => f.path === folder)?.view ?? "grid"}
-                      onChange={(v) => {
+                      onValueChange={(v) => {
                         void setFolderView(folder, v === "grid" ? null : v)
                           .then(() => qc.invalidateQueries({ queryKey: ["config"] }))
                           .catch((e) => setError(String(e).split("\n")[0]));
@@ -1499,7 +1508,7 @@ function CollectionsSection() {
 
 
 /** Command-line tool install section. Surfaces the bundled `oximemo` CLI on
- *  PATH via a one-time macOS admin prompt. */
+ *  PATH via the user bin directory, with an admin-authorized system fallback. */
 function CliSection() {
   const { t } = useI18n();
   const setToast = useUI((s) => s.setToast);
@@ -1519,7 +1528,9 @@ function CliSection() {
         setToast(t.cli_install_done);
         void status.refetch();
       })
-      .catch(() => setError(t.cli_install_failed))
+      .catch((e) =>
+        setError(`${t.cli_install_failed} ${String(e).split("\n")[0]}`),
+      )
       .finally(() => setBusy(false));
   };
 
@@ -1737,7 +1748,7 @@ export function SettingsMenu() {
   const onTheme = (v: Theme) => {
     setTheme(v);
     applyTheme(v);
-    // TOML ⇄ GUI parity: the theme Segmented writes through to
+    // TOML ⇄ GUI parity: the theme selection writes through to
     // `appearance.theme` (localStorage keeps its role as the instant cache).
     setAppearanceConfig({
       theme: v,
@@ -1859,8 +1870,9 @@ export function SettingsMenu() {
   return (
     <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
       <Dialog.Trigger
+        render={<Button type="button" size="icon" variant="ghost" />}
         aria-label={t.settings}
-        className="relative rounded-full p-1.5 text-text-muted transition-colors hover:bg-surface-muted hover:text-text"
+        className="workspace-settings-trigger relative rounded-full p-1.5 text-text-muted transition-colors hover:bg-surface-muted hover:text-text"
       >
         <Settings size={15} />
         {updateAvailable && (
@@ -1868,14 +1880,15 @@ export function SettingsMenu() {
         )}
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+        <Dialog.Backdrop className="glass-backdrop fixed inset-0 z-40 transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <Dialog.Popup
-          className="fixed left-1/2 top-1/2 z-50 flex h-[min(640px,85vh)] w-[min(880px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface shadow-lg transition-[opacity,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0"
+          className="glass-settings fixed left-1/2 top-1/2 z-50 flex h-[min(680px,90vh)] w-[min(920px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line transition-[opacity,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0"
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-            <h1 className="text-sm font-semibold text-text">{t.settings}</h1>
+          <div className="settings-header flex items-center justify-between border-b border-line px-5 py-3.5">
+            <Dialog.Title render={<h1 />} className="text-sm font-semibold text-text">{t.settings}</Dialog.Title>
             <Dialog.Close
+              render={<Button type="button" size="icon" variant="ghost" />}
               aria-label={t.close}
               className="rounded-lg p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text-muted"
             >
@@ -1884,10 +1897,10 @@ export function SettingsMenu() {
           </div>
 
           {/* Body: category rail + active pane */}
-          <div className="flex min-h-0 flex-1">
+          <div className="settings-body flex min-h-0 flex-1">
             <nav
               aria-label={t.settings}
-              className="w-[200px] shrink-0 overflow-y-auto border-r border-line py-2"
+              className="settings-rail shrink-0 overflow-y-auto border-r border-line"
             >
               {rail.map((group, gi) => (
                 <div key={group.group || `g${gi}`} className="mb-1">
@@ -1916,31 +1929,34 @@ export function SettingsMenu() {
                 </div>
               ))}
             </nav>
-            <div className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
+            <div key={activeTab} className="settings-content min-w-0 flex-1 overflow-y-auto">
               {activeTab === "general" && (
                 <section>
                   <PaneHeader title={t.settings_group_general} />
-                  <SectionLabel title={t.section_appearance} />
-                  <Segmented
-                    value={theme}
-                    onChange={onTheme}
-                    options={[
-                      { value: "system", label: t.theme_system },
-                      { value: "light", label: t.theme_light },
-                      { value: "dark", label: t.theme_dark },
-                    ]}
-                  />
-                  <div className="mt-2.5">
-                    <Segmented
-                      value={locale}
-                      onChange={setLocale}
-                      options={[
-                        { value: "ko", label: t.locale_ko },
-                        { value: "en", label: t.locale_en },
-                      ]}
-                    />
-                  </div>
-                  <div className="mt-2.5">
+                  <GSettingsGroup title={t.section_appearance} className="settings-appearance-group">
+                    <GSettingsRow label={t.theme} className="settings-row settings-choice-row">
+                      <SettingsChoice
+                        aria-label={t.theme}
+                        value={theme}
+                        onValueChange={onTheme}
+                        options={[
+                          { value: "system", label: t.theme_system },
+                          { value: "light", label: t.theme_light },
+                          { value: "dark", label: t.theme_dark },
+                        ]}
+                      />
+                    </GSettingsRow>
+                    <GSettingsRow label={t.language} className="settings-row settings-choice-row">
+                      <SettingsChoice
+                        aria-label={t.language}
+                        value={locale}
+                        onValueChange={setLocale}
+                        options={[
+                          { value: "ko", label: t.locale_ko },
+                          { value: "en", label: t.locale_en },
+                        ]}
+                      />
+                    </GSettingsRow>
                     <ToggleRow
                       label={t.dock_icon}
                       checked={config.data?.appearance?.show_dock_icon ?? true}
@@ -1953,7 +1969,7 @@ export function SettingsMenu() {
                           .catch((e) => setError(String(e).split("\n")[0]))
                       }
                     />
-                  </div>
+                  </GSettingsGroup>
                   <SectionLabel title={t.section_general} />
                   <GeneralSection />
                   <SectionLabel title={t.section_daily} />
@@ -2093,6 +2109,7 @@ export function SettingsMenu() {
                       {busy === "reset" ? "…" : confirmReset ? t.reset_confirm : t.reset}
                     </button>
                   </div>
+                  <TrashSection retentionDays={config.data?.general?.trash_retention_days ?? 30} />
                 </section>
               )}
               {activeTab === "cli" && (

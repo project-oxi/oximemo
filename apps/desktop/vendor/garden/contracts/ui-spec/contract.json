@@ -1,0 +1,136 @@
+{
+  "$schema": "./ui-spec.schema.json",
+  "version": "garden-ui/1",
+  "platform": "react-webview",
+  "tokens": "../tokens/garden.tokens.json",
+  "strings": {
+    "source": "locales/{ko,en}.json",
+    "fallback": "en",
+    "frameworkComponentsRequireProps": true
+  },
+  "primaryWindow": {
+    "titlebar": {
+      "height": 46,
+      "decoration": "platform-adaptive",
+      "platforms": {
+        "macOS": {
+          "tauriDecorations": true,
+          "titlebarStyle": "native-overlay",
+          "windowCornerOwnership": "NSWindow"
+        },
+        "otherDesktop": {
+          "tauriDecorations": false,
+          "titlebarStyle": "garden-custom"
+        }
+      },
+      "slots": [
+        "left",
+        "center",
+        "right"
+      ],
+      "dragRegion": "empty titlebar area only",
+      "surface": "continuous with rail and sidebar; no dividing stripe",
+      "actions": "contextual navigation and panels only; theme and language live in settings",
+      "defaultControls": [
+        "left-pane-toggle",
+        "command-field",
+        "right-pane-toggle-when-present"
+      ],
+      "identity": "no-app-name-or-logo",
+      "composition": "shell-owned defaults; explicit custom mode for documented exception"
+    },
+    "corners": {
+      "window": "operating-system-owned; NSWindow on macOS",
+      "controls": "existing radius tokens; superellipse when supported"
+    },
+    "regions": [
+      "activityRail",
+      "sidebar",
+      "main",
+      "rightPanel",
+      "bottomPanel",
+      "composer"
+    ],
+    "activityRail": {
+      "optional": true,
+      "requiredWhen": "the application has multiple major workspaces",
+      "role": "select major workspaces in multi-workspace apps",
+      "width": 52
+    },
+    "sidebar": {
+      "width": "clamp(240px, 275px, min(520px, 100vw - 320px))",
+      "navRowHeight": 32,
+      "requiredWhen": "the selected workspace has multiple destinations",
+      "role": "contextual destinations within the selected workspace",
+      "narrowLayout": "accessible compact disclosure"
+    },
+    "rightPanel": {
+      "optional": true,
+      "role": "task context and supporting details",
+      "widthToken": "--g-layout-panel-width",
+      "visibility": "controlled optional region with labeled close action",
+      "narrowLayout": "stack without covering primary task"
+    },
+    "bottomPanel": {
+      "optional": true,
+      "role": "terminal, diagnostics, or activity"
+    },
+    "composer": {
+      "optional": true,
+      "placement": "bottom of main region"
+    },
+    "workspace": {
+      "surface": "single rounded canvas inset on continuous chrome",
+      "insetToken": "--g-space-2",
+      "cornerToken": "--radius-xl",
+      "scrolling": "main and supporting regions own scrolling"
+    }
+  },
+  "settingsWindow": {
+    "layout": "section navigation left, selected form right",
+    "sectionNavigation": "keyboard accessible tabs",
+    "content": "scrollable form region",
+    "composition": [
+      "GSettings",
+      "GSettingsGroup",
+      "GSettingsRow"
+    ],
+    "paddingOwnership": "settings owns gutters; shell contentPadding none",
+    "responsive": "container-based row stacking and section navigation",
+    "minimumRowHeightToken": "--g-layout-settings-row-min-height"
+  },
+  "commandPalette": {
+    "shortcut": "MetaOrControl+P",
+    "focus": "trap-and-restore",
+    "keys": [
+      "ArrowUp",
+      "ArrowDown",
+      "Enter",
+      "Escape"
+    ],
+    "modal": true,
+    "entry": "field-like button at titlebar upper right"
+  },
+  "focus": {
+    "textFields": "caret-and-stable-surface; no-perimeter-ring",
+    "keyboardControls": "visible-neutral-ink-indicator",
+    "linksAndSelection": "accent-token"
+  },
+  "feedback": {
+    "toast": "reversible changes; offer undo when meaningful",
+    "banner": "one persistent warning or status slot above the composer",
+    "inlineError": "one failed section; keep retry in that section",
+    "emptyState": "inside the relevant content region",
+    "overlay": "blocking decision or short task; focus must return to trigger"
+  },
+  "shellSurfaces": [
+    "petOverlay",
+    "tray",
+    "quickChat",
+    "globalShortcut"
+  ],
+  "pageHeader": {
+    "default": "task title and relevant actions",
+    "description": "operational constraints only; no filler or conversational subtitle"
+  }
+}

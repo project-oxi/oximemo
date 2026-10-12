@@ -56,9 +56,10 @@ export function SpacePicker() {
   };
 
   return (
-    <div className="relative px-3 pb-1" data-tauri-drag-region={false}>
+    <div className="space-picker relative" data-tauri-drag-region={false}>
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => {
           setOpen(!open);
           if (!open) consumeCreate();
@@ -71,7 +72,7 @@ export function SpacePicker() {
         <ChevronDown size={12} className="text-text-subtle" />
       </button>
       {open && (
-        <div className="absolute bottom-full left-3 right-3 z-40 mb-1 rounded-lg border border-line bg-surface-raised p-1 shadow-lg">
+        <div className="space-picker-popup glass-menu absolute top-full left-0 right-0 z-40 mt-2 rounded-lg p-1">
           {spaces.data?.map((s) => (
             <button
               key={s.name}

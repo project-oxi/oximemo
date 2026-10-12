@@ -25,6 +25,7 @@ import {
 import { atomicEditorTheme } from "@atomic-editor/editor";
 import "@atomic-editor/editor/styles.css";
 import { TextCtxMenu } from "./TextCtxMenu";
+import { useI18n } from "../lib/i18n";
 
 interface Props {
   body: string;
@@ -36,6 +37,7 @@ interface Props {
 }
 
 export function HtmlEditor({ body, onChange, documentId, className, autoFocus = true }: Props) {
+  const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   // Keep the latest callback without tearing the view down on identity churn.
@@ -64,13 +66,25 @@ export function HtmlEditor({ body, onChange, documentId, className, autoFocus = 
       parent: host,
     });
     viewRef.current = view;
-    if (autoFocus) requestAnimationFrame(() => view.focus());
     return () => {
       view.destroy();
       viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- body only seeds the doc; documentId drives remounts.
   }, [documentId]);
+
+  useEffect(() => {
+    viewRef.current?.contentDOM.setAttribute("aria-label", t.html_source);
+  }, [documentId, t.html_source]);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const frame = requestAnimationFrame(() => {
+      viewRef.current?.requestMeasure();
+      viewRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus, documentId]);
   return (
     <TextCtxMenu
       render={<div ref={hostRef} key={documentId} className={className} data-html-editor />}

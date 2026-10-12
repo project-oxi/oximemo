@@ -1349,9 +1349,9 @@ fn find_tag_spans(s: &str) -> Vec<std::ops::Range<usize>> {
         let (byte_idx, c) = chars[i];
         if c == '#' {
             let prev_is_word = i > 0 && is_word_char(chars[i - 1].1);
-            if !prev_is_word {
+            if !prev_is_word && chars.get(i + 1).is_some_and(|(_, c)| is_word_char(*c)) {
                 let mut j = i + 1;
-                while j < chars.len() && is_word_char(chars[j].1) {
+                while j < chars.len() && crate::tags::is_tag_char(chars[j].1) {
                     j += 1;
                 }
                 if j > i + 1 {
@@ -2204,6 +2204,17 @@ mod tests {
         let mut tags = parsed.tasks[0].tags.clone();
         tags.sort();
         assert_eq!(tags, vec!["home".to_string(), "urgent".to_string()]);
+    }
+
+    #[test]
+    fn task_description_preserves_complete_hyphenated_and_nested_tags() {
+        let body = "- [ ] 확인 #ui-audit #프로젝트/ui-test\n";
+        let parsed = parse_tasks(body, &cfg());
+        assert_eq!(parsed.tasks[0].text, "확인");
+        assert_eq!(parsed.tasks[0].tags, vec!["ui-audit", "프로젝트/ui-test"]);
+        let rewritten = transform_single_line(body, TaskEdit::SetText("수정".into()));
+        assert!(rewritten.contains("#ui-audit #프로젝트/ui-test"));
+        assert_eq!(parse_tasks(&rewritten, &cfg()).tasks[0].text, "수정");
     }
 
     #[test]

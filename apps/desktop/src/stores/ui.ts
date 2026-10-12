@@ -27,6 +27,7 @@ export type CopilotEntry =
 
 
 export type TagState = "off" | "in" | "out";
+export type MemoLayout = "sheet" | "immersive";
 
 /** Inline action rendered right of a toast message (e.g. the undo
  * button after a folder delete). */
@@ -67,6 +68,9 @@ interface UIState {
   setTheme: (t: Theme) => void;
   selectedId: string | null;
   select: (id: string | null) => void;
+  /** Note window layout, remembered independently of document data. */
+  memoLayout: MemoLayout;
+  setMemoLayout: (layout: MemoLayout) => void;
   /** tag -> filter state (3-state cycle). Absent = "off". */
   tagFilter: Record<string, TagState>;
   cycleTag: (tag: string) => void;
@@ -93,6 +97,9 @@ interface UIState {
   /** Open the PDC destination: document inventory with guarded source
    *  editing (canonical PDC 2 documents only). */
   openPdc: () => void;
+  pdcTargetPath: string | null;
+  openPdcPath: (path: string) => void;
+  consumePdcTargetPath: () => string | null;
   /** Sidebar collapsed? Persisted to localStorage. */
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -206,12 +213,22 @@ interface UIState {
 }
 
 const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
+const MEMO_LAYOUT_KEY = "oximemo.memoLayout";
 const QUERY_VIEW_KEY = "oximemo.queryView";
 const CALENDAR_FIELD_KEY = "oximemo.calendarField";
 
 function loadCollapsed(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(COLLAPSED_KEY) === "1";
+}
+
+function loadMemoLayout(): MemoLayout {
+  if (typeof window === "undefined") return "sheet";
+  try {
+    return window.localStorage.getItem(MEMO_LAYOUT_KEY) === "immersive" ? "immersive" : "sheet";
+  } catch {
+    return "sheet";
+  }
 }
 
 /** Persisted view mode for the query-mode ("모든 노트") smart collection.
@@ -257,7 +274,7 @@ export function saveCalendarFieldQuery(value: string): void {
   window.localStorage.setItem(CALENDAR_FIELD_KEY, value);
 }
 
-export const useUI = create<UIState>((set) => ({
+export const useUI = create<UIState>((set, get) => ({
   search: "",
   setSearch: (s) => {
     // Starting a search first exits a base (spec §5) — the base's own
@@ -308,6 +325,15 @@ export const useUI = create<UIState>((set) => ({
   setTheme: (t) => set({ theme: t }),
   selectedId: null,
   select: (id) => set({ selectedId: id }),
+  memoLayout: loadMemoLayout(),
+  setMemoLayout: (layout) => {
+    set({ memoLayout: layout });
+    try {
+      if (typeof window !== "undefined") window.localStorage.setItem(MEMO_LAYOUT_KEY, layout);
+    } catch {
+      // The layout still works when browser preference storage is unavailable.
+    }
+  },
   tagFilter: {},
   cycleTag: (tag) =>
     set((s) => {
@@ -351,6 +377,16 @@ export const useUI = create<UIState>((set) => ({
     // Entering PDC clears search; the inventory is its own surface.
     applyLocation(set, { kind: "pdc" });
     set({ search: "" });
+  },
+  pdcTargetPath: null,
+  openPdcPath: (path) => {
+    get().openPdc();
+    set({ pdcTargetPath: path });
+  },
+  consumePdcTargetPath: () => {
+    const path = get().pdcTargetPath;
+    set({ pdcTargetPath: null });
+    return path;
   },
   folderFilter: "" as string | null,
   setFolderFilter: (f) => applyLocation(set, f === null ? { kind: "all" } : { kind: "folder", path: f }),

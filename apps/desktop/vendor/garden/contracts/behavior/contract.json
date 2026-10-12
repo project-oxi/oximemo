@@ -1,0 +1,22 @@
+{
+  "$schema": "./behavior.schema.json",
+  "version": "garden-behavior/1",
+  "feedback": [
+    { "kind": "reversibleChange", "surface": "toast", "undo": "offer when action can be safely reversed", "durationSeconds": 5 },
+    { "kind": "persistentWarning", "surface": "banner", "multiplicity": 1 },
+    { "kind": "sectionFailure", "surface": "inlineError", "retry": "local-to-section" },
+    { "kind": "blockingDecision", "surface": "modalOverlay", "focus": "trap-and-restore" },
+    { "kind": "noContent", "surface": "emptyState", "placement": "inside-content-region" }
+  ],
+  "keyboard": {
+    "commandPalette": "MetaOrControl+P",
+    "commandNavigation": ["ArrowUp", "ArrowDown", "Enter", "Escape"],
+    "modalClose": "Escape",
+    "reducedMotion": "honor-prefers-reduced-motion"
+  },
+  "accessibility": {
+    "labels": "all non-text controls and landmarks have localized accessible names",
+    "focus": "text fields use caret with unchanged surface and border without perimeter ring; keyboard controls use visible neutral-ink indicator; modal focus returns to trigger",
+    "strings": "provided by app catalogs or component props"
+  }
+}

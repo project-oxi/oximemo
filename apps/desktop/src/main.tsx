@@ -1,6 +1,7 @@
 /** Renderer entry: mounts <App> inside providers. */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { TooltipProvider } from "@garden/ui";
 
 import { App } from "./components/App";
 import { isRouteCapture } from "./lib/window";
@@ -13,10 +14,11 @@ import "@fontsource-variable/geist-mono";
 const root = document.getElementById("root");
 if (!root) throw new Error("missing #root");
 
-// Both main and capture windows share this entry. Shell's effect only fires
-// for the main window (App early-returns for capture), so sync the class
-// here — before first paint — to keep the capture overlay theme-aware.
+// Resolve before mounting; App follows system changes in both window routes.
 applyTheme(loadTheme());
+document.documentElement.dataset.nativeWindow = String(
+  "__TAURI_INTERNALS__" in window && !isRouteCapture(),
+);
 // The capture window is `transparent: true` (tauri.conf.json), but the shared
 // <body class="bg-surface text-text"> paints an opaque rectangle over the full
 // 560×200 window — leaving a solid block above the bottom-anchored input card.
@@ -45,7 +47,9 @@ createRoot(root).render(
   <StrictMode>
     <ErrorBoundary>
       <I18nProvider>
-        <App />
+        <TooltipProvider delayDuration={400} skipDelayDuration={150}>
+          <App />
+        </TooltipProvider>
       </I18nProvider>
     </ErrorBoundary>
   </StrictMode>,

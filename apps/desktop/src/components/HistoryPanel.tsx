@@ -30,7 +30,7 @@ export function HistoryPanel({ path }: { path: string }) {
   const newest = [...episodes].reverse();
 
   return (
-    <div className="border-t border-line pt-1.5">
+    <div className="note-history border-t border-line pt-1.5">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -47,7 +47,7 @@ export function HistoryPanel({ path }: { path: string }) {
         )}
       </button>
       {open && (
-        <div className="mt-1 max-h-56 space-y-1.5 overflow-y-auto px-1 pb-1">
+        <div className="note-history-content mt-1 max-h-56 space-y-1.5 overflow-y-auto px-1 pb-1">
           {q.isLoading ? null : episodes.length === 0 ? (
             <p className="py-1 text-xs text-text-subtle">{t.brain_history_empty}</p>
           ) : (

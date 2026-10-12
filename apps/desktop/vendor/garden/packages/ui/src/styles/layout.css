@@ -1,0 +1,16 @@
+/* Width and flow primitives. The shell owns gutters and scroll regions. */
+.g-page { width: 100%; min-width: 0; max-width: var(--g-layout-content-max); margin-inline: auto; }
+.g-page[data-width="reading"] { max-width: var(--g-layout-document-max); }
+.g-page[data-width="full"] { max-width: none; }
+.g-page-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--g-layout-row-gap); margin-bottom: var(--g-layout-section-gap); }
+.g-page-header__copy { flex: 1 1 240px; min-width: 0; }
+.g-page-header__title { margin: 0; color: var(--g-ink); font-size: var(--text-headingLg); line-height: 1.3; letter-spacing: -.025em; font-weight: 600; overflow-wrap: anywhere; }
+.g-page-header__description { margin: var(--g-space-2) 0 0; color: var(--g-ink2); font-size: var(--text-body); line-height: 1.6; overflow-wrap: anywhere; }
+.g-page-header__actions { display: flex; flex-wrap: wrap; min-width: 0; max-width: 100%; align-items: center; gap: var(--g-space-2); }
+.g-split-layout { min-width: 0; container: g-split-layout / inline-size; }
+.g-split-layout__columns { display: grid; grid-template-columns: minmax(0, 1fr) var(--g-layout-panel-width); align-items: start; gap: var(--g-layout-group-gap); }
+.g-split-layout__main, .g-split-layout__aside { min-width: 0; }
+.g-split-layout__aside { display: flex; flex-direction: column; gap: var(--g-layout-row-gap); }
+@container g-split-layout (max-width: 780px) {
+  .g-split-layout__columns { grid-template-columns: minmax(0, 1fr); }
+}
