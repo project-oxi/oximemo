@@ -80,8 +80,8 @@ export const FolderCombobox = forwardRef<
             aria-label={triggerAriaLabel}
             className={`inline-flex items-center gap-1 rounded-[var(--tag-radius)] bg-surface-muted px-2.5 py-1 text-xs text-text transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${className ?? ""}`}
           >
-            <Folder size={12} className="text-text-subtle" />
-            <span>{selected}</span>
+            <Folder size={12} className="shrink-0 text-text-subtle" />
+            <span className="min-w-0 truncate" title={selected}>{selected}</span>
           </button>
         }
       />
@@ -90,8 +90,8 @@ export const FolderCombobox = forwardRef<
          *  dialog surface: z-index must sit
          *  on the POSITIONER — a z on the Popup loses paint order against
          *  the dialog's own z-50 surface and backdrop blur. */}
-        <Popover.Positioner side={popupSide} align="start" sideOffset={4} className="z-[60]">
-          <Popover.Popup className="glass-menu w-72 p-2 animate-popover-in">
+        <Popover.Positioner side={popupSide} align="start" sideOffset={4} collisionPadding={12} className="z-[60]">
+          <Popover.Popup className="glass-menu viewport-popup flex w-72 flex-col p-2 animate-popover-in">
             <TextCtxMenu
               render={
                 <input
@@ -100,11 +100,11 @@ export const FolderCombobox = forwardRef<
                   onChange={(e) => setQuery(e.target.value)}
                   aria-label={t.folder_picker_search}
                   placeholder={t.folder_picker_search}
-                  className="mb-2 w-full rounded-[var(--input-radius)] bg-transparent px-2 py-1 text-xs shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
+                  className="mb-2 w-full shrink-0 rounded-[var(--input-radius)] bg-transparent px-2 py-1 text-xs shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
                 />
               }
             />
-            <ul className="max-h-56 overflow-y-auto" aria-label={t.folder_picker_destinations}>
+            <ul className="min-h-0 max-h-56 overflow-y-auto overscroll-contain" aria-label={t.folder_picker_destinations}>
               <li>
                 <button
                   type="button"
@@ -133,8 +133,8 @@ export const FolderCombobox = forwardRef<
                       closePicker();
                     }}
                   >
-                    <span>{displayFolder(f.path)}</span>
-                    <span className="text-text-subtle">{f.note_count}</span>
+                    <span className="min-w-0 flex-1 truncate" title={displayFolder(f.path)}>{displayFolder(f.path)}</span>
+                    <span className="ml-2 shrink-0 text-text-subtle">{f.note_count}</span>
                   </button>
                 </li>
               ))}
@@ -149,7 +149,8 @@ export const FolderCombobox = forwardRef<
                       closePicker();
                     }}
                   >
-                    <FolderPlus size={12} /> {t.folder_picker_create.replace("{folder}", trimmed)}
+                    <FolderPlus size={12} className="shrink-0" />
+                    <span className="min-w-0 truncate" title={t.folder_picker_create.replace("{folder}", trimmed)}>{t.folder_picker_create.replace("{folder}", trimmed)}</span>
                   </button>
                 </li>
               )}

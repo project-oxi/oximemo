@@ -164,8 +164,8 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
           }
         />
         <Popover.Portal>
-          <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[60]">
-            <Popover.Popup className="max-w-[calc(100vw-32px)] animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
+          <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[60]">
+            <Popover.Popup className="viewport-popup animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
               <LinksCard
                 backlinks={backlinks.data ?? []}
                 isLoading={backlinks.isLoading}
@@ -198,8 +198,8 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
             }
           />
           <Popover.Portal>
-            <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[60]">
-              <Popover.Popup className="max-w-[calc(100vw-32px)] animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
+            <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[60]">
+              <Popover.Popup className="viewport-popup animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
                 <BrainCard
                   status={status.data}
                   layers={layers}

@@ -452,8 +452,8 @@ function SegmentPopover({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2}>
-          <Popover.Popup className="z-50 min-w-48 max-h-72 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[60]">
+          <Popover.Popup className="viewport-popup w-72 [--popup-max-height:288px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
             {items.length === 0 ? (
               <div className="px-2 py-1.5 text-[12px] text-text-subtle">{emptyLabel}</div>
             ) : (
@@ -481,7 +481,7 @@ function SegmentPopover({
                           className="inline-block h-2 w-2 shrink-0 rounded-full"
                           style={{ background: color || "var(--color-text-subtle)" }}
                         />
-                        <span className="min-w-0 flex-1 truncate">
+                        <span className="min-w-0 flex-1 truncate" title={f.path === "" ? rootLabel : leafFolder(f.path)}>
                           {f.path === "" ? rootLabel : leafFolder(f.path)}
                         </span>
                         {f.note_count > 0 && (

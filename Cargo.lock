@@ -4155,7 +4155,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-capture"
-version = "0.19.1"
+version = "0.19.2"
 dependencies = [
  "block2",
  "objc2 0.5.2",
@@ -4166,7 +4166,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-cli"
-version = "0.19.1"
+version = "0.19.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4187,7 +4187,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-core"
-version = "0.19.1"
+version = "0.19.2"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4217,7 +4217,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-desktop"
-version = "0.19.1"
+version = "0.19.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4247,7 +4247,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-metadata"
-version = "0.19.1"
+version = "0.19.2"
 dependencies = [
  "anyhow",
  "oximemo-core",
@@ -4258,7 +4258,7 @@ dependencies = [
 
 [[package]]
 name = "oximemo-session"
-version = "0.19.1"
+version = "0.19.2"
 dependencies = [
  "blake3",
  "fs2",

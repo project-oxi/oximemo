@@ -226,8 +226,8 @@ function OverflowPopover({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-50">
-          <Popover.Popup className="min-w-48 max-h-72 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[60]">
+          <Popover.Popup className="viewport-popup w-72 [--popup-max-height:288px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
             <ul role="list" className="flex flex-col gap-0.5">
               {memos.map((m) => {
                 const folder = folders.find((f) => f.path === m.folder);
@@ -246,7 +246,7 @@ function OverflowPopover({
                           style={{ background: color }}
                         />
                       )}
-                      <span className="truncate">{memoLabel(m)}</span>
+                      <span className="min-w-0 flex-1 truncate" title={memoLabel(m)}>{memoLabel(m)}</span>
                     </button>
                   </li>
                 );
@@ -282,8 +282,8 @@ function NoDateStrip({
           }
         />
         <Popover.Portal>
-          <Popover.Positioner side="top" align="start" sideOffset={4} className="z-50">
-            <Popover.Popup className="min-w-64 max-h-72 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
+          <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[60]">
+            <Popover.Popup className="viewport-popup w-72 [--popup-max-height:288px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
               <ul role="list" className="flex flex-col gap-0.5">
                 {memos.map((m) => {
                   const folder = folders.find((f) => f.path === m.folder);
@@ -302,7 +302,7 @@ function NoDateStrip({
                             style={{ background: color }}
                           />
                         )}
-                        <span className="truncate">{memoLabel(m)}</span>
+                        <span className="min-w-0 flex-1 truncate" title={memoLabel(m)}>{memoLabel(m)}</span>
                       </button>
                     </li>
                   );

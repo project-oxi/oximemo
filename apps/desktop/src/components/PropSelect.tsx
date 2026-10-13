@@ -49,8 +49,8 @@ export function PropSelect({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="end" sideOffset={3} className="z-50">
-          <Popover.Popup className="glass-menu min-w-40 max-h-64 overflow-y-auto p-1 animate-popover-in">
+        <Popover.Positioner side="bottom" align="end" sideOffset={3} collisionPadding={12} className="z-[60]">
+          <Popover.Popup className="glass-menu viewport-popup min-w-40 [--popup-max-width:320px] [--popup-max-height:256px] p-1 animate-popover-in">
             <ul role="listbox">
               {options.map((o) => {
                 const selected = o.value === value;
@@ -75,7 +75,7 @@ export function PropSelect({
                         aria-hidden
                         className={`shrink-0 ${selected ? "text-text" : "text-transparent"}`}
                       />
-                      {o.label}
+                      <span className="min-w-0 flex-1 truncate" title={o.label}>{o.label}</span>
                     </button>
                   </li>
                 );

@@ -36,13 +36,13 @@ export const CtxRoot = ContextMenu.Root;
 export const CtxTrigger = ContextMenu.Trigger;
 
 const POPUP_CLS =
-  "glass-menu min-w-44 rounded-lg p-1 text-sm text-text outline-none";
+  "glass-menu viewport-popup min-w-44 [--popup-max-width:320px] [--popup-max-height:448px] rounded-lg p-1 text-sm text-text outline-none";
 
 /** Portal + Positioner (z-70, above Dialog z-50 and Popover z-60) + Popup. */
 export function CtxMenu({ children }: { children: ReactNode }) {
   return (
     <ContextMenu.Portal>
-      <ContextMenu.Positioner className="z-[70]">
+      <ContextMenu.Positioner collisionPadding={12} className="z-[70]">
         {/* Menu items portal to <body>, but React synthetic events still
             bubble through the React tree — an item click would reach the
             trigger element's own onClick (e.g. open folder / select note).
@@ -85,7 +85,7 @@ export function CtxItem({
     <ContextMenu.Item
       onClick={onClick}
       disabled={disabled}
-      title={title}
+      title={title ?? label}
       closeOnClick={keepOpen === true ? false : undefined}
       className={
         "flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 outline-none data-[highlighted]:bg-surface-muted disabled:pointer-events-none disabled:opacity-30 " +
@@ -100,7 +100,7 @@ export function CtxItem({
       ) : Icon ? (
         <Icon size={14} className="shrink-0" />
       ) : null}
-      <span className="flex-1">{label}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
       {active && <Check size={14} className="shrink-0 text-text-subtle" />}
     </ContextMenu.Item>
   );
@@ -134,11 +134,11 @@ export function CtxSubmenu({
     <ContextMenu.SubmenuRoot>
       <ContextMenu.SubmenuTrigger className="flex w-full cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 outline-none data-[highlighted]:bg-surface-muted">
         {Icon && <Icon size={14} className="shrink-0" />}
-        <span className="flex-1 text-left">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
         <span className="text-text-subtle">▸</span>
       </ContextMenu.SubmenuTrigger>
       <ContextMenu.Portal>
-        <ContextMenu.Positioner align="start" sideOffset={4} className="z-[70]">
+        <ContextMenu.Positioner align="start" sideOffset={4} collisionPadding={12} className="z-[70]">
           <ContextMenu.Popup className={POPUP_CLS}>{children}</ContextMenu.Popup>
         </ContextMenu.Positioner>
       </ContextMenu.Portal>
@@ -165,7 +165,7 @@ export const BtnMenuTrigger = Menu.Trigger;
 export function BtnMenuPopup({ children }: { children: ReactNode }) {
   return (
     <Menu.Portal>
-      <Menu.Positioner sideOffset={4} className="z-[70]">
+      <Menu.Positioner sideOffset={4} collisionPadding={12} className="z-[70]">
         {/* Stop propagation at the popup so an item click never reaches the
             trigger's own onClick (e.g. the query row's openBase click). */}
         <Menu.Popup className={POPUP_CLS} onClick={(e) => e.stopPropagation()}>
@@ -195,6 +195,7 @@ export function BtnMenuItem({
   return (
     <Menu.Item
       onClick={onClick}
+      title={label}
       disabled={disabled}
       closeOnClick={keepOpen === true ? false : undefined}
       className={
@@ -203,7 +204,7 @@ export function BtnMenuItem({
       }
     >
       {Icon && <Icon size={14} className="shrink-0" />}
-      <span className="flex-1">{label}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
     </Menu.Item>
   );
 }

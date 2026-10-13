@@ -40,6 +40,7 @@ import type {
   SchemaPropertyDef,
 } from "../lib/types";
 import { inferredType } from "../lib/tableModel";
+import { isComposingKey } from "../lib/editorKeys";
 import { PropCellEditor } from "./propEditors";
 import { AnimatedDisclosure } from "./AnimatedDisclosure";
 
@@ -272,8 +273,8 @@ function AddPropertyRow({
           }
         />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-[70]">
-          <Popover.Popup className="w-64 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[70]">
+          <Popover.Popup className="viewport-popup w-64 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
             <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
               {t.prop_new_section}
             </p>
@@ -282,6 +283,7 @@ function AddPropertyRow({
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
+                if (isComposingKey(e.nativeEvent)) return;
                 if (e.key === "Enter" && !nameTaken) {
                   onAdd(name.trim(), type);
                   setOpen(false);
@@ -405,10 +407,10 @@ function MetadataFill({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[70]">
-          <Popover.Popup className="w-72 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
+        <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[70]">
+          <Popover.Popup className="viewport-popup flex w-72 flex-col rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
             <form
-              className="flex gap-1"
+              className="flex shrink-0 gap-1"
               onSubmit={(e) => {
                 e.preventDefault();
                 void run();
@@ -428,7 +430,7 @@ function MetadataFill({
                 {busy ? "…" : t.metadata_fill_search}
               </button>
             </form>
-            <div className="mt-1.5 max-h-56 overflow-y-auto">
+            <div className="mt-1.5 min-h-0 max-h-56 overflow-y-auto overscroll-contain">
               {hits === null ? null : hits.length === 0 ? (
                 <p className="px-1 py-2 text-[11px] leading-relaxed text-text-subtle">{t.metadata_fill_empty}</p>
               ) : (

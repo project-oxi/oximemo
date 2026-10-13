@@ -5,6 +5,7 @@
  * standalone.
  */
 import { invoke } from "./tauri";
+import { normalizeFolderSchema, type FolderSchemaWire } from "./folderSchema";
 import type {
   AddTarget,
   BacklinkInfo,
@@ -559,8 +560,8 @@ export function queryNotes(q: NoteQueryInput): Promise<QueryPage> {
 }
 
 /** The folder's property schema; null in free-property mode. */
-export function folderSchema(folder: string): Promise<FolderSchema | null> {
-  return invoke<FolderSchema | null>("folder_schema", { folder });
+export async function folderSchema(folder: string): Promise<FolderSchema | null> {
+  return normalizeFolderSchema(await invoke<FolderSchemaWire | null>("folder_schema", { folder }));
 }
 
 /** The folder's TEMPLATE.md body, or null when it has none — the slash

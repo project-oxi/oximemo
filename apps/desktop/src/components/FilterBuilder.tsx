@@ -59,12 +59,12 @@ export function FilterBuilder({ baseNode, viewNode, onSave }: Props) {
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="end" sideOffset={4} className="z-[70]">
+        <Popover.Positioner side="bottom" align="end" sideOffset={4} collisionPadding={12} className="z-[70]">
           <Popover.Popup
             data-table-portal
-            className="max-h-[70vh] w-[30rem] overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-3 shadow-lg animate-popover-in"
+            className="viewport-popup w-[30rem] [--popup-max-height:70dvh] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-3 shadow-lg animate-popover-in"
           >
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
               <div className="inline-flex rounded-[var(--tag-radius)] border border-line p-0.5 text-[11px]">
                 {(["view", "base"] as const).map((lv) => (
                   <button
@@ -214,7 +214,7 @@ function NodeEditor({
           optionsOf={optionsOf}
         />
       ))}
-      <div className="flex items-center gap-1 pt-1">
+      <div className="flex flex-wrap items-center gap-1 pt-1">
         <button
           type="button"
           onClick={() => onChange({ ...node, children: [...node.children, emptyCond()] })}

@@ -521,3 +521,14 @@ button:focus-visible, select:focus-visible, a:focus-visible {
   *, *::before, *::after { scroll-behavior: auto !important; }
   .workspace-shell *, .memo-sheet, .glass-settings, .glass-palette { transition-duration: 0ms !important; animation-duration: 0ms !important; }
 }
+
+/* Base UI publishes the space around the live anchor. Bound portalled
+ * menus to that space, including when a native window is resized while
+ * the popup is open. Keep scrolling inside the popup rather than the note. */
+.viewport-popup {
+  max-width: min(var(--popup-max-width, 100vw), calc(100vw - 24px), var(--available-width, 100vw));
+  max-height: min(var(--popup-max-height, 100dvh), calc(100dvh - 24px), var(--available-height, 100dvh));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
