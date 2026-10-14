@@ -166,29 +166,30 @@ export function MemoEditorForm({
     [],
   );
 
-  // Caret-line geometry for the popover anchor, resolved once per
-  // open from the live CM6 view via `coordsAtPos`.
-  const anchorCoords = useMemo(() => {
+  // Resolve the task line whenever Base UI measures its anchor. Window
+  // resizing and immersive-layout changes move the editor without
+  // changing taskEdit, so an opening-time coordinate snapshot is stale.
+  const taskAnchor = useMemo<VirtualAnchor | null>(() => {
     if (!taskEdit) return null;
     const view = viewHandleRef.current?.view;
     if (!view) return null;
-    const line = view.state.doc.line(Math.min(taskEdit.line + 1, view.state.doc.lines));
-    return view.coordsAtPos(line.from);
-  }, [taskEdit]);
-
-  // Virtual anchor for the popover: a position-only rect over the
-  // target line's text, fed straight to Base UI's `Positioner anchor`.
-  // No DOM span is rendered — a hidden trigger measuring the caret
-  // was both stale-on-mount (ref null until a re-render) and the
-  // source of the (0, 0) anchoring bug.
-  const taskAnchor = useMemo<VirtualAnchor | null>(() => {
-    if (!anchorCoords) return null;
-    const { left, top, right, bottom } = anchorCoords;
-    return {
-      getBoundingClientRect: () =>
-        new DOMRect(left, top, Math.max(right - left, 1), Math.max(bottom - top, 1)),
+    const readCoords = () => {
+      const line = view.state.doc.line(Math.min(taskEdit.line + 1, view.state.doc.lines));
+      return view.coordsAtPos(line.from);
     };
-  }, [anchorCoords]);
+    let coords = readCoords();
+    if (!coords) return null;
+    return {
+      contextElement: view.dom,
+      getBoundingClientRect: () => {
+        // CM6 can temporarily omit geometry while a line is offscreen.
+        // Keep the last measured rect until it becomes measurable again.
+        coords = readCoords() ?? coords;
+        const { left, top, right, bottom } = coords!;
+        return new DOMRect(left, top, Math.max(right - left, 1), Math.max(bottom - top, 1));
+      },
+    };
+  }, [taskEdit]);
 
   const commitTaskEdits = useCallback(
     async (edits: TaskEdit[]) => {

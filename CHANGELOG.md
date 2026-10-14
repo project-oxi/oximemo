@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Context submenus, folder paths and task editing popovers stay inside compact native windows. Long names truncate with tooltips; large menus scroll and keep keyboard navigation reachable while the window is resized.
 - Folder, property, filter, calendar and backlink popovers use the live anchor's available width and height, including inside the immersive editor. Filter controls wrap within compact windows.
+- Multiselect autocomplete retains text-input focus when suggestions open, supports Up/Down navigation, and returns to the input after adding a value or pressing Escape. Editor task popovers follow their task line when the native window or immersive layout changes.
 - Native folder schemas normalize Rust's serialized `type` field at the UI boundary, restoring select, multiselect, date and checkbox property editors instead of treating every field as text. Stored schemas and note bodies are unchanged by this adapter.
 
 ## [0.19.1] — 2026-10-13

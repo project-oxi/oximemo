@@ -37,6 +37,8 @@ import { isComposingKey } from "../lib/editorKeys";
  *  provider with no DOM box — the editor path's caret-line anchor. */
 export interface VirtualAnchor {
   getBoundingClientRect: () => DOMRect;
+  /** Lets Base UI observe the editor's layout and scrolling. */
+  contextElement?: Element;
 }
 export interface TaskEditInitial {
   symbol: string;
