@@ -1621,7 +1621,7 @@ pub fn cmd_pdc(paths: &oximemo_core::Paths, sub: &crate::PdcCmd) -> Result<()> {
                     "body_profiles": ["pdc-markdown/1", "pdc-html/1"],
                     "writers": {"pdc_create": true, "new": true, "collection_templates": true, "task_capture": true, "task_patch": true},
                     "memo_metadata_patch": true,
-                    "guarded_source_update": {"digest": "sha256", "title": true, "body": true, "properties": false},
+                    "guarded_source_update": {"digest": "sha256", "title": true, "body": true, "properties": true, "tags": true, "json_pointer": true, "source_line_endings": true},
                     "query_execution": false,
                     "implicit_home_migration": false
                 }))?
@@ -1658,15 +1658,25 @@ pub fn cmd_pdc(paths: &oximemo_core::Paths, sub: &crate::PdcCmd) -> Result<()> {
             path,
             sha256,
             title,
+            properties,
+            pointers,
+            remove_properties,
+            remove_pointers,
             body,
             body_stdin,
         } => cmd_pdc_update(
             paths,
-            path,
-            sha256,
-            title.as_deref(),
-            body.as_deref(),
-            *body_stdin,
+            PdcUpdateInput {
+                path,
+                sha256,
+                title: title.as_deref(),
+                body: body.as_deref(),
+                body_stdin: *body_stdin,
+                properties,
+                pointers,
+                remove_properties,
+                remove_pointers,
+            },
         ),
     }
 }
@@ -1788,18 +1798,61 @@ fn cmd_pdc_create(paths: &oximemo_core::Paths, input: PdcCreateInput<'_>) -> Res
     Ok(())
 }
 
-fn cmd_pdc_update(
-    paths: &oximemo_core::Paths,
-    path: &str,
-    sha256: &str,
-    title: Option<&str>,
-    body: Option<&str>,
+struct PdcUpdateInput<'a> {
+    path: &'a str,
+    sha256: &'a str,
+    title: Option<&'a str>,
+    body: Option<&'a str>,
     body_stdin: bool,
-) -> Result<()> {
-    if title.is_none() && body.is_none() && !body_stdin {
-        return Err(anyhow!(
-            "pdc update requires --title, --body, or --body-stdin"
-        ));
+    properties: &'a [String],
+    pointers: &'a [String],
+    remove_properties: &'a [String],
+    remove_pointers: &'a [String],
+}
+
+fn cmd_pdc_update(paths: &oximemo_core::Paths, input: PdcUpdateInput<'_>) -> Result<()> {
+    use oximemo_core::pdc_documents::{PdcMetadataEdit, property_pointer};
+    let PdcUpdateInput {
+        path,
+        sha256,
+        title,
+        body,
+        body_stdin,
+        properties,
+        pointers,
+        remove_properties,
+        remove_pointers,
+    } = input;
+    let mut edits = Vec::new();
+    for (items, is_pointer) in [(properties, false), (pointers, true)] {
+        for item in items {
+            let (key, value) = item
+                .split_once('=')
+                .ok_or_else(|| anyhow!("expected KEY=JSON or POINTER=JSON"))?;
+            let value = serde_json::from_str(value)
+                .context("metadata value must be valid JSON; quote strings")?;
+            edits.push(PdcMetadataEdit {
+                path: if is_pointer {
+                    key.to_string()
+                } else {
+                    property_pointer(key)
+                },
+                value: Some(value),
+            });
+        }
+    }
+    for (items, is_pointer) in [(remove_properties, false), (remove_pointers, true)] {
+        edits.extend(items.iter().map(|key| PdcMetadataEdit {
+            path: if is_pointer {
+                key.to_string()
+            } else {
+                property_pointer(key)
+            },
+            value: None,
+        }));
+    }
+    if title.is_none() && body.is_none() && !body_stdin && edits.is_empty() {
+        return Err(anyhow!("pdc update requires content or metadata changes"));
     }
     let stdin_body = if body_stdin {
         use std::io::Read;
@@ -1811,12 +1864,13 @@ fn cmd_pdc_update(
     } else {
         None
     };
-    let source = oximemo_core::pdc_documents::update_document(
+    let source = oximemo_core::pdc_documents::update_document_with_edits(
         paths,
         path,
         sha256,
         title,
         stdin_body.as_deref().or(body),
+        &edits,
     )?;
     let receipt = oximemo_core::pdc_documents::PdcWriteReceipt {
         path: source.path,

@@ -122,6 +122,27 @@ discovered file is canonical, legacy, or visibly diagnosed.
 
 ### Stage 2 — canonical creation (in progress)
 
+2026-10-18: CLI task edits now splice physical source lines rather than
+rebuilding the body with LF. Completion, insertion, movement and undo preserve
+untouched CRLF/mixed terminators and an unterminated last line. Existing-source
+body updates preserve the supplied bytes; new-document creation still uses LF.
+The PDC CLI now supports whole-source-SHA-256-guarded tags and typed user-property
+patches (`--set`, `--unset`, `--set-pointer`, `--unset-pointer`). JSON Pointer
+paths select nested map/array values, and parser source ranges keep siblings,
+comments, quoting and authored bodies untouched. All edits are validated in
+memory before one atomic replacement; invalid batches and stale digests leave
+the source unchanged, while semantic no-ops preserve bytes and timestamps.
+Unsupported YAML presentations fail with a preservation diagnostic.
+
+Validation on the isolated commit candidate: 726 Rust tests passed, including
+11 executable regressions; one live signature test was ignored. Strict Clippy
+and formatting passed. Twelve natural-language requests passed against the
+release executable, including CRLF task/body edits, typed HTML metadata patches,
+and concurrent metadata reconciliation. Both conflict traces contain an actual
+`external_change_conflict` followed by recovery. The skill and executable hashes
+and original traces are retained under `target/pdc-partial-edit/requests/`.
+These are observed scenario outcomes; the full Stage 2 exit remains open.
+
 2026-10-18: standalone CLI creation is verified through the actual executable:
 Markdown/HTML `new`, collection templates, schema inheritance, and task capture
 emit PDC 2. Task mutations now use the source-preserving writer with the digest

@@ -6,6 +6,7 @@ Use --skill-dir to compare a saved previous skill, and --cases to select cases.
 No model override is supplied. Traces, CLI calls, assertions and usage are saved.
 """
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -77,6 +78,28 @@ def setup(case, work, cli, env):
                 "--repeat", "every week", "--due", "2026-10-20")
         item = next(i for i in documents(cli, env) if i.get("document_id") == doc_id)
         context = {"path": item["path"], "id": doc_id}
+    elif case in ("crlf_task", "crlf_body"):
+        title = "CRLF 할 일" if case == "crlf_task" else "CRLF 본문"
+        body = f"# {title}\n\n- [ ] 인보이스 정리\n\n기존 문장\n그대로 둘 문장\n마지막 줄"
+        doc_id = command(cli, env, "new", body)
+        item = next(i for i in documents(cli, env) if i.get("document_id") == doc_id)
+        path = vault / item["path"]
+        source = path.read_bytes().decode().replace("\n", "\r\n").replace("그대로 둘 문장\r\n", "그대로 둘 문장\n")
+        path.write_bytes(source.encode())
+        context = {"path": item["path"], "id": doc_id, "source": source, "body": body_slice(source)}
+    elif case in ("metadata", "metadata_conflict"):
+        receipt = json.loads(command(cli, env, "pdc", "create", "--title", "검토 기록", "--profile", "html",
+                                     "--body", '<!-- keep -->\n<p style="color:red">원문</p>\n'))
+        path = vault / receipt["path"]
+        source = path.read_bytes().decode()
+        close = source.index("---\n-->\n")
+        source = source[:close] + ("# untouched header\ntags: ['keep'] # tags comment\nreview:\n"
+            "  status: 'draft' # status comment\n  owner: \"한글\" # untouched sibling\n"
+            "  stats: {score: 1, keep: [true, null]}\n  obsolete: true\n"
+            "extra: |\n  Keep this block\n  exactly\n") + source[close:]
+        source = source.replace("\n", "\r\n")
+        path.write_bytes(source.encode())
+        context = {"path": receipt["path"], "id": receipt["document_id"], "source": source, "body": body_slice(source)}
     context["before"] = hashes(vault)
     return context
 
@@ -125,9 +148,9 @@ raise SystemExit(result.returncode)
 
 
 def body_slice(content):
-    if content.startswith("<!--\n---\n"):
-        return content.split("---\n-->\n", 1)[1]
-    return content.split("---\n", 2)[2]
+    opening = re.match(r"(?:<!--\r?\n)?---\r?\n", content)
+    closing = re.search(r"(?m)^---\r?\n(?:-->\r?\n)?", content[opening.end():])
+    return content[opening.end() + closing.end():]
 
 
 def grade(case, work, cli, env, context, final, calls):
@@ -182,6 +205,40 @@ def grade(case, work, cli, env, context, final, calls):
         result["completion_date_recorded"] = any(row.get("done") for row in rows)
         result["next_due_date_correct"] = any(row.get("due") == "2026-10-27" and row.get("symbol") == " " for row in rows)
         result["native_guarded_task_command"] = any("done" in c["args"] and "--hash" in c["args"] and c["returncode"] == 0 for c in calls)
+    elif case in ("crlf_task", "crlf_body", "metadata", "metadata_conflict"):
+        content = (vault / context["path"]).read_bytes().decode()
+        item = next((i for i in items if i["path"] == context["path"]), {})
+        result["canonical_identity_preserved"] = item.get("document_id") == context["id"]
+        body = body_slice(content)
+        updates = [c for c in calls if "pdc" in c["args"] and "update" in c["args"]]
+        if case == "crlf_task":
+            before = [line for line in context["body"].splitlines(keepends=True) if "인보이스 정리" not in line]
+            after = [line for line in body.splitlines(keepends=True) if "인보이스 정리" not in line]
+            result["untouched_body_bytes_preserved"] = before == after
+            result["task_completed"] = "- [x] 인보이스 정리" in body or "- [X] 인보이스 정리" in body
+            result["native_guarded_task_command"] = any("done" in c["args"] and "--hash" in c["args"] and c["returncode"] == 0 for c in calls)
+        elif case == "crlf_body":
+            result["only_requested_body_bytes_changed"] = body == context["body"].replace("기존 문장", "수정 문장")
+        else:
+            tags = re.search(r"(?m)^tags: (\[.*?\])", content)
+            try:
+                labels = ast.literal_eval(tags.group(1)) if tags else []
+            except (ValueError, SyntaxError):
+                labels = []
+            result["requested_and_existing_tags"] = set(labels) == {"keep", "research"}
+            result["typed_nested_values"] = bool(re.search(r'(?m)^  status: [\"\']approved[\"\']', content)
+                and re.search(r'score: 4\.5[,}]', content)
+                and re.search(r'(?m)^  \"?archived\"?: false\r?$', content)
+                and not re.search(r'(?m)^  obsolete:', content))
+            result["untouched_sibling_and_comments"] = all(part in content for part in (
+                "# untouched header\r\n", '  owner: "한글" # untouched sibling\r\n',
+                "keep: [true, null]", "extra: |\r\n  Keep this block\r\n  exactly\r\n"))
+            expected_body = context["body"] + ("\nExternal author: keep me.\n" if case == "metadata_conflict" else "")
+            result["body_bytes_preserved"] = body == expected_body
+            if case == "metadata_conflict":
+                result["conflict_observed_then_recovered"] = bool(updates and updates[0]["returncode"] != 0 and updates[-1]["returncode"] == 0)
+        if case != "crlf_task":
+            result["original_digest_guard_used"] = bool(updates and all("--sha256" in c["args"] for c in updates))
     return result
 
 
@@ -201,7 +258,7 @@ def run_case(case, args, cli, skill, output):
     env["OXI_HOME"] = str(work / "oxi")
     context = setup(case["id"], work, cli, env)
     write_json(case_dir / "fixture.json", context)
-    bindir = wrapper(work, cli, context, case["id"] == "conflict")
+    bindir = wrapper(work, cli, context, case["id"] in ("conflict", "metadata_conflict"))
     env["PATH"] = str(bindir) + os.pathsep + env["PATH"]
     (work / "AGENTS.md").write_text(
         "This is an isolated evaluation workspace. Work only with files in this directory. "
@@ -300,7 +357,9 @@ def main():
     results = []
     provenance = {"cli": str(cli), "cli_sha256": hashlib.sha256(cli.read_bytes()).hexdigest(),
                   "cli_version": command(cli, os.environ.copy(), "--version"),
-                  "skill": str(skill), "skill_sha256": hashlib.sha256((skill / "SKILL.md").read_bytes()).hexdigest()}
+                  "skill": str(skill), "skill_sha256": hashlib.sha256((skill / "SKILL.md").read_bytes()).hexdigest(),
+                  "skill_files": {str(path.relative_to(skill)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                  for path in sorted(skill.rglob("*")) if path.is_file() and "evals" not in path.relative_to(skill).parts}}
     for case in cases:
         print(f"Running {case['id']}...", flush=True)
         result = run_case(case, args, cli, skill, output)

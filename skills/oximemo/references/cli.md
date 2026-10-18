@@ -87,6 +87,51 @@ properties. It bypasses folder template inheritance and transitions. Choose
 the entry point matching the requested workflow rather than assuming the
 two creation commands are interchangeable.
 
+## Guarded tags and typed metadata
+
+After `pdc read PATH --json`, retain the original `sha256`. With
+`guarded_source_update.properties`, `tags`, and `json_pointer`, edit only the
+requested values; the whole batch uses that source token and one atomic write.
+
+```bash
+oximemo pdc update 'notes/example.html' --sha256 'sha256:ORIGINAL' \
+  --set 'tags=["existing","research"]' \
+  --set-pointer '/review/status="approved"' \
+  --set-pointer '/review/stats/score=4.5' \
+  --set-pointer '/review/archived=false' \
+  --unset-pointer '/review/obsolete'
+```
+
+`--set KEY=JSON` replaces a literal top-level user property or `tags`.
+Unlike `new --set` or `pdc create --set`, update values must be valid JSON:
+quote strings; numbers, Booleans, null, arrays and objects keep their types.
+`--unset KEY` removes that key; setting JSON null keeps a present null value.
+Tags are case-sensitive, duplicate-free string labels. Read and merge labels
+when the request is to add a tag; replacing the list does not imply permission
+to discard others.
+
+`--set-pointer POINTER=JSON` edits an existing nested value or adds a mapping
+leaf. Parent containers must already exist. RFC 6901 escapes `~0` for `~` and
+`~1` for `/`; dots in a key are literal. Arrays use zero-based indices; `-`
+(or the current length) appends. `--unset-pointer` removes a mapping key or
+array item. Each group preserves flag order; groups run as top-level sets,
+pointer sets, top-level removals, then pointer removals. Array removals shift
+later indices. Avoid overlapping edits, and remove multiple array items in
+descending index order.
+
+Identity, contract, timestamps and other standard fields are protected;
+`title` has its dedicated flag and `tags` is the supported standard metadata
+field here. A missing parent, invalid pointer/value, duplicate tag, or source
+conflict leaves the source unchanged. A semantic no-op preserves every byte
+and `updated`. Unsupported YAML presentations return a preservation error;
+do not reconstruct the envelope as a fallback.
+
+Metadata patches preserve the body, siblings, unknown properties, comments,
+and untouched envelope bytes. Body edits preserve the supplied bytes, including
+CRLF/mixed endings and EOF; read JSON strings or use binary I/O when preparing
+them. New-document creation still emits LF. Native task operations preserve
+existing terminators and use the surrounding line ending for inserted lines.
+
 ## Provider metadata
 
 ```bash

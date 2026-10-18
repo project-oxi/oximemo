@@ -527,7 +527,7 @@ enum PdcCmd {
         #[arg(long, conflicts_with = "body")]
         body_stdin: bool,
     },
-    /// Update a canonical PDC 2 title/body using the digest from `pdc read --json`.
+    /// Update canonical PDC 2 content/metadata using the original source digest.
     Update {
         /// Vault-relative canonical `.md` or `.html` path.
         path: String,
@@ -536,6 +536,18 @@ enum PdcCmd {
         sha256: String,
         #[arg(long)]
         title: Option<String>,
+        /// Replace a top-level user property or tags; value must be valid JSON.
+        #[arg(long = "set", value_name = "KEY=JSON")]
+        properties: Vec<String>,
+        /// Set a nested value using an RFC 6901 JSON Pointer; parent must exist.
+        #[arg(long = "set-pointer", value_name = "POINTER=JSON")]
+        pointers: Vec<String>,
+        /// Remove a top-level user property or tags.
+        #[arg(long = "unset", value_name = "KEY")]
+        remove_properties: Vec<String>,
+        /// Remove a nested mapping key or array item using a JSON Pointer.
+        #[arg(long = "unset-pointer", value_name = "POINTER")]
+        remove_pointers: Vec<String>,
         #[arg(long, conflicts_with = "body_stdin")]
         body: Option<String>,
         /// Read replacement body source from stdin.

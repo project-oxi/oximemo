@@ -37,6 +37,7 @@ just to operate on another vault.
 | Create a titled document or typed nested properties | `pdc create`; this bypasses templates/transitions |
 | Recall/search | Indexed `search/list`; inventory/source fallback for missing hits |
 | Change existing title/body | `pdc read --json` → `pdc update --sha256` |
+| Change envelope tags or typed/nested properties | `pdc update --sha256` when its `tags`/`properties` capability is true |
 | Set a supported memo property/favorite | Narrow `update --set/--favorite` when `memo_metadata_patch` is true |
 | List/capture/change tasks | Native `task` commands when their writer capability is true |
 | Read legacy/unsupported/query files | `pdc list/read`; leave the source unchanged |
@@ -50,10 +51,12 @@ When `pdc create` should produce an ordinary note in the main memo list, add
 string-list user properties; other shapes retain the PDC source-editor path.
 Never remove or coerce properties to force a document into the memo list.
 
-Applying canonical tags means updating envelope `tags`. Adding inline hashtags
-to the body is not an equivalent metadata operation. If the installed CLI
-does not expose a guarded tag-metadata patch, propose tags without changing
-the document or claiming they were applied.
+Applying canonical tags means updating envelope `tags`. With guarded tags
+support, read the current labels and use `pdc update --set 'tags=[...]'` with
+the original digest. Preserve existing labels unless removal was requested.
+For nested user properties use JSON Pointer paths such as `/review/status`;
+read the metadata-edit section of [references/cli.md](references/cli.md).
+A missing runtime capability leaves that edit unsupported.
 
 ## Recall and capture
 
@@ -93,7 +96,10 @@ are part of the requested result.
      --sha256 'sha256:HASH_FROM_THE_ORIGINAL_READ' --body-stdin < replacement-body.md
    ```
 
-   A title-only patch uses `--title 'New title'`. Never pass the envelope
+   A title-only patch uses `--title 'New title'`; metadata-only changes omit
+   body flags. Preserve CRLF, mixed line endings, and an unterminated last
+   line when composing body edits: use the JSON body's exact string or binary
+   file I/O, avoiding universal-newline translation. Never pass the envelope
    as the body or parse/reserialize it merely to extract the body.
 4. On `external_change_conflict`, re-read and reconcile external edits.
    Do not fetch a fresh token and replay an old replacement unchanged.

@@ -4189,6 +4189,7 @@ dependencies = [
  "tracing",
  "unicode-normalization",
  "uuid",
+ "yaml-rust2",
 ]
 
 [[package]]

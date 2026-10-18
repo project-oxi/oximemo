@@ -2296,12 +2296,16 @@ impl Vault {
         let destination_new_body =
             append_task_line_under_section(&destination_memo.body, &joined, &cfg.default_section);
 
-        let mut remaining = source_lines.clone();
-        removed_ranges.sort_by_key(|range| std::cmp::Reverse(range.0));
-        for (start, end) in &removed_ranges {
-            remaining.drain(*start..*end);
-        }
-        let source_new_body = remaining.join("\n") + "\n";
+        let removals: Vec<_> = removed_ranges
+            .iter()
+            .map(|(start, end)| crate::tasks::TaskLineChange {
+                start_line: *start as u32,
+                delete_lines: (end - start) as u32,
+                insert_lines: Vec::new(),
+            })
+            .collect();
+        let source_new_body =
+            crate::tasks::apply_line_changes_to_body(&source_memo.body, &removals);
 
         // Destination first, then source (spec §5). If source writing
         // fails, restore the destination's original body before
@@ -2374,8 +2378,16 @@ impl Vault {
         .ok_or(CoreError::TaskConflict {
             memo_id: receipt.destination,
         })?;
-        let joined = receipt.moved_lines.join("\n");
-        let source_restored = format!("{}\n{}\n", source_memo.body.trim_end(), joined);
+        let mut restored_lines = vec![String::new()];
+        restored_lines.extend(receipt.moved_lines.clone());
+        let source_restored = crate::tasks::apply_line_changes_to_body(
+            &source_memo.body,
+            &[crate::tasks::TaskLineChange {
+                start_line: source_memo.body.lines().count() as u32,
+                delete_lines: 0,
+                insert_lines: restored_lines,
+            }],
+        );
         // Destination first, then source — the same order as
         // `move_tasks`, with the same compensation: if restoring the
         // source fails after the destination write landed, put the
@@ -4329,25 +4341,29 @@ fn append_task_line_under_section(body: &str, line: &str, section: &str) -> Stri
         while end < lines.len() && !lines[end].trim_start().starts_with('#') {
             end += 1;
         }
-        let mut out: Vec<&str> = lines[..end].to_vec();
-        out.push(line);
-        out.extend(&lines[end..]);
-        let mut result = out.join("\n");
-        result.push('\n');
-        result
+        crate::tasks::apply_line_changes_to_body(
+            body,
+            &[crate::tasks::TaskLineChange {
+                start_line: end as u32,
+                delete_lines: 0,
+                insert_lines: line.lines().map(str::to_string).collect(),
+            }],
+        )
     } else {
-        let mut result = body.to_string();
-        if !result.is_empty() && !result.ends_with('\n') {
-            result.push('\n');
+        let mut insert_lines = Vec::new();
+        if !body.is_empty() {
+            insert_lines.push(String::new());
         }
-        if !result.is_empty() {
-            result.push('\n');
-        }
-        result.push_str(&heading);
-        result.push('\n');
-        result.push_str(line);
-        result.push('\n');
-        result
+        insert_lines.push(heading);
+        insert_lines.extend(line.lines().map(str::to_string));
+        crate::tasks::apply_line_changes_to_body(
+            body,
+            &[crate::tasks::TaskLineChange {
+                start_line: lines.len() as u32,
+                delete_lines: 0,
+                insert_lines,
+            }],
+        )
     }
 }
 
@@ -4379,11 +4395,14 @@ fn remove_appended_task_lines_under_section(
     {
         return None;
     }
-    let mut out: Vec<&str> = lines[..block_start].to_vec();
-    out.extend(&lines[end..]);
-    let mut result = out.join("\n");
-    result.push('\n');
-    Some(result)
+    Some(crate::tasks::apply_line_changes_to_body(
+        body,
+        &[crate::tasks::TaskLineChange {
+            start_line: block_start as u32,
+            delete_lines: moved_lines.len() as u32,
+            insert_lines: Vec::new(),
+        }],
+    ))
 }
 
 /// Derived search-index fields for a note: the searchable body text and the
@@ -5681,6 +5700,58 @@ watcher_retry_interval_ms = 200
             )
             .unwrap();
         assert!(!plain.daily_recurrence_warning);
+    }
+
+    #[test]
+    fn task_move_and_undo_preserve_crlf_and_untouched_body_lines() {
+        let (_t, v) = tmp_vault();
+        let source = v
+            .create_memo("# Source\n- [ ] Move me\nKeep source  \n".into(), None)
+            .unwrap();
+        let destination = v
+            .create_memo("# Destination\n## 할 일\nKeep destination  \n".into(), None)
+            .unwrap();
+        for memo in [&source, &destination] {
+            let path = v.note_file_path(memo).unwrap();
+            let bytes = std::fs::read_to_string(&path)
+                .unwrap()
+                .replace('\n', "\r\n");
+            std::fs::write(path, bytes).unwrap();
+        }
+        let receipt = v
+            .move_tasks(
+                crate::tasks::MoveTasksRequest {
+                    source: source.id,
+                    tasks: vec![crate::tasks::TaskRef {
+                        memo_id: source.id,
+                        line: 1,
+                        line_hash: crate::tasks::TaskLineHash::of_line("- [ ] Move me"),
+                    }],
+                    destination: crate::tasks::AddTarget::Note(destination.id),
+                    expected_destination_hash: None,
+                },
+                time::macros::date!(2026 - 10 - 18),
+            )
+            .unwrap();
+        assert_eq!(
+            v.get_memo(source.id).unwrap().body,
+            "# Source\r\nKeep source  \r\n"
+        );
+        assert_eq!(
+            v.get_memo(destination.id).unwrap().body,
+            "# Destination\r\n## 할 일\r\nKeep destination  \r\n- [ ] Move me\r\n"
+        );
+        v.undo_move_tasks(&receipt).unwrap();
+        assert_eq!(
+            v.get_memo(destination.id).unwrap().body,
+            "# Destination\r\n## 할 일\r\nKeep destination  \r\n"
+        );
+        assert!(
+            v.get_memo(source.id)
+                .unwrap()
+                .body
+                .starts_with("# Source\r\nKeep source  \r\n")
+        );
     }
 
     #[test]

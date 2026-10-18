@@ -349,3 +349,156 @@ fn rollover_rejects_a_legacy_source_before_creating_its_destination() {
     assert_eq!(fs::read_to_string(file).unwrap(), source);
     assert!(!fixture.vault().join("daily/2026-10-18.md").exists());
 }
+
+#[test]
+fn typed_metadata_edits_are_guarded_and_preserve_html_markdown_source() {
+    for profile in ["markdown", "html"] {
+        let fixture = Fixture::new();
+        let receipt = fixture.json(&[
+            "pdc",
+            "create",
+            "--title",
+            "Structured",
+            "--profile",
+            profile,
+            "--body",
+            "<!-- keep -->\n<p style=\"color:red\">Body</p>\n",
+        ]);
+        let path = receipt["path"].as_str().unwrap();
+        let file = fixture.vault().join(path);
+        let source = fs::read_to_string(&file).unwrap().replace("title: Structured\n", concat!(
+            "title: Structured\n# untouched header\ntags: ['keep'] # tags comment\n",
+            "review:\n  status: 'draft' # status comment\n  owner: \"한글\" # untouched sibling\n",
+            "  stats: {score: 1, keep: [true, null]}\n  obsolete: true\n",
+            "extra: |\n  Keep this block\n  exactly\n"));
+        let source = source.replace('\n', "\r\n");
+        fs::write(&file, &source).unwrap();
+        let snapshot = fixture.json(&["pdc", "read", path, "--json"]);
+        let token = snapshot["sha256"].as_str().unwrap();
+        let edits = [
+            "--set",
+            "tags=[\"keep\",\"research\"]",
+            "--set-pointer",
+            "/review/status=\"approved\"",
+            "--set-pointer",
+            "/review/stats/score=4.5",
+            "--set-pointer",
+            "/review/archived=false",
+            "--unset-pointer",
+            "/review/obsolete",
+        ];
+        let mut args = vec!["pdc", "update", path, "--sha256", token];
+        args.extend(edits);
+        fixture.run(&args);
+        let updated = fixture.json(&["pdc", "read", path, "--json"]);
+        assert_eq!(snapshot["editable_body"], updated["editable_body"]);
+        let after = fs::read_to_string(&file).unwrap();
+        for unchanged in [
+            "# untouched header\r\n",
+            "  owner: \"한글\" # untouched sibling\r\n",
+            "extra: |\r\n  Keep this block\r\n  exactly\r\n",
+            "# tags comment\r\n",
+        ] {
+            assert!(after.contains(unchanged), "{profile}: lost {unchanged:?}");
+        }
+        let document = fixture.canonical(path);
+        let review = document.envelope.get("review").unwrap();
+        assert_eq!(review.get("status").unwrap().as_str(), Some("approved"));
+        assert_eq!(review.get("archived").unwrap().as_bool(), Some(false));
+        assert!(review.get("obsolete").is_none());
+        assert_eq!(
+            review.get("stats").unwrap().get("score"),
+            Some(&oxi_frontmatter::pdc::Yaml::Number("4.5".into()))
+        );
+        assert_eq!(
+            document
+                .envelope
+                .get("tags")
+                .unwrap()
+                .as_seq()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(document.id, snapshot["document_id"]);
+        let fresh = updated["sha256"].as_str().unwrap();
+        let mut noop = vec!["pdc", "update", path, "--sha256", fresh];
+        noop.extend(edits);
+        fixture.run(&noop);
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            after,
+            "semantic no-op must preserve timestamps and spelling"
+        );
+        let stale = fixture
+            .command()
+            .args([
+                "pdc",
+                "update",
+                path,
+                "--sha256",
+                token,
+                "--set-pointer",
+                "/review/status=\"stale\"",
+            ])
+            .output()
+            .unwrap();
+        assert!(!stale.status.success());
+        assert!(stderr(&stale).contains("external_change_conflict"));
+        let invalid = fixture
+            .command()
+            .args([
+                "pdc",
+                "update",
+                path,
+                "--sha256",
+                fresh,
+                "--set-pointer",
+                "/review/status=\"must not land\"",
+                "--set",
+                "tags=[\"duplicate\",\"duplicate\"]",
+            ])
+            .output()
+            .unwrap();
+        assert!(!invalid.status.success());
+        assert_eq!(
+            fs::read_to_string(file).unwrap(),
+            after,
+            "a failed batch must be atomic"
+        );
+    }
+}
+
+#[test]
+fn native_task_changes_preserve_mixed_terminators_and_unterminated_tail() {
+    let fixture = Fixture::new();
+    let id = fixture.run(&[
+        "new",
+        "# CRLF tasks\n\n## 할 일\n- [ ] Complete me\n\nKeep every byte\nLast line",
+    ]);
+    let path = fixture.path_for(&id);
+    let file = fixture.vault().join(&path);
+    let source = fs::read_to_string(&file)
+        .unwrap()
+        .replace('\n', "\r\n")
+        .replace("Keep every byte\r\n", "Keep every byte\n");
+    fs::write(&file, &source).unwrap();
+    let rows = fixture.json(&["task", "list", "--note", &id, "--format", "json"]);
+    let task = &rows[0]["task_ref"];
+    fixture.run(&[
+        "task",
+        "done",
+        &id,
+        &task["line"].to_string(),
+        "--hash",
+        task["line_hash"].as_str().unwrap(),
+    ]);
+    let after = fs::read_to_string(&file).unwrap();
+    assert!(after.contains("# CRLF tasks\r\n\r\n## 할 일\r\n- [x] Complete me"));
+    assert!(after.ends_with("\r\n\r\nKeep every byte\nLast line"));
+    fixture.run(&["task", "add", "Appended task", "--note", &id]);
+    let appended = fs::read_to_string(&file).unwrap();
+    assert!(appended.contains("Keep every byte\nLast line\r\n- [ ] Appended task"));
+    assert!(appended.ends_with("\r\n"));
+    fixture.canonical(&path);
+}

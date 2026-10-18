@@ -1792,17 +1792,64 @@ pub fn transform_task_draft(
 /// implementation for the "how do TaskLineChanges apply" question
 /// (spec §5/§6: no duplicated splice logic).
 pub(crate) fn apply_line_changes_to_body(body: &str, changes: &[TaskLineChange]) -> String {
-    let mut lines: Vec<String> = body.lines().map(str::to_string).collect();
+    let mut lines: Vec<String> = body.split_inclusive('\n').map(str::to_string).collect();
     let mut sorted: Vec<&TaskLineChange> = changes.iter().collect();
     sorted.sort_by_key(|change| std::cmp::Reverse(change.start_line));
     for c in sorted {
         let start = c.start_line as usize;
         let end = start + c.delete_lines as usize;
-        lines.splice(start..end, c.insert_lines.iter().cloned());
+        let newline = lines
+            .get(start)
+            .or_else(|| start.checked_sub(1).and_then(|i| lines.get(i)))
+            .and_then(|line| line_ending(line))
+            .unwrap_or_else(|| preferred_line_ending(body));
+        let preserve_open_end = end == lines.len()
+            && end > start
+            && lines.last().is_some_and(|line| !line.ends_with('\n'));
+        let inserted: Vec<String> = c
+            .insert_lines
+            .iter()
+            .enumerate()
+            .map(|(index, line)| {
+                let ending = if preserve_open_end && index + 1 == c.insert_lines.len() {
+                    ""
+                } else {
+                    lines
+                        .get(start + index)
+                        .filter(|_| index < c.delete_lines as usize)
+                        .and_then(|line| line_ending(line))
+                        .unwrap_or(newline)
+                };
+                format!("{line}{ending}")
+            })
+            .collect();
+        // Appending to an unterminated line needs a separator, but no other
+        // existing terminator (including mixed LF/CRLF) is regenerated.
+        if start == lines.len()
+            && !inserted.is_empty()
+            && let Some(last) = lines.last_mut().filter(|line| !line.ends_with('\n'))
+        {
+            last.push_str(newline);
+        }
+        lines.splice(start..end, inserted);
     }
-    let mut out = lines.join("\n");
-    out.push('\n');
-    out
+    lines.concat()
+}
+
+fn line_ending(line: &str) -> Option<&'static str> {
+    if line.ends_with("\r\n") {
+        Some("\r\n")
+    } else if line.ends_with('\n') {
+        Some("\n")
+    } else {
+        None
+    }
+}
+
+pub(crate) fn preferred_line_ending(body: &str) -> &'static str {
+    body.split_inclusive('\n')
+        .find_map(line_ending)
+        .unwrap_or("\n")
 }
 
 /// Remove selected task refs whose nearest task ancestor is also
@@ -1862,6 +1909,32 @@ pub(crate) fn dedup_covered_descendants(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn task_line_changes_preserve_mixed_endings_and_noop_bytes() {
+        let source = "첫 줄\r\n- [ ] task\r\nuntouched\nlast";
+        assert_eq!(apply_line_changes_to_body(source, &[]), source);
+        let edited = apply_line_changes_to_body(
+            source,
+            &[TaskLineChange {
+                start_line: 1,
+                delete_lines: 1,
+                insert_lines: vec!["- [x] task".into()],
+            }],
+        );
+        assert_eq!(edited, "첫 줄\r\n- [x] task\r\nuntouched\nlast");
+        assert_eq!(
+            apply_line_changes_to_body(
+                "last",
+                &[TaskLineChange {
+                    start_line: 0,
+                    delete_lines: 1,
+                    insert_lines: vec!["changed".into()],
+                }]
+            ),
+            "changed"
+        );
+    }
 
     /// Test-only thin wrapper: delegate to the real
     /// `apply_line_changes_to_body` so tests exercise the exact

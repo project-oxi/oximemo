@@ -23,6 +23,21 @@ use uuid::Uuid;
 use crate::pdc_inventory::{PdcSource, read_source};
 use crate::{CoreError, Paths, Result};
 
+mod patch;
+
+/// One guarded metadata edit. Paths use RFC 6901 JSON Pointer syntax.
+/// `Some(null)` sets null; `None` removes the selected property or array item.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdcMetadataEdit {
+    pub path: String,
+    pub value: Option<JsonValue>,
+}
+
+/// Escape a literal top-level user-property key as a JSON Pointer.
+pub fn property_pointer(key: &str) -> String {
+    patch::pointer(key)
+}
+
 const PDC_DIR: &str = ".pdc";
 const MANIFEST_PATH: &str = ".pdc/vault.json";
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
@@ -404,8 +419,8 @@ pub fn prepare_update_source(
         return Err(read_only("title updates must be a single line"));
     }
     let old_body = &source.content[document.body_range.clone()];
-    let next_body = body.map(normalize_body);
-    let body_changed = next_body.as_deref().is_some_and(|next| next != old_body);
+    let next_body = body;
+    let body_changed = next_body.is_some_and(|next| next != old_body);
 
     let reserved = [
         "format",
@@ -437,7 +452,7 @@ pub fn prepare_update_source(
 
     let mut next = source.content.as_bytes().to_vec();
     if body_changed {
-        let body = next_body.as_deref().expect("body_changed implies a body");
+        let body = next_body.expect("body_changed implies a body");
         let mut replaced = Vec::with_capacity(next.len() - old_body.len() + body.len());
         replaced.extend_from_slice(&next[..document.body_range.start]);
         replaced.extend_from_slice(body.as_bytes());
@@ -469,6 +484,49 @@ pub fn prepare_update_source(
         patch_metadata(ext, &next, &[("updated", updated.as_str())]).map_err(diagnostic_error)?;
     validate_update(&document, ext, &next)?;
     Ok(Some(next))
+}
+
+/// Atomically apply typed metadata paths with the original whole-source digest.
+/// All edits are validated in memory before any source is replaced.
+pub fn update_document_with_edits(
+    paths: &Paths,
+    relative_path: &str,
+    expected_sha256: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+    edits: &[PdcMetadataEdit],
+) -> Result<PdcSource> {
+    let source = read_source(paths, relative_path)?;
+    if source.sha256 != expected_sha256 {
+        return Err(external_change());
+    }
+    let prepared = prepare_update_source(&source, title, body, &[])?;
+    let mut candidate = prepared.unwrap_or_else(|| source.content.as_bytes().to_vec());
+    let text = std::str::from_utf8(&candidate).map_err(|e| read_only(e.to_string()))?;
+    let ext = document_ext(relative_path)?;
+    let Classification::Valid(document) = classify(ext, &candidate) else {
+        return Err(read_only("canonical source required"));
+    };
+    let start = match ext {
+        DocumentExt::Html => text.find("---").unwrap() + 3,
+        _ => 3,
+    };
+    let start = start + text[start..].find('\n').unwrap() + 1;
+    let end = text[..document.body_range.start].rfind("---").unwrap();
+    let patched = patch::apply(&text[start..end], edits)?;
+    if patched != text[start..end] {
+        let mut next = candidate[..start].to_vec();
+        next.extend_from_slice(patched.as_bytes());
+        next.extend_from_slice(&candidate[end..]);
+        let updated = next_timestamp(&document)?;
+        candidate = patch_metadata(ext, &next, &[("updated", updated.as_str())])
+            .map_err(diagnostic_error)?;
+    }
+    if candidate == source.content.as_bytes() {
+        return Ok(source);
+    }
+    validate_update(&document, ext, &candidate)?;
+    update_prepared_document(paths, relative_path, expected_sha256, &candidate)
 }
 
 /// Apply exact prepared PDC bytes after comparing the current source digest.
@@ -663,6 +721,16 @@ pub(crate) fn validate_update(
         }
         Classification::Invalid(diagnostic) => return Err(diagnostic_error(diagnostic)),
     };
+    if let Some(tags) = updated
+        .envelope
+        .get("tags")
+        .and_then(|value| value.as_seq())
+    {
+        let mut seen = std::collections::HashSet::new();
+        if tags.iter().any(|tag| !seen.insert(tag.as_str())) {
+            return Err(read_only("tags must be duplicate-free string labels"));
+        }
+    }
     if updated.id != original.id || updated.profile != original.profile {
         return Err(read_only("mutation changed PDC identity or body profile"));
     }
@@ -947,8 +1015,8 @@ fn external_change() -> CoreError {
     ))
 }
 
-fn read_only(message: &str) -> CoreError {
-    CoreError::other(message.to_string())
+fn read_only(message: impl AsRef<str>) -> CoreError {
+    CoreError::other(format!("unsupported_lossless_edit: {}", message.as_ref()))
 }
 
 fn diagnostic_error(diagnostic: oxi_frontmatter::pdc::PdcDiagnostic) -> CoreError {
@@ -1136,7 +1204,7 @@ mod tests {
         assert!(
             updated
                 .content
-                .ends_with("# Captured session\n\nEdited body.\n")
+                .ends_with("# Captured session\n\nEdited body.")
         );
         assert!(
             update_document(&paths, &created.path, &before.sha256, None, Some("stale"))

@@ -38,6 +38,7 @@ parking_lot = "0.12"
 oxi-frontmatter = { version = "0.3", path = "../oxi-frontmatter" }
 oxibrain-client = { workspace = true }
 serde_yaml_ng = "0.10"
+yaml-rust2 = "0.13"
 
 anyhow = { workspace = true }
 tokio = { version = "1", default-features = false, features = ["rt", "macros"] }
