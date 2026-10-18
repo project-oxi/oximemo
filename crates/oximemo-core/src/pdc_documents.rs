@@ -331,6 +331,26 @@ pub fn update_document(
     update_document_with_metadata(paths, relative_path, expected_sha256, title, body, &[])
 }
 
+/// Body-only mutation within an existing exclusive vault transaction.
+/// Reuses the canonical source-preserving writer without reacquiring flock.
+pub(crate) fn update_body_locked(
+    paths: &Paths,
+    relative_path: &str,
+    expected_sha256: &str,
+    body: &str,
+    guard: &crate::lock::FileLock,
+) -> Result<PdcSource> {
+    debug_assert_eq!(guard.kind(), crate::lock::LockKind::Exclusive);
+    let source = read_source(paths, relative_path)?;
+    if source.sha256 != expected_sha256 {
+        return Err(external_change());
+    }
+    let Some(candidate) = prepare_update_source(&source, None, Some(body), &[])? else {
+        return Ok(source);
+    };
+    update_prepared_document_locked(paths, relative_path, expected_sha256, &candidate, guard)
+}
+
 /// Update a canonical PDC source and a bounded set of scalar user properties.
 /// This variant supports session provenance while preserving every untouched
 /// envelope byte.
@@ -464,6 +484,17 @@ pub fn update_prepared_document(
         crate::lock::LockKind::Exclusive,
         LOCK_TIMEOUT,
     )?;
+    update_prepared_document_locked(paths, relative_path, expected_sha256, candidate, &_lock)
+}
+
+fn update_prepared_document_locked(
+    paths: &Paths,
+    relative_path: &str,
+    expected_sha256: &str,
+    candidate: &[u8],
+    guard: &crate::lock::FileLock,
+) -> Result<PdcSource> {
+    debug_assert_eq!(guard.kind(), crate::lock::LockKind::Exclusive);
     if candidate.len() > MAX_DOCUMENT_BYTES {
         return Err(read_only("prepared PDC source exceeds its size limit"));
     }
@@ -524,7 +555,7 @@ pub fn update_prepared_document(
     read_source(paths, relative_path)
 }
 
-fn serialize_new_document(
+pub(crate) fn serialize_new_document(
     request: &PdcCreateRequest,
     body: &str,
     document_id: &str,
@@ -604,7 +635,7 @@ fn insert_string(mapping: &mut Mapping, key: &str, value: &str) {
     );
 }
 
-fn validate_new_source(profile: PdcBodyProfile, bytes: &[u8]) -> Result<()> {
+pub(crate) fn validate_new_source(profile: PdcBodyProfile, bytes: &[u8]) -> Result<()> {
     match classify(profile.document_ext(), bytes) {
         Classification::Valid(document)
             if !document.legacy && document.profile == profile.body_profile() =>
@@ -619,7 +650,11 @@ fn validate_new_source(profile: PdcBodyProfile, bytes: &[u8]) -> Result<()> {
     }
 }
 
-fn validate_update(original: &PdcDocument, ext: DocumentExt, bytes: &[u8]) -> Result<()> {
+pub(crate) fn validate_update(
+    original: &PdcDocument,
+    ext: DocumentExt,
+    bytes: &[u8],
+) -> Result<()> {
     let updated = match classify(ext, bytes) {
         Classification::Valid(document) if !document.legacy => document,
         Classification::Valid(_) => return Err(read_only("legacy PDC documents are read-only")),
@@ -634,7 +669,9 @@ fn validate_update(original: &PdcDocument, ext: DocumentExt, bytes: &[u8]) -> Re
     Ok(())
 }
 
-fn ensure_manifest(vault: &Path) -> Result<()> {
+/// Initialize a writable vault's manifest without rewriting existing notes
+/// or changing an existing manifest. Invalid manifests are rejected.
+pub fn ensure_manifest(vault: &Path) -> Result<()> {
     match fs::symlink_metadata(vault) {
         Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
             return Err(read_only("vault root must be a regular directory"));
@@ -818,7 +855,7 @@ fn document_ext(path: &str) -> Result<DocumentExt> {
     }
 }
 
-fn atomic_create(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn atomic_create(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -845,7 +882,7 @@ fn atomic_create(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     write_result
 }
 
-fn normalize_body(body: &str) -> String {
+pub(crate) fn normalize_body(body: &str) -> String {
     let mut body = body.replace("\r\n", "\n").replace('\r', "\n");
     if !body.is_empty() && !body.ends_with('\n') {
         body.push('\n');
@@ -853,11 +890,11 @@ fn normalize_body(body: &str) -> String {
     body
 }
 
-fn canonical_now() -> Result<String> {
+pub(crate) fn canonical_now() -> Result<String> {
     format_timestamp(OffsetDateTime::now_utc())
 }
 
-fn next_timestamp(document: &PdcDocument) -> Result<String> {
+pub(crate) fn next_timestamp(document: &PdcDocument) -> Result<String> {
     let current = document
         .envelope
         .get("updated")

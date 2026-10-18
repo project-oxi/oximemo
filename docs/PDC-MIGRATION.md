@@ -120,7 +120,38 @@ have executable tests. Rust and TypeScript mirrors run v1 r3 and v2 r2.
 Exit: opening and closing every fixture is byte-identical; every
 discovered file is canonical, legacy, or visibly diagnosed.
 
-### Stage 2 — canonical creation
+### Stage 2 — canonical creation (in progress)
+
+2026-10-18: standalone CLI creation is verified through the actual executable:
+Markdown/HTML `new`, collection templates, schema inheritance, and task capture
+emit PDC 2. Task mutations now use the source-preserving writer with the digest
+captured inside their transaction; existing legacy daily/inbox sources are not
+synthesized or converted. Memo body replacement requires a caller-held source
+digest, and CLI mutations reject legacy sources. `pdc capabilities` reports
+writer support independently of the package version. CLI path discovery is
+side-effect-free; indexed reads refresh private projections without installing
+presets or running home migrations. This advances the CLI creation/guard gates;
+the full Stage 2 exit remains open.
+
+Validation: 724 Rust tests passed (one live release-signature test ignored),
+including seven executable-level CLI regressions; formatting and Clippy passed.
+The registered skill has a concise description, capability-based workflow map,
+and a reusable request evaluator at `skills/oximemo/evals/run.py`. Eight isolated
+natural-language request scenarios passed, including legacy preservation,
+external-change reconciliation, recurring completion, and unrelated README
+editing without skill invocation. The original traces and assertion results are
+under `target/oximemo-skill-evals/`; the task date assertion was corrected to
+inspect parsed dates rather than require one textual notation, then that case
+was rerun. A prior-skill baseline on the same installed CLI refused the recurring
+completion. This is scenario evidence, not a claim of universal reliability.
+
+2026-10-18: the skill/CLI commit was checked independently of pending desktop
+and mobile changes. Its required shared PDC adapters are included. The scoped
+suite passed 716 Rust tests (one live signature test ignored), including nine
+executable regressions; the six move/undo tests were rerun after adding legacy
+source preflight. Rollover previews refresh only private indexes and do not
+install presets. Legacy task moves reject the source before creating or writing
+a destination. Formatting and strict Clippy passed for the scoped sources.
 
 - New notes are v2 Markdown by default; HTML stays available for
   canonical or legacy HTML according to its envelope. Create

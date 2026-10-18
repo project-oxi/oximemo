@@ -152,6 +152,9 @@ enum Cmd {
     /// Edit an existing note (body / favorite).
     Update {
         id: String,
+        /// Source token from `pdc read --json`; required for body replacement.
+        #[arg(long)]
+        sha256: Option<String>,
         /// Replace the body with TEXT.
         #[arg(long)]
         body: Option<String>,
@@ -486,6 +489,8 @@ enum BaseCmd {
 
 #[derive(Subcommand)]
 enum PdcCmd {
+    /// Report this executable's PDC writer and guarded-edit capabilities.
+    Capabilities,
     /// List the vault's PDC-plane files with classification outcomes,
     /// diagnostics, duplicate IDs, and broken references (read-only;
     /// nothing is converted, executed, or rewritten). JSON is the
@@ -731,6 +736,22 @@ fn run() -> Result<()> {
             SpaceCmd::Switch { name } => commands::cmd_space_switch(&name),
         };
     }
+    // Path discovery is not a vault-open or migration operation.
+    if let Cmd::Vault { .. } = &cli.cmd {
+        let spec =
+            oximemo_core::spaces::resolve_vault_spec(cli.vault.as_deref(), cli.space.as_deref())?;
+        println!(
+            "{}",
+            oximemo_core::Paths::resolve_spec(&spec).vault.display()
+        );
+        return Ok(());
+    }
+    if let Cmd::Collection {
+        sub: CollectionCmd::List,
+    } = &cli.cmd
+    {
+        return commands::cmd_collection_list();
+    }
     // PDC operations use the vault source tree directly and must not open or
     // migrate the memo index; the guarded writer needs only the vault paths.
     if let Cmd::Pdc { sub } = &cli.cmd {
@@ -749,8 +770,21 @@ fn run() -> Result<()> {
     }
     let spec =
         oximemo_core::spaces::resolve_vault_spec(cli.vault.as_deref(), cli.space.as_deref())?;
-    let vault = Vault::open_spec(&spec)?;
-    vault.migrate()?;
+    let vault = Vault::open_spec_unmigrated(&spec)?;
+    if matches!(
+        &cli.cmd,
+        Cmd::New { .. }
+            | Cmd::Collection {
+                sub: CollectionCmd::Install { .. }
+            }
+            | Cmd::Task {
+                sub: TaskCmd::Add { .. } | TaskCmd::Rollover { dry_run: false, .. }
+            }
+    ) {
+        vault.migrate()?;
+    } else {
+        vault.refresh_indexes()?;
+    }
     match cli.cmd {
         Cmd::New {
             text,
@@ -849,6 +883,7 @@ fn run() -> Result<()> {
         Cmd::Delete { id } => commands::cmd_delete(&vault, parse_id(&id)?),
         Cmd::Update {
             id,
+            sha256,
             body,
             body_stdin,
             favorite,
@@ -881,7 +916,15 @@ fn run() -> Result<()> {
                 pm.removes.push(k.clone());
             }
             let props = if pm.is_empty() { None } else { Some(pm) };
-            commands::cmd_update(&vault, parse_id(&id)?, body, body_stdin, fav, props)
+            commands::cmd_update(
+                &vault,
+                parse_id(&id)?,
+                body,
+                body_stdin,
+                fav,
+                props,
+                sha256.as_deref(),
+            )
         }
         Cmd::Restore { id } => commands::cmd_restore(&vault, parse_id(&id)?),
         Cmd::Stats => commands::cmd_stats(&vault),

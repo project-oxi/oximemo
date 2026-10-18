@@ -112,6 +112,9 @@ impl Ord for Cursor {
 /// A complete note: its body plus all metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Memo {
+    /// Digest of the exact source bytes read by the editor, never persisted in the envelope.
+    #[serde(skip)]
+    pub source_sha256: Option<String>,
     pub id: MemoId,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
@@ -196,6 +199,9 @@ pub struct NoteDto {
     pub folder: String,
     /// Serialization format, derived from the path extension.
     pub format: NoteFormat,
+    /// Exact source-byte snapshot for guarded canonical saves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_sha256: Option<String>,
 }
 
 impl NoteDto {
@@ -210,9 +216,9 @@ impl NoteDto {
             favorite: memo.favorite,
             tags: memo.tags.clone(),
             body: memo.body.clone(),
-            props: memo.props.clone(),
+            props: crate::memo_pdc::visible_props(&memo.props),
             deleted_at: memo.deleted_at,
-            title: note_title(NoteFormat::from_rel(path), &memo.body),
+            title: crate::memo_pdc::title(memo, NoteFormat::from_rel(path)),
             path: path.to_string(),
             folder: path
                 .rfind('/')
@@ -220,6 +226,7 @@ impl NoteDto {
                 .unwrap_or("")
                 .to_string(),
             format: NoteFormat::from_rel(path),
+            source_sha256: None,
         }
     }
 }

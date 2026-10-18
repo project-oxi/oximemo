@@ -89,7 +89,12 @@ impl Frontmatter {
             Some(_) => return Err("frontmatter field `favorite` must be a boolean".to_string()),
             None => false,
         };
-        let deleted_at = match table.get(v4_key("deleted_at")) {
+        let canonical = table.get("format") == Some(&Value::Str("pdc-document/2".into()));
+        let deleted_at = match table.get(if canonical {
+            "deleted_at"
+        } else {
+            v4_key("deleted_at")
+        }) {
             Some(Value::Str(s)) => Some(parse_rfc3339(s)?),
             Some(_) => {
                 return Err(
@@ -223,6 +228,13 @@ impl FileStore {
     /// is a hard error (corrupt files must not silently drop their
     /// metadata).
     pub fn parse_as(content: &str, fmt: crate::memo::NoteFormat) -> Result<ParsedFile> {
+        if let Some((table, body)) = crate::memo_pdc::projection(content, to_crate_fmt(fmt)) {
+            let fm = Frontmatter::from_table(&table).map_err(|reason| CoreError::Frontmatter {
+                path: PathBuf::new(),
+                reason,
+            })?;
+            return Ok(ParsedFile::Memo { fm, table, body });
+        }
         let parsed = oxi_frontmatter::parse(content, to_crate_fmt(fmt)).map_err(|e| {
             CoreError::Frontmatter {
                 path: PathBuf::new(),
@@ -272,15 +284,26 @@ impl FileStore {
         // never parsed into the editable memo view, so the editor and
         // index can never rewrite PDC source. The PDC inventory owns
         // these files' diagnostics.
-        if crate::pdc_inventory::is_pdc_document(&content) {
+        if crate::pdc_inventory::is_pdc_document(&content)
+            && crate::memo_pdc::projection(&content, to_crate_fmt(fmt)).is_none()
+        {
             return Ok(None);
         }
         match Self::parse_as(&content, fmt)? {
             ParsedFile::BodyOnly { .. } => Ok(None),
             ParsedFile::Memo { fm, body, table } => {
-                let tags = crate::memo::tags_of(fmt, &body);
+                let tags = if table.get("format") == Some(&Value::Str("pdc-document/2".into())) {
+                    match table.get("tags") {
+                        Some(Value::Array(tags)) => tags.clone(),
+                        _ => Vec::new(),
+                    }
+                } else {
+                    crate::memo::tags_of(fmt, &body)
+                };
                 let props = crate::props::props_from_table(&table);
                 let memo = Memo {
+                    source_sha256: crate::pdc_inventory::is_pdc_document(&content)
+                        .then(|| crate::memo_pdc::digest(content.as_bytes())),
                     id: fm.id,
                     created_at: fm.created_at,
                     updated_at: fm.updated_at,
@@ -343,9 +366,18 @@ impl FileStore {
 
     /// Move a note from a vault-relative live path into `.trash/<rel_path>`,
     /// preserving the folder structure. Idempotent.
+    pub fn trash_path(&self, rel_path: &str) -> PathBuf {
+        let canonical = self.paths.canonical_trash_path(rel_path);
+        if canonical.exists() {
+            canonical
+        } else {
+            self.paths.trash_path(rel_path)
+        }
+    }
+
     pub fn move_to_trash(&self, rel_path: &str) -> Result<PathBuf> {
         let live = self.paths.vault.join(rel_path);
-        let trash = self.paths.trash_path(rel_path);
+        let trash = self.trash_path(rel_path);
         if trash.exists() {
             return Ok(trash);
         }
@@ -367,7 +399,7 @@ impl FileStore {
     /// Restore a note from `.trash/<rel_path>` back to its original location.
     pub fn restore_from_trash(&self, rel_path: &str) -> Result<PathBuf> {
         let live = self.paths.vault.join(rel_path);
-        let trash = self.paths.trash_path(rel_path);
+        let trash = self.trash_path(rel_path);
         if live.exists() {
             return Ok(live);
         }
@@ -388,7 +420,7 @@ impl FileStore {
 
     /// Hard-delete a trashed file by its vault-relative path. Returns true if removed.
     pub fn purge(&self, rel_path: &str) -> Result<bool> {
-        let trash = self.paths.trash_path(rel_path);
+        let trash = self.trash_path(rel_path);
         if trash.exists() {
             std::fs::remove_file(&trash)?;
             Ok(true)
@@ -407,7 +439,9 @@ impl FileStore {
 
     /// Walk the trash directory.
     pub fn scan_trash(&self) -> Vec<PathBuf> {
-        walk_md(&self.paths.trash_root())
+        let mut paths = walk_md(&self.paths.trash_root());
+        paths.extend(walk_md(&self.paths.vault.join(crate::paths::PDC_TRASH_DIR)));
+        paths
     }
 
     /// Backward-compat alias for [`scan`](Self::scan).
@@ -475,7 +509,10 @@ fn scan_md_into(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
         };
         if ft.is_dir() {
             // Skip special directories.
-            if name_str.starts_with('.') || name_str == crate::paths::ASSETS_DIR {
+            if name_str.starts_with('.')
+                || name_str == crate::paths::ASSETS_DIR
+                || (dir == root && name_str == crate::paths::PDC_TRASH_DIR)
+            {
                 continue;
             }
             scan_md_into(root, &path, out);

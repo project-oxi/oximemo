@@ -83,11 +83,11 @@ pub fn cmd_new(
     };
     // An empty body is only acceptable when a folder template will fill it.
     if body.is_empty()
-        && oximemo_core::template::load_template(
+        && oximemo_core::template::load_template_guarded(
             vault.paths(),
             folder.as_deref().unwrap_or(""),
             fmt,
-        )
+        )?
         .is_none()
     {
         return Err(anyhow!("refusing to create an empty note"));
@@ -222,6 +222,7 @@ pub fn cmd_export(
 
 /// `oximemo delete` — soft-delete (trash).
 pub fn cmd_delete(vault: &Vault, id: MemoId) -> Result<()> {
+    require_canonical_memo(vault, id)?;
     vault.delete_memo(id)?;
     println!("trashed {}", id);
     Ok(())
@@ -324,6 +325,7 @@ pub fn cmd_migrate_home(dry_run: bool) -> Result<()> {
 
 /// `oximemo update` — edit an existing note's body, favorite flag, or
 /// properties (`--set/--unset`).
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_update(
     vault: &Vault,
     id: MemoId,
@@ -331,7 +333,14 @@ pub fn cmd_update(
     body_stdin: bool,
     favorite: Option<bool>,
     props: Option<oximemo_core::PropMutation>,
+    expected_sha256: Option<&str>,
 ) -> Result<()> {
+    let snapshot = require_canonical_memo(vault, id)?;
+    if (body.is_some() || body_stdin) && expected_sha256.is_none() {
+        return Err(anyhow!(
+            "body replacement requires --sha256 from pdc read --json"
+        ));
+    }
     let body = if body_stdin {
         Some(read_stdin()?)
     } else {
@@ -342,7 +351,13 @@ pub fn cmd_update(
             "no changes specified; pass --body/--body-stdin, --favorite/--unfavorite, or --set/--unset"
         ));
     }
-    let note = vault.update_note_with(id, body, favorite, props)?;
+    let note = vault.update_note_with_snapshot(
+        id,
+        body,
+        favorite,
+        props,
+        expected_sha256.or(snapshot.source_sha256.as_deref()),
+    )?;
     let summary: oximemo_core::memo::MemoSummary = oximemo_core::memo::MemoSummary::from(note);
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
@@ -350,6 +365,7 @@ pub fn cmd_update(
 
 /// `oximemo restore` — un-delete a trashed memo.
 pub fn cmd_restore(vault: &Vault, id: MemoId) -> Result<()> {
+    require_canonical_memo(vault, id)?;
     let note = vault.restore_memo(id)?;
     let summary: oximemo_core::memo::MemoSummary = oximemo_core::memo::MemoSummary::from(note);
     println!("{}", serde_json::to_string_pretty(&summary)?);
@@ -563,7 +579,7 @@ pub fn cmd_metadata_search(
 /// props; `source_url`/`cover_url` land only when the schema declares
 /// them and nothing occupies them. Ratings never map.
 pub fn cmd_stamp(vault: &Vault, id: MemoId, hit: &oximemo_core::metadata::MetaHit) -> Result<()> {
-    let memo = vault.get_memo(id)?;
+    let memo = require_canonical_memo(vault, id)?;
     let dto = vault.note_dto(&memo);
     let schema = vault.folder_schema(&dto.folder)?.unwrap_or_default();
     let mut sets: Vec<(String, oximemo_core::PropValue)> =
@@ -590,7 +606,7 @@ pub fn cmd_stamp(vault: &Vault, id: MemoId, hit: &oximemo_core::metadata::MetaHi
     if sets.is_empty() {
         return Ok(());
     }
-    vault.update_note_with(
+    vault.update_note_with_snapshot(
         id,
         None,
         None,
@@ -598,6 +614,7 @@ pub fn cmd_stamp(vault: &Vault, id: MemoId, hit: &oximemo_core::metadata::MetaHi
             sets,
             removes: Vec::new(),
         }),
+        memo.source_sha256.as_deref(),
     )?;
     Ok(())
 }
@@ -608,6 +625,16 @@ pub fn cmd_stamp_stdin(vault: &Vault, id: MemoId) -> Result<()> {
     let hit: oximemo_core::metadata::MetaHit =
         serde_json::from_str(&raw).context("stdin is not a MetaHit JSON document")?;
     cmd_stamp(vault, id, &hit)
+}
+
+fn require_canonical_memo(vault: &Vault, id: MemoId) -> Result<oximemo_core::Memo> {
+    let memo = vault.get_memo(id)?;
+    if memo.source_sha256.is_none() {
+        return Err(anyhow!(
+            "unsupported_lossless_edit: legacy sources are read-only; explicit conversion requires a new target, backup and report"
+        ));
+    }
+    Ok(memo)
 }
 
 /// `oximemo collection install <PRESET> <FOLDER>` — same skip-if-exists
@@ -1585,6 +1612,22 @@ pub fn cmd_session(paths: &oximemo_core::Paths, sub: &crate::SessionCmd) -> Resu
 /// `oximemo pdc …` dispatch.
 pub fn cmd_pdc(paths: &oximemo_core::Paths, sub: &crate::PdcCmd) -> Result<()> {
     match sub {
+        crate::PdcCmd::Capabilities => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "format": "oximemo-pdc-capabilities/1",
+                    "document_contract": "pdc-document/2",
+                    "body_profiles": ["pdc-markdown/1", "pdc-html/1"],
+                    "writers": {"pdc_create": true, "new": true, "collection_templates": true, "task_capture": true, "task_patch": true},
+                    "memo_metadata_patch": true,
+                    "guarded_source_update": {"digest": "sha256", "title": true, "body": true, "properties": false},
+                    "query_execution": false,
+                    "implicit_home_migration": false
+                }))?
+            );
+            Ok(())
+        }
         crate::PdcCmd::List { format } => {
             let fmt =
                 Format::from_arg(format).ok_or_else(|| anyhow!("unknown --format: {format}"))?;
@@ -1835,7 +1878,7 @@ mod tests {
         let t = TmpVault::new();
         let id = make_memo(t.v(), "first body");
 
-        cmd_update(t.v(), id, None, false, Some(true), None).unwrap();
+        cmd_update(t.v(), id, None, false, Some(true), None, None).unwrap();
         let after = t.v().get_memo(id).unwrap();
         assert!(after.favorite);
         assert_eq!(after.body, "first body");
@@ -1847,18 +1890,22 @@ mod tests {
             false,
             None,
             None,
+            after.source_sha256.as_deref(),
         )
         .unwrap();
-        let after = t.v().get_memo(id).unwrap();
-        assert_eq!(after.body, "new body #urgent");
-        assert!(after.tags.iter().any(|x| x == "urgent"));
+        let updated = t.v().get_memo(id).unwrap();
+        assert_eq!(updated.body, "new body #urgent");
+        assert_eq!(
+            updated.tags, after.tags,
+            "body edits preserve envelope tags"
+        );
     }
 
     #[test]
     fn update_without_changes_is_an_error() {
         let t = TmpVault::new();
         let id = make_memo(t.v(), "x");
-        assert!(cmd_update(t.v(), id, None, false, None, None).is_err());
+        assert!(cmd_update(t.v(), id, None, false, None, None, None).is_err());
     }
 
     #[test]
@@ -1882,6 +1929,7 @@ mod tests {
             None,
             false,
             Some(true),
+            None,
             None,
         )
         .unwrap();
@@ -2342,7 +2390,7 @@ mod tests {
             "status".into(),
             oximemo_core::PropValue::Str("reading".into()),
         ));
-        cmd_update(t.v(), a, None, false, None, Some(pm)).unwrap();
+        cmd_update(t.v(), a, None, false, None, Some(pm), None).unwrap();
         make_memo(t.v(), "# Beta");
         t.v()
             .save_base(

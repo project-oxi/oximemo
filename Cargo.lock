@@ -4146,6 +4146,7 @@ dependencies = [
  "clap",
  "flate2",
  "minisign-verify",
+ "oxi-frontmatter",
  "oximemo-core",
  "oximemo-metadata",
  "oximemo-session",
@@ -4153,9 +4154,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "tar",
+ "tempfile",
  "time",
  "tracing-subscriber",
  "ureq",
+ "uuid",
 ]
 
 [[package]]

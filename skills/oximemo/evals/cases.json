@@ -1,0 +1,10 @@
+[
+  {"id":"capture","prompt":"oximemo에 제목은 '취소 메모', 내용은 'Rust의 취소는 협력적이다.'로 메모를 저장해줘. rust 태그도 붙여줘.","skill":true},
+  {"id":"recall","prompt":"oximemo에서 협력적 취소에 대해 쓴 메모를 찾아 핵심을 한 문장으로 알려줘.","skill":true},
+  {"id":"html_edit","prompt":"oximemo의 '실험 기록' HTML 노트에서 <p>이전 설명</p>을 <p>새 설명</p>으로 고쳐줘. 스타일, 주석, 다른 속성은 유지해줘.","skill":true},
+  {"id":"conflict","prompt":"oximemo의 '충돌 기록'에서 '기존 설명'을 '수정한 설명'으로 바꿔줘. 다른 작성자의 내용은 보존해줘.","skill":true},
+  {"id":"legacy","prompt":"oximemo의 legacy.djot와 plain.md를 읽고 어떤 메모인지 알려줘. 파일을 변환하거나 수정하지 마.","skill":true},
+  {"id":"readme","prompt":"README.md에서 프로젝트 이름 OldProject를 NewProject로 바꿔줘.","skill":false},
+  {"id":"collection","prompt":"oximemo에 책 컬렉션을 books 폴더로 만들고 '듄 독서 기록'을 추가해줘. 감상은 '세계관이 인상적이다.'이고 읽는 중 상태로 기록해줘.","skill":true},
+  {"id":"task","prompt":"oximemo의 '할 일 연습' 노트에 있는 반복 할 일 '인보이스 정리'를 완료해줘.","skill":true}
+]

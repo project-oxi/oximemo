@@ -751,3 +751,59 @@ fn marker_detection_distinguishes_pdc_from_oximemo_frontmatter() {
     assert!(!is_pdc_document("<p>plain</p>\n"));
     assert!(!is_pdc_document("no frontmatter\n"));
 }
+
+#[test]
+fn unmarked_frontmatter_notes_are_legacy_without_rewriting() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::resolve(Some(dir.path()));
+    let cases = [
+        (
+            "note.md",
+            "---\nid: 018f47c6-1199-72b3-87de-344e5a493e27\ncreated: 2026-10-11T00:00:00.123456Z\nupdated: 2026-10-11T00:00:00.123456Z\n---\n# Memo\n",
+            PdcEntryClass::LegacyMarkdown,
+        ),
+        (
+            "TEMPLATE.md",
+            "---\nkind: daily\n---\n# Daily\n",
+            PdcEntryClass::LegacyMarkdown,
+        ),
+        (
+            "note.html",
+            "<!--\n---\nid: 018f47c6-1199-72b3-87de-344e5a493e27\n---\n-->\n<h1>HTML</h1>\n",
+            PdcEntryClass::LegacyHtml,
+        ),
+    ];
+    for (name, source, class) in cases {
+        fs::write(dir.path().join(name), source).unwrap();
+        let (entry, _, _) = classify_entry(
+            name,
+            source.as_bytes(),
+            if name.ends_with(".html") {
+                DocumentExt::Html
+            } else {
+                DocumentExt::Markdown
+            },
+            source.len() as u64,
+        );
+        assert_eq!(entry.class, class);
+        assert!(entry.diagnostic.is_none());
+        let read = read_source(&paths, name).unwrap();
+        assert_eq!(read.content, source);
+        assert!(read.editable_body.is_none());
+        assert_eq!(fs::read(dir.path().join(name)).unwrap(), source.as_bytes());
+    }
+}
+
+#[test]
+fn declared_pdc_with_missing_format_is_still_invalid() {
+    let source =
+        "---\nbody: pdc-markdown/1\nid: 018f47c6-1199-72b3-87de-344e5a493e27\n---\n# Broken PDC\n";
+    let (entry, _, _) = classify_entry(
+        "broken.md",
+        source.as_bytes(),
+        DocumentExt::Markdown,
+        source.len() as u64,
+    );
+    assert_eq!(entry.class, PdcEntryClass::Invalid);
+    assert_eq!(entry.diagnostic.unwrap().code, "invalid_envelope");
+}

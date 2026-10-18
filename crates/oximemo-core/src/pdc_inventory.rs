@@ -902,6 +902,43 @@ fn read_bounded_source(path: &Path, max_bytes: usize) -> Result<(u64, Vec<u8>)> 
 ///
 /// Returns the inventory entry, text scanned for references, and parsed
 /// block targets for resolution after all target paths are known.
+/// Adapter for unmarked YAML-frontmatter notes and templates. A missing
+/// PDC marker is not a corrupt PDC envelope; declared PDC bodies still take
+/// the strict contract path, including malformed/missing format fields.
+fn legacy_frontmatter(ext: DocumentExt, bytes: &[u8]) -> Option<Classification> {
+    if bytes.len() > oxi_frontmatter::pdc::MAX_DOCUMENT_BYTES {
+        return None;
+    }
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut lines = text.lines();
+    match ext {
+        DocumentExt::Markdown if lines.next()? == "---" => {}
+        DocumentExt::Html if lines.next()? == "<!--" && lines.next()? == "---" => {}
+        _ => return None,
+    }
+    let mut envelope = String::new();
+    loop {
+        let line = lines.next()?;
+        if line == "---" {
+            break;
+        }
+        envelope.push_str(line);
+        envelope.push('\n');
+    }
+    if ext == DocumentExt::Html && lines.next()? != "-->" {
+        return None;
+    }
+    let mapping = oxi_frontmatter::pdc::yaml::parse_document(&envelope).ok()?;
+    if mapping.get("format").is_some() || mapping.get("body").is_some() {
+        return None;
+    }
+    Some(match ext {
+        DocumentExt::Markdown => Classification::LegacyMarkdown,
+        DocumentExt::Html => Classification::LegacyHtml,
+        DocumentExt::Djot => return None,
+    })
+}
+
 fn classify_entry(
     rel_path: &str,
     bytes: &[u8],
@@ -920,7 +957,11 @@ fn classify_entry(
         missing_assets: Vec::new(),
     };
     let text = std::str::from_utf8(bytes).ok();
-    let (class, doc, diagnostic) = match classify(ext, bytes) {
+    // Existing Oximemo/Obsidian frontmatter without a PDC declaration is
+    // a legacy input. Keep the normative classifier strict for files that
+    // declare format/body, and never rewrite source just to add a marker.
+    let classification = legacy_frontmatter(ext, bytes).unwrap_or_else(|| classify(ext, bytes));
+    let (class, doc, diagnostic) = match classification {
         Classification::Valid(d) => {
             let class = if d.legacy {
                 PdcEntryClass::LegacyDocument
