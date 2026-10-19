@@ -13,6 +13,7 @@ use oximemo_core::memo::MemoId;
 
 mod commands;
 mod format;
+mod mobile_server;
 mod upgrade;
 
 #[derive(Parser)]
@@ -39,6 +40,26 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Serve the mobile sync API on loopback, behind Tailscale Serve HTTPS.
+    MobileServe {
+        #[arg(long, default_value = "127.0.0.1:9843")]
+        bind: std::net::SocketAddr,
+        /// Owner-only file containing a random 32+ character bearer token.
+        #[arg(long)]
+        token_file: PathBuf,
+    },
+    /// Display an expiring QR and connection code for the running PC server.
+    MobilePair {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        token_file: PathBuf,
+        #[arg(long, default_value = "127.0.0.1:9843")]
+        server: std::net::SocketAddr,
+        /// Save a private, printable QR page (create a new file).
+        #[arg(long)]
+        qr_file: Option<PathBuf>,
+    },
     /// Create a note from an argument or stdin.
     New {
         /// Note body. If omitted, reads from stdin.
@@ -733,6 +754,15 @@ fn run() -> Result<()> {
     if let Cmd::Upgrade { check } = &cli.cmd {
         return upgrade::run(*check);
     }
+    if let Cmd::MobilePair {
+        url,
+        token_file,
+        server,
+        qr_file,
+    } = &cli.cmd
+    {
+        return mobile_server::show_pairing(url, token_file, *server, qr_file.as_deref());
+    }
     // `migrate-home` inspects and migrates the HOME layout itself and
     // must observe the pre-migration state: handled before any vault
     // resolution (the generic open below would run the migrations as
@@ -771,6 +801,11 @@ fn run() -> Result<()> {
             oximemo_core::spaces::resolve_vault_spec(cli.vault.as_deref(), cli.space.as_deref())?;
         let paths = oximemo_core::Paths::resolve_spec(&spec);
         return commands::cmd_pdc(&paths, sub);
+    }
+    if let Cmd::MobileServe { bind, token_file } = &cli.cmd {
+        let spec =
+            oximemo_core::spaces::resolve_vault_spec(cli.vault.as_deref(), cli.space.as_deref())?;
+        return mobile_server::run(&oximemo_core::Paths::resolve_spec(&spec), *bind, token_file);
     }
     // Session ingestion uses only the vault's config and source paths; it
     // never opens or migrates the memo index.
@@ -980,6 +1015,8 @@ fn run() -> Result<()> {
         Cmd::Space { .. } => unreachable!(),
         Cmd::MigrateHome { .. } => unreachable!(),
         Cmd::Pdc { .. } => unreachable!(),
+        Cmd::MobileServe { .. } => unreachable!(),
+        Cmd::MobilePair { .. } => unreachable!(),
     }
 }
 

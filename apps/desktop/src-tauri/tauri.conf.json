@@ -12,6 +12,19 @@
   "app": {
     "windows": [
       {
+        "label": "main",
+        "create": false,
+        "title": "oximemo",
+        "url": "index.html",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 480,
+        "minHeight": 360,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      },
+      {
         "label": "capture",
         "title": "Capture",
         "width": 560,

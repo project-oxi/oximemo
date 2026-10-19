@@ -13,6 +13,7 @@ import { invoke, listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import type { PdcInventory, PdcInventoryEntry, PdcSourceFile, PdcWriteReceipt } from "../lib/pdcInventory";
 import { SessionRecorderPanel } from "./SessionRecorderPanel";
+import { useUI } from "../stores/ui";
 
 function fmt(n: number, template: string): string {
   return template.replace("{n}", String(n));
@@ -189,7 +190,7 @@ function SourceViewer({ entry, onClose }: { entry: OpenSource; onClose: () => vo
               type="button"
               disabled={!dirty || saving}
               onClick={() => void save()}
-              className="rounded bg-hue-blue/15 px-3 py-1.5 text-xs font-medium text-hue-blue disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded bg-interactive-primary px-3 py-1.5 text-xs font-medium text-interactive-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? t.pdc_saving : t.pdc_save}
             </button>
@@ -205,9 +206,9 @@ function SourceViewer({ entry, onClose }: { entry: OpenSource; onClose: () => vo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={requestClose}>
+    <div className="glass-backdrop fixed inset-0 z-50 flex items-center justify-center p-6" onClick={requestClose}>
       <div
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-lg border border-line bg-surface shadow-xl"
+        className="pdc-source-sheet flex max-h-[85vh] w-full max-w-3xl flex-col border border-line bg-surface"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-2">
@@ -396,7 +397,7 @@ function InventoryResults({
     invalid_query: t.pdc_class_invalid_query,
   };
   return (
-    <ul className="space-y-1.5">
+    <ul className="pdc-document-list space-y-1.5">
       {items.map((e: PdcInventoryEntry) => (
         <li
           key={e.path}
@@ -451,11 +452,19 @@ export function PdcView() {
   // inventory, so a refresh that drops the entry cannot unmount the
   // editor and silently discard unsaved edits.
   const [openSource, setOpenSource] = useState<OpenSource | null>(null);
+  const targetPath = useUI((s) => s.pdcTargetPath);
+  const consumePdcTargetPath = useUI((s) => s.consumePdcTargetPath);
   const [activePane, setActivePane] = useState<"documents" | "sessions">("documents");
   const inv = useQuery({
     queryKey: ["pdc-inventory"],
     queryFn: () => invoke<PdcInventory>("pdc_inventory"),
   });
+  useEffect(() => {
+    if (!targetPath || !inv.data) return;
+    const entry = inv.data.items.find((item) => item.path === targetPath);
+    if (entry) setOpenSource({ path: entry.path, class: entry.class });
+    consumePdcTargetPath();
+  }, [targetPath, inv.data, consumePdcTargetPath]);
 
   // The vault watcher broadcasts both events on settled external edits;
   // mirror the CardGrid/Sidebar listeners so the inventory never goes
@@ -496,8 +505,9 @@ export function PdcView() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl p-4" data-pdc-inventory="">
-      <div className="mb-3 flex gap-1 border-b border-line pb-2">
+    <div className="pdc-workspace" data-pdc-inventory="">
+      <div className="pdc-heading"><h1>{t.pdc_documents}</h1></div>
+      <div className="pdc-tabs mb-4 flex gap-1">
         {(["documents", "sessions"] as const).map((pane) => (
           <button
             key={pane}
@@ -535,7 +545,7 @@ export function PdcView() {
         <button
           type="button"
           onClick={() => setShowCreate((shown) => !shown)}
-          className="rounded bg-hue-blue/15 px-2 py-1 text-xs text-hue-blue hover:bg-hue-blue/20"
+          className="rounded bg-interactive-primary px-2 py-1 text-xs text-interactive-primary-foreground hover:bg-interactive-primary/90"
         >
           {t.pdc_new}
         </button>

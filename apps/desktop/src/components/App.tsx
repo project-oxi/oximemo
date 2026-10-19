@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTodayKey } from "../lib/relativeDay";
-import { Bot, Terminal, X } from "lucide-react";
+import { Terminal, X } from "lucide-react";
 import { isRouteCapture } from "../lib/window";
 import { listFolders, getConfig, setFolderPinned } from "../lib/api";
 import { useSchemaInfo } from "../lib/folders";
@@ -16,16 +16,32 @@ import { ErrorToast } from "./ErrorBoundary";
 import { TaskQuickAdd } from "./TaskQuickAdd";
 import { Toast } from "./Toast";
 import { useUI } from "../stores/ui";
-import { applyTheme, saveTheme } from "../lib/theme";
+import { followTheme, loadTheme, saveTheme, THEME_STORAGE_KEY } from "../lib/theme";
 import { useI18n } from "../lib/i18n";
-import { cliStatus, copilotStatus, installCli } from "../lib/api";
+import { cliStatus, installCli } from "../lib/api";
 import { checkForUpdate } from "../lib/updater";
+import { AnimatePresence } from "motion/react";
 
 const qc = new QueryClient({
   defaultOptions: { queries: { staleTime: 5_000, refetchOnWindowFocus: false } },
 });
 
 export function App() {
+  const theme = useUI((s) => s.theme);
+  useEffect(() => {
+    saveTheme(theme);
+    return followTheme(theme);
+  }, [theme]);
+  useEffect(() => {
+    const onPreference = (event: StorageEvent) => {
+      if (event.key === THEME_STORAGE_KEY || event.key === null) {
+        useUI.getState().setTheme(loadTheme());
+      }
+    };
+    window.addEventListener("storage", onPreference);
+    return () => window.removeEventListener("storage", onPreference);
+  }, []);
+
   if (isRouteCapture()) {
     return <CaptureOverlay />;
   }
@@ -40,15 +56,9 @@ export function App() {
 
 function Shell() {
   const copilotOpen = useUI((s) => s.copilotOpen);
-  const theme = useUI((s) => s.theme);
   const setUpdateAvailable = useUI((s) => s.setUpdateAvailable);
   const setToast = useUI((s) => s.setToast);
   const { t } = useI18n();
-
-  useEffect(() => {
-    applyTheme(theme);
-    saveTheme(theme);
-  }, [theme]);
 
   // Auto-check for updates on launch (Tauri shell only). Badges the settings
   // gear and toasts once per new version.
@@ -67,8 +77,7 @@ function Shell() {
   return (
     <>
       <CardGrid />
-      {copilotOpen && <CopilotPanel />}
-      <CopilotFab />
+      <AnimatePresence>{copilotOpen && <CopilotPanel key="copilot" />}</AnimatePresence>
       <CollectionAutopin />
       <MidnightRefresh />
       <CliNudge />
@@ -103,34 +112,6 @@ function MidnightRefresh() {
   }, [todayKey, qc]);
   return null;
 }
-
-/**
- * Bottom-right floating action button (Notion-style) — the copilot's
- * always-visible entry point. Sits ABOVE the note dialog (z-[70] vs the
- * dialog's z-50) so the copilot stays reachable while a note is open;
- * hidden while the window is open, and entirely when no agent is
- * activated (spec §6.5: no nudge, no dead buttons).
- */
-function CopilotFab() {
-  const { t } = useI18n();
-  const copilotOpen = useUI((s) => s.copilotOpen);
-  const setCopilotOpen = useUI((s) => s.setCopilotOpen);
-  const status = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
-  const visible = (status.data?.enabled ?? false) && (status.data?.activated ?? false);
-  if (!visible || copilotOpen) return null;
-  return (
-    <button
-      type="button"
-      aria-label={t.copilot_fab}
-      title={t.copilot_fab}
-      onClick={() => setCopilotOpen(true)}
-      className="fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line bg-interactive-primary text-interactive-primary-foreground shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95"
-    >
-      <Bot size={18} />
-    </button>
-  );
-}
-
 
 /**
  * One-shot migration (2026-08-23): collections installed before install-time
@@ -192,7 +173,7 @@ function CliNudge() {
     if (!inTauri) return;
     if (window.localStorage.getItem(DISMISS_KEY) === "1") return;
     cliStatus()
-      .then((s) => setShow(s !== "installed"))
+      .then((s) => setShow(s === "not-installed"))
       .catch(() => {});
   }, [inTauri]);
 
@@ -203,7 +184,9 @@ function CliNudge() {
         setShow(false);
         setToast(t.cli_install_done);
       })
-      .catch(() => setError(t.cli_install_failed))
+      .catch((e) =>
+        setError(`${t.cli_install_failed} ${String(e).split("\n")[0]}`),
+      )
       .finally(() => setBusy(false));
   };
 

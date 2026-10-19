@@ -1,0 +1,234 @@
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
+ * genre: modern-minimal · macrostructure: Workbench · theme: Oxi Glass
+ * User-requested Liquid Glass overrides the catalog's material restriction.
+ * These tokens style application chrome, never authored HTML documents. */
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SUIT Variable", "SUIT", system-ui, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-canvas: oklch(0.94 0 0);
+  --color-paper: oklch(0.99 0 0);
+  --color-paper-2: oklch(0.965 0 0);
+  --color-ink: oklch(0.25 0 0);
+  --color-ink-2: oklch(0.45 0 0);
+  --color-rule: oklch(0.3 0 0 / 0.10);
+  --color-accent: oklch(0.28 0 0);
+  --color-focus: var(--color-accent);
+  --color-glass: oklch(0.99 0 0 / 0.68);
+  --color-glass-solid: oklch(0.975 0 0);
+  --color-glass-toolbar: oklch(1 0 0 / 0.56);
+  --color-glass-edge: oklch(1 0 0 / 0.80);
+  --color-glass-highlight: oklch(1 0 0 / 0.85);
+  --color-glass-shadow: oklch(0.25 0 0 / 0.08);
+  --color-glass-shadow-deep: oklch(0.25 0 0 / 0.16);
+  --color-selection: oklch(0.25 0 0 / 0.10);
+  --color-selection-ink: var(--color-ink);
+  --color-control: oklch(0.4 0 0 / 0.045);
+  --color-control-hover: oklch(0.4 0 0 / 0.075);
+  --color-backdrop: oklch(0.25 0 0 / 0.16);
+  --color-primary-edge: oklch(1 0 0 / 0.24);
+
+  /* Existing Tailwind semantics share the palette. */
+  --color-surface: var(--color-paper);
+  --color-surface-raised: oklch(1 0 0);
+  --color-surface-sunken: var(--color-paper-2);
+  --color-surface-muted: var(--color-control);
+  --color-text: var(--color-ink);
+  --color-text-muted: var(--color-ink-2);
+  --color-text-subtle: oklch(0.49 0 0);
+  --color-text-inverse: oklch(0.99 0 0);
+  --color-line: var(--color-rule);
+  --color-line-strong: oklch(0.3 0 0 / 0.23);
+  --color-focus-ring: var(--color-focus);
+  --color-interactive-primary: var(--color-accent);
+  --color-interactive-primary-foreground: oklch(1 0 0);
+  --folder-tile-bg: var(--color-paper-2);
+
+  /* Monochrome app chrome. Labels and icons retain status meaning; saved
+   * folder colors and authored document styling keep their original data. */
+  --color-folder-marker: var(--color-text-muted);
+  --color-hue-red: var(--color-text-muted);
+  --color-hue-amber: var(--color-text-muted);
+  --color-hue-green: var(--color-text-muted);
+  --color-hue-teal: var(--color-text-muted);
+  --color-hue-blue: var(--color-text-muted);
+  --color-hue-purple: var(--color-text-muted);
+  --color-status-success: var(--color-text-muted);
+  --color-status-warning: var(--color-text);
+  --color-status-error: var(--color-text);
+  --color-status-info: var(--color-text-muted);
+  --color-status-success-subtle: var(--color-paper-2);
+  --color-status-warning-subtle: var(--color-paper-2);
+  --color-status-error-subtle: var(--color-paper-2);
+  --color-status-info-subtle: var(--color-paper-2);
+  --color-status-success-on-subtle: var(--color-text);
+  --color-status-warning-on-subtle: var(--color-text);
+  --color-status-error-on-subtle: var(--color-text);
+  --color-status-info-on-subtle: var(--color-text);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --memo-reading-width: 760px;
+  --workspace-sidebar-width: 220px;
+  --text-display: 22px;
+  --text-title: 14px;
+  --text-body: 13px;
+  --text-caption: 11px;
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-full: 9999px;
+  --button-radius: var(--radius-md);
+  --input-radius: var(--radius-md);
+  --card-radius: var(--radius-lg);
+  --dialog-radius: var(--radius-2xl);
+  --popover-radius: var(--radius-xl);
+  --tag-radius: var(--radius-sm);
+  --nav-item-radius: var(--radius-md);
+  --rule-width: 1px;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  /* Garden 0.1.0 motion vocabulary; exit follows its 100ms overlay recipe. */
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-exit: 100ms;
+  --ease-enter: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-exit: cubic-bezier(0.8, 0, 0.4, 1);
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: var(--dur-fast);
+  --duration-base: var(--dur-base);
+  --glass-blur: 28px;
+  --glass-saturation: 0;
+  --glass-shadow: inset 0 1px 0 var(--color-glass-highlight), 0 4px 20px var(--color-glass-shadow);
+  --glass-shadow-float: inset 0 1px 0 var(--color-glass-highlight), 0 20px 64px var(--color-glass-shadow-deep), 0 2px 8px var(--color-glass-shadow);
+  --input-shadow: inset 0 0 0 1px var(--color-line);
+  --input-shadow-focus: 0 0 0 2px var(--color-focus-ring);
+
+  /* The editor package defaults to dark colors. Bind its supported theme
+   * variables to the app palette without touching source or extensions. */
+  --atomic-editor-fg: var(--color-text);
+  --atomic-editor-fg-muted: var(--color-text-subtle);
+  --atomic-editor-fg-faint: var(--color-text-subtle);
+  --atomic-editor-link: var(--color-text);
+  --atomic-editor-link-hover: var(--color-text);
+  --atomic-editor-bg: var(--color-paper);
+  --atomic-editor-bg-surface: var(--color-surface-raised);
+  --atomic-editor-bg-panel: var(--color-paper-2);
+  --atomic-editor-border: var(--color-line);
+  --atomic-editor-accent: var(--color-accent);
+  --atomic-editor-accent-bright: var(--color-accent);
+  --atomic-editor-accent-soft: var(--color-selection);
+  --atomic-editor-selection-bg: var(--color-selection);
+  --atomic-editor-search-bg: var(--color-selection);
+  --atomic-editor-search-bg-active: var(--color-selection);
+  --atomic-editor-font: var(--font-sans);
+  --atomic-editor-code-font: var(--font-mono);
+  --atomic-editor-font-mono: var(--font-mono);
+  --atomic-editor-body-size: 16px;
+  --atomic-editor-body-leading: 1.7;
+  --atomic-editor-code-bg: var(--color-paper-2);
+  --atomic-editor-code-border: var(--color-line);
+  --atomic-editor-code-rail: var(--color-line-strong);
+  --atomic-editor-hl-keyword: var(--color-status-info-on-subtle);
+  --atomic-editor-hl-string: var(--color-status-success-on-subtle);
+  --atomic-editor-hl-number: var(--color-status-warning-on-subtle);
+  --atomic-editor-hl-comment: var(--color-text-subtle);
+  --atomic-editor-hl-type: var(--color-status-info-on-subtle);
+  --atomic-editor-hl-function: var(--color-status-info-on-subtle);
+  --atomic-editor-hl-property: var(--color-status-success-on-subtle);
+  --atomic-editor-hl-regexp: var(--color-status-error-on-subtle);
+  --atomic-editor-hl-escape: var(--color-status-warning-on-subtle);
+  --atomic-editor-hl-tag: var(--color-status-info-on-subtle);
+  --atomic-editor-hl-variable: var(--color-text);
+  --atomic-editor-hl-operator: var(--color-text-muted);
+  --atomic-editor-hl-invalid: var(--color-status-error);
+}
+
+.dark {
+  --color-canvas: oklch(0.17 0 0);
+  --color-paper: oklch(0.215 0 0);
+  --color-paper-2: oklch(0.245 0 0);
+  --color-ink: oklch(0.94 0 0);
+  --color-ink-2: oklch(0.76 0 0);
+  --color-rule: oklch(1 0 0 / 0.09);
+  --color-accent: oklch(0.90 0 0);
+  --color-glass: oklch(0.29 0 0 / 0.70);
+  --color-glass-solid: oklch(0.265 0 0);
+  --color-glass-toolbar: oklch(0.29 0 0 / 0.55);
+  --color-glass-edge: oklch(1 0 0 / 0.13);
+  --color-glass-highlight: oklch(1 0 0 / 0.08);
+  --color-glass-shadow: oklch(0 0 0 / 0.16);
+  --color-glass-shadow-deep: oklch(0 0 0 / 0.40);
+  --color-selection: oklch(0.94 0 0 / 0.12);
+  --color-selection-ink: var(--color-ink);
+  --color-control: oklch(1 0 0 / 0.045);
+  --color-control-hover: oklch(1 0 0 / 0.075);
+  --color-backdrop: oklch(0.1 0 0 / 0.34);
+  --color-surface-raised: oklch(0.265 0 0);
+  --color-text-subtle: oklch(0.70 0 0);
+  --color-text-inverse: oklch(0.18 0 0);
+  --color-line-strong: oklch(1 0 0 / 0.22);
+  --color-interactive-primary-foreground: oklch(0.17 0 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-base: 0ms; --dur-exit: 0ms; }
+}
+
+@media (max-width: 900px) {
+  :root { --workspace-sidebar-width: 212px; }
+}
+@media (max-width: 700px) {
+  :root { --workspace-sidebar-width: 220px; }
+}
+
+/* Mobile material export; desktop retains its own semantic aliases. */
+:root {
+  --font-mobile-display: ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif;
+  --text-mobile-large-title: 2rem;
+  --text-mobile-preview: .84rem;
+  --text-mobile-meta: .72rem;
+  --color-mobile-paper: oklch(99.6% 0 0);
+  --color-mobile-ground: oklch(96.6% .003 250);
+  --color-mobile-glass: oklch(100% 0 0 / .74);
+  --color-mobile-edge: oklch(100% 0 0 / .9);
+  --color-mobile-contact: oklch(35% .005 250 / .12);
+  --color-mobile-ink: oklch(22% .005 250);
+  --color-mobile-muted: oklch(49% .006 250);
+  --color-mobile-mark: oklch(89% .035 85);
+  --radius-glass-control: 999px;
+  --radius-glass-group: 22px;
+  --radius-glass-dialog: 28px;
+  --mobile-glass-shadow: inset 0 1px 0 var(--color-mobile-edge), 0 2px 8px var(--color-mobile-contact);
+  --mobile-glass-blur: 24px;
+}
+[data-theme="dark"] {
+  --color-mobile-paper: oklch(19% .003 250);
+  --color-mobile-ground: oklch(14.5% .003 250);
+  --color-mobile-glass: oklch(29% .003 250 / .8);
+  --color-mobile-edge: oklch(100% 0 0 / .13);
+  --color-mobile-contact: oklch(0% 0 0 / .32);
+  --color-mobile-ink: oklch(95% .002 250);
+  --color-mobile-muted: oklch(73% .005 250);
+  --color-mobile-mark: oklch(41% .045 85);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme]) {
+  --color-mobile-paper: oklch(19% .003 250);
+  --color-mobile-ground: oklch(14.5% .003 250);
+  --color-mobile-glass: oklch(29% .003 250 / .8);
+  --color-mobile-edge: oklch(100% 0 0 / .13);
+  --color-mobile-contact: oklch(0% 0 0 / .32);
+  --color-mobile-ink: oklch(95% .002 250);
+  --color-mobile-muted: oklch(73% .005 250);
+  --color-mobile-mark: oklch(41% .045 85);
+} }

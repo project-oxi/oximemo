@@ -29,7 +29,7 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::SystemTime;
+
 
 use parking_lot::Mutex;
 
@@ -184,10 +184,10 @@ pub(crate) fn estimate_result_bytes(r: &BaseResult) -> usize {
 pub struct ResultKey {
     pub source_hash: u64,
     pub view_index: usize,
-    /// `(meta.redb mtime, meta.redb size)` observed after `snapshot()`
-    /// populated its own cache. Used verbatim in the rendered
-    /// `result_key` string.
-    pub generation: (SystemTime, u64),
+    /// Database write generation ([`crate::store::index::RedbIndex::generation`])
+    /// observed after `snapshot()` populated its own cache. Used verbatim
+    /// in the rendered `result_key` string.
+    pub generation: u64,
     pub clock_ms: i64,
     pub local_offset_seconds: i32,
     pub group_counts: bool,
@@ -207,7 +207,7 @@ pub(crate) const PROPS_SOURCE_HASH: u64 = 0;
 /// caches its catalog. Every field except `generation` is constant, so
 /// an unchanged index is a hit and any index write (which changes the
 /// generation) is a natural miss — no separate invalidation path.
-pub(crate) fn props_result_key(generation: (SystemTime, u64)) -> ResultKey {
+pub(crate) fn props_result_key(generation: u64) -> ResultKey {
     ResultKey {
         source_hash: PROPS_SOURCE_HASH,
         view_index: 0,
@@ -360,18 +360,12 @@ pub(crate) fn blake3_u64(bytes: &[u8]) -> u64 {
 
 /// Stable, human-readable rendering of a [`ResultKey`] for the
 /// `BasePage.result_key` field. Format:
-/// `<source_hash:016x>-v<view>-g<mtime_secs>.<mtime_nanos:09>.<size>.<this_id>-c<clock_ms>.<offset>-f<flags>`
-/// Sub-second mtime precision and `this_id` are included so two writes
-/// within the same second and two embeds of the same `.query` in the
-/// same session render distinct strings — both surface as stale
-/// widgets (spec §6) if collapsed.
+/// `<source_hash:016x>-v<view>-g<generation>.<this_id>-c<clock_ms>.<offset>-f<flags>`
+/// The generation counter and `this_id` are included so two index
+/// writes and two embeds of the same `.query` in the same session
+/// render distinct strings — both surface as stale widgets (spec §6)
+/// if collapsed.
 pub fn render_result_key(k: &ResultKey) -> String {
-    let (secs, nanos) = k
-        .generation
-        .0
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| (d.as_secs(), d.subsec_nanos()))
-        .unwrap_or((0, 0));
     let mut flags = 0u8;
     if k.group_counts {
         flags |= 1 << 0;
@@ -380,15 +374,14 @@ pub fn render_result_key(k: &ResultKey) -> String {
         flags |= 1 << 1;
     }
     let this_tag = match k.this_id {
-        Some(id) => format!(".{}{}", k.generation.1, id.as_uuid().simple()),
-        None => format!(".{}", k.generation.1),
+        Some(id) => format!(".{}", id.as_uuid().simple()),
+        None => String::new(),
     };
     format!(
-        "{:016x}-v{}-g{}.{:09}{}-c{}.{}-f{}",
+        "{:016x}-v{}-g{}{}-c{}.{}-f{}",
         k.source_hash,
         k.view_index,
-        secs,
-        nanos,
+        k.generation,
         this_tag,
         k.clock_ms,
         k.local_offset_seconds,
@@ -479,7 +472,7 @@ mod tests {
         ResultKey {
             source_hash: h,
             view_index: v,
-            generation: (SystemTime::UNIX_EPOCH, 0),
+            generation: 0,
             clock_ms: 0,
             local_offset_seconds: 0,
             group_counts: false,
@@ -553,7 +546,7 @@ mod tests {
         let k = ResultKey {
             source_hash: 0xdead_beef,
             view_index: 3,
-            generation: (SystemTime::UNIX_EPOCH, 42),
+            generation: 42,
             clock_ms: 100,
             local_offset_seconds: 9 * 3600,
             group_counts: true,
@@ -561,7 +554,7 @@ mod tests {
             this_id: None,
         };
         let s = render_result_key(&k);
-        assert!(s.starts_with("00000000deadbeef-v3-g0.000000000.42-c100.32400-f1"));
+        assert!(s.starts_with("00000000deadbeef-v3-g42-c100.32400-f1"));
         let k2 = ResultKey {
             summaries: true,
             ..k.clone()
@@ -570,11 +563,11 @@ mod tests {
     }
 
     #[test]
-    fn render_distinguishes_subsecond_and_this_id() {
+    fn render_distinguishes_generation_and_this_id() {
         let base = ResultKey {
             source_hash: 1,
             view_index: 0,
-            generation: (SystemTime::UNIX_EPOCH + std::time::Duration::new(5, 100), 7),
+            generation: 7,
             clock_ms: 0,
             local_offset_seconds: 0,
             group_counts: false,
@@ -582,13 +575,13 @@ mod tests {
             this_id: None,
         };
         let s = render_result_key(&base);
-        // Same second, different nanos → distinct strings (spec §6:
-        // same-second writes must not alias the widget key).
-        let nanos = ResultKey {
-            generation: (SystemTime::UNIX_EPOCH + std::time::Duration::new(5, 101), 7),
+        // Different write generations → distinct strings (spec §6:
+        // consecutive index writes must not alias the widget key).
+        let bumped = ResultKey {
+            generation: 8,
             ..base.clone()
         };
-        assert_ne!(s, render_result_key(&nanos));
+        assert_ne!(s, render_result_key(&bumped));
         // Embed scope participates in the render too.
         let embed = ResultKey {
             this_id: Some(crate::memo::MemoId::now()),

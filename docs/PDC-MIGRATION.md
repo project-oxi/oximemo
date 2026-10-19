@@ -143,6 +143,25 @@ and concurrent metadata reconciliation. Both conflict traces contain an actual
 and original traces are retained under `target/pdc-partial-edit/requests/`.
 These are observed scenario outcomes; the full Stage 2 exit remains open.
 
+2026-10-18: the iPhone reading/writing refinement keeps preview and editing
+separate without changing document formats or source snapshots. Saving retains
+the open reader. The native synchronization client reports an explicit,
+session-only temporary-key to document-ID mapping, so an acknowledged new note
+can be edited again without guessing identity from its title/body. HTTP tests
+cover this handoff after success and after a later manifest failure; the cache
+and vault schemas stay unchanged. Frontend tests cover preview re-entry, guarded
+exit, HTML source read-only until edit, and repeated save against the confirmed
+PC identity. These are mobile safety checks, not completion of Stage 2.
+
+2026-10-18: live Copilot checks exposed stale open-editor drafts and named-space
+index refreshes after external guarded edits. The editor now adopts clean source
+snapshots together with their save tokens, retains the original token for dirty
+or in-flight drafts, and refreshes the mounted source editor after a clean
+external change. Desktop watcher reconciliation uses the running vault's index
+namespace. Ordinary body edits preserve authoritative envelope tags and omit
+unchanged favorite patches. Markdown/HTML preservation and stale-digest checks
+cover this safety gate; the complete Stage 2 exit remains open.
+
 2026-10-18: standalone CLI creation is verified through the actual executable:
 Markdown/HTML `new`, collection templates, schema inheritance, and task capture
 emit PDC 2. Task mutations now use the source-preserving writer with the digest
@@ -173,6 +192,52 @@ executable regressions; the six move/undo tests were rerun after adding legacy
 source preflight. Rollover previews refresh only private indexes and do not
 install presets. Legacy task moves reject the source before creating or writing
 a destination. Formatting and strict Clippy passed for the scoped sources.
+
+2026-10-18: the mobile presentation redesign retains the same source editor,
+cache snapshots and canonical PC writer. Local drafts are durably queued before
+automatic sync; no document-format or migration behavior changed. HTTP client
+tests now exercise source pull, immutable retry, guarded conflict retention and
+authentication failure, complementing the actual PC server smoke test. The
+mobile status UI separates saved credentials, transport success and per-document
+rejection. These checks advance the existing mobile safety gate without claiming
+the full Stage 2 exit.
+
+2026-10-18: the mobile Markdown source editor now has a sanitized CommonMark/GFM
+reading view, advancing the Stage 2 preview/sanitizer gate. It previews the
+current body without changing source, envelope, or save snapshots. Raw HTML is
+inert text, tasks are disabled, and unresolved links/assets use readable labels
+without navigation or network loads. Legacy Markdown is previewable read-only;
+other legacy, invalid, unsupported, HTML, and query documents keep source
+fallback. The pinned PDC 2 r2 semantics fixture, inert rendering, and
+reading/source-editor transitions are covered by mobile tests. The full Stage 2
+exit remains open.
+
+2026-10-12: newly installed preset templates now use the canonical note writer,
+including UUIDv7 identity, timestamps, vault manifest and atomic create-if-absent.
+Reinstalling a preset preserves its existing template bytes. The canonical
+template reader keeps preset defaults and body separate from identity/lifecycle
+metadata. The preset installation and inheritance checks pass; the full Stage 2
+exit remains open. Input refinements retain the existing lossless Markdown source
+editor and guarded save path.
+
+2026-10-12: the template reader recognizes canonical PDC 2 envelopes and
+keeps identity/lifecycle metadata out of a new note's body. Creation refuses
+unsupported template property shapes and invalid/legacy PDC templates instead
+of coercing them; existing template files remain unchanged. This advances the
+open template safety gate; preset emission was subsequently completed above.
+The Tauri mobile adapter reuses canonical PC creation and guarded source
+mutation, with exact source snapshots, separate offline editor drafts, and
+idempotent prepared-write receipts. It does not introduce a new vault dialect.
+
+2026-10-11: ordinary desktop/CLI Markdown and HTML creation now uses the
+canonical writer and vault manifest. Oximemo's supported source editor adapter
+preserves envelope bytes and captures the exact source digest on read; stale
+saves are rejected. Unsupported property shapes and foreign/legacy PDC notes
+retain the guarded PDC source editor. Canonical tombstones move to the visible
+`_trash/` tree; existing `.trash/` files remain readable. No user document was
+converted or rewritten as part of this change. Templates still use the existing
+legacy adapter; the template migration and full Stage 2 exit gate remain open.
+
 
 - New notes are v2 Markdown by default; HTML stays available for
   canonical or legacy HTML according to its envelope. Create

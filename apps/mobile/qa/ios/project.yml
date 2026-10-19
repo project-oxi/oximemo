@@ -1,0 +1,25 @@
+name: OxiMemoDeviceQA
+options:
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: W5SAS95CBV
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+targets:
+  ReadingWritingTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [ReadingWritingTests.swift]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.oximemo.mobile.deviceqa
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  DeviceQA:
+    build:
+      targets:
+        ReadingWritingTests: [test]
+    test:
+      targets: [ReadingWritingTests]

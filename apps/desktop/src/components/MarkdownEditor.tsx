@@ -25,6 +25,7 @@ import type { EditorView } from "@codemirror/view";
 
 import { resolveImageUrl, widthOfUrl } from "../lib/assets";
 import { imageInsertionExtension, type ImageViewHandle } from "../lib/cm6Images";
+import { imageReferenceAt, resizedImageReference } from "../lib/imageReferences";
 import { TextCtxMenu } from "./TextCtxMenu";
 import { PointMenu, PointItem } from "./PointMenu";
 import { useI18n } from "../lib/i18n";
@@ -46,28 +47,20 @@ interface Props {
   /** Extra CM6 extensions to layer in alongside the built-in image-insertion
    *  extension (e.g. wiki-links, embeds). */
   extensions?: readonly Extension[];
+  onImageError?: (filenames: string[]) => void;
 }
 
 function defaultOpenLink(url: string): void {
-  try {
-    window.open(url, "_blank", "noopener,noreferrer");
-  } catch {
-    // window.open can throw in sandboxed contexts; nothing we can do.
-  }
+  if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer");
 }
 
 /** Commit a resized width back into the markdown as a `#w=<px>` hint on the
  *  image's oximg URL. The content hash makes the URL unique, so the regex finds
  *  exactly the right line. `width <= 0` strips the hint (back to auto-fit). */
-function commitWidth(view: EditorView, name: string, width: number) {
+function commitWidth(view: EditorView, name: string, anchor: number, ordinal: number, width: number) {
   const doc = view.state.doc.toString();
-  const escaped = name.replace(/[.]/g, "\\.");
-  const re = new RegExp(`(!\\[[^\\]]*\\]\\(oximg://localhost/${escaped})(?:#w=\\d+)?(\\))`);
-  const m = re.exec(doc);
-  if (!m) return;
-  const from = m.index + m[1].length;
-  const to = m.index + m[0].length - m[2].length;
-  view.dispatch({ changes: { from, to, insert: width > 0 ? `#w=${Math.round(width)}` : "" } });
+  const ref = imageReferenceAt(doc, name, anchor, ordinal);
+  if (ref) view.dispatch({ changes: { from: ref.from, to: ref.to, insert: resizedImageReference(ref.text, width) } });
 }
 
 const OXIMG_PREFIX = "oximg://localhost/";
@@ -81,6 +74,7 @@ export function MarkdownEditor({
   editorHandleRef,
   viewHandleRef,
   extensions,
+  onImageError,
 }: Props) {
   const fallback = useRef<AtomicCodeMirrorEditorHandle | null>(null);
   const handleRef = editorHandleRef ?? fallback;
@@ -88,14 +82,14 @@ export function MarkdownEditor({
   const { t } = useI18n();
   const viewRef = viewHandleRef ?? viewFallback;
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [imgMenu, setImgMenu] = useState<{ name: string; x: number; y: number } | null>(null);
+  const [imgMenu, setImgMenu] = useState<{ name: string; anchor: number; ordinal: number; x: number; y: number } | null>(null);
 
   // Inline-image context menu (spec D5): cm6Images bridges right-clicks
   // on rendered images via a window CustomEvent; render a PointMenu here.
   useEffect(() => {
     const onImageMenu = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ name: string; x: number; y: number }>).detail;
-      if (detail?.name) setImgMenu({ name: detail.name, x: detail.x, y: detail.y });
+      const detail = (ev as CustomEvent<{ name: string; anchor: number; ordinal: number; x: number; y: number }>).detail;
+      if (detail?.name) setImgMenu(detail);
     };
     window.addEventListener("oximemo:image-menu", onImageMenu);
     return () => window.removeEventListener("oximemo:image-menu", onImageMenu);
@@ -123,6 +117,12 @@ export function MarkdownEditor({
         img.addEventListener("mousedown", (e: MouseEvent) => {
           if (!e.altKey) return;
           e.preventDefault();
+          e.stopPropagation();
+          const view = viewRef.current?.view;
+          const anchor = view?.posAtDOM(img) ?? -1;
+          const ordinal = view ? [...view.dom.querySelectorAll<HTMLImageElement>("img[data-ox-name]")]
+            .filter((other) => other.dataset.oxName === name && view.posAtDOM(other) === anchor)
+            .indexOf(img) : 0;
           const startX = e.clientX;
           const startW = img.clientWidth;
           const move = (ev: MouseEvent) => {
@@ -133,7 +133,7 @@ export function MarkdownEditor({
             window.removeEventListener("mouseup", up);
             const view = viewRef.current?.view;
             const finalW = parseInt(img.style.maxWidth, 10);
-            if (view && Number.isFinite(finalW)) commitWidth(view, name, finalW);
+            if (view && Number.isFinite(finalW)) commitWidth(view, name, anchor, ordinal, finalW);
             img.title = `${name} · ${finalW}px`;
           };
           window.addEventListener("mousemove", move);
@@ -161,7 +161,7 @@ export function MarkdownEditor({
             onMarkdownChange={onChange}
             editorHandleRef={handleRef}
             onLinkClick={onLinkClick ?? defaultOpenLink}
-            extensions={[imageInsertionExtension(viewRef), ...(extensions ?? [])]}
+            extensions={[imageInsertionExtension(viewRef, onImageError), ...(extensions ?? [])]}
           />
           {imgMenu && (
             <PointMenu x={imgMenu.x} y={imgMenu.y} onClose={() => setImgMenu(null)}>
@@ -173,9 +173,8 @@ export function MarkdownEditor({
                   const view = viewRef.current?.view;
                   const doc = view?.state.doc.toString();
                   if (view && doc) {
-                    const escaped = imgMenu.name.replace(/[.]/g, "\\.");
-                    const re = new RegExp(`^.*oximg://localhost/${escaped}(?:#w=\\d+)?.*\\n?`, "gm");
-                    view.dispatch({ changes: { from: 0, to: doc.length, insert: doc.replace(re, "") } });
+                    const ref = imageReferenceAt(doc, imgMenu.name, imgMenu.anchor, imgMenu.ordinal);
+                    if (ref) view.dispatch({ changes: { from: ref.from, to: ref.to, insert: "" } });
                   }
                   setImgMenu(null);
                 }}
@@ -185,7 +184,7 @@ export function MarkdownEditor({
                 label={t.img_reset_width}
                 onClick={() => {
                   const view = viewRef.current?.view;
-                  if (view) commitWidth(view, imgMenu.name, 0);
+                  if (view) commitWidth(view, imgMenu.name, imgMenu.anchor, imgMenu.ordinal, 0);
                   setImgMenu(null);
                 }}
               />

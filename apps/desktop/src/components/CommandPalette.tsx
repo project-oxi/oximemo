@@ -290,8 +290,8 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
-        <Dialog.Popup className="fixed left-1/2 top-20 z-50 w-[min(560px,92vw)] -translate-x-1/2 overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-lg transition-[opacity,translate,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0">
+        <Dialog.Backdrop className="glass-backdrop fixed inset-0 z-40 transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+        <Dialog.Popup className="glass-palette fixed left-1/2 top-20 z-50 w-[min(600px,92vw)] -translate-x-1/2 overflow-hidden transition-[opacity,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0">
           <Dialog.Title className="sr-only">{t.command_palette_title}</Dialog.Title>
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">
             <Search size={14} className="shrink-0 text-text-subtle" />

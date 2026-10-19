@@ -5,6 +5,7 @@ import {
   editFromJson,
   nextOccurrencePreview,
   transformTaskDraft,
+  tagSpansOf,
   type WireTaskEdit,
   type WireTaskLineCfg,
   type TaskLineChange,
@@ -149,6 +150,14 @@ describe("transformTaskDraft edge cases", () => {
     const applied = applyChanges(body, t.changes);
     expect(applied).toContain("milk");
     expect(applied).toContain("new");
+  });
+
+  test("set text preserves whole hyphenated and nested tags", () => {
+    const body = "- [ ] 확인 #ui-audit #프로젝트/ui-test\n";
+    expect(tagSpansOf(body).map((r) => body.slice(r.start, r.end)))
+      .toEqual(["#ui-audit", "#프로젝트/ui-test"]);
+    const out = transformTaskDraft(body, 0, { kind: "text", value: "수정" }, "2026-10-12", cfg);
+    expect(applyChanges(body, out.changes)).toBe("- [ ] 수정 #ui-audit #프로젝트/ui-test\n");
   });
 });
 

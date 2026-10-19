@@ -133,7 +133,7 @@ export function GridView({
                     key="folder-overflow"
                     type="button"
                     onClick={onExpandFolders}
-                    className="flex h-44 cursor-default flex-col items-center justify-center gap-2 rounded-[var(--card-radius)] border border-dashed border-line p-4 text-text-subtle transition-colors duration-150 hover:border-line-strong hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                    className="folder-overflow flex h-44 cursor-default flex-col items-center justify-center gap-2 rounded-[var(--card-radius)] border border-dashed border-line p-4 text-text-subtle transition-colors duration-150 hover:border-line-strong hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                   >
                     <MoreHorizontal size={16} aria-hidden />
                     <span className="text-center text-xs font-medium">

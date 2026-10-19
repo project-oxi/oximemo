@@ -12,14 +12,31 @@
  * (and the atomic-editor's own decorations) keep working untouched.
  */
 import { EditorView, ViewPlugin, keymap } from "@codemirror/view";
-import { Prec, type Extension } from "@codemirror/state";
+import { Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { type MutableRefObject } from "react";
 
 import { markdownForImage, saveImageFromFile } from "./assets";
+import { uploadImageFiles } from "./imageUploads";
 
 export interface ImageViewHandle {
   view: EditorView | null;
 }
+
+const addInsertion = StateEffect.define<{ id: number; pos: number }>();
+const removeInsertion = StateEffect.define<number>();
+const pendingInsertions = StateField.define<Map<number, number>>({
+  create: () => new Map(),
+  update: (positions, tr) => {
+    const next = new Map<number, number>();
+    for (const [id, pos] of positions) next.set(id, tr.changes.mapPos(pos, 1));
+    for (const effect of tr.effects) {
+      if (effect.is(addInsertion)) next.set(effect.value.id, effect.value.pos);
+      if (effect.is(removeInsertion)) next.delete(effect.value);
+    }
+    return next;
+  },
+});
+let insertionId = 0;
 
 /** Pull image files off a clipboard event (screenshots, copied images). */
 function clipboardImageFiles(e: ClipboardEvent): File[] {
@@ -57,33 +74,43 @@ export async function insertImagesAt(
   files: File[],
   pos: number,
   view: EditorView,
+  onError?: (filenames: string[]) => void,
 ): Promise<void> {
-  const lines: string[] = [];
-  for (const f of files) {
-    try {
-      const ref = await saveImageFromFile(f);
-      const alt = f.name.replace(/\.[^.]+$/, "") || "image";
-      lines.push(markdownForImage(ref.url, alt));
-    } catch {
-      // skip unreadable item
-    }
-  }
-  if (!lines.length) return;
-  view.dispatch({ changes: { from: pos, insert: `${lines.join("\n")}\n` } });
+  const id = ++insertionId;
+  view.dispatch({ effects: addInsertion.of({ id, pos }) });
+  const { uploaded, failed } = await uploadImageFiles(files, saveImageFromFile);
+  const lines = uploaded.map(({ file, asset }) =>
+    markdownForImage(asset.url, file.name.replace(/\.[^.]+$/, "") || "image"),
+  );
+  const at = view.state.field(pendingInsertions, false)?.get(id);
+  if (at === undefined || !view.dom.isConnected) return;
+  onError?.(failed);
+  const insert = lines.length ? `${lines.join("\n")}\n` : "";
+  const cursor = view.state.selection.main;
+  view.dispatch({
+    changes: insert ? { from: at, insert } : undefined,
+    // Follow the inserted image when the user has kept the cursor here.
+    // A cursor moved during the upload must retain its current position.
+    selection: insert && cursor.empty && cursor.head === at
+      ? { anchor: at + insert.length }
+      : undefined,
+    effects: removeInsertion.of(id),
+  });
 }
 
 /**
  * @param handle receives the editor's `EditorView` (captured on mount) so the
  *              toolbar file-picker button can insert at the live cursor.
  */
-export function imageInsertionExtension(handle: MutableRefObject<ImageViewHandle | null>): Extension {
+export function imageInsertionExtension(handle: MutableRefObject<ImageViewHandle | null>, onError?: (filenames: string[]) => void): Extension {
   return [
+    pendingInsertions,
     EditorView.domEventHandlers({
       paste(e, view) {
         const files = clipboardImageFiles(e);
         if (!files.length) return false;
         e.preventDefault();
-        void insertImagesAt(files, view.state.selection.main.from, view);
+        void insertImagesAt(files, view.state.selection.main.from, view, onError);
         return true;
       },
       dragover(e) {
@@ -100,10 +127,10 @@ export function imageInsertionExtension(handle: MutableRefObject<ImageViewHandle
         e.preventDefault();
         const at =
           view.posAtCoords({ x: e.x, y: e.y }) ?? view.state.selection.main.from;
-        void insertImagesAt(files, at, view);
+        void insertImagesAt(files, at, view, onError);
         return true;
       },
-      contextmenu(e) {
+      contextmenu(e, view) {
         // Inline-image context menu (spec 2026-08-22 D5): the img is
         // CM6-managed DOM, so React can't wrap it — bridge to a window
         // CustomEvent that MarkdownEditor turns into a PointMenu.
@@ -112,9 +139,13 @@ export function imageInsertionExtension(handle: MutableRefObject<ImageViewHandle
         if (!img || !name) return false;
         e.preventDefault();
         e.stopPropagation();
+        const anchor = view.posAtDOM(img);
+        const ordinal = [...view.dom.querySelectorAll<HTMLImageElement>("img[data-ox-name]")]
+          .filter((other) => other.dataset.oxName === name && view.posAtDOM(other) === anchor)
+          .indexOf(img);
         window.dispatchEvent(
           new CustomEvent("oximemo:image-menu", {
-            detail: { name, x: e.clientX, y: e.clientY },
+            detail: { name, anchor, ordinal, x: e.clientX, y: e.clientY },
           }),
         );
         return true;
@@ -125,6 +156,7 @@ export function imageInsertionExtension(handle: MutableRefObject<ImageViewHandle
         constructor(v: EditorView) {
           handle.current = { view: v };
         }
+        destroy() { handle.current = null; }
       },
     ),
   ];

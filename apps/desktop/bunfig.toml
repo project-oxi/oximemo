@@ -1,0 +1,5 @@
+# Scope `bun test` to the app's own sources. Vendored packages under
+# vendor/garden carry their own test suites and dependencies; run them
+# from that checkout instead of the app root.
+[test]
+root = "./src"

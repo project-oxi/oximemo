@@ -1,0 +1,327 @@
+/* Compact data patterns built from Garden semantic tokens. */
+.g-avatar-stack__list {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.g-avatar-stack__item {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.g-avatar-stack__item + .g-avatar-stack__item,
+.g-avatar-stack__overflow--overlap {
+  margin-inline-start: calc(var(--g-space-2) * -1);
+}
+
+.g-avatar-stack__avatar {
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--g-canvas);
+  background: var(--g-field);
+  color: var(--g-ink);
+  box-shadow: 0 0 0 1px var(--g-line);
+}
+
+.g-avatar-stack__avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.g-avatar-stack__fallback {
+  font-size: var(--text-caption);
+  line-height: 1;
+}
+
+.g-avatar-stack__overflow {
+  position: relative;
+  z-index: 0;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--g-canvas);
+  border-radius: var(--radius-pill);
+  background: var(--g-inset);
+  color: var(--g-ink2);
+  box-shadow: 0 0 0 1px var(--g-line);
+  font: 500 var(--text-caption)/1 var(--font-sans);
+}
+
+.g-revision-timeline {
+  display: grid;
+  min-width: 0;
+  gap: var(--g-space-3);
+  color: var(--g-ink);
+}
+
+.g-revision-timeline__content {
+  min-width: 0;
+  padding: var(--g-space-3);
+  overflow-wrap: anywhere;
+  border: 1px solid var(--g-line);
+  border-radius: var(--radius-lg);
+  background: var(--g-surface);
+}
+
+.g-revision-timeline__title {
+  margin: 0;
+  color: var(--g-ink);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.g-revision-timeline__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g-space-1) var(--g-space-2);
+  margin-top: var(--g-space-1);
+  color: var(--g-ink2);
+  font-size: var(--text-caption);
+  line-height: 1.43;
+}
+
+.g-revision-timeline__body {
+  min-width: 0;
+  margin-top: var(--g-space-2);
+  color: var(--g-ink2);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+}
+
+.g-revision-timeline__body > :first-child { margin-top: 0; }
+.g-revision-timeline__body > :last-child { margin-bottom: 0; }
+
+.g-revision-timeline__navigation {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: var(--g-space-2);
+  min-width: 0;
+}
+
+.g-revision-timeline__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--g-line);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--g-ink2);
+  cursor: pointer;
+}
+
+.g-revision-timeline__step svg {
+  width: 16px;
+  height: 16px;
+}
+
+.g-revision-timeline__step:hover:not(:disabled) {
+  background: var(--g-hover);
+  color: var(--g-ink);
+}
+
+.g-revision-timeline__step:disabled {
+  color: var(--g-ink3);
+  cursor: default;
+}
+
+.g-revision-timeline__selector {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 0;
+  gap: var(--g-space-1);
+}
+
+.g-revision-timeline__tick {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: var(--g-space-1);
+  padding: var(--g-space-1) var(--g-space-2);
+  overflow-wrap: anywhere;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--g-ink2);
+  font: 400 var(--text-micro)/1.33 var(--font-sans);
+  text-align: center;
+  cursor: pointer;
+}
+
+.g-revision-timeline__tick:hover {
+  background: var(--g-hover);
+  color: var(--g-ink);
+}
+
+.g-revision-timeline__tick[aria-current="step"] {
+  color: var(--g-ink);
+}
+
+.g-revision-timeline__mark {
+  display: block;
+  width: 2px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--g-ink3);
+}
+
+.g-revision-timeline__tick[aria-current="step"] .g-revision-timeline__mark {
+  width: 3px;
+  height: 12px;
+  background: var(--g-accent);
+}
+
+.g-revision-timeline__date {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.g-revision-timeline__empty {
+  margin: 0;
+  padding: var(--g-space-3);
+  border-radius: var(--radius-lg);
+  background: var(--g-inset);
+  color: var(--g-ink2);
+  font-size: var(--text-ui);
+  line-height: 1.45;
+}
+
+.g-checklist {
+  display: grid;
+  min-width: 0;
+  gap: var(--g-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--g-ink);
+}
+
+.g-checklist__legend {
+  max-width: 100%;
+  padding: 0;
+  color: var(--g-ink);
+  font-size: var(--text-ui);
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.g-checklist__items {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--g-line);
+  list-style: none;
+}
+
+.g-checklist__item {
+  min-width: 0;
+  padding-block: var(--g-space-2);
+  border-bottom: 1px solid var(--g-line);
+}
+
+.g-checklist__row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--g-space-2);
+  min-width: 0;
+}
+
+.g-checklist__checkbox[data-slot="native-checkbox"] {
+  margin-top: 2px;
+}
+
+.g-checklist__copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.g-checklist__label {
+  display: block;
+  color: var(--g-ink);
+  font-size: var(--text-ui);
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.g-checklist__description {
+  margin: var(--g-space-1) 0 0;
+  color: var(--g-ink2);
+  font-size: var(--text-caption);
+  line-height: 1.43;
+}
+
+.g-checklist__item[data-disabled="true"] .g-checklist__label,
+.g-checklist__item[data-disabled="true"] .g-checklist__description {
+  color: var(--g-ink3);
+  cursor: not-allowed;
+}
+
+.g-checklist[data-readonly] .g-checklist__label { cursor: default; }
+
+.g-checklist__progress-row {
+  display: grid;
+  min-width: 0;
+  gap: var(--g-space-1);
+}
+
+.g-checklist__progress-label {
+  min-width: 0;
+  margin: 0;
+  color: var(--g-ink2);
+  font-size: var(--text-caption);
+  line-height: 1.43;
+  overflow-wrap: anywhere;
+}
+
+.g-checklist__progress {
+  width: 100%;
+  height: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g-avatar-stack__avatar,
+  .g-revision-timeline__step,
+  .g-revision-timeline__tick,
+  .g-checklist__checkbox {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .g-avatar-stack__avatar,
+  .g-avatar-stack__overflow,
+  .g-revision-timeline__content,
+  .g-revision-timeline__step,
+  .g-checklist__item {
+    border-color: CanvasText;
+  }
+
+  .g-revision-timeline__mark,
+  .g-revision-timeline__tick[aria-current="step"] .g-revision-timeline__mark {
+    background: Highlight;
+  }
+}

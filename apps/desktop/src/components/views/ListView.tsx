@@ -19,8 +19,9 @@ import { useI18n } from "../../lib/i18n";
 import { useFolderNames } from "../../lib/folders";
 import { useFolderDrop } from "../../lib/dropTarget";
 import { relativeTime } from "../../lib/time";
+import { activateOnKey } from "../../lib/keyboardActivation";
 import { useUI } from "../../stores/ui";
-import { previewText } from "../../lib/markdownPreview";
+import { previewText, previewExcerpt } from "../../lib/markdownPreview";
 import { queryCountVersion, subscribeQueryCounts } from "../../lib/queryPreviewCounts";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
@@ -71,7 +72,7 @@ export function ListView({
   useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   return (
-    <ul className="divide-y divide-line">
+    <ul className="note-list divide-y divide-line">
       {folderCards.map((f) => (
         <FolderRow
           key={f.path}
@@ -125,11 +126,13 @@ export function ListView({
               </button>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
-                  {n.title ? (
-                    <span className="truncate text-sm font-semibold text-text">{n.title}</span>
-                  ) : (
-                    <span className="truncate text-sm text-text-subtle">{t.empty_memo}</span>
-                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onSelect(n.id); }}
+                    className={`min-w-0 truncate rounded-sm text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${n.title ? "font-semibold text-text" : "text-text-subtle"}`}
+                  >
+                    {n.title || t.empty_memo}
+                  </button>
                   {n.folder && (
                     <span className="shrink-0 font-mono text-[10px] text-text-subtle">
                       {n.folder}/
@@ -137,7 +140,7 @@ export function ListView({
                   )}
                 </div>
                 <div className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs text-text-subtle">
-                  {previewText(n.preview, 200, { thisId: n.id, resultsN: t.query_embed_results_n }) || ""}
+                  {previewText(previewExcerpt(n.preview, n.title, n.path), 200, { thisId: n.id, resultsN: t.query_embed_results_n }) || ""}
                 </div>
               </div>
               <div className="flex shrink-0 items-baseline gap-2 text-[11px] text-text-subtle">
@@ -214,6 +217,9 @@ function FolderRow({
         onDelete={onDeleteFolder}
         render={
           <div
+            role={naming ? undefined : "button"}
+            tabIndex={naming ? -1 : 0}
+            aria-label={naming ? undefined : name}
             draggable={!naming}
             onDragStart={(e) => {
               setDraggingFolder(f.path);
@@ -224,7 +230,10 @@ function FolderRow({
             onClick={() => {
               if (!naming) onOpenFolder(f.path);
             }}
-            className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-surface-muted"
+            onKeyDown={(e) => {
+              if (!naming) activateOnKey(e, () => onOpenFolder(f.path));
+            }}
+            className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-surface-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring"
           />
         }
       >

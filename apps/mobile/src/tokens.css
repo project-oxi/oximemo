@@ -1,0 +1,104 @@
+@import "./codex-tokens.css";
+
+:root {
+  --color-text: var(--gray-900);
+  --bg: var(--color-surface);
+  --surface: var(--color-surface-elevated);
+  --text: var(--color-text);
+  --secondary: var(--color-text-secondary);
+  --muted: var(--color-background-secondary);
+  --line: var(--color-border);
+  --danger: var(--color-text-error);
+  --color-ring: var(--color-text);
+  --color-border-focus: var(--color-text);
+  --color-text-accent: var(--color-text);
+  --glass-fill: color-mix(in srgb, var(--surface) 72%, transparent);
+  --glass-highlight: oklch(100% 0 0 / .75);
+  --glass-edge: color-mix(in srgb, var(--text) 10%, transparent);
+  --glass-shadow: 0 8px 24px oklch(0% 0 0 / .09), 0 2px 5px oklch(0% 0 0 / .04);
+  --radius-floating: 999px;
+  --scrim: oklch(0% 0 0 / .45);
+  --tap-size: 44px;
+  --page-gutter: 16px;
+  --radius-control: var(--radius-sm);
+  --radius-panel: var(--radius-xl);
+  --space-xs: calc(var(--spacing) * 1);
+  --space-sm: calc(var(--spacing) * 2);
+  --space-md: calc(var(--spacing) * 3);
+  --space-lg: calc(var(--spacing) * 4);
+  --space-xl: calc(var(--spacing) * 6);
+  --space-2xl: calc(var(--spacing) * 8);
+  --space-3xl: calc(var(--spacing) * 10);
+  --space-4xl: calc(var(--spacing) * 12);
+  --mobile-title-size: 22px;
+  --mobile-note-size: 16px;
+  --mobile-body-size: 15px;
+  --mobile-ui-size: 13px;
+  --mobile-caption-size: 12px;
+  --mobile-nav-size: 11px;
+  --mobile-content-width: 760px;
+  --mobile-chrome: color-mix(in srgb, var(--bg) 94%, transparent);
+  --mobile-rule-strong: color-mix(in srgb, var(--text) 15%, transparent);
+  --mobile-focus: var(--text);
+  --mobile-radius-control: 6px;
+  --mobile-radius-card: 8px;
+  --mobile-radius-panel: 12px;
+  --mobile-dur: 150ms;
+  /* iPhone type scales from the system body size, including Dynamic Type. */
+  --iphone-title: 1.65rem;
+  --iphone-note-title: 1.06rem;
+  --iphone-body: 1rem;
+  --iphone-source: max(16px, .94rem);
+  --iphone-preview: .88rem;
+  --iphone-caption: .765rem;
+  --iphone-gutter: 20px;
+  --iphone-rule: color-mix(in srgb, var(--text) 10%, transparent);
+  --iphone-search: color-mix(in srgb, var(--text) 6%, var(--bg));
+}
+
+@media (max-width: 350px) { :root { --page-gutter: 16px; } }
+@media (prefers-color-scheme: dark) { :root { --glass-fill: color-mix(in srgb, var(--color-surface-elevated-2) 76%, transparent); --glass-highlight: oklch(100% 0 0 / .2); --glass-edge: oklch(100% 0 0 / .1); --glass-shadow: 0 8px 28px oklch(0% 0 0 / .28), 0 2px 6px oklch(0% 0 0 / .15); } }
+
+/* Mobile Liquid Glass material and type, exported in root tokens.css. */
+:root {
+  --font-mobile-display: ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif;
+  --text-mobile-large-title: 2rem;
+  --text-mobile-preview: .84rem;
+  --text-mobile-meta: .72rem;
+  --color-mobile-paper: oklch(99.6% 0 0);
+  --color-mobile-ground: oklch(96.6% .003 250);
+  --color-mobile-glass: oklch(100% 0 0 / .74);
+  --color-mobile-edge: oklch(100% 0 0 / .9);
+  --color-mobile-contact: oklch(35% .005 250 / .12);
+  --color-mobile-ink: oklch(22% .005 250);
+  --color-mobile-muted: oklch(49% .006 250);
+  --color-mobile-mark: oklch(89% .035 85);
+  --radius-glass-control: 999px;
+  --radius-glass-group: 22px;
+  --radius-glass-dialog: 28px;
+  --mobile-glass-shadow: inset 0 1px 0 var(--color-mobile-edge), 0 2px 8px var(--color-mobile-contact);
+  --mobile-glass-blur: 24px;
+  --bg: var(--color-mobile-paper);
+  --text: var(--color-mobile-ink);
+  --secondary: var(--color-mobile-muted);
+}
+[data-theme="dark"] {
+  --color-mobile-paper: oklch(19% .003 250);
+  --color-mobile-ground: oklch(14.5% .003 250);
+  --color-mobile-glass: oklch(29% .003 250 / .8);
+  --color-mobile-edge: oklch(100% 0 0 / .13);
+  --color-mobile-contact: oklch(0% 0 0 / .32);
+  --color-mobile-ink: oklch(95% .002 250);
+  --color-mobile-muted: oklch(73% .005 250);
+  --color-mobile-mark: oklch(41% .045 85);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme]) {
+  --color-mobile-paper: oklch(19% .003 250);
+  --color-mobile-ground: oklch(14.5% .003 250);
+  --color-mobile-glass: oklch(29% .003 250 / .8);
+  --color-mobile-edge: oklch(100% 0 0 / .13);
+  --color-mobile-contact: oklch(0% 0 0 / .32);
+  --color-mobile-ink: oklch(95% .002 250);
+  --color-mobile-muted: oklch(73% .005 250);
+  --color-mobile-mark: oklch(41% .045 85);
+} }

@@ -1,0 +1,60 @@
+{
+  "version": "garden-adoptions/1",
+  "ui": {
+    "contracts": [
+      "tokens/garden.tokens.json",
+      "tokens/tokens.schema.json",
+      "ui-spec/contract.json",
+      "ui-spec/ui-spec.schema.json",
+      "behavior/contract.json",
+      "behavior/behavior.schema.json",
+      "ui-spec/README.md",
+      "behavior/README.md",
+      "ui-spec/layout.md",
+      "ui-spec/components.md"
+    ],
+    "packages": [
+      "@garden/ui"
+    ],
+    "playbook": [
+      "testing",
+      "architecture",
+      "language",
+      "i18n"
+    ]
+  },
+  "markdown": {
+    "contracts": [
+      "markdown/README.md",
+      "markdown/adoption.md",
+      "markdown/presentation.md",
+      "markdown/PDC-1.0.md",
+      "markdown/PDC-2.0.md",
+      "markdown/PDC-QUERY-1.0.md",
+      "markdown/query-capabilities.json",
+      "markdown/envelope-2.schema.json"
+    ],
+    "packages": [
+      "@garden/markdown",
+      "@garden/editor"
+    ],
+    "playbook": [
+      "testing",
+      "architecture",
+      "docs"
+    ]
+  },
+  "daemon": {
+    "contracts": [
+      "daemon-protocol/README.md",
+      "daemon-protocol/protocol.schema.json"
+    ],
+    "packages": [
+      "@garden/daemon-kit"
+    ],
+    "playbook": [
+      "testing",
+      "architecture"
+    ]
+  }
+}

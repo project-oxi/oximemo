@@ -106,14 +106,14 @@ export function CalendarView({
     <div data-calendar-view className="flex h-full flex-col gap-2 p-3">
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-1 text-sm">
-          <button type="button" onClick={handlePrev} aria-label="previous month"
+          <button type="button" onClick={handlePrev} aria-label={t.calendar_previous_month} title={t.calendar_previous_month}
             className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] text-text-subtle hover:bg-surface-muted hover:text-text">
             <ChevronLeft size={14} strokeWidth={2} />
           </button>
           <span className="min-w-32 text-center font-medium">
             {monthTitle(viewed.year, viewed.month, effectiveLocale)}
           </span>
-          <button type="button" onClick={handleNext} aria-label="next month"
+          <button type="button" onClick={handleNext} aria-label={t.calendar_next_month} title={t.calendar_next_month}
             className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--tag-radius)] text-text-subtle hover:bg-surface-muted hover:text-text">
             <ChevronRight size={14} strokeWidth={2} />
           </button>
@@ -146,16 +146,27 @@ export function CalendarView({
               data-calendar-cell
               data-today={isToday || undefined}
               data-empty={empty || undefined}
-              onClick={empty && onEmptyDay ? () => onEmptyDay(cell.date) : undefined}
               className={`flex min-h-[88px] flex-col gap-0.5 bg-surface p-1 text-xs ${
                 isCurrentMonth ? "" : "opacity-40"
               } ${empty && onEmptyDay ? "cursor-pointer hover:bg-surface-muted" : ""}`}
             >
-              <div className={`text-right text-[11px] ${
-                isToday ? "font-semibold text-text" : "text-text-subtle"
-              }`}>
-                {cell.day}
-              </div>
+              {empty && onEmptyDay ? (
+                <button
+                  type="button"
+                  aria-label={t.calendar_open_daily.replace("{date}", cell.date)}
+                  aria-current={isToday ? "date" : undefined}
+                  onClick={() => onEmptyDay(cell.date)}
+                  className={`flex flex-1 flex-col items-end rounded-sm text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${isToday ? "font-semibold text-text" : "text-text-subtle"}`}
+                >
+                  {cell.day}
+                </button>
+              ) : (
+                <div className={`text-right text-[11px] ${
+                  isToday ? "font-semibold text-text" : "text-text-subtle"
+                }`}>
+                  {cell.day}
+                </div>
+              )}
               {visible.map((m) => (
                 <button
                   key={m.id}
@@ -215,8 +226,8 @@ function OverflowPopover({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-50">
-          <Popover.Popup className="min-w-48 max-h-72 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[60]">
+          <Popover.Popup className="viewport-popup w-72 [--popup-max-height:288px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
             <ul role="list" className="flex flex-col gap-0.5">
               {memos.map((m) => {
                 const folder = folders.find((f) => f.path === m.folder);
@@ -235,7 +246,7 @@ function OverflowPopover({
                           style={{ background: color }}
                         />
                       )}
-                      <span className="truncate">{memoLabel(m)}</span>
+                      <span className="min-w-0 flex-1 truncate" title={memoLabel(m)}>{memoLabel(m)}</span>
                     </button>
                   </li>
                 );
@@ -271,8 +282,8 @@ function NoDateStrip({
           }
         />
         <Popover.Portal>
-          <Popover.Positioner side="top" align="start" sideOffset={4} className="z-50">
-            <Popover.Popup className="min-w-64 max-h-72 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
+          <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[60]">
+            <Popover.Popup className="viewport-popup w-72 [--popup-max-height:288px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
               <ul role="list" className="flex flex-col gap-0.5">
                 {memos.map((m) => {
                   const folder = folders.find((f) => f.path === m.folder);
@@ -291,7 +302,7 @@ function NoDateStrip({
                             style={{ background: color }}
                           />
                         )}
-                        <span className="truncate">{memoLabel(m)}</span>
+                        <span className="min-w-0 flex-1 truncate" title={memoLabel(m)}>{memoLabel(m)}</span>
                       </button>
                     </li>
                   );

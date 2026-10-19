@@ -18,8 +18,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use oxi_frontmatter::pdc::{
-    Classification, DiagnosticKind, DocumentExt, PdcDiagnostic, QueryClassification, classify,
-    classify_query,
+    Classification, DiagnosticKind, DocumentExt, PdcDiagnostic, QueryClassification, Yaml,
+    classify, classify_query,
 };
 use serde::{Deserialize, Serialize};
 
@@ -89,8 +89,17 @@ pub struct PdcInventoryEntry {
     /// Exact contract identifier of the declared body profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_profile: Option<String>,
+    /// Envelope `deleted: true` marker on a valid (canonical or legacy
+    /// PDC 1) document, so tombstone visibility needs no second parse.
+    #[serde(default)]
+    pub deleted: bool,
     /// File size in bytes.
     pub size_bytes: u64,
+    /// SHA-256 of the exact source bytes (`sha256:<hex>`) when the file
+    /// was fully read during this scan; `None` for unreadable or
+    /// over-limit files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
     /// Classification or inventory failure, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<PdcDiagnosticDto>,
@@ -951,7 +960,9 @@ fn classify_entry(
         document_id: None,
         title: None,
         body_profile: None,
+        deleted: false,
         size_bytes,
+        sha256: None,
         diagnostic: None,
         broken_document_links: Vec::new(),
         missing_assets: Vec::new(),
@@ -1002,6 +1013,9 @@ fn classify_entry(
             .and_then(|v| v.as_str())
             .map(str::to_string),
         body_profile: doc.as_ref().map(|d| d.profile.id_str().to_string()),
+        deleted: doc
+            .as_ref()
+            .is_some_and(|d| d.envelope.get("deleted").is_some_and(|v| matches!(v, Yaml::Bool(true)))),
         diagnostic: diagnostic.as_ref().map(PdcDiagnosticDto::from_pdc),
         ..base
     };
@@ -1173,6 +1187,7 @@ fn is_wiki_document_target(target: &str) -> bool {
 struct KnownPaths {
     set: BTreeSet<String>,
     wiki: Vec<(String, &'static str, usize, String)>,
+    titles: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl KnownPaths {
@@ -1200,6 +1215,7 @@ impl KnownPaths {
         Self {
             set: sorted_paths.iter().cloned().collect(),
             wiki,
+            titles: BTreeMap::new(),
         }
     }
 }
@@ -1240,6 +1256,10 @@ fn resolve_wiki_document(target: &str, known: &KnownPaths) -> Option<String> {
         if wiki_base_matches(base, &target_base) {
             matches.push((*depth, candidate));
         }
+    }
+    if matches.is_empty() && explicit_extension.is_none() && !path.contains('/') {
+        let titles = known.titles.get(&target_base)?;
+        return (titles.len() == 1).then(|| titles.first().unwrap().clone());
     }
     let shortest = matches.iter().map(|(depth, _)| *depth).min()?;
     let mut shortest_matches = matches
@@ -1317,7 +1337,9 @@ fn classify_query_entry(bytes: &[u8], rel_path: &str, size_bytes: u64) -> PdcInv
         document_id: None,
         title: None,
         body_profile: None,
+        deleted: false,
         size_bytes,
+        sha256: None,
         diagnostic: None,
         broken_document_links: Vec::new(),
         missing_assets: Vec::new(),
@@ -1380,7 +1402,9 @@ pub fn scan(paths: &Paths) -> Result<PdcInventory> {
             Ok((size_bytes, bytes))
                 if size_bytes <= max_bytes as u64 && bytes.len() <= max_bytes =>
             {
-                match extension {
+                use sha2::{Digest, Sha256};
+                let digest = format!("sha256:{:x}", Sha256::digest(&bytes));
+                let (mut entry, scan_text, block_ids) = match extension {
                     "base" => (
                         classify_query_entry(&bytes, &rel, size_bytes),
                         None,
@@ -1390,7 +1414,9 @@ pub fn scan(paths: &Paths) -> Result<PdcInventory> {
                     "html" => classify_entry(&rel, &bytes, DocumentExt::Html, size_bytes),
                     "djot" => classify_entry(&rel, &bytes, DocumentExt::Djot, size_bytes),
                     _ => continue,
-                }
+                };
+                entry.sha256 = Some(digest);
+                (entry, scan_text, block_ids)
             }
             Ok((size_bytes, _)) => (
                 PdcInventoryEntry {
@@ -1403,7 +1429,9 @@ pub fn scan(paths: &Paths) -> Result<PdcInventory> {
                     document_id: None,
                     title: None,
                     body_profile: None,
+                    deleted: false,
                     size_bytes,
+                    sha256: None,
                     diagnostic: Some(PdcDiagnosticDto {
                         code: "file_too_large".to_string(),
                         message: format!("inventory source exceeds the {max_bytes}-byte limit"),
@@ -1430,7 +1458,9 @@ pub fn scan(paths: &Paths) -> Result<PdcInventory> {
                         document_id: None,
                         title: None,
                         body_profile: None,
+                        deleted: false,
                         size_bytes,
+                        sha256: None,
                         diagnostic: Some(PdcDiagnosticDto {
                             code: "unreadable_file".to_string(),
                             message: error.to_string(),
@@ -1467,7 +1497,33 @@ pub fn scan(paths: &Paths) -> Result<PdcInventory> {
         });
     }
     known_paths.sort();
-    let known_paths = KnownPaths::new(&known_paths);
+    let mut known_paths = KnownPaths::new(&known_paths);
+    // The existing editor accepts human-facing note titles. Keep this
+    // read-only diagnostic consistent without changing link source or identity.
+    for document in &pending {
+        if !known_paths.set.contains(&document.entry.path) {
+            continue;
+        }
+        let title = document
+            .entry
+            .title
+            .clone()
+            .filter(|title| !title.is_empty())
+            .or_else(|| {
+                document.scan_text.as_deref().and_then(|body| {
+                    let format =
+                        crate::memo::NoteFormat::from_path(Path::new(&document.entry.path));
+                    crate::memo::note_title(format, body)
+                })
+            });
+        if let Some(title) = title {
+            known_paths
+                .titles
+                .entry(title.to_ascii_lowercase())
+                .or_default()
+                .insert(document.entry.path.clone());
+        }
+    }
     let mut link_context = LinkResolutionContext {
         vault,
         known_ids: &known_ids,

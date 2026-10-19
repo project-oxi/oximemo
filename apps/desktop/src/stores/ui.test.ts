@@ -11,6 +11,51 @@ afterEach(() => {
   useUI.setState({ search: "" });
 });
 
+describe("space picker visibility", () => {
+  afterEach(() => {
+    useUI.setState({ sidebarCollapsed: false, spacePickerOpen: false, spacePickerCreate: false });
+  });
+
+  test("switch command reveals a collapsed sidebar and opens the picker", () => {
+    useUI.setState({ sidebarCollapsed: true, spacePickerOpen: false });
+    useUI.getState().setSpacePickerOpen(true);
+    const s = useUI.getState();
+    expect(s.sidebarCollapsed).toBe(false);
+    expect(s.spacePickerOpen).toBe(true);
+    expect(s.spacePickerCreate).toBe(false);
+  });
+
+  test("create command opens its form even when the sidebar was collapsed", () => {
+    useUI.setState({ sidebarCollapsed: true, spacePickerOpen: false });
+    useUI.getState().requestSpaceCreate();
+    const s = useUI.getState();
+    expect(s.sidebarCollapsed).toBe(false);
+    expect(s.spacePickerOpen).toBe(true);
+    expect(s.spacePickerCreate).toBe(true);
+  });
+
+  test("dismissal clears the form so reopening returns to the space list", () => {
+    useUI.getState().requestSpaceCreate();
+    useUI.getState().setSpacePickerOpen(false);
+    expect(useUI.getState().spacePickerCreate).toBe(false);
+    useUI.getState().setSpacePickerOpen(true);
+    expect(useUI.getState().spacePickerCreate).toBe(false);
+  });
+
+  test("collapsing the sidebar dismisses the popup and its creation request", () => {
+    useUI.getState().requestSpaceCreate();
+    useUI.getState().toggleSidebar();
+    let s = useUI.getState();
+    expect(s.sidebarCollapsed).toBe(true);
+    expect(s.spacePickerOpen).toBe(false);
+    expect(s.spacePickerCreate).toBe(false);
+    useUI.getState().toggleSidebar();
+    s = useUI.getState();
+    expect(s.sidebarCollapsed).toBe(false);
+    expect(s.spacePickerOpen).toBe(false);
+  });
+});
+
 describe("location mapping (query views spec §5)", () => {
   test("folderFilter/favoritesOnly mirror the location", () => {
     useUI.getState().setFolderFilter("book");

@@ -1,0 +1,31 @@
+{
+  "$schema": "./framework.schema.json",
+  "version": "garden-framework/1",
+  "profile": "garden-personal/1",
+  "authority": "README.md",
+  "pins": "../pins.json",
+  "stack": {
+    "ui": ["React", "TypeScript", "shadcn/ui composition", "Radix primitives", "Tailwind CSS", "Vite"],
+    "desktop": ["Tauri 2", "Rust", "platform-adaptive custom titlebar"],
+    "service": ["Bun", "TypeScript", "garden-daemon/1"],
+    "documents": ["@garden/markdown", "@garden/editor", "pdc-document/2", "pdc-query/1"]
+  },
+  "rules": [
+    {"id":"stack.ui","level":"required","overridable":true,"verification":"doctor","requirement":"UI apps adopt ui and use React, React DOM, TypeScript, Vite and @garden/ui; shared shadcn/Radix primitives own controls."},
+    {"id":"stack.desktop","level":"required","overridable":true,"verification":"doctor","requirement":"Desktop apps use Tauri 2 and Rust with the declared native titlebar configurations."},
+    {"id":"stack.service","level":"required","overridable":true,"verification":"doctor","requirement":"Services adopt daemon and use Bun, TypeScript and @garden/daemon-kit."},
+    {"id":"stack.documents","level":"required","overridable":true,"verification":"doctor","requirement":"Markdown adoption includes @garden/markdown and @garden/editor; hosts supply storage and resolvers."},
+    {"id":"shell.layout","level":"default","overridable":true,"verification":"runtime","requirement":"GAppShell owns the 46px titlebar, primary activity rail, independently collapsible contextual sidebar, top-right command field and optional right pane toggle; multi-workspace apps MUST use GActivityRail for major workspaces and GNavigation for destinations within the selected workspace, while single-workspace apps MAY omit the rail. Settings and conversations use their shared compositions."},
+    {"id":"shell.branding","level":"required","overridable":true,"verification":"review","requirement":"No app title, wordmark or logo in in-app titlebars, headers, navigation sidebars or activity rails; identity belongs to OS metadata and About."},
+    {"id":"copy.page-header","level":"required","overridable":true,"verification":"review","requirement":"Page headers contain a task title and useful actions; omit greetings, promotional text, redundant subtitles and conversational filler."},
+    {"id":"ui.tokens","level":"required","overridable":true,"verification":"review","requirement":"Generated semantic tokens and shared components own geometry, monochrome chrome, inverse primary actions and stable editing surfaces."},
+    {"id":"ui.accessibility","level":"required","overridable":false,"verification":"runtime","requirement":"Localized names, keyboard operation, visible control focus, focus restoration and compact-screen reachability are mandatory."},
+    {"id":"ui.feedback","level":"required","overridable":true,"verification":"runtime","requirement":"Use scoped toast, banner, inline error, empty state and modal behavior without duplicating one event across channels."},
+    {"id":"documents.syntax","level":"required","overridable":false,"verification":"conformance","requirement":"PDC owns canonical Markdown/HTML, readable legacy inputs, envelope semantics and preservation; Garden does not invent another canonical dialect."},
+    {"id":"documents.queries","level":"required","overridable":false,"verification":"conformance","requirement":"Queries use only .base and exact fenced base blocks, explicit enablement and the declared capability subset; unsupported expressions stay visibly unexecuted."},
+    {"id":"documents.properties","level":"default","overridable":true,"verification":"runtime","requirement":"GDocumentProperties and GDocumentEditor share typed, source-preserving metadata editing; technical fields follow the body in a disclosure."},
+    {"id":"documents.integrity","level":"required","overridable":false,"verification":"conformance","requirement":"No silent source loss, conversion, unsafe execution or unguarded overwrite; storage and resolver capabilities remain explicit."},
+    {"id":"architecture.boundaries","level":"required","overridable":true,"verification":"review","requirement":"Apps compose framework packages; native and filesystem IO belong to host adapters, not reusable React controls."},
+    {"id":"engineering.verification","level":"required","overridable":false,"verification":"review","requirement":"Run doctor, relevant builds/tests and the changed path in a running app/process; record actual evidence and limitations."}
+  ]
+}

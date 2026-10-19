@@ -5,10 +5,11 @@
  */
 import { Popover } from "@base-ui-components/react";
 import { Check, ChevronDown, Plus, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState, type FocusEvent } from "react";
 import { useI18n } from "../lib/i18n";
-import { badgeTone, propValueLabel } from "../lib/propDisplay";
+import { badgeTone, propKeyLabel, propValueLabel } from "../lib/propDisplay";
 import { inferredType } from "../lib/tableModel";
+import { isComposingKey } from "../lib/editorKeys";
 import type { PropValue, SchemaPropertyDef } from "../lib/types";
 
 function members(v: PropValue | undefined): string[] {
@@ -64,8 +65,8 @@ export function SelectEditor({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-[70]">
-          <Popover.Popup data-table-portal className="max-h-60 min-w-36 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[70]">
+          <Popover.Popup data-table-portal className="viewport-popup min-w-36 [--popup-max-width:320px] [--popup-max-height:240px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
             <ul role="listbox">
               {value && (
                 <li>
@@ -106,7 +107,7 @@ export function SelectEditor({
                         aria-hidden
                         className={`shrink-0 ${selected ? "text-text" : "text-transparent"}`}
                       />
-                      {propValueLabel(propKey, o, t, preset)}
+                      <span className="min-w-0 flex-1 truncate" title={propValueLabel(propKey, o, t, preset)}>{propValueLabel(propKey, o, t, preset)}</span>
                     </button>
                   </li>
                 );
@@ -140,6 +141,8 @@ export function ChipsEditor({
   const [draft, setDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
   const remaining = options.filter((o) => !values.includes(o));
   const matches = useMemo(() => {
     const q = draft.trim().toLowerCase();
@@ -151,12 +154,19 @@ export function ChipsEditor({
         : [];
   }, [draft, options.length, remaining, values]);
   const top = matches[0];
+  const pickerOpen = menuOpen && (matches.length > 0 || draft.trim().length > 0);
+  const dismissOnBlur = (event: FocusEvent) => {
+    const next = event.relatedTarget;
+    if (next === inputRef.current || (next instanceof Node && popupRef.current?.contains(next))) return;
+    setMenuOpen(false);
+  };
 
   const add = (v: string) => {
     const clean = v.trim();
     if (!clean || values.includes(clean)) return;
     onChange([...values, clean]);
     setDraft("");
+    inputRef.current?.focus({ preventScroll: true });
   };
 
   return (
@@ -180,38 +190,75 @@ export function ChipsEditor({
           </button>
         </span>
       ))}
-      <Popover.Root open={menuOpen && (matches.length > 0 || draft.trim().length > 0)} onOpenChange={setMenuOpen}>
-        <Popover.Trigger
-          render={
-            <input
-              ref={inputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onFocus={() => setMenuOpen(true)}
-              onBlur={() => window.setTimeout(() => setMenuOpen(false), 120)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  add(top && !options.includes(draft.trim()) ? top : draft || top || "");
-                } else if (e.key === "Backspace" && draft === "" && values.length > 0) {
-                  const next = values.slice(0, -1);
-                  onChange(next.length ? next : null);
-                }
-              }}
-              placeholder={t.prop_value_placeholder}
-              className="min-w-14 flex-1 bg-transparent px-0.5 py-0 text-[12px] text-text outline-none placeholder:text-text-subtle/70"
-            />
-          }
-        />
+      <Popover.Root open={pickerOpen} onOpenChange={setMenuOpen}>
+        {/* An autocomplete input keeps text focus; a button Trigger would
+            toggle on clicks/Space and move focus into the suggestions. */}
+          <input
+            ref={inputRef}
+            role="combobox"
+            aria-label={propKeyLabel(propKey, t)}
+            aria-autocomplete="list"
+            aria-expanded={pickerOpen}
+            aria-controls={pickerOpen ? listId : undefined}
+            aria-activedescendant={pickerOpen && top ? `${listId}-0` : undefined}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onFocus={() => setMenuOpen(true)}
+            onClick={() => setMenuOpen(true)}
+            onBlur={dismissOnBlur}
+            onKeyDown={(e) => {
+              if (isComposingKey(e.nativeEvent)) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                add(top && !options.includes(draft.trim()) ? top : draft || top || "");
+              } else if (e.key === "ArrowDown" && pickerOpen) {
+                e.preventDefault();
+                popupRef.current?.querySelector<HTMLButtonElement>('[role="option"]')?.focus();
+              } else if (e.key === "Escape" && pickerOpen) {
+                e.preventDefault();
+                e.stopPropagation();
+                setMenuOpen(false);
+              } else if (e.key === "Backspace" && draft === "" && values.length > 0) {
+                const next = values.slice(0, -1);
+                onChange(next.length ? next : null);
+              }
+            }}
+            placeholder={t.prop_value_placeholder}
+            className="min-w-14 flex-1 bg-transparent px-0.5 py-0 text-[12px] text-text outline-none placeholder:text-text-subtle/70"
+          />
         {(matches.length > 0 || draft.trim().length > 0) && (
           <Popover.Portal>
-            <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-[70]">
-              <Popover.Popup data-table-portal className="max-h-48 min-w-32 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
-                <ul role="listbox">
+            <Popover.Positioner anchor={inputRef} side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[70]">
+              <Popover.Popup
+                ref={popupRef}
+                initialFocus={false}
+                finalFocus={false}
+                onBlur={dismissOnBlur}
+                onKeyDown={(e) => {
+                  if (isComposingKey(e.nativeEvent)) return;
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    inputRef.current?.focus({ preventScroll: true });
+                    setMenuOpen(false);
+                  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const options = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]'));
+                    if (options.length === 0) return;
+                    const current = options.indexOf(document.activeElement as HTMLButtonElement);
+                    if (e.key === "ArrowUp" && current <= 0) inputRef.current?.focus({ preventScroll: true });
+                    else options[(current + (e.key === "ArrowDown" ? 1 : -1) + options.length) % options.length]?.focus();
+                  }
+                }}
+                data-table-portal
+                className="viewport-popup min-w-32 [--popup-max-width:320px] [--popup-max-height:192px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in"
+              >
+                <ul id={listId} role="listbox">
                   {matches.slice(0, 8).map((o, i) => (
                     <li key={o}>
                       <button
                         type="button"
+                        id={`${listId}-${i}`}
                         role="option"
                         aria-selected={i === 0}
                         onMouseDown={(e) => e.preventDefault()}
@@ -223,7 +270,7 @@ export function ChipsEditor({
                         }`}
                       >
                         <Check size={11} aria-hidden className={i === 0 ? "shrink-0 text-text" : "shrink-0 text-transparent"} />
-                        {propValueLabel(propKey, o, t, preset)}
+                        <span className="min-w-0 flex-1 truncate" title={propValueLabel(propKey, o, t, preset)}>{propValueLabel(propKey, o, t, preset)}</span>
                       </button>
                     </li>
                   ))}
@@ -231,12 +278,15 @@ export function ChipsEditor({
                     <li>
                       <button
                         type="button"
+                        id={`${listId}-0`}
+                        role="option"
+                        aria-selected
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => add(draft)}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-interactive-primary transition-colors duration-150 hover:bg-surface-muted"
                       >
                         <Plus size={11} aria-hidden className="shrink-0" />
-                        {draft.trim()}
+                        <span className="min-w-0 flex-1 truncate" title={draft.trim()}>{draft.trim()}</span>
                       </button>
                     </li>
                   )}

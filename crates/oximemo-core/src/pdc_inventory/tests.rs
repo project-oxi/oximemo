@@ -43,6 +43,40 @@ fn canonical_md(id: &str, title: &str, body: &str) -> String {
     )
 }
 
+#[test]
+fn wiki_display_titles_resolve_without_rewriting_and_ambiguity_stays_visible() {
+    let (paths, _temp) = temp_vault("wiki-display-titles");
+    let target = canonical_md(ID_B, "''", "# Display title\n\nTarget body\n");
+    write_vault(&paths, "different-filename.md", &target);
+    write_vault(
+        &paths,
+        "source.md",
+        &canonical_md(ID_A, "Source", "[[Display title]]\n"),
+    );
+    assert!(
+        entry(&scan(&paths).unwrap(), "source.md")
+            .broken_document_links
+            .is_empty()
+    );
+    assert_eq!(
+        fs::read_to_string(paths.vault.join("different-filename.md")).unwrap(),
+        target
+    );
+    write_vault(
+        &paths,
+        "duplicate.md",
+        &canonical_md(
+            "99999999-9999-7999-8999-999999999999",
+            "Display title",
+            "Other\n",
+        ),
+    );
+    assert_eq!(
+        entry(&scan(&paths).unwrap(), "source.md").broken_document_links,
+        ["[[Display title]]"]
+    );
+}
+
 fn entry<'a>(inv: &'a PdcInventory, path: &str) -> &'a PdcInventoryEntry {
     inv.items
         .iter()

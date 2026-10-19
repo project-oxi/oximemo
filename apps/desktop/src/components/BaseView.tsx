@@ -238,9 +238,9 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
   // generation-scoped reset silently never fires.
   const resultKey = runQ.data?.pages[0]?.resultKey;
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="collection-workspace flex min-h-full flex-col">
       {/* Base header: name + view tabs + 새 뷰 추가 + 코드 (spec §5). */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
+      <div className="collection-heading flex flex-wrap items-center gap-2 px-4 pb-2">
         <span className="flex items-center gap-1.5 text-sm font-semibold text-text">
           <Database size={14} className="text-text-subtle" />
           {"path" in source ? source.path.split("/").at(-1)?.replace(/\.query$/, "") : t.query_inline}

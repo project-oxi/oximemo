@@ -1,0 +1,37 @@
+{
+  "format": "pdc-query-capabilities/1",
+  "topLevelKeys": ["filters", "formulas", "properties", "summaries", "views"],
+  "viewTypes": ["table", "list"],
+  "viewKeys": ["type", "name", "limit", "groupBy", "filters", "order", "summaries"],
+  "unexecutedViewKeys": ["groupBy"],
+  "filterOperators": ["and", "or", "not"],
+  "propertyMetadataKeys": ["displayName"],
+  "expression": {
+    "namespaces": ["note", "file", "formula", "values"],
+    "unaryOperators": ["!", "+", "-"],
+    "operators": {
+      "||": 1,
+      "&&": 2,
+      "==": 3,
+      "!=": 3,
+      "<": 4,
+      "<=": 4,
+      ">": 4,
+      ">=": 4,
+      "+": 5,
+      "-": 5,
+      "*": 6,
+      "/": 6,
+      "%": 6
+    },
+    "functions": ["if", "list", "min", "max", "number"],
+    "methods": [
+      "isEmpty", "isTruthy", "isType", "toString", "contains", "containsAll", "containsAny",
+      "startsWith", "endsWith", "lower", "trim", "abs", "ceil", "floor", "round", "toFixed",
+      "sum", "mean", "min", "max", "unique", "hasTag", "hasLink", "inFolder"
+    ],
+    "filePredicates": ["hasTag", "hasLink", "inFolder"],
+    "fileProperties": ["name", "path", "folder", "ext", "size", "ctime", "mtime", "tags", "links", "embeds", "properties"],
+    "summaryNames": ["Average", "Min", "Max", "Sum", "Range", "Median", "Stddev", "Earliest", "Latest", "Checked", "Unchecked", "Empty", "Filled", "Unique"]
+  }
+}

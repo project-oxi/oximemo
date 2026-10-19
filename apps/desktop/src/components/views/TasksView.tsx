@@ -57,6 +57,17 @@ export function TasksView({ rows }: { rows: BaseRow[] }) {
     if (group) group.push(row);
     else byBucket.set(bucket, [row]);
   }
+  if (byBucket.size === 0) {
+    return (
+      <div className="flex min-h-40 flex-col items-center justify-center gap-3 px-4 py-8">
+        <p className="text-sm text-text-subtle">{t.tasks_view_empty}</p>
+        <button type="button" onClick={() => useUI.getState().setQuickAddOpen(true)}
+          className="rounded-[var(--button-radius)] bg-interactive-primary px-3 py-1.5 text-xs font-medium text-interactive-primary-foreground">
+          {t.task_panel_quick_add}
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col pb-2">
       {ORDER.map((bucket) => {

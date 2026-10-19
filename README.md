@@ -28,7 +28,7 @@ Two core scenarios, one vault:
 
 ## Highlights
 
-- **Files are the source of truth.** Oximemo memo files are plain `.md` files with TOML frontmatter. Durable PDC documents use PDC 2; generated session records use its Markdown profile. Indexes are rebuildable projections.
+- **Files are the source of truth.** New Oximemo notes use PDC 2 Markdown or HTML with YAML envelopes. Existing memo formats remain readable without conversion; generated session records use its Markdown profile. Indexes are rebuildable projections.
 - **Three-tier storage, pure Rust.** Plain files + a `redb` metadata index + a `tantivy` BM25 full-text index. No SQLite, no C dependencies in the index layer.
 - **Capture that doesn't make you wait.** The overlay window is warmed up off-screen so it appears in a single frame (target ≤ 16 ms) on trigger.
 - **Human/agent parity.** Every GUI operation is a CLI operation. Agent-facing commands default to **JSON / NDJSON** for clean streaming and scripting.
@@ -62,7 +62,7 @@ Two core scenarios, one vault:
 - **macOS 14+** on **Apple Silicon** (`aarch64-apple-darwin`).
 - Rust 1.89+ (edition 2024) to build from source.
 
-Windows, Linux, and mobile are intentionally out of scope for the MVP. See the [design doc](doc/DESIGN.md).
+The Tauri mobile client supports offline drafts and local PC synchronization over Tailscale. See the [mobile setup guide](docs/MOBILE.md). Windows and Linux desktop packaging remain outside the original macOS MVP.
 
 ## Install
 
@@ -194,6 +194,7 @@ Global: `--vault <PATH>` (or `OXIMEMO_VAULT`) selects a non-default vault. Outpu
 - **Capture overlay:** double-tap `Option` (needs Accessibility / Input Monitoring permission), or the always-available `Cmd+Shift+N`, or the menu-bar icon. `Enter` saves & dismisses, `Shift+Enter` newline, `Esc` cancels.
 - **Card grid:** search, tag/favorite filters, OKLCH color labels, virtualized for large vaults.
 - Light/dark follows the macOS system appearance.
+- **CLI install:** the desktop app first links its bundled CLI at `~/.local/bin/oximemo`; if that fails, it requests macOS administrator authorization to link it at `/usr/local/bin/oximemo`.
 
 </details>
 

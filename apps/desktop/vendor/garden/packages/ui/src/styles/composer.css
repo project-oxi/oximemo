@@ -1,0 +1,127 @@
+.g-composer {
+  min-width: 0;
+}
+
+.g-composer__label {
+  display: block;
+  margin-bottom: var(--g-space-2, 8px);
+  color: var(--g-ink);
+  font-size: var(--text-caption, 12px);
+}
+
+.g-composer__surface {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g-space-2, 8px);
+  padding: var(--g-space-3, 12px);
+  border: 1px solid var(--g-line-strong);
+  border-radius: var(--radius-composer, 28px);
+  background: var(--g-inset);
+}
+
+.g-composer__textarea {
+  min-height: 80px;
+  max-height: 20rem;
+  resize: vertical;
+  padding: var(--g-space-1, 4px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.g-composer__textarea:disabled {
+  opacity: .55;
+}
+
+.g-composer__footer {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g-space-2, 8px);
+}
+
+.g-composer__footer-slot {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g-space-2, 8px);
+}
+
+.g-composer__footer-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--g-space-2, 8px);
+}
+
+.g-composer__footer-trailing {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g-space-2, 8px);
+}
+
+.g-composer__label--visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.g-composer[data-variant="conversation"] .g-composer__surface {
+  gap: var(--g-space-2, 8px);
+  padding: var(--g-space-3, 12px);
+  border: 0;
+  border-radius: var(--radius-composer, 28px);
+  background: var(--g-surface);
+  box-shadow: var(--shadow-raised);
+}
+
+.g-composer[data-variant="conversation"] .g-composer__textarea {
+  box-sizing: border-box;
+  min-height: 44px;
+  max-height: 200px;
+  height: auto;
+  overflow-y: hidden;
+  resize: none;
+  padding: var(--g-space-1, 4px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--g-ink);
+  font: var(--text-body, 14px)/1.5 var(--font-sans);
+}
+
+.g-composer[data-variant="conversation"] .g-composer__textarea::placeholder {
+  color: var(--g-ink3);
+}
+
+.g-composer__submit--conversation {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill, 9999px);
+}
+
+@supports (corner-shape: superellipse(1.1)) {
+  .g-composer[data-variant="conversation"] .g-composer__surface {
+    corner-shape: superellipse(1.1);
+  }
+}
+
+@supports (corner-shape: superellipse(1.1)) {
+  .g-composer__surface { corner-shape: superellipse(1.1); }
+}

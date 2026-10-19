@@ -15,7 +15,7 @@
 import { Popover, } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calendar, ChevronRight, ListChecks, Pencil, Plus, Sparkles, SquareCheck, Tags, TriangleAlert, Type, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { memo as reactMemo, useEffect, useMemo, useState } from "react";
 import {
   folderSchema,
   getConfig,
@@ -40,7 +40,9 @@ import type {
   SchemaPropertyDef,
 } from "../lib/types";
 import { inferredType } from "../lib/tableModel";
+import { isComposingKey } from "../lib/editorKeys";
 import { PropCellEditor } from "./propEditors";
+import { AnimatedDisclosure } from "./AnimatedDisclosure";
 
 function members(v: PropValue | undefined): string[] {
   if (!v) return [];
@@ -271,8 +273,8 @@ function AddPropertyRow({
           }
         />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} className="z-[70]">
-          <Popover.Popup className="w-64 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[70]">
+          <Popover.Popup className="viewport-popup w-64 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
             <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
               {t.prop_new_section}
             </p>
@@ -281,6 +283,7 @@ function AddPropertyRow({
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
+                if (isComposingKey(e.nativeEvent)) return;
                 if (e.key === "Enter" && !nameTaken) {
                   onAdd(name.trim(), type);
                   setOpen(false);
@@ -404,10 +407,10 @@ function MetadataFill({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="top" align="start" sideOffset={4} className="z-[70]">
-          <Popover.Popup className="w-72 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
+        <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[70]">
+          <Popover.Popup className="viewport-popup flex w-72 flex-col rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
             <form
-              className="flex gap-1"
+              className="flex shrink-0 gap-1"
               onSubmit={(e) => {
                 e.preventDefault();
                 void run();
@@ -427,7 +430,7 @@ function MetadataFill({
                 {busy ? "…" : t.metadata_fill_search}
               </button>
             </form>
-            <div className="mt-1.5 max-h-56 overflow-y-auto">
+            <div className="mt-1.5 min-h-0 max-h-56 overflow-y-auto overscroll-contain">
               {hits === null ? null : hits.length === 0 ? (
                 <p className="px-1 py-2 text-[11px] leading-relaxed text-text-subtle">{t.metadata_fill_empty}</p>
               ) : (
@@ -460,7 +463,7 @@ function MetadataFill({
   );
 }
 
-export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) {
+export const PropertyPanel = reactMemo(function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const draftId = useUI((s) => s.draftId);
@@ -557,9 +560,10 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
   ));
 
   return (
-    <div className="flex shrink-0 flex-col gap-1.5 border-b border-line pb-2.5">
+    <div className="note-properties flex shrink-0 flex-col gap-1.5 border-b border-line pb-2.5">
       <button
         type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
         className="flex items-center gap-1 self-start text-[10px] font-semibold uppercase tracking-wide text-text-subtle transition-colors duration-150 hover:text-text"
       >
@@ -575,8 +579,7 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
           </span>
         )}
       </button>
-      {expanded && (
-        <>
+      <AnimatedDisclosure open={expanded}>
           {rows.length > 0 ? (
             <div className="flex flex-col">{rows}</div>
           ) : (
@@ -616,8 +619,7 @@ export function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) 
               {t.prop_updated} {isoToLocalDate(memo.updated_at)}
             </span>
           </div>
-        </>
-      )}
+      </AnimatedDisclosure>
     </div>
   );
-}
+});

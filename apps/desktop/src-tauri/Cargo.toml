@@ -17,10 +17,10 @@ name = "oximemo-desktop"
 path = "src/main.rs"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=2.7.0", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon", "custom-protocol", "image-png"] }
+tauri = { version = "=2.12.0", features = ["macos-private-api", "tray-icon", "custom-protocol", "image-png"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"

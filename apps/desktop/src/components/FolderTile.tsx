@@ -196,18 +196,11 @@ export function FolderTile({
           }}
           onDragEnd={() => setDraggingFolder(null)}
           {...dropProps}
-          role="button"
-          aria-label={`${card.path} · ${card.note_count_deep}`}
-          tabIndex={0}
           onClick={() => {
             if (naming) return;
             onOpen(card.path);
           }}
-          onKeyDown={(e) => {
-            if (naming) return;
-            if (e.key === "Enter") onOpen(card.path);
-          }}
-          className={`group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-[var(--folder-tile-bg)] p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${dropCls ?? ""}`}
+          className={`folder-card group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-[var(--folder-tile-bg)] p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus-ring ${dropCls ?? ""}`}
         />
       }
     >
@@ -239,9 +232,14 @@ export function FolderTile({
             }
           />
         ) : (
-          <span className="truncate text-sm font-semibold text-text">
+          <button
+            type="button"
+            aria-label={`${name} · ${card.note_count_deep}`}
+            onClick={(e) => { e.stopPropagation(); onOpen(card.path); }}
+            className="min-w-0 flex-1 truncate rounded-sm text-left text-sm font-semibold text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          >
             {name}
-          </span>
+          </button>
         )}
         <span className="ml-auto shrink-0 text-[11px] tabular-nums text-text-subtle">
           {card.note_count_deep}

@@ -1,3 +1,4 @@
+import { CopilotModelPicker } from "./CopilotModelPicker";
 /**
  * Copilot floating window (spec 2026-08-23, revised 2026-08-24): delegates
  * vault tasks to the user-activated terminal-agent CLI. One turn = one
@@ -8,7 +9,7 @@
  * Layering: the note editor is a z-50 dialog — this window sits at z-[60]
  * so the copilot stays usable WHILE a note is open, exactly like the
  * selection-context flow it serves (§7 selection block). The entry points
- * are the bottom-right FAB and ⌘⇧C, both above every dialog layer.
+ * are the workspace and note toolbars, plus ⌘⇧C.
  *
  * Revision 2026-08-24 (composer UX): conversation state lives in the ui
  * store (survives close/reopen, in-memory only); the composer
@@ -18,26 +19,25 @@
  * titles; errors offer retry.
  */
 import { useQuery, useQueryClient, useQueries } from "@tanstack/react-query";
-import { Bot, Check, ChevronDown, Copy, Loader2, MessageSquarePlus, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Bot, Check, Copy, Loader2, MessageSquarePlus, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { motion, useIsPresent } from "motion/react";
+import { useWorkspaceMotion } from "../lib/workspaceMotion";
 
 import { useI18n } from "../lib/i18n";
 import { useUI, type CopilotEntry, type CopilotRetryPayload } from "../stores/ui";
 import { clipboardWriteText } from "../lib/clipboard";
 import { renderChatMarkdown } from "../lib/chatMarkdown";
+import { runCopilotTurn } from "../lib/copilotTurn";
 import { expandCommand, type CopilotCommandId } from "../lib/copilotCommands";
 import { COMMAND_ICONS, CopilotComposer, type ComposerSendPayload } from "./CopilotComposer";
 import {
   copilotCancel,
   copilotStatus,
   copilotDisclosure,
-  copilotModels,
-  copilotSetModel,
-  copilotSend,
   getMemo,
-  type ModelInfo,
   type TurnResult,
-  type ActiveMemoRef,
 } from "../lib/api";
 
 /** "42.3s" under a minute, "2m 13s" above. */
@@ -59,25 +59,64 @@ export function CopilotPanel() {
   const qc = useQueryClient();
   const setCopilotOpen = useUI((s) => s.setCopilotOpen);
   const selectedId = useUI((s) => s.selectedId);
+  // Keep one portal container so changing note context preserves the
+  // composer and its draft. Nest the layer inside an open note dialog's
+  // focus boundary; otherwise the modal hides the companion from assistive
+  // technology even though it is painted above the backdrop.
+  const [layer] = useState(() => document.createElement("div"));
+  const present = useIsPresent();
+  const timing = useWorkspaceMotion();
+  useLayoutEffect(() => {
+    if (!present && layer.contains(document.activeElement)) {
+      const trigger = document.querySelector<HTMLElement>(".memo-sheet [data-copilot-trigger]")
+        ?? document.querySelector<HTMLElement>(".workspace-titlebar [data-copilot-trigger]");
+      trigger?.focus({ preventScroll: true });
+    }
+  }, [present, layer]);
+  useLayoutEffect(() => {
+    let frame = 0;
+    let attempts = 0;
+    const attach = () => {
+      const sheet = selectedId ? document.querySelector<HTMLElement>(".memo-sheet") : null;
+      const target = sheet ?? document.body;
+      if (layer.parentElement !== target) {
+        const focused = layer.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+        target.appendChild(layer);
+        if (sheet) {
+          // If focus was already in the composer when the modal opened,
+          // Base UI may mark individual siblings before this layer moves.
+          // Clear only its managed hiding on the newly inside content;
+          // intentional aria-hidden icons remain unchanged.
+          if (layer.hasAttribute("data-base-ui-inert")) layer.removeAttribute("aria-hidden");
+          layer.querySelectorAll('[data-base-ui-inert][aria-hidden="true"]').forEach((element) => {
+            element.removeAttribute("aria-hidden");
+          });
+        }
+        focused?.focus({ preventScroll: true });
+      }
+      // Base UI mounts its portal in a layout effect. Give that commit a
+      // bounded opportunity to install the sheet before attaching to it.
+      if (selectedId && !sheet && attempts++ < 3) frame = requestAnimationFrame(attach);
+    };
+    attach();
+    return () => cancelAnimationFrame(frame);
+  }, [selectedId, layer]);
+  useLayoutEffect(() => () => layer.remove(), [layer]);
   const selection = useUI((s) => s.copilotSelection);
   const setCopilotSelection = useUI((s) => s.setCopilotSelection);
   const setError = useUI((s) => s.setError);
   const entries = useUI((s) => s.copilotEntries);
-  const setCopilotEntries = useUI((s) => s.setCopilotEntries);
-  const setCopilotSession = useUI((s) => s.setCopilotSession);
-  const model = useUI((s) => s.copilotModel);
-  const setCopilotModel = useUI((s) => s.setCopilotModel);
+  const detachedMemoId = useUI((s) => s.copilotDetachedMemoId);
   const busy = useUI((s) => s.copilotBusy);
   const startedAt = useUI((s) => s.copilotStartedAt);
   const resetCopilotChat = useUI((s) => s.resetCopilotChat);
-  const [draft, setDraft] = useState("");
-  const [activeMemo, setActiveMemo] = useState<ActiveMemoRef | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [modelFilter, setModelFilter] = useState("");
-  const [switchingModel, setSwitchingModel] = useState(false);
+  const draft = useUI((s) => s.copilotDraft);
+  const setDraft = useUI((s) => s.setCopilotDraft);
   const [focusSignal, setFocusSignal] = useState(0);
   const [, setTick] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  const [showLatest, setShowLatest] = useState(false);
 
   const status = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
   const agentId = status.data?.agent ?? "";
@@ -88,29 +127,18 @@ export function CopilotPanel() {
     staleTime: 60_000,
     enabled: agentId !== "",
   });
-  const models = useQuery({
-    queryKey: ["copilot-models", agentId],
-    queryFn: copilotModels,
-    enabled: pickerOpen && agentId !== "",
-    staleTime: 5 * 60_000,
-  });
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!selectedId) {
-      setActiveMemo(null);
-      return;
-    }
-    getMemo(selectedId)
-      .then((m) => {
-        if (cancelled) return;
-        setActiveMemo({ id: m.id, title: m.title ?? "", path: m.path });
-      })
-      .catch(() => setActiveMemo(null));
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedId]);
+
+  // Keying the read by selection prevents a previous note (or its late
+  // rejection) from becoming the next request's implicit attachment.
+  const activeNote = useQuery({
+    queryKey: ["memo", selectedId],
+    queryFn: () => getMemo(selectedId!),
+    enabled: selectedId !== null,
+  });
+  const activeMemo = selectedId && activeNote.data?.id === selectedId
+    ? { id: activeNote.data.id, title: activeNote.data.title ?? "", path: activeNote.data.path }
+    : null;
 
   // Agent identity change = new conversation (spec §15): session ids are
   // not portable across activations, let alone adapters. Neither is a
@@ -123,7 +151,7 @@ export function CopilotPanel() {
       resetCopilotChat();
       setDraft("");
     }
-  }, [agentId, resetCopilotChat]);
+  }, [agentId, resetCopilotChat, setDraft]);
 
   // The selection belongs to the memo it was made in; never attach a
   // stale selection from a previously open note.
@@ -131,48 +159,10 @@ export function CopilotPanel() {
     selection && activeMemo && selection.memoId === activeMemo.id ? selection.text : null;
 
   const sendTurn = async (payload: ComposerSendPayload | CopilotRetryPayload) => {
-    if (busy) return;
-    const retry = "memo" in payload && "referenced" in payload;
-    const { message, memo, referenced } = payload;
-    setCopilotEntries((es) => [
-      ...es,
-      {
-        role: "user",
-        text: message,
-        at: Date.now(),
-        attached: {
-          active: memo ? { id: memo.id, title: memo.title, path: memo.path } : null,
-          selection: memo?.selection ?? null,
-          memos: referenced,
-        },
-      },
-    ]);
-    useUI.getState().setCopilotBusy(true);
-    useUI.getState().setCopilotStartedAt(Date.now());
-    try {
-      const result = await copilotSend(
-        message,
-        memo,
-        referenced.length > 0 ? referenced : null,
-        useUI.getState().copilotSession,
-        useUI.getState().copilotModel,
-      );
-      if (result.session_id) setCopilotSession(result.session_id);
-      setCopilotEntries((es) => [...es, { role: "agent", result, at: Date.now() }]);
-      if (result.changed.length > 0) {
-        void qc.invalidateQueries({ queryKey: ["memos"] });
-      }
-    } catch (e) {
-      const retryPayload: CopilotRetryPayload = retry
-        ? (payload as CopilotRetryPayload)
-        : { message, memo, referenced };
-      setCopilotEntries((es) => [
-        ...es,
-        { role: "error", text: String(e).split("\n")[0], at: Date.now(), retry: retryPayload },
-      ]);
-    } finally {
-      useUI.getState().setCopilotBusy(false);
-      useUI.getState().setCopilotStartedAt(null);
+    const result = await runCopilotTurn(payload);
+    if (result && result.changed.length > 0) {
+      void qc.invalidateQueries({ queryKey: ["memos"] });
+      void qc.invalidateQueries({ queryKey: ["memo"] });
     }
   };
 
@@ -184,25 +174,6 @@ export function CopilotPanel() {
     }
   };
 
-  // oxios has no per-turn model flag: picking a model rewrites its durable
-  // `engine.default_model` via its own `config set`, and the disclosure
-  // (header) follows. omp models ride each turn as `--model`.
-  const pickModel = (m: ModelInfo) => {
-    if (agentId === "oxios") {
-      setSwitchingModel(true);
-      copilotSetModel(m.id)
-        .then(() => {
-          setPickerOpen(false);
-          void qc.invalidateQueries({ queryKey: ["copilot-disclosure"] });
-        })
-        .catch((e) => setError(String(e).split("\n")[0]))
-        .finally(() => setSwitchingModel(false));
-    } else {
-      setCopilotModel(m.id);
-      setPickerOpen(false);
-    }
-  };
-
   // Elapsed timer tick while busy.
   useEffect(() => {
     if (!busy) return;
@@ -211,21 +182,20 @@ export function CopilotPanel() {
   }, [busy]);
   // Autoscroll on new entries / busy transitions.
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    if (followRef.current) listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    else setShowLatest(true);
   }, [entries.length, busy]);
 
   const provider = disclosure.data?.provider ?? t.copilot_consent_unknown_provider;
-  const currentModelLabel =
-    agentId === "oxios"
-      ? disclosure.data?.model ?? t.copilot_model_auto
-      : model ?? t.copilot_model_auto;
-  const modelList = (models.data ?? []).filter((m) =>
-    `${m.name} ${m.id} ${m.provider}`.toLowerCase().includes(modelFilter.trim().toLowerCase()),
-  );
+  const currentModelLabel = disclosure.data?.model || status.data?.default_model || t.copilot_model_auto;
   const emptyCards: CopilotCommandId[] = ["summary", "tags", "find", "new", "tidy"];
 
-  return (
-    <aside
+  return createPortal(
+    <motion.aside
+      inert={!present}
+      initial={{ opacity: 0, y: timing.reduce ? 0 : 8 }}
+      animate={{ opacity: 1, y: 0, transition: timing.enter }}
+      exit={{ opacity: 0, y: timing.reduce ? 0 : 4, transition: timing.exit }}
       aria-label={t.copilot_panel_title}
       onKeyDown={(e) => {
         // Esc outside the textarea (focus on a link/button) closes the
@@ -234,7 +204,7 @@ export function CopilotPanel() {
           setCopilotOpen(false);
         }
       }}
-      className="fixed bottom-6 right-6 z-[60] flex h-[min(72vh,580px)] w-[min(92vw,400px)] flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface-raised shadow-2xl"
+      className="glass-copilot fixed bottom-6 right-6 z-[60] flex h-[min(72vh,580px)] w-[min(92vw,380px)] flex-col overflow-hidden"
     >
       {/* Header: agent + provider are always visible (§12) — the user
           should never have to wonder where their data is going. */}
@@ -248,88 +218,12 @@ export function CopilotPanel() {
             {currentModelLabel.split("/").pop()} · {provider}
           </p>
         </div>
-        <div className="relative">
-          <button
-            type="button"
-            aria-label={t.copilot_model}
-            aria-expanded={pickerOpen}
-            title={agentId === "oxios" ? t.copilot_model_global_hint : t.copilot_model}
-            disabled={switchingModel}
-            onClick={() => setPickerOpen((v) => !v)}
-            className="flex max-w-[140px] items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-text-muted transition-colors hover:bg-surface-muted hover:text-text disabled:opacity-50"
-          >
-            {switchingModel ? (
-              <Loader2 size={11} className="animate-spin" />
-            ) : (
-              <ChevronDown size={11} />
-            )}
-            <span className="truncate">{currentModelLabel.split("/").pop()}</span>
-          </button>
-          {pickerOpen && (
-            <div className="absolute right-0 top-full z-[61] mt-1 max-h-[280px] w-[300px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-lg">
-              {agentId === "oxios" && (
-                <p className="px-2 py-1.5 text-[10px] leading-snug text-text-subtle">
-                  {t.copilot_model_global_hint}
-                </p>
-              )}
-              {(models.data?.length ?? 0) > 8 && (
-                <input
-                  type="text"
-                  value={modelFilter}
-                  onChange={(e) => setModelFilter(e.target.value)}
-                  placeholder={t.copilot_model_filter}
-                  className="mb-1 w-full rounded-md bg-surface-sunken px-2 py-1.5 text-[11px] text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
-                />
-              )}
-              {models.isLoading && (
-                <p className="flex items-center gap-2 px-2 py-2 text-[11px] text-text-subtle">
-                  <Loader2 size={11} className="animate-spin" />
-                  {t.copilot_detecting}
-                </p>
-              )}
-              {models.isError && (
-                <p className="px-2 py-2 text-[11px] text-red-500">{t.copilot_model_none}</p>
-              )}
-              {!models.isLoading && !models.isError && (models.data?.length ?? 0) === 0 && (
-                <p className="px-2 py-2 text-[11px] leading-snug text-text-subtle">
-                  {t.copilot_model_unlisted}
-                </p>
-              )}
-              {modelList.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => pickModel(m)}
-                  className={`flex w-full items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors hover:bg-surface-muted ${
-                    m.id === currentModelLabel ? "text-text font-medium" : "text-text-muted"
-                  }`}
-                >
-                  <span className="truncate">{m.name}</span>
-                  <span className="shrink-0 font-mono text-[9px] text-text-subtle">
-                    {m.provider}
-                    {m.context_window ? ` · ${Math.round(m.context_window / 1000)}K` : ""}
-                  </span>
-                </button>
-              ))}
-              {agentId !== "oxios" && model !== null && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCopilotModel(null);
-                    setPickerOpen(false);
-                  }}
-                  className="w-full rounded-md px-2 py-1.5 text-left text-[11px] text-text-muted transition-colors hover:bg-surface-muted"
-                >
-                  {t.copilot_model_auto}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <CopilotModelPicker agent={agentId} disabled={busy} />
         <button
           type="button"
           aria-label={t.copilot_new_chat}
           title={t.copilot_new_chat}
+          disabled={busy}
           onClick={() => {
             resetCopilotChat();
             setDraft("");
@@ -340,7 +234,7 @@ export function CopilotPanel() {
         </button>
         <button
           type="button"
-          aria-label="close"
+          aria-label={t.close}
           onClick={() => setCopilotOpen(false)}
           className="rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
         >
@@ -352,6 +246,7 @@ export function CopilotPanel() {
         ref={listRef}
         role="log"
         aria-live="polite"
+        onScroll={event => { const el = event.currentTarget; followRef.current = el.scrollHeight - el.clientHeight - el.scrollTop < 48; if (followRef.current) setShowLatest(false); }}
         className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3"
       >
         {entries.length === 0 && !busy && (
@@ -370,7 +265,9 @@ export function CopilotPanel() {
                     key={id}
                     type="button"
                     onClick={() => {
-                      setDraft(expandCommand(id, { hasActiveMemo: Boolean(activeMemo), t }));
+                      setDraft(expandCommand(id, {
+                        hasActiveMemo: Boolean(activeMemo && activeMemo.id !== detachedMemoId), t,
+                      }));
                       setFocusSignal((n) => n + 1);
                     }}
                     className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface-sunken px-2.5 py-2 text-left transition-colors hover:bg-surface-muted"
@@ -394,7 +291,7 @@ export function CopilotPanel() {
             key={i}
             entry={e}
             agentName={agentName}
-            onRetry={busy ? undefined : () => e.role === "error" && e.retry && void sendTurn(e.retry)}
+            onRetry={busy ? undefined : () => (e.role === "error" || e.role === "agent") && e.retry && void sendTurn(e.retry)}
           />
         ))}
         {busy && (
@@ -408,6 +305,7 @@ export function CopilotPanel() {
         )}
       </div>
 
+      {showLatest && <button type="button" className="mx-auto mb-2 rounded-full border border-line bg-surface px-3 py-1 text-xs text-text" onClick={() => { followRef.current = true; listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); setShowLatest(false); }}>{t.copilot_latest}</button>}
       <CopilotComposer
         draft={draft}
         setDraft={setDraft}
@@ -420,7 +318,8 @@ export function CopilotPanel() {
         focusSignal={focusSignal}
         onEscPanel={() => setCopilotOpen(false)}
       />
-    </aside>
+    </motion.aside>,
+    layer,
   );
 }
 /** One row: user turn (with its attached-context chips), agent turn, or
@@ -482,7 +381,7 @@ function ConversationEntry({
       </div>
     );
   }
-  return <AgentMessage result={entry.result} agentName={agentName} />;
+  return <><AgentMessage result={entry.result} agentName={agentName} />{entry.retry && onRetry && <button type="button" className="rounded-md px-2 py-1 text-xs text-text-muted" onClick={onRetry}>{t.copilot_retry}</button>}</>;
 }
 
 /** One finished agent turn: markdown response, observed changes, and
@@ -559,6 +458,7 @@ function AgentMessage({ result, agentName }: { result: TurnResult; agentName: st
 
   return (
     <div className="mr-4 space-y-1.5 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text">
+      {result.exit_code !== null && result.exit_code !== 0 && !result.timed_out && <p role="status" className="text-xs text-text">{t.copilot_failed.replace("{code}", String(result.exit_code))}</p>}
       {result.timed_out ? (
         <p className="text-text-subtle">{t.copilot_timed_out}</p>
       ) : result.signal != null && !result.response ? (

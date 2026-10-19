@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Garden Desktop",
+  "version": "0.1.0",
+  "identifier": "dev.garden.template",
+  "build": {"beforeDevCommand":"bun run dev","beforeBuildCommand":"bun run build","devUrl":"http://localhost:1420","frontendDist":"../dist"},
+  "app": {"windows":[{"label":"main","title":"Garden","width":1200,"height":800,"minWidth":720,"minHeight":480,"decorations":false}],"security":{"csp":"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"}},
+  "bundle":{"active":false}
+}

@@ -48,7 +48,7 @@ function sanitize(body: string): string {
 const FRAME_STYLES = `
   :root { color-scheme: light dark; }
   body { margin: 0; padding: 1rem 1.25rem; font: 14px/1.7 -apple-system, "Segoe UI", sans-serif; }
-  .oximemo-wikilink { color: #4c7ad0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  .oximemo-wikilink { color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
   img { max-width: 100%; height: auto; }
 `;
 

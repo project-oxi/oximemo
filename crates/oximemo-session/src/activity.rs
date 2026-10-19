@@ -119,7 +119,7 @@ impl SessionRecorder {
             &external_id,
             &format!(
                 "Codex session {}",
-                &external_id.chars().take(12).collect::<String>()
+                external_id.chars().take(12).collect::<String>()
             ),
             &crate::now_rfc3339(),
             &metadata,
@@ -681,7 +681,7 @@ fn read_git_commits(
     let fields = String::from_utf8_lossy(&output.stdout);
     let values = fields.split('\0').collect::<Vec<_>>();
     let mut commits = Vec::new();
-    for row in values.chunks_exact(4) {
+    for row in values.as_chunks::<4>().0 {
         let hash = row[0].trim();
         if hash.is_empty() {
             continue;

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Single-pass mobile sync manifest.** The PC sync server's `/v1/manifest` route now takes the source SHA-256 and tombstone flag from the inventory scan it already runs, instead of re-reading and re-classifying every document per request. One sync previously cost four full vault read+parse passes; it now costs one, and the phone skips the second manifest fetch when nothing was applied. Manifest responses serialize once to bytes, and mobile write receipts older than 30 days are pruned at server startup.
+- **Batched mobile cache persistence.** The phone no longer rewrites and fsyncs its whole offline cache after every applied operation and fetched source; saves are batched per phase while pre-send retry state and receipt idempotency keep crash recovery unchanged. Reconcile builds a key index instead of comparing every cached document against every manifest entry.
+- **Desktop index caching that survives reads.** The vault snapshot and base-view result caches are keyed on a write generation counter stored inside `meta.redb` and incremented in every write transaction, replacing the `(mtime, size)` stat key that every read-only redb open invalidated. Stats, facets, graph, backlinks, folder cards, and tag/folder renames read through the shared cached snapshot instead of re-exporting the full index. Full reindex commits staged records in one transaction, and the file watcher skips re-upserting records the save path already wrote.
+- **Responsive desktop UI.** The ten heaviest read commands (list/search/query/base/stats/facets/folders/graph) run off the main thread via `#[tauri::command(async)]`, and note-save events no longer refetch the view config.
+
+### Fixed
+
+- `bun test` in the desktop app is scoped to app sources; the vendored Garden packages' own suites (which need their own dependency tree) no longer run and fail from the app root.
+
+- Markdown live preview retains clicked positions, exposes the caret after focused window resizing, and advances through existing emphasis closers when typing Markdown. IME confirmation no longer triggers save/close or global shortcuts, and quick capture resets its visible draft when reopened.
+- Native Tauri dependencies use the exact Garden pins. Main-window size follows configuration, compact settings use a horizontal category strip, and app chrome and editor syntax use the requested monochrome palette.
+- Newly installed preset templates use canonical PDC 2 creation with atomic create-if-absent; existing preset files remain byte-preserved.
+- Empty calendar days open daily notes with keyboard-accessible date buttons. Query-calendar date-field changes update immediately. Image attachment controls show supported formats, restore editor focus, place an unchanged cursor after the inserted image, and report failed attachments while preserving successful files in a batch.
+- Deleted memos can be restored from Storage settings after the undo toast expires. Individual deletions now offer undo. Sidebar task checkboxes and tag filter states are accessible, and folder pickers refresh counts, clear completed searches, and use localized labels.
+- HTML source undo history survives switching through preview mode. Settings fields cancel only their current draft on Escape and expose field names and selected options.
+- Search scope opens an actual folder/all selector. Hyphenated and nested inline tags stay intact in note tags, task descriptions, and tag renames.
+- Note cards and list/timeline rows can be opened with Tab and Enter/Space; folder rows and tiles use the same keyboard behavior without activating a parent from a child control.
+- Calendar month navigation uses localized accessible names and tooltips. Backlink previews omit a repeated opening title.
+- CLI installation now prefers `~/.local/bin/oximemo`, requests administrator authorization only for the `/usr/local/bin/oximemo` fallback, and reports installation errors in the desktop UI.
+
 ## [0.18.0] — 2026-10-10
 
 ### Added

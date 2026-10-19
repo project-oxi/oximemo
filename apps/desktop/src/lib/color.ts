@@ -10,24 +10,13 @@ import type { FolderDef } from "./types";
 /** Inbox and root deliberately have no folder hue marker. */
 const INBOX_NEUTRAL = "";
 
-/** Hash a string into one of the preset hues (stable color per folder path). */
-function hueFor(path: string): number {
-  let h = 0;
-  for (let i = 0; i < path.length; i++) h = (h * 31 + path.charCodeAt(i)) | 0;
-  const hues = [25, 75, 145, 195, 250, 310];
-  return hues[Math.abs(h) % hues.length];
-}
-
-/** Look up a folder path's color from the folder registry. */
+/** Neutral app marker. The registry retains saved colors for color settings. */
 export function colorForFolder(
   path: string,
-  folders: FolderDef[] = [],
+  _folders: FolderDef[] = [],
 ): string {
-  const def = folders.find((f) => f.path === path);
-  if (def?.color) return def.color;
   if (path === "" || path === "inbox") return INBOX_NEUTRAL;
-  // Stable hue from the path so every folder always has a color.
-  return `oklch(0.75 0.13 ${hueFor(path)})`;
+  return "var(--color-folder-marker)";
 }
 
 /** Backwards-compat: same shape as colorForCategory so existing callers compile. */

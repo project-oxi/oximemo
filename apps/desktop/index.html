@@ -9,14 +9,14 @@
          "system" (or null) follows the OS preference; "light"/"dark" override. -->
     <script>
       (function () {
-        try {
-          var t = localStorage.getItem("oxi-theme");
+          var t = null;
+          try { t = localStorage.getItem("oxi-theme"); } catch (_) {}
           var d =
             t === "dark" ||
-            ((t === "system" || t == null) &&
+            ((t !== "light" && t !== "dark") &&
               matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.classList.toggle("dark", d);
-        } catch (_) {}
+          document.documentElement.style.colorScheme = d ? "dark" : "light";
       })();
     </script>
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/SUIT-Variable.woff2" />

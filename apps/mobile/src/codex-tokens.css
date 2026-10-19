@@ -1,0 +1,381 @@
+/* Codex Design System — extracted tokens (light + dark)
+ * Source: Codex desktop app (ChatGPT.app v26.917.71314) app.asar
+ * Usage: import this file, then use only semantic tokens.
+ * Theme: <html data-theme="dark|light"> overrides prefers-color-scheme.
+ * Values are measured from the shipped bundle; comments note the origin token.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ===== Primitive: gray ramp (theme-symmetric; dark inverts) ===== */
+  --gray-0: #ffffff;
+  --gray-25: #fcfcfc;
+  --gray-50: #f9f9f9;
+  --gray-75: #f3f3f3;
+  --gray-100: #ededed;
+  --gray-150: #dfdfdf;
+  --gray-200: #cdcdcd;
+  --gray-250: #b9b9b9;
+  --gray-300: #afafaf;
+  --gray-350: #9f9f9f;
+  --gray-400: #8f8f8f;
+  --gray-450: #767676;
+  --gray-500: #5d5d5d;
+  --gray-550: #4f4f4f;
+  --gray-600: #414141;
+  --gray-650: #393939;
+  --gray-700: #303030;
+  --gray-750: #282828;
+  --gray-800: #212121;
+  --gray-850: #1c1c1c;
+  --gray-900: #181818;
+  --gray-925: #161616;
+  --gray-950: #131313;
+  --gray-975: #101010;
+  --gray-1000: #0d0d0d;
+
+  /* ===== Primitive: accent ramps (theme-fixed) ===== */
+  --green-25: #edfaf2;  --green-50: #d9f4e4;  --green-75: #b8ebcc;
+  --green-100: #8cdfad; --green-200: #66d492; --green-300: #40c977;
+  --green-400: #04b84c; --green-500: #00a240; --green-600: #008635;
+  --green-700: #00692a; --green-800: #004f1f; --green-900: #003716;
+  --green-950: #011c0b; --green-1000: #001207;
+
+  --red-25: #fff0f0;  --red-50: #ffd9d9;  --red-75: #ffc6c5;
+  --red-100: #ffa4a2; --red-200: #ff8583; --red-300: #ff6764;
+  --red-400: #fa423e; --red-500: #e02e2a; --red-600: #ba2623;
+  --red-700: #911e1b; --red-800: #6e1615; --red-900: #4d100e;
+  --red-950: #280b0a; --red-1000: #1f0909;
+
+  --blue-25: #f5faff;  --blue-50: #e5f3ff;  --blue-75: #cce6ff;
+  --blue-100: #99ceff; --blue-200: #66b5ff; --blue-300: #339cff;
+  --blue-400: #0285ff; --blue-500: #0169cc; --blue-600: #004f99;
+  --blue-700: #003f7a; --blue-800: #013566; --blue-900: #00284d;
+  --blue-950: #000e1a; --blue-1000: #000d19;
+
+  --purple-25: #f9f5fe; --purple-50: #efe5fe; --purple-75: #e0cefd;
+  --purple-100: #ceb0fb; --purple-200: #be95fa; --purple-300: #ad7bf9;
+  --purple-400: #924ff7; --purple-500: #8046d9; --purple-600: #6b3ab4;
+  --purple-700: #532d8d; --purple-800: #3f226a; --purple-900: #2c184a;
+  --purple-950: #160c25; --purple-1000: #100a19;
+
+  --orange-25: #fff5f0; --orange-50: #ffe7d9; --orange-75: #ffcfb4;
+  --orange-100: #ffb790; --orange-200: #ff9e6c; --orange-300: #ff8549;
+  --orange-400: #fb6a22; --orange-500: #e25507; --orange-600: #b9480d;
+  --orange-700: #923b0f; --orange-800: #6d2e0f; --orange-900: #4a2206;
+  --orange-950: #281105; --orange-1000: #211107;
+
+  --yellow-25: #fffbed; --yellow-50: #fff6d9; --yellow-75: #ffeeb8;
+  --yellow-100: #ffe48c; --yellow-200: #ffdb66; --yellow-300: #ffd240;
+  --yellow-400: #ffc300; --yellow-500: #e0ac00; --yellow-600: #ba8e00;
+  --yellow-700: #916f00; --yellow-800: #6e5400; --yellow-900: #4d3b00;
+  --yellow-950: #261d00; --yellow-1000: #1a1400;
+
+  --pink-25: #fff4f9;  --pink-50: #ffe8f3;  --pink-75: #ffd4e8;
+  --pink-100: #ffbada; --pink-200: #ffa3ce; --pink-300: #ff8cc1;
+  --pink-400: #ff66ad; --pink-500: #e04c91; --pink-600: #ba437a;
+  --pink-700: #963c67; --pink-800: #6e2c4a; --pink-900: #4d1f34;
+  --pink-950: #29101c; --pink-1000: #1a0a11;
+
+  /* Alpha tints of accent 400s (oklab mixes, per-hue tuned — measured) */
+  --green-a25: color-mix(in oklab, var(--green-400) 8%, transparent);
+  --green-a50: color-mix(in oklab, var(--green-400) 15%, transparent);
+  --green-a100: color-mix(in oklab, var(--green-400) 45%, transparent);
+  --red-a25: color-mix(in oklab, var(--red-400) 8%, transparent);
+  --red-a50: color-mix(in oklab, var(--red-400) 16%, transparent);
+  --red-a100: color-mix(in oklab, var(--red-400) 48%, transparent);
+  --blue-a25: color-mix(in oklab, var(--blue-400) 4%, transparent);
+  --blue-a50: color-mix(in oklab, var(--blue-400) 13%, transparent);
+  --blue-a100: color-mix(in oklab, var(--blue-400) 40%, transparent);
+  --purple-a25: color-mix(in oklab, var(--purple-400) 6%, transparent);
+  --purple-a50: color-mix(in oklab, var(--purple-400) 15%, transparent);
+  --purple-a100: color-mix(in oklab, var(--purple-400) 45%, transparent);
+
+  /* Neutral alpha steps (base = near-black in light) */
+  --alpha-base: var(--gray-1000);
+  --alpha-04: color-mix(in oklab, var(--alpha-base) 4%, transparent);
+  --alpha-05: color-mix(in oklab, var(--alpha-base) 5%, transparent);
+  --alpha-08: color-mix(in oklab, var(--alpha-base) 8%, transparent);
+  --alpha-10: color-mix(in oklab, var(--alpha-base) 10%, transparent);
+  --alpha-12: color-mix(in oklab, var(--alpha-base) 12%, transparent);
+  --alpha-16: color-mix(in oklab, var(--alpha-base) 16%, transparent);
+  --alpha-20: color-mix(in oklab, var(--alpha-base) 20%, transparent);
+  --alpha-30: color-mix(in oklab, var(--alpha-base) 30%, transparent);
+
+  /* ===== Typography ===== */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --text-3xs: 10px;   /* micro labels — size derived from token group */
+  --text-2xs: 11px;   --text-2xs--line-height: 1.33;
+  --text-xs: 11px;    --text-xs--line-height: 1.33;
+  --text-sm: 12px;    --text-sm--line-height: 1.43;
+  --text-ui: 13px;    --text-ui--line-height: 1.45;
+  --text-base: 14px;  --text-base--line-height: 1.5;
+  --text-code: 12px;  --text-code--line-height: 1.8;
+  --text-lg: 16px;    --text-lg--line-height: 1.56;
+  --text-heading-sm: 18px;
+  --text-heading-md: 20px;
+  --text-heading-lg: 24px;
+  --text-heading-app: 28px;
+  --text-xl: 28px;    --text-xl--line-height: 1.4;
+  --text-2xl: 36px;   --text-2xl--line-height: 1.33;
+  --text-3xl: 48px;   --text-3xl--line-height: 1.2;
+  --text-4xl: 72px;   --text-4xl--line-height: 1.11;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.025em;
+
+  /* ===== Spacing / layout ===== */
+  --spacing: 0.25rem; /* 4px base */
+  --sidebar-width: clamp(240px, 275px, min(520px, calc(100vw - 320px)));
+  --height-toolbar: 46px;
+  --height-toolbar-sm: 36px;
+  --height-nav-row: calc(1em * 1.5 + 8px); /* ~29px at 13px UI text */
+  --padding-row-y: 4px;
+  --padding-row-x: 8px;
+  --padding-panel: 12px;
+  --padding-toolbar: 16px;
+  --conversation-item-gap: 16px;
+  --conversation-grouped-item-gap: 4px;
+  --icon-leading-size: 16px;
+  --markdown-wide-block-max-width: 64rem;
+
+  /* ===== Radius (Codex scale = base × 1.25) ===== */
+  --corner-radius-scale: 1.25;
+  --radius-2xs: calc(2px * var(--corner-radius-scale));
+  --radius-xs: calc(4px * var(--corner-radius-scale));
+  --radius-sm: calc(6px * var(--corner-radius-scale));
+  --radius-md: calc(8px * var(--corner-radius-scale));
+  --radius-lg: calc(10px * var(--corner-radius-scale)); /* buttons */
+  --radius-xl: calc(12px * var(--corner-radius-scale));
+  --radius-2xl: calc(16px * var(--corner-radius-scale));
+  --radius-3xl: calc(20px * var(--corner-radius-scale));
+  --radius-4xl: calc(24px * var(--corner-radius-scale));
+  --radius-row: 9999px;           /* pill nav rows */
+  --radius-composer: 28px;        /* spacing × 7 */
+  --radius-composer-single-line: 22px; /* spacing × 5.5 */
+  --corner-shape: superellipse(1.5);   /* shell signature */
+  --corner-shape-composer: superellipse(1.1);
+
+  /* ===== Elevation ===== */
+  --shadow-sm: 0 1px 2px -1px #00000014;
+  --shadow-md: 0 2px 4px -1px #00000014;
+  --shadow-lg: 0 4px 8px -2px #0000001a;
+  --shadow-xl: 0 8px 16px -4px #0000001f;
+  --shadow-2xl: 0 16px 32px -8px #00000030;
+  --shadow-card: 0 4px 16px 0 #0000000d;
+  --elevation-stroke: 0 0 0 0.5px var(--color-border-strong);
+  --elevation-prominent:
+    var(--elevation-stroke),
+    0 3px 7.5px #0000000a,
+    0 0 20px #0000000d;
+  --elevation-sidebar:
+    var(--elevation-stroke),
+    0 3px 7.5px #00000008,
+    0 0 16px #00000005;
+  --elevation-composer:
+    0 0 0 1px #0000000a,
+    0 2px 8px 0 #0000000a,
+    0 4px 80px 8px #00000006;
+  --elevation-composer-dark: inset 0 0 1px 0 #fff3;
+
+  /* ===== Motion ===== */
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-basic: 150ms;
+  --duration-relaxed: 300ms;
+  --cubic-enter: cubic-bezier(0.19, 1, 0.22, 1);
+  --cubic-exit: cubic-bezier(0.8, 0, 0.4, 1);
+  --cubic-exit-snappy: cubic-bezier(0.65, 0, 0.4, 1);
+  --cubic-move: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* ===== Semantic: text (light) ===== */
+  --color-text: #1a1c1f;              /* --app-color-text-foreground */
+  --color-text-secondary: color-mix(in srgb, var(--color-text) 65%, transparent);
+  --color-text-tertiary: color-mix(in srgb, var(--color-text) 45%, transparent);
+  --color-text-inverse: #ffffff;
+  --color-text-success: var(--green-500);
+  --color-text-warning: var(--orange-500);
+  --color-text-error: var(--red-500);
+  --color-text-accent: var(--blue-400);
+  --color-text-on-accent: #0d0d0d;
+
+  /* ===== Semantic: surfaces (light) ===== */
+  --color-surface: #ffffff;           /* main canvas */
+  --color-surface-under: #f9f9f9;     /* sidebar — one step under */
+  --color-surface-editor: #ffffff;    /* code surfaces (Codex Light) */
+  --color-surface-elevated: #ffffff;  /* popovers */
+  --color-surface-elevated-2: #ededed;
+  --color-surface-diff: color-mix(in srgb, var(--color-surface) 94%, var(--color-text));
+  --color-background-primary-solid: #181818; /* primary button bg (gray-900) */
+  --color-background-accent: var(--blue-50);   /* selection highlight */
+  --color-background-accent-hover: var(--blue-50);
+  --color-background-accent-active: var(--blue-50);
+  --color-background-secondary: color-mix(in oklab, var(--color-text) 5%, transparent);
+  --color-background-secondary-hover: color-mix(in oklab, var(--color-text) 5%, transparent);
+  --color-background-secondary-active: color-mix(in oklab, var(--color-text) 4%, transparent);
+  --color-background-tertiary-hover: color-mix(in oklab, var(--color-text) 10%, transparent);
+  --color-background-tertiary-active: color-mix(in oklab, var(--color-text) 20%, transparent);
+
+  /* ===== Semantic: buttons ===== */
+  --button-primary-bg: var(--color-background-primary-solid);
+  --button-primary-text: var(--color-text-inverse);
+  --button-secondary-text: var(--color-text);
+  --button-tertiary-text: var(--gray-500);
+  --height-button-composer: 28px;     /* spacing × 7 */
+  --height-button-composer-sm: 20px;  /* spacing × 5 */
+  --radius-button: var(--radius-lg);
+
+  /* ===== Semantic: borders (fg alpha mixes) ===== */
+  --color-border-subtle: color-mix(in oklab, var(--color-text) 5%, transparent);
+  --color-border: color-mix(in oklab, var(--color-text) 8%, transparent);
+  --color-border-strong: color-mix(in oklab, var(--color-text) 12%, transparent);
+  --color-border-focus: var(--blue-300);
+  --color-ring: var(--blue-300);
+  --color-ring-danger: var(--red-200);
+  --hairline: 1px;
+
+  /* ===== Editor bridge (VS Code variable names) =====
+   * Map code/diff/terminal surfaces through these so an embedded host
+   * theme can override them wholesale. Standalone values: Codex Light. */
+  --vscode-editor-background: #ffffff;
+  --vscode-foreground: #0d0d0d;
+  --vscode-focusBorder: #0169cc;
+  --vscode-sideBar-background: #fcfcfc;
+  --vscode-sideBar-foreground: #212121;
+  --vscode-button-background: #0169cc;
+  --vscode-textLink-foreground: #0169cc;
+  --vscode-gitDecoration-addedResourceForeground: #00a240;
+  --vscode-gitDecoration-deletedResourceForeground: #e02e2a;
+  --vscode-terminal-ansiRed: #d53538;
+  --vscode-terminal-ansiGreen: #008809;
+  --vscode-terminal-ansiMagenta: #751ed9;
+  --vscode-terminal-ansiBrightRed: #f44a4c;
+  --vscode-terminal-ansiBrightGreen: #59d24e;
+  --vscode-terminal-ansiBrightMagenta: #9840ff;
+}
+
+@media (resolution >= 1.5x) {
+  :root { --hairline: 0.5px; }
+}
+
+/* ===== Dark theme ===== */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* invert the ramp */
+  --gray-0: #0d0d0d;  --gray-25: #101010; --gray-50: #131313;
+  --gray-75: #161616; --gray-100: #181818; --gray-150: #1c1c1c;
+  --gray-200: #212121; --gray-250: #282828; --gray-300: #303030;
+  --gray-350: #393939; --gray-400: #414141; --gray-450: #4f4f4f;
+  --gray-500: #5d5d5d;
+  --gray-550: #767676; --gray-600: #8f8f8f; --gray-650: #9f9f9f;
+  --gray-700: #afafaf; --gray-750: #b9b9b9; --gray-800: #cdcdcd;
+  --gray-850: #dcdcdc; --gray-900: #ededed; --gray-925: #f3f3f3;
+  --gray-950: #f3f3f3; --gray-975: #f9f9f9; --gray-1000: #ffffff;
+
+  --alpha-base: #ffffff;
+
+  /* semantic overrides */
+  --color-text: #dfdfdf;
+  --color-text-inverse: #0d0d0d;
+  --color-text-success: var(--green-300);
+  --color-text-warning: var(--orange-300);
+  --color-text-error: var(--red-300);
+  --color-text-accent: var(--blue-300);
+
+  --color-surface: #181818;
+  --color-surface-under: #131313;
+  --color-surface-editor: #111111;    /* Codex Dark */
+  --color-surface-elevated: #212121;
+  --color-surface-elevated-2: #282828;
+  --color-background-primary-solid: #ededed; /* near-white circle in dark */
+  --color-background-accent: var(--blue-900);
+  --color-background-accent-hover: var(--blue-900);
+  --color-background-accent-active: var(--blue-900);
+  --color-background-secondary: color-mix(in oklab, #ffffff 5%, transparent);
+  --color-background-secondary-hover: color-mix(in oklab, #ffffff 8%, transparent);
+  --color-background-secondary-active: color-mix(in oklab, #ffffff 12%, transparent);
+  --color-background-tertiary-hover: color-mix(in oklab, #ffffff 7%, transparent);
+  --color-background-tertiary-active: color-mix(in oklab, #ffffff 10%, transparent);
+
+  /* borders mix white in dark (same percentages) */
+  --color-border-subtle: color-mix(in oklab, #ffffff 5%, transparent);
+  --color-border: color-mix(in oklab, #ffffff 8%, transparent);
+  --color-border-strong: color-mix(in oklab, #ffffff 12%, transparent);
+
+  /* editor bridge: Codex Dark */
+  --vscode-editor-background: #111111;
+  --vscode-foreground: #fcfcfc;
+  --vscode-sideBar-background: #131313;
+  --vscode-sideBar-foreground: #8f8f8f;
+  --vscode-terminal-ansiRed: #f67576;
+  --vscode-terminal-ansiGreen: #85df7b;
+  --vscode-terminal-ansiMagenta: #b06dff;
+
+  /* dark depth = inner glow instead of outer shadow */
+  --elevation-composer: var(--elevation-composer-dark),
+    0 0 0 1px #0000000a,
+    0 2px 8px 0 #0000000a,
+    0 4px 40px 8px #00000006;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    /* replicate the [data-theme=dark] block for automatic theming */
+    color-scheme: dark;
+    --gray-0: #0d0d0d;  --gray-25: #101010; --gray-50: #131313;
+    --gray-75: #161616; --gray-100: #181818; --gray-150: #1c1c1c;
+    --gray-200: #212121; --gray-250: #282828; --gray-300: #303030;
+    --gray-350: #393939; --gray-400: #414141; --gray-450: #4f4f4f;
+    --gray-500: #5d5d5d;
+    --gray-550: #767676; --gray-600: #8f8f8f; --gray-650: #9f9f9f;
+    --gray-700: #afafaf; --gray-750: #b9b9b9; --gray-800: #cdcdcd;
+    --gray-850: #dcdcdc; --gray-900: #ededed; --gray-925: #f3f3f3;
+    --gray-950: #f3f3f3; --gray-975: #f9f9f9; --gray-1000: #ffffff;
+    --alpha-base: #ffffff;
+    --color-text: #dfdfdf;
+    --color-text-inverse: #0d0d0d;
+    --color-text-success: var(--green-300);
+    --color-text-warning: var(--orange-300);
+    --color-text-error: var(--red-300);
+    --color-text-accent: var(--blue-300);
+    --color-surface: #181818;
+    --color-surface-under: #131313;
+    --color-surface-editor: #111111;
+    --color-surface-elevated: #212121;
+    --color-surface-elevated-2: #282828;
+    --color-background-primary-solid: #ededed;
+    --color-background-accent: var(--blue-900);
+    --color-background-accent-hover: var(--blue-900);
+    --color-background-accent-active: var(--blue-900);
+    --color-background-secondary: color-mix(in oklab, #ffffff 5%, transparent);
+    --color-background-secondary-hover: color-mix(in oklab, #ffffff 8%, transparent);
+    --color-background-secondary-active: color-mix(in oklab, #ffffff 12%, transparent);
+    --color-background-tertiary-hover: color-mix(in oklab, #ffffff 7%, transparent);
+    --color-background-tertiary-active: color-mix(in oklab, #ffffff 10%, transparent);
+    --color-border-subtle: color-mix(in oklab, #ffffff 5%, transparent);
+    --color-border: color-mix(in oklab, #ffffff 8%, transparent);
+    --color-border-strong: color-mix(in oklab, #ffffff 12%, transparent);
+    --vscode-editor-background: #111111;
+    --vscode-foreground: #fcfcfc;
+    --vscode-sideBar-background: #131313;
+    --vscode-sideBar-foreground: #8f8f8f;
+    --vscode-terminal-ansiRed: #f67576;
+    --vscode-terminal-ansiGreen: #85df7b;
+    --vscode-terminal-ansiMagenta: #b06dff;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --default-transition-duration: 0ms;
+    --duration-basic: 0ms;
+    --duration-relaxed: 0ms;
+  }
+}

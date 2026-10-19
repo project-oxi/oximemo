@@ -39,7 +39,7 @@ export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder, onMoveNo
   // affordance, so the chip only needs to exist where sibling chips do.
   if (cards.length === 0) return null;
   return (
-    <div role="list" className="mb-3 flex flex-wrap gap-1.5">
+    <div className="mb-3 flex flex-wrap gap-1.5">
       {cards.map((card) => (
         <FolderChip
           key={card.path}
@@ -52,9 +52,8 @@ export function FolderChipBar({ cards, folderDefs, onOpen, onNewFolder, onMoveNo
       ))}
       <button
         type="button"
-        role="listitem"
         onClick={onNewFolder}
-        className="inline-flex h-8 items-center gap-1 rounded-[var(--tag-radius)] border border-line bg-surface-raised px-3 text-[13px] text-text-subtle transition-colors duration-150 hover:border-line-strong hover:text-text"
+        className="inline-flex h-8 items-center gap-1 rounded-[var(--tag-radius)] border border-line bg-surface-raised px-3 text-[13px] text-text-subtle transition-colors duration-150 hover:border-line-strong hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
       >
         <Plus size={13} strokeWidth={2} /> {t.folder_new}
       </button>
@@ -90,7 +89,6 @@ function FolderChip({
   return (
     <button
       type="button"
-      role="listitem"
       draggable
       onDragStart={(e) => {
         setDraggingFolder(card.path);
@@ -101,7 +99,7 @@ function FolderChip({
       data-chip-folder={card.path}
       onClick={() => onOpen(card.path)}
       {...dropProps}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-[var(--tag-radius)] border border-line bg-surface-raised px-3 text-[13px] text-text transition-colors duration-150 hover:border-line-strong ${dropCls ?? ""}`}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-[var(--tag-radius)] border border-line bg-surface-raised px-3 text-[13px] text-text transition-colors duration-150 hover:border-line-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${dropCls ?? ""}`}
     >
       <Folder size={13} className="shrink-0" style={{ color }} />
       <span className="truncate">{name}</span>

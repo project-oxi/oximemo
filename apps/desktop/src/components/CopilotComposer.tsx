@@ -98,16 +98,17 @@ export function CopilotComposer({
 }: Props) {
   const { t } = useI18n();
   const setDraftId = useUI((s) => s.setDraftId);
-  const [refs, setRefs] = useState<MemoRef[]>([]);
-  const [attachActive, setAttachActive] = useState(true);
+  const refs = useUI((s) => s.copilotReferences);
+  const setRefs = useUI((s) => s.setCopilotReferences);
+  const detachedMemoId = useUI((s) => s.copilotDetachedMemoId);
+  const setDetachedMemoId = useUI((s) => s.setCopilotDetachedMemoId);
+  const attachActive = activeMemo?.id !== detachedMemoId;
   const [caret, setCaret] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // New open memo → context resets to the default (attached) state; any
-  // draft edit re-arms the trigger menus.
-  useEffect(() => setAttachActive(true), [activeMemo?.id]);
+  // Any draft edit re-arms the trigger menus.
   useEffect(() => setDismissed(false), [draft]);
 
   const slashOpen = draft.startsWith("/") && !draft.includes("\n");
@@ -168,7 +169,7 @@ export function CopilotComposer({
 
   const send = () => {
     const message = draft.trim();
-    if (!message || busy) return;
+    if (!message || useUI.getState().copilotBusy) return;
     const memo: ActiveMemoRef | null =
       activeMemo && attachActive
         ? { ...activeMemo, selection: attachedSelection ?? null }
@@ -180,17 +181,26 @@ export function CopilotComposer({
   };
 
   const selectCommand = (id: CopilotCommandId) => {
-    setDraft(expandCommand(id, { hasActiveMemo: Boolean(activeMemo), t }));
+    setDraft(expandCommand(id, { hasActiveMemo: Boolean(activeMemo && attachActive), t }));
     setDismissed(true);
     requestAnimationFrame(focusAndMoveCaretToEnd);
   };
 
   const attachNote = (m: MemoRef) => {
     if (refs.length >= REFERENCE_LIMIT || refs.some((r) => r.id === m.id)) return;
-    setRefs((rs) => [...rs, m]);
+    setRefs([...refs, m]);
     if (menu.kind === "mention" && menu.token) {
       setDraft(stripMentionToken(draft, menu.token));
     }
+    requestAnimationFrame(focusAndMoveCaretToEnd);
+  };
+
+  const reattachActive = () => {
+    setDetachedMemoId(null);
+    if (menu.kind === "mention" && menu.token) {
+      setDraft(stripMentionToken(draft, menu.token));
+    }
+    setDismissed(true);
     requestAnimationFrame(focusAndMoveCaretToEnd);
   };
 
@@ -225,8 +235,7 @@ export function CopilotComposer({
         if (menu.kind === "commands") {
           selectCommand(commands[highlight]?.id ?? commands[0].id);
         } else if (highlight < specialCount) {
-          setAttachActive(true);
-          setDismissed(true);
+          reattachActive();
         } else {
           const note = noteResults[highlight - specialCount];
           if (note) attachNote({ id: note.id, title: note.title ?? note.path, path: note.path });
@@ -302,10 +311,7 @@ export function CopilotComposer({
                   role="option"
                   aria-selected={highlight === 0}
                   onMouseEnter={() => setHighlight(0)}
-                  onClick={() => {
-                    setAttachActive(true);
-                    setDismissed(true);
-                  }}
+                  onClick={reattachActive}
                   className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors ${
                     highlight === 0 ? "bg-surface-muted text-text" : "text-text-muted"
                   }`}
@@ -355,7 +361,7 @@ export function CopilotComposer({
       )}
 
       {/* Context tray: open note + selection + @refs, one chip grammar. */}
-      {(activeMemo || attachedSelection || refs.length > 0) && (
+      {((activeMemo && attachActive) || refs.length > 0) && (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {activeMemo && attachActive && (
             <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted">
@@ -367,14 +373,14 @@ export function CopilotComposer({
                 type="button"
                 aria-label={t.copilot_selection_detach}
                 title={t.copilot_selection_detach}
-                onClick={() => setAttachActive(false)}
+                onClick={() => setDetachedMemoId(activeMemo.id)}
                 className="shrink-0 rounded p-0.5 text-text-subtle transition-colors hover:text-text"
               >
                 <X size={10} />
               </button>
             </span>
           )}
-          {attachedSelection && (
+          {attachActive && attachedSelection && (
             <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted">
               <TextSelect size={10} className="shrink-0 text-text-subtle" />
               <span className="truncate" title={attachedSelection}>
@@ -407,7 +413,7 @@ export function CopilotComposer({
               <button
                 type="button"
                 aria-label={t.copilot_selection_detach}
-                onClick={() => setRefs((rs) => rs.filter((x) => x.id !== r.id))}
+                onClick={() => setRefs(refs.filter((x) => x.id !== r.id))}
                 className="shrink-0 rounded p-0.5 text-text-subtle transition-colors hover:text-text"
               >
                 <X size={10} />

@@ -1,0 +1,10 @@
+{
+  "name": "@garden/config",
+  "version": "0.1.0",
+  "private": true,
+  "files": [
+    "biome.json",
+    "tsconfig.json",
+    "ci.yml"
+  ]
+}

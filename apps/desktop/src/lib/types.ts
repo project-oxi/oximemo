@@ -13,6 +13,7 @@ export type PropValue = { Str: string } | { Bool: boolean } | { List: string[] }
 export type Props = Record<string, PropValue>;
 
 export interface Memo {
+  source_sha256?: string;
   id: MemoId;
   created_at: string;
   updated_at: string;
@@ -250,6 +251,8 @@ export interface Config {
   daily?: { enabled?: boolean; folder?: string };
   git?: { auto_commit?: boolean; adopt_foreign_repo?: boolean };
   copilot?: {
+    default_model?: string;
+    exe_mtime_secs?: number;
     enabled?: boolean;
     agent?: string;
     executable?: string;

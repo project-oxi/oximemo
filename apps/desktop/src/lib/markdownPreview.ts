@@ -125,3 +125,19 @@ function elementText(node: Node): string {
   if (BLOCK_TAGS.has(el.tagName)) out += "\n";
   return out;
 }
+
+/** Derived excerpt: omit the leading title when a separate title is shown. */
+export function previewExcerpt(body: string, title: string | null, path?: string): string {
+  if (!title) return body;
+  const trimmed = body.trimStart();
+  // HTML index previews are plain text; remove only an exact leading title.
+  if (path?.endsWith(".html")) {
+    const rest = trimmed.slice(title.length);
+    return trimmed.startsWith(title) && (!rest || /^\s/.test(rest)) ? rest.trimStart() : body;
+  }
+  const firstLine = trimmed.split("\n", 1)[0];
+  const heading = firstLine.match(/^#\s+(.+?)(?:\s+#+)?$/)?.[1];
+  if (!heading) return body;
+  if (previewText(heading, 1000).trim() !== title.trim()) return body;
+  return trimmed.slice(firstLine.length).trimStart();
+}

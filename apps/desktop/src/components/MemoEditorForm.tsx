@@ -5,6 +5,7 @@
 import { Image as ImageIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { EditorView } from "@codemirror/view";
 import type { Text } from "@codemirror/state";
 
@@ -30,6 +31,7 @@ import { initialFromLine } from "../lib/taskPopoverSeed";
 import { dayTone, relativeDayLabel, useTodayKey } from "../lib/relativeDay";
 import { todayLocalISO } from "../lib/dates";
 import { outerScrollExtension } from "../lib/cm6OuterScroll";
+import { markdownTypingExtension } from "../lib/editorTyping";
 import { useUI } from "../stores/ui";
 const cx = (...xs: (string | false | null | undefined)[]) =>
   xs.filter(Boolean).join(" ");
@@ -37,12 +39,19 @@ const cx = (...xs: (string | false | null | undefined)[]) =>
 export interface MemoEditorFormProps {
   body: string;
   onBodyChange: (v: string) => void;
+  onSaveAndClose?: () => void;
+  onWikiLinkOpen: (target: string) => void;
+  onDocumentLinkOpen: (url: string) => void;
+  onNavigateMemo: (id: string) => void;
   documentId: string;
+  autoFocus?: boolean;
   folder: string;
   onFolderChange: (f: string) => void;
   folders: FolderEntry[];
   folderPickerRef?: Ref<FolderComboboxHandle>;
   className?: string;
+  /** Keep editor-owned controls in the note header without moving their logic. */
+  toolbarTarget?: HTMLElement | null;
   /** Fires with the captured CM6 EditorView once the editor has mounted for
    *  this documentId. The previous view (if any) is reported as `null`
    *  when the effect tears down — either for a documentId swap or for
@@ -68,16 +77,21 @@ function lineChangeSpecs(doc: Text, changes: TaskLineChange[]) {
 export function MemoEditorForm({
   body,
   onBodyChange,
+  onSaveAndClose,
+  onWikiLinkOpen,
+  onDocumentLinkOpen,
+  onNavigateMemo,
   documentId,
+  autoFocus = true,
   folder,
   onFolderChange,
   folders,
   folderPickerRef,
   className,
+  toolbarTarget,
   onEditorView,
 }: MemoEditorFormProps) {
   const { t, locale } = useI18n();
-  const select = useUI((s) => s.select);
   const setCopilotSelection = useUI((s) => s.setCopilotSelection);
   const editorHandleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null);
   const viewHandleRef = useRef<ImageViewHandle | null>(null);
@@ -134,6 +148,10 @@ export function MemoEditorForm({
     initial: TaskEditInitial;
   } | null>(null);
   const setError = useUI((s) => s.setError);
+  const [imageError, setImageError] = useState<string[] | null>(null);
+  const reportImageErrors = useCallback((files: string[]) => {
+    setImageError(files.length ? files : null);
+  }, []);
 
   const openTaskPopover = useCallback((line: number) => {
     const view = viewHandleRef.current?.view;
@@ -150,29 +168,30 @@ export function MemoEditorForm({
     [],
   );
 
-  // Caret-line geometry for the popover anchor, resolved once per
-  // open from the live CM6 view via `coordsAtPos`.
-  const anchorCoords = useMemo(() => {
+  // Resolve the task line whenever Base UI measures its anchor. Window
+  // resizing and immersive-layout changes move the editor without
+  // changing taskEdit, so an opening-time coordinate snapshot is stale.
+  const taskAnchor = useMemo<VirtualAnchor | null>(() => {
     if (!taskEdit) return null;
     const view = viewHandleRef.current?.view;
     if (!view) return null;
-    const line = view.state.doc.line(Math.min(taskEdit.line + 1, view.state.doc.lines));
-    return view.coordsAtPos(line.from);
-  }, [taskEdit]);
-
-  // Virtual anchor for the popover: a position-only rect over the
-  // target line's text, fed straight to Base UI's `Positioner anchor`.
-  // No DOM span is rendered — a hidden trigger measuring the caret
-  // was both stale-on-mount (ref null until a re-render) and the
-  // source of the (0, 0) anchoring bug.
-  const taskAnchor = useMemo<VirtualAnchor | null>(() => {
-    if (!anchorCoords) return null;
-    const { left, top, right, bottom } = anchorCoords;
-    return {
-      getBoundingClientRect: () =>
-        new DOMRect(left, top, Math.max(right - left, 1), Math.max(bottom - top, 1)),
+    const readCoords = () => {
+      const line = view.state.doc.line(Math.min(taskEdit.line + 1, view.state.doc.lines));
+      return view.coordsAtPos(line.from);
     };
-  }, [anchorCoords]);
+    let coords = readCoords();
+    if (!coords) return null;
+    return {
+      contextElement: view.dom,
+      getBoundingClientRect: () => {
+        // CM6 can temporarily omit geometry while a line is offscreen.
+        // Keep the last measured rect until it becomes measurable again.
+        coords = readCoords() ?? coords;
+        const { left, top, right, bottom } = coords!;
+        return new DOMRect(left, top, Math.max(right - left, 1), Math.max(bottom - top, 1));
+      },
+    };
+  }, [taskEdit]);
 
   const commitTaskEdits = useCallback(
     async (edits: TaskEdit[]) => {
@@ -213,13 +232,14 @@ export function MemoEditorForm({
   // object: the wikiLinks() widgets below and the merged completion
   // source inside taskSuggestExtension (spec §7.3).
   const wikiCfg = useMemo(
-    () => buildWikiLinksConfig({ onOpen: select, locale }),
-    [select, locale],
+    () => buildWikiLinksConfig({ onOpen: onWikiLinkOpen, locale }),
+    [onWikiLinkOpen, locale],
   );
 
   const linkExtensions = useMemo(
     () => [
       imagePickerKeymap(() => fileInputRef.current?.click()),
+      markdownTypingExtension(onSaveAndClose),
       // Wiki-links widgets/resolve/click paths stay here, but the
       // internal autocompletion is suppressed: CM6 allows exactly ONE
       // autocompletion({override}) (a second one with a different
@@ -229,12 +249,13 @@ export function MemoEditorForm({
       // (a faithful replica reading this same config) plus the §7.3
       // task-field suggest.
       wikiLinks({ ...wikiCfg, suggest: undefined }),
-      ...embedExtension({ onOpen: select, labels: t }),
+      ...embedExtension({ onOpen: onNavigateMemo, labels: t }),
       // Inline query embeds (query views spec §6): ![[query:…]] markers
       // and ```query fences resolve live in the note; thisId pins the
       // embedding note so per-note scopes never cross.
       ...queryEmbedExtension({
         thisId: documentId,
+        onOpenMemo: onNavigateMemo,
         labels: {
           results_n: t.query_embed_results_n,
           open_full: t.query_embed_open,
@@ -308,16 +329,23 @@ export function MemoEditorForm({
         setCopilotSelection(text.trim() ? { memoId: documentId, text } : null);
       }),
     ],
-    [select, locale, t, documentId, setCopilotSelection, slashDeps, taskCfg, todayKey, wikiCfg],
+    [onNavigateMemo, onSaveAndClose, locale, t, documentId, setCopilotSelection, slashDeps, taskCfg, todayKey, wikiCfg],
   );
   useEffect(
     () => () => setCopilotSelection(null),
     [setCopilotSelection],
   );
   useEffect(() => {
+    if (!autoFocus) return;
     const id = requestAnimationFrame(() => editorHandleRef.current?.focus());
     return () => cancelAnimationFrame(id);
-  }, [documentId]);
+  }, [documentId, autoFocus]);
+  useEffect(() => {
+    const input = fileInputRef.current;
+    const restoreFocus = () => editorHandleRef.current?.focus();
+    input?.addEventListener("cancel", restoreFocus);
+    return () => input?.removeEventListener("cancel", restoreFocus);
+  }, [documentId, toolbarTarget]);
   // Publish the captured CM6 EditorView to the parent (MemoDetail) once
   // the editor's ViewPlugin constructor has run. The plugin runs
   // synchronously on mount, so by the time this effect's rAF fires
@@ -342,58 +370,72 @@ export function MemoEditorForm({
   const insertPicked = (list: FileList | null) => {
     const view = viewHandleRef.current?.view;
     if (!view || !list?.length) return;
-    void insertImagesAt(Array.from(list), view.state.selection.main.from, view);
+    setImageError(null);
+    editorHandleRef.current?.focus();
+    void insertImagesAt(Array.from(list), view.state.selection.main.from, view, reportImageErrors);
   };
+
+  const toolbar = (
+    <div className="memo-editor-tools flex items-center gap-2">
+      <FolderCombobox
+        ref={folderPickerRef}
+        popupSide={toolbarTarget ? "bottom" : "top"}
+        value={folder}
+        onValueChange={onFolderChange}
+        folders={folders}
+        triggerAriaLabel={t.set_folder ?? "Set folder"}
+        onClose={() => editorHandleRef.current?.focus()}
+        onCreate={async (path) => {
+          try {
+            await createFolder(path);
+            onFolderChange(path);
+          } catch {
+            // Rejected (e.g. duplicate path) — leave selection unchanged.
+          }
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        aria-label={t.insert_image}
+        title={`${t.insert_image} (⌘I) · PNG, JPEG, GIF, WebP`}
+        className="memo-editor-image inline-flex h-8 w-8 items-center justify-center rounded-[var(--button-radius)] text-text-subtle shadow-[var(--input-shadow)] transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
+      >
+        <ImageIcon size={15} />
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          insertPicked(e.target.files);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
 
   return (
     <div className={cx("flex flex-col gap-2.5", className)}>
       <MarkdownEditor
+        onLinkClick={onDocumentLinkOpen}
         body={body}
         onChange={onBodyChange}
         documentId={documentId}
         editorHandleRef={editorHandleRef}
         viewHandleRef={viewHandleRef}
         extensions={linkExtensions}
+        onImageError={reportImageErrors}
       />
+      {imageError && (
+        <p role="alert" className="rounded-md border border-status-error bg-status-error-subtle px-3 py-2 text-xs text-status-error-on-subtle">
+          {t.image_upload_failed.replace("{files}", imageError.join(", "))}
+        </p>
+      )}
       <TagChipRow body={body} />
-      <div className="flex flex-wrap items-center gap-2.5">
-        <FolderCombobox
-          ref={folderPickerRef}
-          value={folder}
-          onValueChange={onFolderChange}
-          folders={folders}
-          triggerAriaLabel={t.set_folder ?? "Set folder"}
-          onClose={() => editorHandleRef.current?.focus()}
-          onCreate={async (path) => {
-            try {
-              await createFolder(path);
-              onFolderChange(path);
-            } catch {
-              // Rejected (e.g. duplicate path) — leave selection unchanged.
-            }
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          aria-label={t.insert_image}
-          title={`${t.insert_image} (⌘I)`}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--button-radius)] text-text-subtle shadow-[var(--input-shadow)] transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
-        >
-          <ImageIcon size={15} />
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            insertPicked(e.target.files);
-            e.target.value = "";
-          }}
-        />
-      </div>
+      {toolbarTarget ? createPortal(toolbar, toolbarTarget) : toolbar}
       {taskCfg && taskEdit && taskAnchor && (
         <TaskEditPopover
           open={taskEdit.open}

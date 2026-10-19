@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://garden.local/contracts/behavior/behavior.schema.json",
+  "title": "Garden behavior contract",
+  "type": "object",
+  "required": ["version", "feedback", "keyboard", "accessibility"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": "garden-behavior/1" },
+    "feedback": { "type": "array", "items": { "type": "object", "required": ["kind", "surface"] } },
+    "keyboard": { "type": "object", "required": ["commandPalette", "commandNavigation", "modalClose", "reducedMotion"] },
+    "accessibility": { "type": "object", "required": ["labels", "focus", "strings"] }
+  },
+  "additionalProperties": false
+}

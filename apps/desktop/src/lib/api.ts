@@ -5,6 +5,7 @@
  * standalone.
  */
 import { invoke } from "./tauri";
+import { normalizeFolderSchema, type FolderSchemaWire } from "./folderSchema";
 import type {
   AddTarget,
   BacklinkInfo,
@@ -102,8 +103,9 @@ export async function updateMemo(
   body: string | null,
   favorite: boolean | null,
   props?: PropMutation | null,
+  expectedSha256?: string | null,
 ) {
-  return invoke<Memo>("update_memo", { id, body, favorite, props: props ?? null });
+  return invoke<Memo>("update_memo", { id, body, favorite, props: props ?? null, expectedSha256: expectedSha256 ?? null });
 }
 
 export async function brainStatus(): Promise<BrainStatus> {
@@ -277,6 +279,7 @@ export interface CopilotStatus {
   activated: boolean;
   agent: string;
   agent_name: string;
+  default_model: string;
   busy: boolean;
 }
 
@@ -359,6 +362,8 @@ export function setCopilotConfig(copilot: {
   agent: string;
   executable: string;
   timeout_secs: number;
+  default_model?: string;
+  exe_mtime_secs?: number;
 }): Promise<void> {
   return invoke<void>("set_copilot_config", { copilot });
 }
@@ -371,10 +376,9 @@ export function copilotModels(): Promise<ModelInfo[]> {
   return invoke<ModelInfo[]>("copilot_models");
 }
 
-/** oxios only: its `run` has no per-turn model flag, so the picker edits
- * the durable `engine.default_model` via oxios's own `config set`. */
-export function copilotSetModel(model: string): Promise<Disclosure> {
-  return invoke<Disclosure>("copilot_set_model", { model });
+/** Save the app default; oxios also updates its own global default. */
+export function copilotSetModel(model: string, expectedAgent?: string): Promise<Disclosure> {
+  return invoke<Disclosure>("copilot_set_model", { model, expectedAgent });
 }
 
 export function copilotSend(
@@ -397,6 +401,10 @@ export async function listFacets() {
 
 export async function deleteMemo(id: string) {
   return invoke<void>("delete_memo", { id });
+}
+
+export function listTrashedMemos(): Promise<MemoSummary[]> {
+  return invoke<MemoSummary[]>("list_trashed_memos");
 }
 
 export async function resetVault() {
@@ -520,7 +528,7 @@ export async function cliStatus(): Promise<CliState> {
   return invoke<CliState>("cli_status");
 }
 
-/** Symlink the bundled CLI onto /usr/local/bin via a macOS admin prompt. */
+/** Install the bundled CLI in ~/.local/bin; fall back to an admin prompt for /usr/local/bin. */
 export async function installCli(): Promise<void> {
   await invoke<null>("install_cli");
 }
@@ -554,8 +562,8 @@ export function queryNotes(q: NoteQueryInput): Promise<QueryPage> {
 }
 
 /** The folder's property schema; null in free-property mode. */
-export function folderSchema(folder: string): Promise<FolderSchema | null> {
-  return invoke<FolderSchema | null>("folder_schema", { folder });
+export async function folderSchema(folder: string): Promise<FolderSchema | null> {
+  return normalizeFolderSchema(await invoke<FolderSchemaWire | null>("folder_schema", { folder }));
 }
 
 /** The folder's TEMPLATE.md body, or null when it has none — the slash

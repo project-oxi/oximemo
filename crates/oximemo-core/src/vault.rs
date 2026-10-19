@@ -125,24 +125,23 @@ pub enum VaultStatus {
 }
 
 /// Cached, generation-keyed index export used by [`Vault::query_notes`].
-/// `generation` is `(meta.redb mtime, meta.redb size)`. redb is opened
-/// transiently inside an fs2 flock (see the module doc at the top of this
-/// file), so an in-process counter cannot see CLI writes from another
-/// process — the file stat IS the cross-process generation. `RedbIndex::open`
-/// is read-first when the tables already exist
-/// (`crates/oximemo-core/src/store/index.rs`), so mtime only changes on
-/// real writes; the cache key is exact and there is no rounding window.
+/// `generation` is the database's write counter
+/// ([`RedbIndex::generation`]), incremented inside every write
+/// transaction. Unlike the previous `(mtime, size)` stat key, read-only
+/// `RedbIndex::open`s never change it, so back-to-back reads no longer
+/// invalidate the cache, and it stays exact across processes (CLI and
+/// desktop share the same `meta.redb`).
 struct SnapshotState {
-    generation: (std::time::SystemTime, u64),
+    generation: u64,
     recs: std::sync::Arc<Vec<crate::store::index::IndexRecord>>,
 }
 
 /// Return of [`Vault::snapshot_with_gen`]: the record snapshot plus the
-/// generation it was read at `(mtime, size)` — callers use the pair as
+/// database write generation it was read at — callers use the counter as
 /// their cache key (spec §3).
 pub(crate) type SnapshotWithGen = (
     std::sync::Arc<Vec<crate::store::index::IndexRecord>>,
-    (std::time::SystemTime, u64),
+    u64,
 );
 
 /// Row staged for the tantivy upsert batch in `reindex`:
@@ -502,7 +501,7 @@ impl Vault {
             return Err(CoreError::other("cannot delete vault root"));
         }
         let prefix = format!("{path}/");
-        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let recs = self.snapshot()?;
         let ids: Vec<MemoId> = recs
             .iter()
             .filter(|r| !r.deleted && r.path.starts_with(&prefix))
@@ -609,9 +608,9 @@ impl Vault {
         // upsert); a tombstone must not reappear in search.
         let prefix = format!("{from}/");
 
-        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let recs = self.snapshot()?;
         let mut index_failures: u32 = 0;
-        for r in recs {
+        for r in recs.iter() {
             if !r.path.starts_with(&prefix) {
                 continue;
             }
@@ -787,7 +786,7 @@ impl Vault {
         // Recents from the newest-first index: walk each note's path up
         // until it lands on a kid, capping the per-kid sample at
         // min(3, its deep count) so empty / small folders finalize cleanly.
-        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let recs = self.snapshot()?;
         let mut recent: Vec<(String, Vec<FolderRecent>)> =
             kids.iter().map(|k| ((*k).clone(), Vec::new())).collect();
         let target: Vec<usize> = kids
@@ -1506,6 +1505,36 @@ impl Vault {
         }
         Err(CoreError::NotFound(id.to_string()))
     }
+    /// Resolve an editor wiki-link title/alias, or an explicit UUID.
+    /// Ambiguous names stay unresolved rather than choosing an arbitrary note.
+    pub fn resolve_memo_target(&self, target: &str) -> Result<Memo> {
+        if let Ok(id) = MemoId::parse(target) {
+            return self.get_memo(id);
+        }
+        let normalized = target.to_ascii_lowercase();
+        let records = self.snapshot()?;
+        let matches: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                !record.deleted
+                    && (record
+                        .title
+                        .as_ref()
+                        .is_some_and(|title| title.to_ascii_lowercase() == normalized)
+                        || crate::props::aliases_of(&record.props)
+                            .iter()
+                            .any(|alias| alias.to_ascii_lowercase() == normalized))
+            })
+            .collect();
+        match matches.as_slice() {
+            [record] => self.get_memo(record.id),
+            [] => Err(CoreError::NotFound(target.into())),
+            _ => Err(CoreError::other(
+                "ambiguous_note_link: more than one note has this title or alias",
+            )),
+        }
+    }
+
     /// Resolve the note's on-disk file: the indexed live path when it
     /// exists, the trash path otherwise (mirrors [`Vault::get_memo`]'s
     /// live→trash fallback). Returns `None` when neither exists.
@@ -2619,6 +2648,23 @@ impl Vault {
 
     // -- queries ----------------------------------------------------------
 
+    /// Indexed tombstones available for restoration. Reading the trash
+    /// never rewrites its documents or includes live notes.
+    pub fn list_trashed_memos(&self) -> Result<Vec<MemoSummary>> {
+        let mut items: Vec<_> = self
+            .snapshot()?
+            .iter()
+            .filter(|record| record.deleted)
+            .map(|record| record.to_summary())
+            .collect();
+        items.sort_by(|a, b| {
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        Ok(items)
+    }
+
     pub fn list_memos(
         &self,
         after: Option<Cursor>,
@@ -2668,44 +2714,30 @@ impl Vault {
         // critical body and race-rationale comments.
         self.snapshot_with_gen().map(|(recs, _)| recs)
     }
-    /// Cache-key contract (spec §3, brief): (meta.redb mtime, size).
-    /// redb is opened transiently inside an fs2 flock (see the
-    /// module doc at the top of this file), so an in-process
-    /// counter cannot see CLI writes from another process — the
-    /// file stat IS the cross-process generation.
+    /// Cache-key contract (spec §3): the database write counter
+    /// ([`RedbIndex::generation`]), incremented inside every write
+    /// transaction, read here in the same flock'd-open discipline as
+    /// the export itself.
     ///
-    /// **The cache rebuild path holds the Shared flock across the
-    /// entire redb-open-and-release cycle** — not just the closure
-    /// body of `with_redb`. The previous round kept the lock only
-    /// across the export closure, then re-stated after `with_redb`
-    /// returned and the lock was dropped; another process acquiring
-    /// Exclusive in that window could commit a write through
-    /// `meta.redb`, bumping mtime, and leave us caching
-    /// `{post_write_mtime, recs@pre_write}` forever.
+    /// Ordering: the generation is read **before** the records. A write
+    /// that commits between the two reads leaves the snapshot keyed at
+    /// or below the database's current generation, so the next reader's
+    /// pre-check misses and rebuilds — the error direction is one extra
+    /// rebuild, never a stale hit. Because the counter lives in the
+    /// database, "data committed" and "generation bumped" are the same
+    /// transaction: no crash window, and no cross-process blind spots.
     ///
-    /// Holding Shared across the whole cycle (open + drop + stat)
-    /// means any external writer blocks until our snapshot has
-    /// committed its own cache key — eliminating the race and
-    /// preserving the exact `(mtime, size)` key.
-    ///
-    /// redb 2.6.3's `Database::new` writes the file header on
-    /// every open, which is why we key on the post-open (and
-    /// post-drop) stat: the next reader's stat lands on the same
-    /// value the file has after this snapshot's drop, and the
-    /// cache hits.
+    /// The previous design keyed on `(meta.redb mtime, size)`, which
+    /// redb's constructor bumps on *every* open — including read-only
+    /// ones — so mixed read/write workloads constant-missed the cache;
+    /// it needed the Shared-flock-across-stat dance this comment used
+    /// to document. The counter makes that obsolete.
     ///
     /// `run_base` uses the returned generation as `result_key.gen`
     /// so a cache entry's key equals the next caller's lookup key
-    /// exactly — no double-stat window to round to the same mtime
-    /// and miss the entry we just stored.
+    /// exactly.
     pub(crate) fn snapshot_with_gen(&self) -> Result<SnapshotWithGen> {
-        // Inline a slimmed-down version of `snapshot()` so the gen is
-        // returned from the same code path without an extra lock +
-        // stat round trip. The behaviour mirrors `snapshot()`
-        // exactly: pre-stat cache hit, otherwise rebuild under
-        // Shared and cache the post-stat.
-        let pre = std::fs::metadata(self.paths.meta_db_path())?;
-        let pre_gen = (pre.modified()?, pre.len());
+        let pre_gen = self.with_redb(|idx| idx.generation())?;
         if let Some(cached) = self.snapshot.read().as_ref()
             && cached.generation == pre_gen
         {
@@ -2714,10 +2746,9 @@ impl Vault {
         let (recs, post_gen) = {
             let _g = self.lock(LockKind::Shared)?;
             let idx = RedbIndex::open(&self.paths.meta_db_path())?;
+            let generation = idx.generation()?;
             let recs = idx.export_since(None)?;
-            drop(idx);
-            let post = std::fs::metadata(self.paths.meta_db_path())?;
-            ((recs), (post.modified()?, post.len()))
+            (recs, generation)
         };
         let total_tasks: usize = recs.iter().map(|r| r.tasks.len()).sum();
         if recs.len() > SNAPSHOT_CACHE_CAP || total_tasks > SNAPSHOT_TASK_WEIGHT_CAP {
@@ -2814,20 +2845,18 @@ impl Vault {
 
     /// Live note counts (soft-deleted tombstones excluded).
     pub fn memo_stats(&self) -> Result<crate::memo::MemoStats> {
-        self.with_redb(|idx| {
-            let recs = idx.export_since(None)?;
-            let mut stats = crate::memo::MemoStats::default();
-            for r in &recs {
-                if r.deleted {
-                    continue;
-                }
-                stats.memos += 1;
-                if r.favorite {
-                    stats.favorites += 1;
-                }
+        let recs = self.snapshot()?;
+        let mut stats = crate::memo::MemoStats::default();
+        for r in recs.iter() {
+            if r.deleted {
+                continue;
             }
-            Ok(stats)
-        })
+            stats.memos += 1;
+            if r.favorite {
+                stats.favorites += 1;
+            }
+        }
+        Ok(stats)
     }
 
     /// Full-note DTO (memo + placement) for the desktop API. The path comes
@@ -2847,24 +2876,22 @@ impl Vault {
 
     /// Tag + color counts over live (non-deleted) notes for the sidebar (§4.2).
     pub fn list_facets(&self) -> Result<Facets> {
-        self.with_redb(|idx| {
-            let recs = idx.export_since(None)?;
-            let mut tag_map: std::collections::BTreeMap<String, u32> = Default::default();
-            let mut folder_map: std::collections::BTreeMap<String, u32> = Default::default();
-            for r in &recs {
-                if r.deleted {
-                    continue;
-                }
-                for t in &r.tags {
-                    *tag_map.entry(t.clone()).or_insert(0) += 1;
-                }
-                let folder = r.path.rfind('/').map(|i| &r.path[..i]).unwrap_or("");
-                *folder_map.entry(folder.to_string()).or_insert(0) += 1;
+        let recs = self.snapshot()?;
+        let mut tag_map: std::collections::BTreeMap<String, u32> = Default::default();
+        let mut folder_map: std::collections::BTreeMap<String, u32> = Default::default();
+        for r in recs.iter() {
+            if r.deleted {
+                continue;
             }
-            Ok(Facets {
-                tags: tag_map.into_iter().collect(),
-                folders: folder_map.into_iter().collect(),
-            })
+            for t in &r.tags {
+                *tag_map.entry(t.clone()).or_insert(0) += 1;
+            }
+            let folder = r.path.rfind('/').map(|i| &r.path[..i]).unwrap_or("");
+            *folder_map.entry(folder.to_string()).or_insert(0) += 1;
+        }
+        Ok(Facets {
+            tags: tag_map.into_iter().collect(),
+            folders: folder_map.into_iter().collect(),
         })
     }
 
@@ -2873,7 +2900,7 @@ impl Vault {
     /// Build the wiki-link graph: nodes = live notes, edges = `[[...]]` links.
     /// Resolves link targets by title (case-insensitive). No self-loops.
     pub fn graph_data(&self) -> Result<GraphData> {
-        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let recs = self.snapshot()?;
         let live: Vec<&IndexRecord> = recs.iter().filter(|r| !r.deleted).collect();
 
         // Title & alias → id map (case-insensitive). Resolution order
@@ -3088,7 +3115,7 @@ impl Vault {
             return Ok(0);
         }
         let new_id = format!("#{new_norm}");
-        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let recs = self.snapshot()?;
         let mut changed: u64 = 0;
         for r in recs.iter().filter(|r| !r.deleted) {
             let memo = self.get_memo(r.id)?;
@@ -3225,7 +3252,7 @@ impl Vault {
     /// Find all live notes whose body links to the target note (by title).
     /// Returns source note id, title, and preview for each backlink.
     pub fn get_backlinks(&self, id: MemoId) -> Result<Vec<BacklinkInfo>> {
-        let recs = self.with_redb(|idx| idx.export_since(None))?;
+        let recs = self.snapshot()?;
         // Target: title + aliases (design §5.3 — `[[ML]]` resolves to the
         // note whose alias list contains ML).
         let target = recs
@@ -3239,7 +3266,7 @@ impl Vault {
         targets.extend(crate::props::aliases_of(&target.props));
 
         let mut out = Vec::new();
-        for r in &recs {
+        for r in recs.iter() {
             if r.deleted || r.id == id {
                 continue;
             }
@@ -3349,6 +3376,9 @@ impl Vault {
             let mut stats = IndexStats::default();
             let mut indexed_ids = BTreeSet::new();
             let mut search_owned: Vec<SearchRow> = Vec::new();
+            // Stage redb writes and commit them in one transaction; a
+            // per-record commit made first-run reindexing O(N) fsyncs.
+            let mut staged: Vec<IndexRecord> = Vec::new();
             for path in self.files.scan() {
                 match self.files.read_memo(&path) {
                     Ok(Some(note)) => {
@@ -3360,11 +3390,13 @@ impl Vault {
                         let rec = record_of(&note, &rel, &tasks_cfg);
                         match idx.get(note.id)? {
                             None => {
-                                idx.upsert(&rec)?;
+                                staged.push(rec);
                                 stats.added += 1;
                             }
                             Some(prev)
                                 if prev.hash == rec.hash
+                                    && prev.path == rec.path
+                                    && prev.deleted == rec.deleted
                                     && prev.preview == rec.preview
                                     && prev.tasks == rec.tasks
                                     && prev.tasks_truncated == rec.tasks_truncated =>
@@ -3372,7 +3404,7 @@ impl Vault {
                                 stats.unchanged += 1;
                             }
                             Some(_) => {
-                                idx.upsert(&rec)?;
+                                staged.push(rec);
                                 stats.updated += 1;
                             }
                         }
@@ -3395,8 +3427,7 @@ impl Vault {
                         let rel = rel.to_string();
                         let (sbody, stitle, saliases) =
                             search_fields(crate::memo::NoteFormat::from_rel(&rel), &note);
-                        let rec = record_of(&note, &rel, &tasks_cfg);
-                        idx.upsert(&rec)?;
+                        staged.push(record_of(&note, &rel, &tasks_cfg));
                         search_owned.push((note.id, sbody, stitle, note.tags, saliases));
                         stats.trashed_memos += 1;
                     }
@@ -3407,6 +3438,7 @@ impl Vault {
                     }
                 }
             }
+            idx.upsert_bulk(&staged)?;
             let batch: Vec<crate::store::search::Upsert<'_>> = search_owned
                 .iter()
                 .map(
@@ -3752,13 +3784,31 @@ impl Vault {
                 // Store the `.trash/`-stripped path, matching `reindex`'s
                 // trash records, so live and trash records cannot collide
                 // through differing path spellings.
-                let rel = self.paths.relative_path(path).unwrap_or_default();
+                let Some(rel) = self.paths.relative_path(path).filter(|rel| !rel.is_empty()) else {
+                    return Ok(());
+                };
                 let (stripped, _) = strip_trash_prefix(&rel);
                 let fmt = crate::memo::NoteFormat::from_rel(stripped);
                 let (sbody, stitle, saliases) = search_fields(fmt, &note);
                 let tasks_cfg = self.with_config(|c| c.tasks.clone());
+                let rec = record_of(&note, stripped, &tasks_cfg);
                 self.with_redb_and_search(|idx, search| {
-                    idx.upsert(&record_of(&note, stripped, &tasks_cfg))?;
+                    // The save path upserts the index before the file
+                    // event lands here, so an identical record means
+                    // this is the echo of our own write: skip the
+                    // redb commit and the search upsert (same predicate
+                    // `reindex` uses for its unchanged stats).
+                    if let Some(prev) = idx.get(note.id)?
+                        && prev.hash == rec.hash
+                        && prev.path == rec.path
+                        && prev.deleted == rec.deleted
+                        && prev.preview == rec.preview
+                        && prev.tasks == rec.tasks
+                        && prev.tasks_truncated == rec.tasks_truncated
+                    {
+                        return Ok(());
+                    }
+                    idx.upsert(&rec)?;
                     if note.deleted_at.is_some() {
                         search.remove(note.id)
                     } else {
@@ -4750,6 +4800,70 @@ mod tests {
                 .canonical_trash_path("folder/sub/Recoverable.md")
                 .exists()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn watcher_alias_events_preserve_note_placement_and_reopening() {
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        let alias = temp.path().join("alias");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let vault = Vault::open(Some(&alias)).unwrap();
+        // Seed the existing-format file to focus on watcher placement.
+        std::fs::create_dir(real.join("daily")).unwrap();
+        let id = MemoId::now();
+        let source = format!(
+            "---\nid: {id}\ncreated: 2026-09-14T12:34:56.789Z\nupdated: 2026-09-14T12:34:56.789Z\n---\n# Daily"
+        );
+        let path = real.join("daily/note.md");
+        std::fs::write(&path, source).unwrap();
+        vault.do_reindex_path(&path).unwrap();
+        assert_eq!(vault.get_note_summary(id).unwrap().path, "daily/note.md");
+        assert_eq!(vault.get_memo(id).unwrap().body, "# Daily");
+        let mut stale = vault.with_redb(|index| index.get(id)).unwrap().unwrap();
+        stale.path.clear();
+        vault.with_redb(|index| index.upsert(&stale)).unwrap();
+        assert_eq!(vault.reindex().unwrap().updated, 1);
+        assert_eq!(vault.get_note_summary(id).unwrap().path, "daily/note.md");
+        assert_eq!(vault.get_memo(id).unwrap().body, "# Daily");
+    }
+
+    #[test]
+    fn editor_wiki_targets_resolve_titles_aliases_and_ids_without_choosing_duplicates() {
+        let (_t, vault) = tmp_vault();
+        let first = vault.create_note_auto("", "# First".into()).unwrap();
+        assert_eq!(vault.resolve_memo_target("First").unwrap().id, first.id);
+        assert_eq!(
+            vault.resolve_memo_target(&first.id.to_string()).unwrap().id,
+            first.id
+        );
+        vault
+            .update_note_with(
+                first.id,
+                None,
+                None,
+                Some(crate::props::PropMutation {
+                    sets: vec![(
+                        "aliases".into(),
+                        crate::props::PropValue::List(vec!["Alternate".into()]),
+                    )],
+                    removes: vec![],
+                }),
+            )
+            .unwrap();
+        assert_eq!(vault.resolve_memo_target("Alternate").unwrap().id, first.id);
+        let second = vault.create_note_auto("", "# First".into()).unwrap();
+        assert!(
+            vault
+                .resolve_memo_target("First")
+                .unwrap_err()
+                .to_string()
+                .contains("ambiguous_note_link")
+        );
+        vault.delete_memo(second.id).unwrap();
+        assert_eq!(vault.resolve_memo_target("First").unwrap().id, first.id);
     }
 
     // -- default-vault migration (app-support → spaces) ----------------------
@@ -6706,6 +6820,57 @@ watcher_retry_interval_ms = 200
         assert_eq!(back.len(), 2);
         assert!(v.paths.vault.join("doomed").is_dir()); // restore recreates parents
         assert!(v.get_memo(a.id).unwrap().deleted_at.is_none());
+    }
+
+    #[test]
+    fn trash_listing_survives_reindex_and_restore_without_rewriting_source() {
+        let (_t, v) = tmp_vault();
+        let note = v
+            .create_note(
+                "inbox",
+                "# Restore me\n\n- [ ] Keep #ui-audit\n".into(),
+                crate::memo::NoteFormat::Markdown,
+            )
+            .unwrap();
+        v.create_note(
+            "",
+            "# Stay live\n".into(),
+            crate::memo::NoteFormat::Markdown,
+        )
+        .unwrap();
+        assert!(v.list_trashed_memos().unwrap().is_empty());
+        let before = v.get_memo(note.id).unwrap();
+        let path = v.with_redb(|idx| idx.get(note.id)).unwrap().unwrap().path;
+        v.delete_memo(note.id).unwrap();
+        let trash = v.files.trash_path(&path);
+        let bytes = std::fs::read(&trash).unwrap();
+        let items = v.list_trashed_memos().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, note.id);
+        assert_eq!(items[0].path, path);
+        assert!(items[0].deleted);
+        assert_eq!(std::fs::read(&trash).unwrap(), bytes);
+        v.reindex().unwrap();
+        assert_eq!(v.list_trashed_memos().unwrap()[0].id, note.id);
+        let live = v.paths.vault.join(&path);
+        std::fs::write(&live, b"Do not overwrite an existing document").unwrap();
+        assert!(v.restore_notes(&[note.id]).is_err());
+        assert_eq!(
+            std::fs::read(&live).unwrap(),
+            b"Do not overwrite an existing document"
+        );
+        assert_eq!(std::fs::read(&trash).unwrap(), bytes);
+        std::fs::remove_file(&live).unwrap();
+        v.restore_notes(&[note.id]).unwrap();
+        assert!(v.list_trashed_memos().unwrap().is_empty());
+        let restored = v.get_memo(note.id).unwrap();
+        assert_eq!(restored.id, before.id);
+        assert_eq!(
+            v.with_redb(|idx| idx.get(note.id)).unwrap().unwrap().path,
+            path
+        );
+        assert_eq!(restored.body, before.body);
+        assert_eq!(restored.tags, before.tags);
     }
 
     #[test]

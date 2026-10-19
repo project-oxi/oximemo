@@ -32,10 +32,13 @@ import type { TaskEdit } from "../lib/types";
 import { shiftISODate, todayLocalISO } from "../lib/dates";
 import { relativeDayLabel } from "../lib/relativeDay";
 import { effectiveStatuses } from "../lib/taskToggle";
+import { isComposingKey } from "../lib/editorKeys";
 /** Position-only anchor (floating-ui's VirtualElement shape): a rect
  *  provider with no DOM box — the editor path's caret-line anchor. */
 export interface VirtualAnchor {
   getBoundingClientRect: () => DOMRect;
+  /** Lets Base UI observe the editor's layout and scrolling. */
+  contextElement?: Element;
 }
 export interface TaskEditInitial {
   symbol: string;
@@ -182,6 +185,7 @@ export function TaskEditPopover({
   // own Base UI wrapper already handles outside-click dismissal, so
   // these only matter when the popup has focus.
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (isComposingKey(e.nativeEvent)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
@@ -212,12 +216,14 @@ export function TaskEditPopover({
           side="bottom"
           align="start"
           sideOffset={4}
+          collisionPadding={12}
           className="z-[60]"
         >
           <Popover.Popup
             data-task-edit-popover
+            aria-label={t.task_edit}
             onKeyDown={onKeyDown}
-            className="w-80 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-3 shadow-lg animate-popover-in"
+            className="viewport-popup w-80 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-3 shadow-lg animate-popover-in"
           >
             <div className="flex flex-col gap-2.5 text-[12px] text-text">
               <Row label={t.task_field_status}>
@@ -340,7 +346,7 @@ function DateRow({ label, value, today, locale, t, onChange }: DateRowProps) {
           type="date"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value.length > 0 ? e.target.value : null)}
-          className="flex-1 rounded-[var(--input-radius)] bg-surface px-2 py-1 text-[12px] shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
+          className="min-w-0 flex-1 rounded-[var(--input-radius)] bg-surface px-2 py-1 text-[12px] shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
         />
         <button
           type="button"

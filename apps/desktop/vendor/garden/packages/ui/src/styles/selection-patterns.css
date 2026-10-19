@@ -1,0 +1,260 @@
+/* Calendar and date-picker patterns use Garden semantic tokens in both themes. */
+.g-calendar {
+  display: grid;
+  width: min(100%, 20rem);
+  min-width: 0;
+  gap: var(--g-space-2);
+  color: var(--g-ink);
+}
+
+.g-calendar__header {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: var(--g-space-2);
+  min-width: 0;
+}
+
+.g-calendar__month-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--g-line);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--g-ink2);
+  cursor: pointer;
+}
+
+.g-calendar__month-step svg {
+  width: 16px;
+  height: 16px;
+}
+
+.g-calendar__month-step:hover:not(:disabled) {
+  background: var(--g-hover);
+  color: var(--g-ink);
+}
+
+.g-calendar__month-step:disabled {
+  color: var(--g-ink3);
+  cursor: not-allowed;
+}
+
+.g-calendar__month {
+  min-width: 0;
+  margin: 0;
+  color: var(--g-ink);
+  font-size: var(--text-ui);
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.g-calendar__grid {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0 var(--g-space-1);
+}
+
+.g-calendar__weekday {
+  height: 24px;
+  padding: 0;
+  color: var(--g-ink3);
+  font-size: var(--text-micro);
+  font-weight: 500;
+  line-height: 1.33;
+  text-align: center;
+}
+
+.g-calendar__cell {
+  width: calc(100% / 7);
+  height: 32px;
+  padding: 0;
+  text-align: center;
+}
+
+.g-calendar__day {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--g-ink);
+  font: 400 var(--text-caption)/1 var(--font-sans);
+  cursor: pointer;
+}
+
+.g-calendar__day:hover:not(:disabled) {
+  background: var(--g-hover);
+}
+
+.g-calendar__day[data-outside-month="true"] {
+  color: var(--g-ink3);
+}
+
+.g-calendar__day[data-today="true"] {
+  border-color: var(--g-line-strong);
+  font-weight: 600;
+}
+
+.g-calendar__day[data-selected="true"] {
+  border-color: var(--g-accent);
+  background: var(--g-accent-tint);
+  color: var(--g-accent-ink);
+  font-weight: 600;
+}
+
+.g-calendar__day:disabled {
+  color: var(--g-ink3);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.g-date-picker {
+  display: grid;
+  min-width: 0;
+  gap: var(--g-space-1);
+  color: var(--g-ink);
+}
+
+.g-date-picker__label {
+  color: var(--g-ink);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: 1.43;
+  overflow-wrap: anywhere;
+}
+
+.g-date-picker__field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--g-space-2);
+}
+
+.g-date-picker__trigger {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  height: 32px;
+  gap: var(--g-space-2);
+  padding: 0 var(--g-space-3);
+  border: 1px solid var(--g-line-strong);
+  border-radius: var(--radius-control);
+  background: var(--g-field);
+  color: var(--g-ink);
+  box-shadow: var(--shadow-inset-field);
+  font: 400 var(--text-ui)/1.4 var(--font-sans);
+  text-align: start;
+  cursor: pointer;
+}
+
+.g-date-picker__trigger:hover:not(:disabled) {
+  border-color: var(--g-ink3);
+}
+
+.g-date-picker__trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.g-date-picker__value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--g-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.g-date-picker__value[data-placeholder="true"] {
+  color: var(--g-ink3);
+}
+
+.g-date-picker__trigger > svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--g-ink2);
+}
+
+.g-date-picker__clear {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  gap: var(--g-space-1);
+  padding: 0 var(--g-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--g-ink2);
+  font: 400 var(--text-caption)/1.43 var(--font-sans);
+  cursor: pointer;
+}
+
+.g-date-picker__clear svg {
+  width: 14px;
+  height: 14px;
+}
+
+.g-date-picker__clear:hover:not(:disabled) {
+  border-color: var(--g-line);
+  background: var(--g-hover);
+  color: var(--g-ink);
+}
+
+.g-date-picker__clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.g-date-picker__popover {
+  box-sizing: border-box;
+  width: min(20rem, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  padding: var(--g-space-3);
+}
+
+.g-date-picker__calendar-host {
+  min-width: 0;
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g-calendar__day,
+  .g-calendar__month-step,
+  .g-date-picker__trigger,
+  .g-date-picker__clear {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .g-calendar__month-step,
+  .g-calendar__day,
+  .g-date-picker__trigger,
+  .g-date-picker__clear {
+    border-color: ButtonText;
+  }
+
+  .g-calendar__day[data-selected="true"] {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+}

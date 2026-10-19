@@ -33,14 +33,14 @@ export function PropSelect({
         render={
           <button
             type="button"
-            className={`inline-flex items-center gap-1 rounded-[var(--tag-radius)] border px-1.5 py-0.5 text-[11px] transition-colors duration-150 ${
+            className={`prop-select-trigger inline-flex items-center gap-1 rounded-[var(--tag-radius)] border px-1.5 py-0.5 text-[11px] transition-colors duration-150 ${
               current && current.value !== ""
                 ? "border-line-strong bg-surface-muted text-text"
                 : "border-line bg-surface text-text-subtle hover:border-line-strong hover:text-text"
             }`}
           >
-            <span className="font-medium">{label}</span>
-            {current && current.value !== "" && <span aria-hidden>·</span>}
+            {label && <span className="font-medium">{label}</span>}
+            {label && current && current.value !== "" && <span aria-hidden>·</span>}
             {current && current.value !== "" && (
               <span className="font-semibold text-text">{current.label}</span>
             )}
@@ -49,8 +49,8 @@ export function PropSelect({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="end" sideOffset={3} className="z-50">
-          <Popover.Popup className="min-w-40 max-h-64 overflow-y-auto rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
+        <Popover.Positioner side="bottom" align="end" sideOffset={3} collisionPadding={12} className="z-[60]">
+          <Popover.Popup className="glass-menu viewport-popup min-w-40 [--popup-max-width:320px] [--popup-max-height:256px] p-1 animate-popover-in">
             <ul role="listbox">
               {options.map((o) => {
                 const selected = o.value === value;
@@ -75,7 +75,7 @@ export function PropSelect({
                         aria-hidden
                         className={`shrink-0 ${selected ? "text-text" : "text-transparent"}`}
                       />
-                      {o.label}
+                      <span className="min-w-0 flex-1 truncate" title={o.label}>{o.label}</span>
                     </button>
                   </li>
                 );

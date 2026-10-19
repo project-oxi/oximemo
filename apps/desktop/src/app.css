@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import "@garden/ui/styles.css";
 
 /* ── Oxi design-system token chain (src/tokens/) ──
  * Plain :root/.dark token files are imported; the Tailwind @theme/@custom-variant
@@ -9,9 +9,27 @@
 @import "./tokens/primitives.css";
 @import "./tokens/semantic-dark.css";
 @import "./tokens/components.css";
+@import "../../../tokens.css";
+@import "./liquid-glass.css";
+@import "./workspace-motion.css";
+@import "./garden-adapter.css";
 
 /* dark: variant retargeted to the .dark class (§8.3) — tokens-only. */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Atomic's default "pretty" wrapping rebalances a paragraph as every
+ * character is typed. Keep one measured column and ordinary greedy wraps
+ * so earlier lines never jump to new positions during composition. */
+.atomic-cm-editor .cm-editor .cm-content {
+  box-sizing: border-box;
+  width: min(100%, var(--atomic-editor-measure, 70ch));
+  max-width: none;
+  min-width: 0;
+  text-wrap: wrap;
+}
+.atomic-cm-editor .cm-editor .cm-line {
+  text-wrap: wrap;
+}
 
 /* Theme tokens. Non-inline: emits :root vars and utilities that reference them
  * (e.g. .bg-surface { background-color: var(--color-surface) }), so the .dark

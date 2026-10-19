@@ -22,11 +22,12 @@ export type CopilotEntry =
       at: number;
       attached: { active: MemoRef | null; selection: string | null; memos: MemoRef[] };
     }
-  | { role: "agent"; result: TurnResult; at: number }
+  | { role: "agent"; result: TurnResult; at: number; retry?: CopilotRetryPayload }
   | { role: "error"; text: string; at: number; retry: CopilotRetryPayload | null };
 
 
 export type TagState = "off" | "in" | "out";
+export type MemoLayout = "sheet" | "immersive";
 
 /** Inline action rendered right of a toast message (e.g. the undo
  * button after a folder delete). */
@@ -67,6 +68,9 @@ interface UIState {
   setTheme: (t: Theme) => void;
   selectedId: string | null;
   select: (id: string | null) => void;
+  /** Note window layout, remembered independently of document data. */
+  memoLayout: MemoLayout;
+  setMemoLayout: (layout: MemoLayout) => void;
   /** tag -> filter state (3-state cycle). Absent = "off". */
   tagFilter: Record<string, TagState>;
   cycleTag: (tag: string) => void;
@@ -93,6 +97,9 @@ interface UIState {
   /** Open the PDC destination: document inventory with guarded source
    *  editing (canonical PDC 2 documents only). */
   openPdc: () => void;
+  pdcTargetPath: string | null;
+  openPdcPath: (path: string) => void;
+  consumePdcTargetPath: () => string | null;
   /** Sidebar collapsed? Persisted to localStorage. */
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -154,6 +161,13 @@ interface UIState {
   /** Agent the current conversation belongs to (spec §15 — session ids
    * are not portable across agents). Compare-on-change, not mount-time. */
   copilotAgent: string;
+  copilotEpoch: number;
+  copilotDraft: string;
+  setCopilotDraft: (draft: string) => void;
+  copilotReferences: MemoRef[];
+  setCopilotReferences: (refs: MemoRef[]) => void;
+  copilotDetachedMemoId: string | null;
+  setCopilotDetachedMemoId: (id: string | null) => void;
   copilotEntries: CopilotEntry[];
   setCopilotEntries: (es: CopilotEntry[] | ((prev: CopilotEntry[]) => CopilotEntry[])) => void;
   copilotSession: string | null;
@@ -206,12 +220,22 @@ interface UIState {
 }
 
 const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
+const MEMO_LAYOUT_KEY = "oximemo.memoLayout";
 const QUERY_VIEW_KEY = "oximemo.queryView";
 const CALENDAR_FIELD_KEY = "oximemo.calendarField";
 
 function loadCollapsed(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(COLLAPSED_KEY) === "1";
+}
+
+function loadMemoLayout(): MemoLayout {
+  if (typeof window === "undefined") return "sheet";
+  try {
+    return window.localStorage.getItem(MEMO_LAYOUT_KEY) === "immersive" ? "immersive" : "sheet";
+  } catch {
+    return "sheet";
+  }
 }
 
 /** Persisted view mode for the query-mode ("모든 노트") smart collection.
@@ -257,7 +281,7 @@ export function saveCalendarFieldQuery(value: string): void {
   window.localStorage.setItem(CALENDAR_FIELD_KEY, value);
 }
 
-export const useUI = create<UIState>((set) => ({
+export const useUI = create<UIState>((set, get) => ({
   search: "",
   setSearch: (s) => {
     // Starting a search first exits a base (spec §5) — the base's own
@@ -308,6 +332,15 @@ export const useUI = create<UIState>((set) => ({
   setTheme: (t) => set({ theme: t }),
   selectedId: null,
   select: (id) => set({ selectedId: id }),
+  memoLayout: loadMemoLayout(),
+  setMemoLayout: (layout) => {
+    set({ memoLayout: layout });
+    try {
+      if (typeof window !== "undefined") window.localStorage.setItem(MEMO_LAYOUT_KEY, layout);
+    } catch {
+      // The layout still works when browser preference storage is unavailable.
+    }
+  },
   tagFilter: {},
   cycleTag: (tag) =>
     set((s) => {
@@ -352,6 +385,16 @@ export const useUI = create<UIState>((set) => ({
     applyLocation(set, { kind: "pdc" });
     set({ search: "" });
   },
+  pdcTargetPath: null,
+  openPdcPath: (path) => {
+    get().openPdc();
+    set({ pdcTargetPath: path });
+  },
+  consumePdcTargetPath: () => {
+    const path = get().pdcTargetPath;
+    set({ pdcTargetPath: null });
+    return path;
+  },
   folderFilter: "" as string | null,
   setFolderFilter: (f) => applyLocation(set, f === null ? { kind: "all" } : { kind: "folder", path: f }),
   clearFolderFilter: () => applyLocation(set, { kind: "all" }),
@@ -364,7 +407,7 @@ export const useUI = create<UIState>((set) => ({
       const v = !s.sidebarCollapsed;
       if (typeof window !== "undefined")
         window.localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0");
-      return { sidebarCollapsed: v };
+      return { sidebarCollapsed: v, spacePickerOpen: false, spacePickerCreate: false };
     }),
   error: null,
   setError: (msg) => set({ error: msg }),
@@ -375,6 +418,13 @@ export const useUI = create<UIState>((set) => ({
   setDraftId: (id, pristine) =>
     set({ draftId: id, draftPristine: id === null ? null : pristine ?? "" }),
   copilotEntries: [],
+  copilotEpoch: 0,
+  copilotDraft: "",
+  setCopilotDraft: (copilotDraft) => set({ copilotDraft }),
+  copilotReferences: [],
+  setCopilotReferences: (copilotReferences) => set({ copilotReferences }),
+  copilotDetachedMemoId: null,
+  setCopilotDetachedMemoId: (copilotDetachedMemoId) => set({ copilotDetachedMemoId }),
   setCopilotEntries: (es) =>
     set((s) => ({ copilotEntries: typeof es === "function" ? es(s.copilotEntries) : es })),
   copilotSession: null,
@@ -387,13 +437,18 @@ export const useUI = create<UIState>((set) => ({
   copilotStartedAt: null,
   setCopilotStartedAt: (t) => set({ copilotStartedAt: t }),
   resetCopilotChat: () =>
-    set({
+    set((s) => ({
+      copilotEpoch: s.copilotEpoch + 1,
+      copilotDraft: "",
+      copilotReferences: [],
+      copilotDetachedMemoId: null,
+      copilotSelection: null,
       copilotEntries: [],
       copilotSession: null,
       copilotModel: null,
-      copilotBusy: false,
-      copilotStartedAt: null,
-    }),
+      // Resetting a conversation does not stop its native process.
+      // The turn owner releases busy when that process actually settles.
+    })),
   draggingNote: null,
   setDraggingNote: (m) => set({ draggingNote: m }),
   draggingFolder: null,
@@ -417,9 +472,15 @@ export const useUI = create<UIState>((set) => ({
   /** One-shot settings tab request — consumed by SettingsMenu on open
    *  (⌘K 컬렉션 관리 → collections pane). */
   spacePickerOpen: false,
-  setSpacePickerOpen: (b) => set({ spacePickerOpen: b }),
+  setSpacePickerOpen: (b) => {
+    if (b && get().sidebarCollapsed) get().toggleSidebar();
+    set({ spacePickerOpen: b, spacePickerCreate: false });
+  },
   spacePickerCreate: false,
-  requestSpaceCreate: () => set({ spacePickerOpen: true, spacePickerCreate: true }),
+  requestSpaceCreate: () => {
+    get().setSpacePickerOpen(true);
+    set({ spacePickerCreate: true });
+  },
   consumeSpaceCreate: () => set({ spacePickerCreate: false }),
   settingsTab: null,
   setSettingsTab: (tab) => set({ settingsTab: tab }),

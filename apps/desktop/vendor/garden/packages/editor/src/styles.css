@@ -1,0 +1,592 @@
+@import '@atomic-editor/editor/styles.css';
+@import 'katex/dist/katex.min.css';
+
+/* Wiki syntax shares the document surface and source-editing rhythm. */
+.garden-wiki-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--g-accent-ink);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.garden-wiki-link:hover { text-decoration-color: currentColor; }
+.garden-wiki-link:focus-visible,
+.garden-wiki-footnote-ref:focus-visible { outline: 1px solid var(--g-ink2); outline-offset: 3px; }
+.garden-wiki-tag {
+  color: var(--g-ink2);
+  background: var(--g-hover);
+  padding: 1px 4px;
+  border-radius: var(--radius-chip, 6px);
+  font-size: .92em;
+}
+.garden-wiki-block-id { color: var(--g-ink3); font: 11px/1.5 var(--font-mono); }
+.garden-wiki-comment { color: var(--g-ink3); font-style: italic; }
+.garden-wiki-footnote-ref {
+  border: 0;
+  padding: 0 2px;
+  background: transparent;
+  color: var(--g-accent-ink);
+  font: 500 .75em/1 var(--font-sans);
+  vertical-align: super;
+  cursor: pointer;
+}
+.garden-wiki-footnote-definition {
+  border-inline-start: 2px solid var(--g-line);
+  padding-inline-start: 12px;
+  color: var(--g-ink2);
+  font-size: .92em;
+}
+.garden-wiki-callout {
+  border-inline-start: 2px solid var(--g-line-strong);
+  padding-inline: 12px;
+  background: var(--g-inset);
+}
+.garden-wiki-callout-title { color: var(--g-ink); font-weight: 600; font-size: .92em; }
+.garden-wiki-math { color: var(--g-ink); cursor: text; }
+.garden-wiki-math .katex { font-size: 1.08em; }
+.garden-wiki-math .katex-display { margin: 8px 0; overflow-x: auto; overflow-y: hidden; padding-block: 4px; }
+
+/* Inline insertion palette: keep keyboard focus in the Markdown source. */
+.garden-markdown-editor .cm-tooltip.garden-slash-menu {
+  width: min(320px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  padding: 4px;
+  border: 1px solid var(--g-line);
+  border-radius: var(--radius-card, 12px);
+  background: var(--g-surface, var(--g-canvas));
+  color: var(--g-ink);
+  box-shadow: var(--shadow-overlay);
+  font: 13px/1.4 var(--font-sans);
+  overflow: hidden;
+}
+.garden-markdown-editor .cm-editor .cm-tooltip.garden-slash-menu > ul {
+  max-height: min(320px, 45vh);
+  padding: 0;
+  font: inherit;
+  white-space: normal;
+}
+.garden-markdown-editor .cm-editor .cm-tooltip.garden-slash-menu > ul > li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 1px;
+  padding: 7px 8px;
+  border-radius: var(--radius-control, 8px);
+  color: var(--g-ink);
+  cursor: pointer;
+}
+.garden-markdown-editor .cm-editor .cm-tooltip.garden-slash-menu > ul > li[aria-selected],
+.garden-markdown-editor .cm-editor .cm-tooltip.garden-slash-menu > ul > li:hover {
+  background: var(--g-hover);
+  color: var(--g-ink);
+}
+.garden-slash-menu .garden-slash-icon {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--g-line);
+  border-radius: var(--radius-chip, 6px);
+  color: var(--g-ink2);
+  font: 12px/1 var(--font-mono);
+}
+.garden-slash-menu .cm-completionLabel { grid-column: 2; font-weight: 500; }
+.garden-slash-menu .cm-completionDetail {
+  grid-column: 2;
+  margin: 0;
+  color: var(--g-ink3);
+  font-size: 11px;
+  font-style: normal;
+}
+.garden-slash-menu .cm-completionMatchedText { text-decoration: none; font-weight: 650; }
+
+/* Keep Atomic's preview vocabulary on Garden's semantic token ramp. */
+.garden-markdown-editor {
+  --atomic-editor-fg: var(--g-ink, #1a1c1f);
+  --atomic-editor-fg-muted: var(--g-ink2, color-mix(in srgb, var(--g-ink, #1a1c1f) 65%, transparent));
+  --atomic-editor-fg-faint: var(--g-ink3, color-mix(in srgb, var(--g-ink, #1a1c1f) 45%, transparent));
+  --atomic-editor-bg: transparent;
+  --atomic-editor-bg-panel: var(--g-canvas, #fff);
+  --atomic-editor-bg-surface: var(--g-field, #f9f9f9);
+  --atomic-editor-border: var(--g-line, color-mix(in srgb, var(--g-ink, #1a1c1f) 8%, transparent));
+  --atomic-editor-link: var(--g-accent-ink, #0169cc);
+  --atomic-editor-link-hover: var(--g-accent-ink, #0169cc);
+  --atomic-editor-accent: var(--g-accent, #0285ff);
+  --atomic-editor-accent-bright: var(--g-accent, #0285ff);
+  --atomic-editor-accent-soft: var(--g-line-strong, color-mix(in srgb, var(--g-ink, #1a1c1f) 12%, transparent));
+  --atomic-editor-selection-bg: var(--g-accent-tint, #e5f3ff);
+  --atomic-editor-code-bg: var(--g-inset, #f9f9f9);
+  --atomic-editor-code-rail: var(--g-line-strong, color-mix(in srgb, var(--g-ink, #1a1c1f) 12%, transparent));
+  --atomic-editor-search-bg: color-mix(in srgb, var(--g-accent, #0285ff) 16%, transparent);
+  --atomic-editor-search-bg-active: color-mix(in srgb, var(--g-accent, #0285ff) 30%, transparent);
+  --atomic-editor-initial-reveal-bg: color-mix(in srgb, var(--g-accent, #0285ff) 14%, transparent);
+  --atomic-editor-initial-reveal-bg-strong: color-mix(in srgb, var(--g-accent, #0285ff) 24%, transparent);
+  --atomic-editor-font: var(--font-sans, var(--font-inter, system-ui, sans-serif));
+  --atomic-editor-font-mono: var(--font-mono, var(--font-mono-face, ui-monospace, monospace));
+  --atomic-editor-body-size: var(--text-body, 14px);
+  --atomic-editor-body-leading: var(--text-body--line-height, 1.5);
+  --atomic-editor-measure: var(--g-layout-document-max, 760px);
+  --atomic-editor-radius: var(--radius-chip, 6px);
+
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 240px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--g-ink, #1a1c1f);
+}
+
+.garden-markdown-editor .cm-editor {
+  min-width: 0;
+  min-height: 240px;
+  background: transparent;
+  color: inherit;
+  font: var(--atomic-editor-body-size) / var(--atomic-editor-body-leading) var(--atomic-editor-font);
+}
+
+.garden-markdown-editor .cm-scroller {
+  min-width: 0;
+  overflow: auto;
+  font-family: var(--atomic-editor-font);
+  line-height: var(--atomic-editor-body-leading);
+}
+
+.garden-markdown-editor .cm-content {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: var(--atomic-editor-measure);
+  margin-inline: auto;
+  padding: var(--g-space-8, 32px) var(--g-layout-page-gutter, 32px) var(--g-space-16, 64px);
+  color: var(--g-ink, #1a1c1f);
+  font-family: var(--atomic-editor-font);
+  font-size: var(--atomic-editor-body-size);
+  line-height: var(--atomic-editor-body-leading);
+  text-wrap: pretty;
+}
+
+.garden-markdown-editor .cm-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.garden-markdown-editor .cm-editor.cm-focused,
+.garden-markdown-editor .cm-content:focus {
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+.garden-markdown-editor .cm-activeLine {
+  background: transparent;
+}
+
+.garden-markdown-editor .cm-cursor,
+.garden-markdown-editor .cm-dropCursor {
+  border-left-color: var(--g-ink, #1a1c1f);
+}
+
+.garden-markdown-editor .cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground,
+.garden-markdown-editor .cm-selectionBackground,
+.garden-markdown-editor ::selection {
+  background: var(--g-accent-tint, #e5f3ff);
+}
+
+/* Heading spacing uses line padding so CodeMirror measures the same rhythm it displays. */
+.garden-markdown-editor .cm-line.cm-atomic-h1 {
+  padding-block: 0.48em 0.16em;
+  color: var(--g-ink, #1a1c1f);
+  font-size: var(--text-headingLg, 24px);
+  font-weight: 600;
+  line-height: var(--text-headingLg--line-height, 1.3);
+  letter-spacing: -0.025em;
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-h2 {
+  padding-block: 0.42em 0.12em;
+  color: var(--g-ink, #1a1c1f);
+  font-size: var(--text-heading, 20px);
+  font-weight: 600;
+  line-height: var(--text-heading--line-height, 1.35);
+  letter-spacing: -0.02em;
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-h3 {
+  padding-block: 0.34em 0.08em;
+  color: var(--g-ink, #1a1c1f);
+  font-size: var(--text-headingSm, 18px);
+  font-weight: 600;
+  line-height: var(--text-headingSm--line-height, 1.4);
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-h4 {
+  padding-block-start: 0.26em;
+  color: var(--g-ink, #1a1c1f);
+  font-size: var(--text-bodyLg, 16px);
+  font-weight: 600;
+  line-height: var(--text-bodyLg--line-height, 1.56);
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-h5 {
+  padding-block-start: 0.2em;
+  color: var(--g-ink, #1a1c1f);
+  font-size: var(--text-body, 14px);
+  font-weight: 600;
+  line-height: var(--text-body--line-height, 1.5);
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-h6 {
+  padding-block-start: 0.16em;
+  color: var(--g-ink2, #5d6064);
+  font-size: var(--text-ui, 13px);
+  font-weight: 600;
+  line-height: var(--text-ui--line-height, 1.45);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-blockquote {
+  padding-inline-start: var(--g-space-4, 16px);
+  border-left: 0;
+  box-shadow: inset 2px 0 0 var(--g-line-strong, color-mix(in srgb, var(--g-ink, #1a1c1f) 12%, transparent));
+  color: var(--g-ink2, #5d6064);
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-fenced-code {
+  padding-inline: var(--g-space-3, 12px);
+  background: var(--g-inset, #f9f9f9);
+  box-shadow: inset 2px 0 0 var(--g-line-strong, color-mix(in srgb, var(--g-ink, #1a1c1f) 12%, transparent));
+  font-family: var(--atomic-editor-font-mono);
+  font-size: var(--text-mono, 12px);
+  line-height: var(--text-mono--line-height, 1.6);
+}
+
+.garden-markdown-editor .cm-atomic-fenced-selection {
+  background-color: var(--g-accent-tint, #e5f3ff);
+}
+
+.garden-markdown-editor .cm-atomic-strong {
+  color: var(--g-ink, #1a1c1f);
+  font-weight: 600;
+}
+
+.garden-markdown-editor .cm-atomic-em {
+  font-style: italic;
+}
+
+.garden-markdown-editor .cm-atomic-inline-code {
+  padding: 0.08em 0.32em;
+  border-radius: var(--radius-chip, 6px);
+  background: var(--g-inset, #f9f9f9);
+  color: var(--g-ink, #1a1c1f);
+  font-family: var(--atomic-editor-font-mono);
+  font-size: var(--text-mono, 12px);
+  overflow-wrap: anywhere;
+}
+
+/* Inline code is one neutral token, even when the syntax highlighter nests a span. */
+.garden-markdown-editor .cm-atomic-inline-code span {
+  color: inherit;
+}
+
+.garden-markdown-editor .cm-atomic-strike {
+  color: var(--g-ink2, #5d6064);
+  text-decoration: line-through;
+}
+
+.garden-markdown-editor .cm-atomic-highlight,
+.garden-markdown-editor .cm-atomic-table-cell-source .cm-atomic-highlight {
+  border-radius: 0.2em;
+  background: var(--g-hover2, color-mix(in srgb, var(--g-ink, #1a1c1f) 8%, transparent));
+  color: var(--g-ink, #1a1c1f);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.garden-markdown-editor .cm-atomic-strong-mark,
+.garden-markdown-editor .cm-atomic-em-mark,
+.garden-markdown-editor .cm-atomic-strike-mark,
+.garden-markdown-editor .cm-atomic-highlight-mark {
+  color: var(--g-ink3, #767676);
+}
+
+.garden-markdown-editor .cm-atomic-link,
+.garden-markdown-editor .cm-atomic-wiki-link {
+  color: var(--g-accent-ink, #0169cc);
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+
+.garden-markdown-editor .cm-atomic-link:hover,
+.garden-markdown-editor .cm-atomic-wiki-link:hover {
+  color: var(--g-accent-ink, #0169cc);
+}
+
+.garden-markdown-editor .cm-atomic-link::after,
+.garden-markdown-editor .cm-atomic-link-icon {
+  background-color: var(--g-accent-ink, #0169cc);
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-hr {
+  padding-block: var(--g-space-3, 12px);
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-hr::after {
+  border-color: var(--g-line, color-mix(in srgb, var(--g-ink, #1a1c1f) 8%, transparent));
+}
+
+/* Preserve Atomic's shared marker width: wrapped list text then aligns across bullets, tasks, and numbers. */
+.garden-markdown-editor .cm-atomic-list-marker {
+  width: 0.9em;
+  margin-right: 0.3em;
+}
+
+.garden-markdown-editor .cm-atomic-bullet {
+  color: var(--g-ink2, #5d6064);
+}
+
+.garden-markdown-editor .cm-atomic-task-checkbox {
+  width: 1.05em;
+  height: 1.05em;
+  margin-inline: -0.16em 0.31em;
+  border-color: var(--g-ink3, #767676);
+  border-radius: var(--radius-pill, 9999px);
+  background: transparent;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.garden-markdown-editor .cm-atomic-task-checkbox:hover {
+  border-color: var(--g-ink, #1a1c1f);
+  background: var(--g-hover);
+}
+
+.garden-markdown-editor .cm-atomic-task-checkbox::after {
+  border-color: var(--g-canvas, #fff);
+}
+
+.garden-markdown-editor .cm-atomic-task-checkbox:checked {
+  border-color: var(--g-ink, #1a1c1f);
+  background: var(--g-ink, #1a1c1f);
+}
+
+.garden-markdown-editor .cm-atomic-task-checkbox:focus-visible {
+  outline: 2px solid var(--g-ink2, #5d6064);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.garden-markdown-editor .cm-line.cm-atomic-task-done {
+  color: var(--g-ink3, #767676);
+}
+
+.garden-markdown-editor .garden-task-status {
+  display: inline-block;
+  text-indent: 0;
+  margin-inline-end: var(--g-space-2, 8px);
+  color: var(--g-ink2);
+  font: 500 var(--text-micro, 11px)/1.4 var(--font-sans);
+  letter-spacing: .025em;
+  text-decoration: none;
+  vertical-align: .04em;
+  user-select: none;
+}
+
+.garden-markdown-editor .cm-atomic-task-done .garden-task-status {
+  color: var(--g-ink3);
+}
+
+.garden-markdown-editor .garden-task-metadata {
+  display: inline-block;
+  text-indent: 0;
+  margin-inline: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--g-hover);
+  color: var(--g-ink2);
+  font: 500 var(--text-micro, 11px)/1.6 var(--font-sans);
+  vertical-align: .05em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.garden-markdown-table-preview {
+  box-sizing: border-box;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--g-space-3, 12px) var(--g-layout-page-gutter-compact, 16px);
+}
+
+.garden-markdown-table-preview table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  color: var(--g-ink, #1a1c1f);
+  font: inherit;
+  text-align: left;
+}
+
+.garden-markdown-table-preview th,
+.garden-markdown-table-preview td {
+  padding: var(--g-space-2, 8px) var(--g-space-3, 12px);
+  border-bottom: 1px solid var(--g-line, color-mix(in srgb, var(--g-ink, #1a1c1f) 8%, transparent));
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.garden-markdown-table-preview th {
+  border-bottom-color: var(--g-line-strong, color-mix(in srgb, var(--g-ink, #1a1c1f) 12%, transparent));
+  color: var(--g-ink, #1a1c1f);
+  font-weight: 600;
+}
+
+.garden-markdown-table-preview table:focus-visible {
+  outline: 2px solid var(--g-ink2, #5d6064);
+  outline-offset: -2px;
+}
+
+.garden-markdown-table-preview code {
+  padding: 0.08em 0.32em;
+  border-radius: var(--radius-chip, 6px);
+  background: var(--g-inset, #f9f9f9);
+  font: var(--text-mono, 12px) / var(--text-mono--line-height, 1.6) var(--atomic-editor-font-mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .garden-markdown-editor .cm-content {
+    padding-inline: var(--g-layout-page-gutter-compact, 16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .garden-markdown-editor *,
+  .garden-markdown-editor *::before,
+  .garden-markdown-editor *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.garden-markdown-embed-preview {
+  position: relative;
+  margin-block: 4px;
+  border: 1px solid var(--g-line);
+  border-radius: var(--radius-control, 8px);
+  overflow: hidden;
+  background: var(--g-surface, var(--g-canvas));
+  color: var(--g-ink);
+}
+.garden-markdown-embed-preview img { display: block; max-width: 100%; height: auto; }
+.garden-markdown-embed-preview-audio { padding: 4px; border: 0; background: transparent; }
+.garden-markdown-embed-preview audio { display: block; width: calc(100% - 32px); height: 40px; padding: 0; }
+.garden-markdown-embed-preview iframe { display: block; width: 100%; min-height: 0; border: 0; background: white; }
+.garden-markdown-embed-preview-markdown-content { padding: 10px 12px; font: var(--text-body, 14px)/1.55 var(--font-sans); }
+.garden-markdown-embed-preview-markdown-content :is(p,ul,ol,blockquote) { margin-block: 4px; }
+.garden-markdown-embed-preview-markdown-content :is(ul,ol) { padding-inline-start: 18px; }
+.garden-markdown-embed-preview-markdown-content :is(h1,h2,h3,h4,h5,h6) { margin-block: 8px 4px; font-weight: 600; font-size: 1.08em; }
+.garden-markdown-embed-preview-markdown-content > :first-child { margin-top: 0; }
+.garden-markdown-embed-preview-markdown-content > :last-child { margin-bottom: 0; }
+.garden-markdown-embed-preview-markdown-content blockquote { padding-inline-start: 10px; border-inline-start: 2px solid var(--g-line); color: var(--g-ink2); }
+.garden-markdown-embed-preview-markdown-content pre { margin-block: 6px; padding: 8px; overflow: auto; background: var(--g-inset); border-radius: 6px; }
+.garden-markdown-embed-preview-edit {
+  position: absolute;
+  inset-block-start: 6px;
+  inset-inline-end: 6px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  color: var(--g-ink2);
+  background: var(--g-surface, var(--g-canvas));
+  box-shadow: 0 1px 3px rgb(0 0 0 / .06);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.garden-markdown-embed-preview-audio .garden-markdown-embed-preview-edit { inset-block-start: 11px; inset-inline-end: 4px; }
+.garden-markdown-embed-preview:hover .garden-markdown-embed-preview-edit,
+.garden-markdown-embed-preview:focus-within .garden-markdown-embed-preview-edit {
+  opacity: 1;
+  pointer-events: auto;
+}
+.garden-markdown-embed-preview-edit:hover,
+.garden-markdown-embed-preview-edit:focus-visible { background: var(--g-hover); color: var(--g-ink); }
+.garden-markdown-embed-preview-edit:focus-visible { outline: 2px solid var(--g-ink2); outline-offset: 2px; }
+@media (hover: none) {
+  .garden-markdown-embed-preview-edit { opacity: 1; pointer-events: auto; }
+}
+
+.garden-markdown-code-preview {
+  margin-block: 4px;
+  overflow: hidden;
+  border: 1px solid var(--g-line);
+  border-radius: var(--radius-card, 12px);
+  background: var(--g-surface, var(--g-canvas));
+  box-shadow: var(--shadow-card, 0 1px 2px rgb(0 0 0 / .025));
+}
+.garden-markdown-code-preview__header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; min-height: 30px; padding: 4px 10px;
+  border-bottom: 1px solid var(--g-line);
+}
+.garden-markdown-code-preview__language { color: var(--g-ink2); font: 500 12px/1.5 var(--font-mono); }
+.garden-markdown-code-preview__actions { display: flex; gap: 4px; opacity: 0; transition: opacity 120ms ease; }
+.garden-markdown-code-preview:hover .garden-markdown-code-preview__actions,
+.garden-markdown-code-preview:focus-within .garden-markdown-code-preview__actions { opacity: 1; }
+@media (hover: none) { .garden-markdown-code-preview__actions { opacity: 1; } }
+.garden-markdown-code-preview__header button {
+  padding: 3px 6px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--g-ink3); font: 500 11px/1.5 var(--font-sans); cursor: pointer;
+}
+.garden-markdown-code-preview__header button:hover,
+.garden-markdown-code-preview__header button:focus-visible { color: var(--g-ink); background: var(--g-hover); }
+.garden-markdown-code-preview__body { margin: 0; padding: 10px 12px; overflow: auto; background: var(--g-inset); color: var(--g-ink2); font: 12px/1.7 var(--font-mono); }
+.garden-markdown-code-preview__code { font: inherit; white-space: pre; }
+.garden-markdown-code-preview__line { display: flex; }
+.garden-markdown-code-preview__number { flex: 0 0 2em; padding-inline-end: 10px; color: var(--g-ink3); opacity: .65; text-align: right; user-select: none; }
+.garden-markdown-code-preview__line-content { white-space: pre; }
+.garden-markdown-code-preview__copy { display: inline-flex; align-items: center; gap: 4px; }
+
+.garden-markdown-embed-preview-title { padding: 7px 40px 0 12px; color: var(--g-ink3); font: 500 11px/1.4 var(--font-sans); }
+.garden-markdown-embed-preview-missing { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 40px 8px 12px; color: var(--g-ink3); font: 12px/1.5 var(--font-sans); }
+.garden-markdown-embed-preview-task { appearance: none; display: inline-grid; place-content: center; width: 14px; height: 14px; margin-inline-end: 8px; border: 1px solid var(--g-ink3); border-radius: 50%; vertical-align: -2px; }
+.garden-markdown-embed-preview-task:checked { background: var(--g-ink); border-color: var(--g-ink); }
+.garden-markdown-embed-preview-task:checked::after { content: '✓'; color: var(--g-canvas); font: 10px/1 var(--font-sans); }
+
+.garden-markdown-editor .cm-line.garden-wiki-callout {
+  padding-inline: 12px;
+  border: 0;
+  box-shadow: inset 2px 0 0 var(--g-line-strong);
+  background: var(--g-inset);
+}
+
+.garden-wiki-comment-block { white-space: pre-wrap; padding-block: 4px; }
+.garden-wiki-footnote-backlinks { display: inline-flex; gap: 4px; margin-inline-start: 6px; }
+.garden-wiki-footnote-backlink { border: 0; background: transparent; color: var(--g-ink3); cursor: pointer; padding: 0 2px; }
+.garden-wiki-footnote-backlink:hover { color: var(--g-ink); }

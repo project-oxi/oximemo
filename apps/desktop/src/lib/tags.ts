@@ -9,6 +9,10 @@
 
 const WORD = /[\p{L}\p{N}_]/u;
 
+export function isTagChar(c: string): boolean {
+  return WORD.test(c) || c === "-" || c === "/";
+}
+
 /** Normalized, lowercased, de-duplicated inline tags in first-occurrence order. */
 export function extractTags(body: string): string[] {
   const chars = [...body]; // unicode code points
@@ -17,10 +21,10 @@ export function extractTags(body: string): string[] {
   while (i < chars.length) {
     if (chars[i] === "#") {
       const prevOk = i === 0 || !WORD.test(chars[i - 1]);
-      if (prevOk) {
+      if (prevOk && WORD.test(chars[i + 1] ?? "")) {
         const start = i + 1;
         let j = start;
-        while (j < chars.length && WORD.test(chars[j])) j += 1;
+        while (j < chars.length && isTagChar(chars[j])) j += 1;
         if (j > start) {
           const token = chars.slice(start, j).join("");
           const norm = token.normalize("NFC").toLowerCase();
@@ -53,10 +57,10 @@ export function highlightTags(body: string): TagSegment[] {
   while (i < chars.length) {
     if (chars[i] === "#") {
       const prevOk = i === 0 || !WORD.test(chars[i - 1]);
-      if (prevOk) {
+      if (prevOk && WORD.test(chars[i + 1] ?? "")) {
         const start = i + 1;
         let j = start;
-        while (j < chars.length && WORD.test(chars[j])) j += 1;
+        while (j < chars.length && isTagChar(chars[j])) j += 1;
         if (j > start) {
           flush();
           segs.push({ text: "#" + chars.slice(start, j).join(""), tag: true });

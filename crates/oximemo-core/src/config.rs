@@ -140,6 +140,9 @@ pub struct CopilotConfig {
     pub agent: String,
     /// Verified absolute path of the activated agent executable.
     pub executable: String,
+    /// App-scoped default for adapters with a per-turn model flag. Empty
+    /// follows the agent's own default; never changes external credentials.
+    pub default_model: String,
     /// Per-turn subprocess timeout in seconds. 600 (not 300): measured
     /// 2026-08-31 — an omp glm-5.3-flash turn that creates three schema
     /// notes needs ~510 s (late rounds at thinking=max run 96-140 s each);
@@ -157,6 +160,7 @@ impl Default for CopilotConfig {
             enabled: true,
             agent: String::new(),
             executable: String::new(),
+            default_model: String::new(),
             timeout_secs: 600,
             exe_mtime_secs: 0,
         }
@@ -560,6 +564,23 @@ unknown_future_field = true
 "#;
         let c: VaultConfig = toml::from_str(t).unwrap();
         assert_eq!(c.general.trash_retention_days, 7);
+    }
+
+    #[test]
+    fn copilot_default_survives_a_real_preferences_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::resolve(Some(dir.path()));
+        let mut config = VaultConfig::default();
+        config.copilot.agent = "omp".into();
+        config.copilot.default_model = "zai/glm-5.3-flash".into();
+        config.save(&paths).unwrap();
+        let mut reloaded = VaultConfig::load(&paths);
+        assert_eq!(reloaded.copilot.default_model, "zai/glm-5.3-flash");
+        reloaded.copilot.default_model.clear();
+        reloaded.save(&paths).unwrap();
+        assert!(VaultConfig::load(&paths).copilot.default_model.is_empty());
+        let old: VaultConfig = toml::from_str("[copilot]\nagent = 'omp'\n").unwrap();
+        assert!(old.copilot.default_model.is_empty());
     }
 
     #[test]

@@ -116,13 +116,14 @@ class QueryEmbedWidget extends WidgetType {
     readonly source: Source,
     readonly entry: QueryEmbedEntry | undefined,
     readonly labels: QueryEmbedLabels,
+    readonly onOpenMemo: (id: string) => void,
   ) {
     super();
   }
   eq(other: QueryEmbedWidget) {
     return (
       fingerprint(other.source) === fingerprint(this.source) &&
-      (other.entry?.status ?? "loading") === (this.entry?.status ?? "loading")
+      other.entry === this.entry && other.onOpenMemo === this.onOpenMemo
     );
   }
   toDOM() {
@@ -161,7 +162,7 @@ class QueryEmbedWidget extends WidgetType {
         c.textContent = cell;
         rowEl.append(c);
       }
-      rowEl.addEventListener("click", () => useUI.getState().select(row.memo_id));
+      rowEl.addEventListener("click", () => this.onOpenMemo(row.memo_id));
       table.append(rowEl);
     }
     wrap.append(table);
@@ -195,11 +196,12 @@ function buildDecorations(
   resolved: Map<string, QueryEmbedEntry>,
   thisId: string | null,
   labels: QueryEmbedLabels,
+  onOpenMemo: (id: string) => void,
 ) {
   const decos: Range<Decoration>[] = [];
   for (const block of scanBlocks(state, thisId)) {
     const key = fingerprint(block.source);
-    const widget = new QueryEmbedWidget(block.source, resolved.get(key), labels);
+    const widget = new QueryEmbedWidget(block.source, resolved.get(key), labels, onOpenMemo);
     if (block.source.kind === "marker") {
       decos.push(Decoration.replace({ block: true, widget }).range(block.from, block.to));
     } else {
@@ -219,7 +221,8 @@ function buildDecorations(
 class QueryEmbedResolverPlugin {
   readonly pending = new Set<string>();
   destroyed = false;
-  private unlisten: (() => void) | null = null;
+  private generation = 0;
+  private unlisten: Array<() => void> = [];
 
   constructor(
     readonly view: EditorView,
@@ -230,22 +233,24 @@ class QueryEmbedResolverPlugin {
     // the backend result cache makes the re-run cheap.
     void listen("bases:changed", () => this.clear()).then((u) => {
       if (this.destroyed) u?.();
-      else this.unlisten = u ?? null;
+      else if (u) this.unlisten.push(u);
     });
     void listen("memos:changed", () => this.clear()).then((u) => {
       if (this.destroyed) u?.();
-      else this.unlisten = u ?? null;
+      else if (u) this.unlisten.push(u);
     });
   }
-  update(update: { docChanged: boolean; viewportChanged: boolean }) {
-    if (update.docChanged || update.viewportChanged) this.resolveVisible();
+  update(update: { docChanged: boolean; viewportChanged: boolean; transactions: readonly { effects: readonly StateEffect<unknown>[] }[] }) {
+    if (update.docChanged || update.viewportChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(queryEmbedClearAll)))) this.resolveVisible();
   }
   destroy() {
     this.destroyed = true;
-    this.unlisten?.();
+    this.unlisten.forEach((u) => u());
   }
   clear() {
     if (this.destroyed) return;
+    this.generation += 1;
+    this.pending.clear();
     this.view.dispatch({ effects: queryEmbedClearAll.of(null) });
   }
   resolveVisible() {
@@ -288,6 +293,7 @@ class QueryEmbedResolverPlugin {
   }
   async resolve(source: Source, key: string) {
     this.pending.add(key);
+    const generation = this.generation;
     let resolvedPath: string | undefined;
     try {
       let wire: BaseSource;
@@ -300,14 +306,14 @@ class QueryEmbedResolverPlugin {
             ? bases.filter((b) => b.path === k || b.path === `${k}.query`)
             : bases.filter((b) => b.name === k);
         if (matches.length === 0) {
-          this.dispatch(key, { status: "error", error: this.labels.error });
+          this.dispatch(key, { status: "error", error: this.labels.error }, generation);
           return;
         }
         if (matches.length > 1) {
           this.dispatch(key, {
             status: "error",
             error: `${this.labels.ambiguous}: ${matches.map((m) => m.path).join(", ")}`,
-          });
+          }, generation);
           return;
         }
         wire = { Path: matches[0].path };
@@ -343,15 +349,15 @@ class QueryEmbedResolverPlugin {
           .slice(1, Math.min(columns, EMBED_COLUMNS))
           .map((c) => (c.error ? "⚠︎" : formatBaseValue(c.value))),
       }));
-      this.dispatch(key, { status: "resolved", total: page.total, title, path: resolvedPath, rows });
+      this.dispatch(key, { status: "resolved", total: page.total, title, path: resolvedPath, rows }, generation);
     } catch (e) {
-      this.dispatch(key, { status: "error", error: String(e).split("\n")[0] });
+      this.dispatch(key, { status: "error", error: String(e).split("\n")[0] }, generation);
     } finally {
-      this.pending.delete(key);
+      if (generation === this.generation) this.pending.delete(key);
     }
   }
-  dispatch(key: string, entry: QueryEmbedEntry) {
-    if (this.destroyed) return;
+  dispatch(key: string, entry: QueryEmbedEntry, generation: number) {
+    if (this.destroyed || generation !== this.generation) return;
     this.view.dispatch({ effects: queryEmbedResolved.of({ source: key, entry }) });
   }
   private get labels(): QueryEmbedLabels {
@@ -369,11 +375,12 @@ interface QueryEmbedField {
 export function queryEmbedExtension(opts: {
   thisId: string | null;
   labels: QueryEmbedLabels;
+  onOpenMemo: (id: string) => void;
 }): Extension[] {
   const field = StateField.define<QueryEmbedField>({
     create: (state) => ({
       resolved: new Map(),
-      decorations: buildDecorations(state, new Map(), opts.thisId, opts.labels),
+      decorations: buildDecorations(state, new Map(), opts.thisId, opts.labels, opts.onOpenMemo),
       labels: opts.labels,
       thisId: opts.thisId,
     }),
@@ -392,7 +399,7 @@ export function queryEmbedExtension(opts: {
         return {
           ...value,
           resolved,
-          decorations: buildDecorations(tr.state, resolved, value.thisId, value.labels),
+          decorations: buildDecorations(tr.state, resolved, value.thisId, value.labels, opts.onOpenMemo),
         };
       }
       return { ...value, resolved, decorations: value.decorations.map(tr.changes) };

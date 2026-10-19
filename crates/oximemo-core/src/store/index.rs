@@ -26,6 +26,13 @@ const BY_SORT: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new(
 /// trash copy can share the stripped relative path; watcher removals apply
 /// plane-specific filtering after looking up all claimants.
 const BY_PATH: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("by_path");
+/// Single-row write generation (`0` → counter). Incremented inside every
+/// write transaction, so a reader that loads the counter and the records
+/// in read transactions gets a cache key that is atomic with the data:
+/// a write either bumps the counter past a snapshot's key (rebuild) or
+/// happened entirely before it. Unlike a file mtime, read-only opens
+/// never change it.
+const GEN: redb::TableDefinition<u64, u64> = redb::TableDefinition::new("gen");
 
 /// A note's indexed metadata (no body). Stored as the index value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,8 +196,20 @@ impl RedbIndex {
                 path_add(&mut by_path, &rec.path, id.as_bytes())?;
             }
         }
+        bump_generation(&tx)?;
         tx.commit()?;
         Ok(Self { db })
+    }
+
+    /// Current write generation (0 for a database with no writes yet,
+    /// including legacy databases created before the counter existed).
+    /// Read in one read transaction; see [`GEN`] for the key contract.
+    pub fn generation(&self) -> Result<u64> {
+        let tx = self.db.begin_read()?;
+        let Ok(table) = tx.open_table(GEN) else {
+            return Ok(0);
+        };
+        Ok(table.get(0)?.map(|guard| guard.value()).unwrap_or(0))
     }
 
     fn upgrade_via_redb2(path: &std::path::Path) -> Result<()> {
@@ -230,6 +249,7 @@ impl RedbIndex {
                 path_add(&mut by_path, &rec.path, id_slice)?;
             }
         }
+        bump_generation(&tx)?;
         tx.commit()?;
         Ok(())
     }
@@ -258,7 +278,12 @@ fn path_add(table: &mut redb::Table<&str, &[u8]>, path: &str, id: &[u8]) -> Resu
     };
     let complete_len = complete_path_ids(path, &list).len();
     list.truncate(complete_len);
-    if !list.chunks_exact(16).any(|existing| existing == id) {
+    if !list
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .any(|existing| existing == id)
+    {
         list.extend_from_slice(id);
     }
     table.insert(path, list.as_slice())?;
@@ -270,7 +295,9 @@ fn path_add(table: &mut redb::Table<&str, &[u8]>, path: &str, id: &[u8]) -> Resu
 fn path_remove(table: &mut redb::Table<&str, &[u8]>, path: &str, id: &[u8]) -> Result<()> {
     let kept: Vec<u8> = match table.get(path)? {
         Some(guard) => complete_path_ids(path, guard.value())
-            .chunks_exact(16)
+            .as_chunks::<16>()
+            .0
+            .iter()
             .filter(|existing| *existing != id)
             .flatten()
             .copied()
@@ -297,6 +324,19 @@ fn upgrade_file_format(path: &std::path::Path, from_version: u8) -> Result<()> {
     RedbIndex::upgrade_via_redb2(path)
 }
 
+/// Increment the write generation inside `tx`. Called by every write
+/// path so readers can key caches on [`RedbIndex::generation`].
+fn bump_generation(tx: &redb::WriteTransaction) -> Result<()> {
+    let mut generation = tx.open_table(GEN)?;
+    let next = generation
+        .get(0)?
+        .map(|guard| guard.value())
+        .unwrap_or(0)
+        .wrapping_add(1);
+    generation.insert(0, next)?;
+    Ok(())
+}
+
 impl MemoIndex for RedbIndex {
     fn upsert(&self, rec: &IndexRecord) -> Result<()> {
         let uuid = rec.id.as_uuid();
@@ -321,6 +361,7 @@ impl MemoIndex for RedbIndex {
             by_sort.insert(sort_key.as_slice(), id_slice)?;
             path_add(&mut by_path, &rec.path, id_slice)?;
         }
+        bump_generation(&tx)?;
         tx.commit()?;
         Ok(())
     }
@@ -341,6 +382,7 @@ impl MemoIndex for RedbIndex {
             }
             by_id.remove(id_slice)?;
         }
+        bump_generation(&tx)?;
         tx.commit()?;
         Ok(())
     }
@@ -360,7 +402,9 @@ impl MemoIndex for RedbIndex {
         };
         Ok(Some(
             complete_path_ids(path, guard.value())
-                .chunks_exact(16)
+                .as_chunks::<16>()
+                .0
+                .iter()
                 .filter_map(|bytes| Uuid::from_slice(bytes).ok())
                 .map(MemoId)
                 .collect(),
@@ -456,6 +500,7 @@ impl MemoIndex for RedbIndex {
             let _ = tx.open_table(BY_SORT)?;
             let _ = tx.open_table(BY_PATH)?;
         }
+        bump_generation(&tx)?;
         tx.commit()?;
         Ok(())
     }

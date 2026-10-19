@@ -26,8 +26,10 @@ import {
 } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, type ViewUpdate, ViewPlugin, WidgetType } from "@codemirror/view";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 import { getMemo } from "./api";
+import { listen } from "./tauri";
 
 /** Localized strings the embed widgets render. Passed in from the editor
  *  host (which owns the i18n dict) — `embeds.ts` is a pure lib, no React. */
@@ -50,6 +52,7 @@ interface EmbedResolvedEffect {
 }
 
 const embedResolved = StateEffect.define<EmbedResolvedEffect>();
+const embedClearAll = StateEffect.define<null>();
 
 type WidgetStatus = "loading" | "resolved" | "missing";
 function statusOf(entry: EmbedEntry | undefined): WidgetStatus {
@@ -62,7 +65,7 @@ function renderEmbedBody(el: HTMLElement, entry: EmbedEntry, labels: EmbedLabels
     el.classList.add("ox-embed-missing");
     return;
   }
-  el.innerHTML = marked.parse(entry.body.slice(0, 800), { async: false }) as string;
+  el.innerHTML = DOMPurify.sanitize(marked.parse(entry.body.slice(0, 800), { async: false }) as string);
 }
 
 class EmbedWidget extends WidgetType {
@@ -72,7 +75,7 @@ class EmbedWidget extends WidgetType {
   // Recreate when the id or resolved-status changes (loading → resolved/missing)
   // so the fetched body replaces the placeholder.
   eq(other: EmbedWidget) {
-    return other.id === this.id && statusOf(other.entry) === statusOf(this.entry);
+    return other.id === this.id && other.entry === this.entry && other.onOpen === this.onOpen;
   }
   toDOM() {
     const wrap = document.createElement("div");
@@ -128,14 +131,24 @@ function buildDecorations(
 class EmbedResolverPlugin {
   readonly pending = new Set<string>();
   destroyed = false;
+  private generation = 0;
+  private unlisten: (() => void) | null = null;
   constructor(readonly view: EditorView, readonly field: StateField<EmbedField>) {
     this.resolveVisibleEmbeds();
+    void listen("memos:changed", () => {
+      if (!this.destroyed) {
+        this.generation += 1;
+        this.pending.clear();
+        this.view.dispatch({ effects: embedClearAll.of(null) });
+      }
+    }).then((un) => { if (this.destroyed) un?.(); else this.unlisten = un ?? null; });
   }
   update(update: ViewUpdate) {
-    if (update.docChanged || update.viewportChanged) this.resolveVisibleEmbeds();
+    if (update.docChanged || update.viewportChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(embedClearAll)))) this.resolveVisibleEmbeds();
   }
   destroy() {
     this.destroyed = true;
+    this.unlisten?.();
   }
   resolveVisibleEmbeds() {
     const { doc } = this.view.state;
@@ -154,21 +167,22 @@ class EmbedResolverPlugin {
   }
   resolve(id: string) {
     this.pending.add(id);
+    const generation = this.generation;
     getMemo(id)
       .then((m) => {
-        if (this.destroyed) return;
+        if (this.destroyed || generation !== this.generation) return;
         const entry: EmbedEntry = m.deleted_at
           ? { body: "", status: "missing" }
           : { body: m.body, status: "resolved" };
         this.view.dispatch({ effects: embedResolved.of({ target: id, entry }) });
       })
       .catch(() => {
-        if (this.destroyed) return;
+        if (this.destroyed || generation !== this.generation) return;
         this.view.dispatch({
           effects: embedResolved.of({ target: id, entry: { body: "", status: "missing" } }),
         });
       })
-      .finally(() => this.pending.delete(id));
+      .finally(() => { if (generation === this.generation) this.pending.delete(id); });
   }
 }
 
@@ -184,6 +198,7 @@ export function embedExtension(opts: { onOpen: (id: string) => void; labels: Emb
       let resolved = value.resolved;
       let changed = false;
       for (const eff of tr.effects) {
+        if (eff.is(embedClearAll)) { resolved = new Map(); changed = true; continue; }
         if (!eff.is(embedResolved)) continue;
         if (resolved === value.resolved) resolved = new Map(resolved);
         resolved.set(eff.value.target, eff.value.entry);

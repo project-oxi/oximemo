@@ -1,0 +1,13 @@
+---
+format: pdc-document/1
+body: pdc-djot/1
+id: 018f47c6-dbc1-7eed-8576-2a3d6852f375
+created: 2026-09-13T12:34:56.789Z
+updated: 2026-09-13T13:00:00.000Z
+title: After patch
+x_sawhorse:
+  legacy_id: DOC-8
+---
+# Body title stays unchanged
+
+The body and its spacing stay byte-identical.

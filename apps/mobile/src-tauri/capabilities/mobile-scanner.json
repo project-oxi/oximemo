@@ -1,0 +1,1 @@
+{"identifier":"mobile-scanner","description":"Scan a PC pairing QR only when requested by the user.","windows":["main"],"platforms":["iOS","android"],"permissions":["barcode-scanner:allow-scan","barcode-scanner:allow-cancel","barcode-scanner:allow-check-permissions","barcode-scanner:allow-request-permissions"]}

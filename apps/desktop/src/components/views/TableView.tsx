@@ -302,7 +302,7 @@ export function TableView({
   };
 
   return (
-    <div className="min-w-[560px] pb-1">
+    <div className="note-table min-w-[560px] pb-1">
       {/* Sticky header: frozen name cell + draggable prop columns. */}
       <div className="sticky top-0 z-10 border-b border-line bg-surface">
         <div role="row" className="grid items-center" style={{ gridTemplateColumns: gridTemplate }}>

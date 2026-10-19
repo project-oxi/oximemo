@@ -1,0 +1,35 @@
+---
+format: pdc-document/1
+body: pdc-djot/1
+id: 018f47c6-7ae7-7aa1-8ed8-8e3df921e7c4
+created: 2026-09-13T12:35:00.000Z
+updated: 2026-09-13T12:36:00.000Z
+title: Semantic document
+profile: note
+lang: en
+tags: [standard, interop]
+aliases: [Fixture]
+favorite: true
+deleted: false
+x_sawhorse:
+  legacy_id: FDR-001
+---
+# Semantic document
+
+{#b-018f47c6-7dbe-7a14-9f67-6f89a5e3cc32}
+## Stable section
+
+[Minimal](pdc://document/018f47c6-4a77-7c52-9db8-0e5f9bcb17db)
+
+[Embedded fallback](pdc://document/018f47c6-4a77-7c52-9db8-0e5f9bcb17db){.pdc-embed}
+
+- [ ] Open task
+- [x] Completed task
+
+``` pdc-query
+tag = "standard"
+```
+
+| feature | state |
+|---------|-------|
+| Djot    | fixed |

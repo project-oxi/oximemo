@@ -1,0 +1,28 @@
+name: OxiMemoSyncQA
+options:
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: W5SAS95CBV
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+targets:
+  PCSyncTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: PCSyncTests.swift
+      - path: SyncFixture.json
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.oximemo.mobile.syncqa
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  SyncQA:
+    build:
+      targets:
+        PCSyncTests: [test]
+    test:
+      targets: [PCSyncTests]

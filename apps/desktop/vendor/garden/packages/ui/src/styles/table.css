@@ -1,0 +1,17 @@
+/* Shared Records Table presentation for catalog and data views. */
+.records-shell{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:100%;min-width:0;overflow:hidden;box-shadow:0 1px 2px #0000000f}
+.records-scroll{overscroll-behavior:none;scrollbar-color:var(--line-strong) transparent;scrollbar-gutter:stable;max-height:438px;overflow:auto}
+.records-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.records-table{border-collapse:separate;border-spacing:0;width:100%;min-width:990px;color:var(--ink);table-layout:fixed;font-size:12px}
+.records-table td,.records-table th{border-right:1px solid var(--line)}
+.records-table td,.records-table th{border-bottom:1px solid var(--line)}
+.records-table td,.records-table th{text-align:left;vertical-align:middle}
+.records-table tr>:last-child{border-right:0}
+.records-table thead th{z-index:5;background:var(--surface);height:42px;color:var(--ink-2);font-size:12px;font-weight:600;position:sticky;top:0}
+.records-cell{white-space:nowrap;text-overflow:ellipsis;height:42px;padding:0 12px;overflow:hidden}
+.records-row>.records-cell{transition:background-color .12s ease-out,color .12s ease-out}
+.records-row:hover>.records-cell{background:var(--hover)}
+
+@media (prefers-reduced-motion: reduce) {
+  .records-row > .records-cell { transition: none; }
+}

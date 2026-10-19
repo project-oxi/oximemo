@@ -77,12 +77,15 @@ fn is_executable(p: &std::path::Path) -> bool {
 /// (Finder/Dock) inherits launchd's minimal PATH (`/usr/bin:/bin:…`) —
 /// `~/.bun/bin/omp` or `~/.oxi/oxios/bin/oxios` are invisible to it. The
 /// augmented list keeps discovery working regardless of launch context.
-fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf> {
+fn agent_search_dirs(
+    path_var: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(path) = path_var {
         dirs.extend(std::env::split_paths(&path));
     }
-    if let Some(home) = std::env::var_os("HOME") {
+    if let Some(home) = home {
         let home = PathBuf::from(home);
         for rel in [
             ".oxi/oxios/bin",
@@ -102,7 +105,18 @@ fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf>
     for abs in ["/opt/homebrew/bin", "/usr/local/bin"] {
         dirs.push(PathBuf::from(abs));
     }
-    dirs.into_iter()
+    let mut unique = Vec::new();
+    for dir in dirs {
+        if !unique.contains(&dir) {
+            unique.push(dir);
+        }
+    }
+    unique
+}
+
+fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    agent_search_dirs(path_var, std::env::var_os("HOME"))
+        .into_iter()
         .map(|d| d.join(name))
         .find(|p| is_executable(p))
 }
@@ -111,34 +125,40 @@ fn which(name: &str) -> Option<PathBuf> {
     which_in(name, std::env::var_os("PATH"))
 }
 
+/// Discovery and subprocesses must share PATH: an absolute CLI path can
+/// still need `env bun` / `env node` in its shebang, or launch other tools.
+/// Set it only on the child; do not run a shell or mutate the app environment.
+fn agent_command_in(
+    exe: &Path,
+    path_var: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Result<Command, String> {
+    let path = std::env::join_paths(agent_search_dirs(path_var, home))
+        .map_err(|e| format!("agent PATH: {e}"))?;
+    let mut cmd = Command::new(exe);
+    cmd.env("PATH", path);
+    Ok(cmd)
+}
+
+fn agent_command(exe: &Path) -> Result<Command, String> {
+    agent_command_in(exe, std::env::var_os("PATH"), std::env::var_os("HOME"))
+}
+
 /// Probe an agent's version: `<exe> --version`, 3 s budget, first stdout
 /// line. Discovery is never a trust boundary (§6) — this only labels the
 /// candidate list.
-pub async fn probe_version(exe: &Path) -> Option<String> {
+pub async fn probe_version(exe: &Path) -> Result<String, String> {
     // The 3 s budget lives HERE so every caller (probe_candidates,
     // copilot_activate) gets it — a --version that never exits must not
     // hang the activation IPC.
-    let out = tokio::time::timeout(Duration::from_secs(3), async {
-        Command::new(exe)
-            .arg("--version")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .process_group(0)
-            .kill_on_drop(true)
-            .output()
-            .await
-            .ok()
-    })
-    .await
-    .ok()??;
-    let line = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .next()?
-        .trim()
-        .to_string();
+    let stdout = capture_stdout(exe, &["--version"], 3).await?;
+    let line = stdout.lines().next().unwrap_or_default().trim().to_string();
     let line: String = line.chars().take(120).collect();
-    if line.is_empty() { None } else { Some(line) }
+    if line.is_empty() {
+        Err(format!("{} returned no version", exe.display()))
+    } else {
+        Ok(line)
+    }
 }
 
 /// Discover every known agent present on `PATH`. Lazy by design — callers
@@ -148,7 +168,7 @@ pub async fn probe_candidates() -> Vec<AgentCandidate> {
     let mut out = Vec::new();
     for (id, bin, name, supported) in KNOWN_AGENTS {
         let Some(exe) = which(bin) else { continue };
-        let version = probe_version(&exe).await;
+        let version = probe_version(&exe).await.ok();
         out.push(AgentCandidate {
             id: (*id).to_string(),
             display_name: (*name).to_string(),
@@ -329,6 +349,19 @@ fn disclosure_from_oxicode_settings(text: &str) -> Disclosure {
 
 /// Provider disclosure for the activated agent (spec §12): whatever the
 /// agent's own config discloses, else an honest "unknown" (§18-3).
+pub fn effective_disclosure(agent: &str, default_model: &str) -> Disclosure {
+    let mut value = disclosure(agent);
+    // oxios resolves its global config/router itself. Other adapters receive
+    // this exact selector as an argv value on every turn.
+    if agent != "oxios" && !default_model.is_empty() {
+        value.model = Some(default_model.into());
+        if let Some((provider, _)) = default_model.split_once('/') {
+            value.provider = Some(provider.into());
+        }
+    }
+    value
+}
+
 pub fn disclosure(agent: &str) -> Disclosure {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let unknown = || Disclosure::unknown(agent);
@@ -628,6 +661,74 @@ pub fn diff_manifests(
     out
 }
 
+/// The turn owns its slot until response parsing and manifest collection end.
+/// Cancellation never releases that ownership, including during preparation.
+#[derive(Default)]
+pub struct TurnControl(parking_lot::Mutex<Option<TurnPhase>>);
+
+enum TurnPhase {
+    Preparing { cancelled: bool },
+    Running { pgid: i32 },
+    Finishing,
+}
+
+pub struct TurnGuard<'a>(&'a TurnControl);
+
+impl TurnControl {
+    pub fn is_busy(&self) -> bool {
+        self.0.lock().is_some()
+    }
+
+    pub fn claim(&self) -> Result<TurnGuard<'_>, String> {
+        let mut slot = self.0.lock();
+        if slot.is_some() {
+            return Err("a copilot turn is already running".into());
+        }
+        *slot = Some(TurnPhase::Preparing { cancelled: false });
+        Ok(TurnGuard(self))
+    }
+
+    pub fn cancel(&self) -> bool {
+        let mut slot = self.0.lock();
+        match slot.as_mut() {
+            Some(TurnPhase::Preparing { cancelled }) => {
+                *cancelled = true;
+                true
+            }
+            Some(TurnPhase::Running { pgid }) => {
+                kill_turn(*pgid);
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+impl TurnGuard<'_> {
+    pub fn spawned(&self, pgid: i32) {
+        let mut slot = self.0.0.lock();
+        if matches!(*slot, Some(TurnPhase::Preparing { cancelled: true })) {
+            kill_turn(pgid);
+        }
+        *slot = Some(TurnPhase::Running { pgid });
+    }
+
+    pub fn process_finished(&self) {
+        // No stale pid remains available to a late cancellation request.
+        *self.0.0.lock() = Some(TurnPhase::Finishing);
+    }
+}
+
+impl Drop for TurnGuard<'_> {
+    fn drop(&mut self) {
+        let mut slot = self.0.0.lock();
+        if let Some(TurnPhase::Running { pgid }) = *slot {
+            kill_turn(pgid);
+        }
+        *slot = None;
+    }
+}
+
 /// Result of one agent subprocess run (spec §8).
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessOutcome {
@@ -663,7 +764,7 @@ pub async fn run_agent_process(
     timeout_secs: u64,
     on_spawn: impl FnOnce(i32),
 ) -> Result<ProcessOutcome, String> {
-    let mut cmd = Command::new(exe);
+    let mut cmd = agent_command(exe)?;
     cmd.args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -681,14 +782,15 @@ pub async fn run_agent_process(
     let pgid = child.id().map(|p| p as i32).unwrap_or(0);
     on_spawn(pgid);
 
-    // Write the context block, then close stdin — an agent that prompts
-    // for input sees EOF, not a hung pipe (spec §11). Context blocks are
-    // small (a few hundred bytes), far under the 64 KiB pipe buffer, so
-    // this write cannot deadlock against an agent that reads stdin last.
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(stdin_data.as_bytes()).await;
-        let _ = stdin.shutdown().await;
-    }
+    // Context can exceed a pipe buffer. Feed stdin concurrently with the
+    // output drains and process deadline, even if the agent never reads it.
+    let input = stdin_data.as_bytes().to_vec();
+    let stdin_task = child.stdin.take().map(|mut stdin| {
+        tokio::spawn(async move {
+            let _ = stdin.write_all(&input).await;
+            let _ = stdin.shutdown().await;
+        })
+    });
     // Drain both pipes CONCURRENTLY with the wait: an agent whose output
     // exceeds the ~16 KiB pipe buffer blocks in write() until we read —
     // draining only after wait() deadlocks the turn until the timeout.
@@ -722,6 +824,10 @@ pub async fn run_agent_process(
             child.wait().await.ok()
         }
     };
+    if let Some(task) = stdin_task {
+        task.abort();
+        let _ = task.await;
+    }
 
     // Bounded join: a lingering grandchild that inherited stdout keeps the
     // write end open past the direct child's exit — that must delay the
@@ -729,15 +835,20 @@ pub async fn run_agent_process(
     // the pipe under the writer (EPIPE), same as a manual cancel.
     let join = |t: Option<tokio::task::JoinHandle<Vec<u8>>>| async {
         match t {
-            Some(h) => tokio::time::timeout(Duration::from_secs(10), h)
-                .await
-                .map(|r| r.unwrap_or_default())
-                .unwrap_or_default(),
+            Some(mut h) => match tokio::time::timeout(Duration::from_secs(10), &mut h).await {
+                Ok(result) => result.unwrap_or_default(),
+                Err(_) => {
+                    h.abort();
+                    let _ = h.await;
+                    Vec::new()
+                }
+            },
             None => Vec::new(),
         }
     };
-    let stdout = String::from_utf8_lossy(&join(stdout_task).await).to_string();
-    let stderr = String::from_utf8_lossy(&join(stderr_task).await).to_string();
+    let (stdout, stderr) = tokio::join!(join(stdout_task), join(stderr_task));
+    let stdout = String::from_utf8_lossy(&stdout).to_string();
+    let stderr = String::from_utf8_lossy(&stderr).to_string();
     let exit_code = status.and_then(|s| s.code());
     let signal = status.and_then(|s| {
         #[cfg(unix)]
@@ -1172,7 +1283,7 @@ pub struct ModelInfo {
 /// model listing helpers). Bounded so a hung CLI cannot stall the picker.
 async fn capture_stdout(exe: &Path, args: &[&str], budget_secs: u64) -> Result<String, String> {
     let out = tokio::time::timeout(Duration::from_secs(budget_secs), async {
-        Command::new(exe)
+        agent_command(exe)?
             .args(args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
@@ -1346,6 +1457,16 @@ pub fn valid_model_id(model: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '-' | '_' | ':' | ' '))
 }
 
+pub fn selected_model(requested: Option<String>, default: &str) -> Result<Option<String>, String> {
+    let model = requested
+        .filter(|m| !m.is_empty())
+        .or_else(|| (!default.is_empty()).then(|| default.to_string()));
+    if model.as_deref().is_some_and(|m| !valid_model_id(m)) {
+        return Err("invalid model id".into());
+    }
+    Ok(model)
+}
+
 /// Switch the oxios default model via their own `config set` (preserves
 /// comments and formatting). This is oxios's only model contract: `run`
 /// has no per-turn model flag, so the picker edits the durable default
@@ -1362,6 +1483,68 @@ pub async fn oxios_set_default_model(exe: &Path, model: &str) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_default_discloses_the_exact_qualified_selector() {
+        let value = effective_disclosure("omp", "zai/glm-5.3-flash");
+        assert_eq!(value.model.as_deref(), Some("zai/glm-5.3-flash"));
+        assert_eq!(value.provider.as_deref(), Some("zai"));
+        assert_eq!(effective_disclosure("omp", "").model, None);
+    }
+
+    #[test]
+    fn model_precedence_and_validation() {
+        assert_eq!(
+            selected_model(None, "zai/default").unwrap().as_deref(),
+            Some("zai/default")
+        );
+        assert_eq!(
+            selected_model(Some("openai/override".into()), "zai/default")
+                .unwrap()
+                .as_deref(),
+            Some("openai/override")
+        );
+        assert_eq!(selected_model(Some(String::new()), "").unwrap(), None);
+        assert!(selected_model(None, "--unsafe").is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "spends one synthetic model turn"]
+    async fn real_omp_saved_default_turn() {
+        let exe = which("omp").expect("OMP must be installed");
+        let dir = tempfile::tempdir().unwrap();
+        let paths = oximemo_core::paths::Paths::resolve(Some(dir.path()));
+        let mut config = oximemo_core::config::VaultConfig::default();
+        config.copilot.default_model = "zai/glm-5.3-flash".into();
+        config.save(&paths).unwrap();
+        let reloaded = oximemo_core::config::VaultConfig::load(&paths);
+        let model = selected_model(None, &reloaded.copilot.default_model).unwrap();
+        let args = omp_args(
+            None,
+            model.as_deref(),
+            "Reply with only MODEL_DEFAULT_OK. Do not use tools or read files.",
+        );
+        let out = run_agent_process(
+            &exe,
+            &args,
+            "Synthetic app verification. No user notes are attached.",
+            Some(dir.path()),
+            90,
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert!(!out.timed_out, "model verification timed out");
+        assert_eq!(out.exit_code, Some(0), "{}", out.stderr);
+        let turn = parse_omp_jsonl(&out.stdout);
+        assert!(
+            turn.response.contains("MODEL_DEFAULT_OK"),
+            "{}",
+            turn.response
+        );
+        assert_eq!(turn.provider.as_deref(), Some("zai"));
+        assert_eq!(turn.model.as_deref(), Some("glm-5.3-flash"));
+    }
 
     #[test]
     fn context_is_declarative_facts_only() {
@@ -1678,6 +1861,87 @@ pid_file = "/x"
     }
 
     #[tokio::test]
+    async fn cancellation_during_preparation_is_latched_until_spawn() {
+        let control = TurnControl::default();
+        let guard = control.claim().unwrap();
+        assert!(control.cancel());
+        assert!(control.is_busy());
+        assert!(control.claim().is_err());
+        let out = run_agent_process(
+            Path::new("/bin/sleep"),
+            &["30".into()],
+            "context",
+            None,
+            3,
+            |pgid| guard.spawned(pgid),
+        )
+        .await
+        .unwrap();
+        guard.process_finished();
+        assert_eq!(out.signal, Some(libc::SIGKILL));
+        assert!(!out.timed_out);
+        assert!(control.is_busy());
+        assert!(!control.cancel());
+        assert!(control.claim().is_err());
+        drop(guard);
+        assert!(!control.is_busy());
+        assert!(control.claim().is_ok());
+    }
+
+    #[tokio::test]
+    async fn cancellation_does_not_release_running_turn_slot() {
+        let control = TurnControl::default();
+        let guard = control.claim().unwrap();
+        let out = run_agent_process(
+            Path::new("/bin/sleep"),
+            &["30".into()],
+            "",
+            None,
+            3,
+            |pgid| {
+                guard.spawned(pgid);
+                assert!(control.cancel());
+                assert!(control.claim().is_err());
+            },
+        )
+        .await
+        .unwrap();
+        guard.process_finished();
+        assert_eq!(out.signal, Some(libc::SIGKILL));
+        assert!(control.is_busy());
+        drop(guard);
+        assert!(!control.is_busy());
+    }
+
+    #[tokio::test]
+    async fn agent_process_large_context_roundtrip() {
+        let context = "selected context\n".repeat(65_536);
+        let out = run_agent_process(Path::new("/bin/cat"), &[], &context, None, 5, |_| {})
+            .await
+            .unwrap();
+        assert!(!out.timed_out);
+        assert_eq!(out.exit_code, Some(0));
+        assert_eq!(out.stdout, context);
+    }
+
+    #[tokio::test]
+    async fn agent_process_timeout_covers_blocked_stdin() {
+        let started = std::time::Instant::now();
+        let out = run_agent_process(
+            Path::new("/bin/sleep"),
+            &["3".into()],
+            &"x".repeat(1_048_576),
+            None,
+            1,
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert!(out.timed_out);
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[tokio::test]
     async fn agent_process_timeout_kills_tree() {
         // A shell that backgrounds a child and waits — the direct child
         // has a grandchild. Tree-kill must reap BOTH: the grandchild
@@ -1950,6 +2214,94 @@ pid_file = "/x"
             found.is_some(),
             "which({name}) must fall back to HOME bin dirs with a minimal PATH"
         );
+    }
+
+    #[test]
+    fn agent_path_preserves_inherited_precedence_without_duplicates() {
+        let dirs = agent_search_dirs(
+            Some("/custom/bin:/usr/bin:/custom/bin:/opt/homebrew/bin".into()),
+            Some("/test-home".into()),
+        );
+        assert_eq!(dirs[0], Path::new("/custom/bin"));
+        assert_eq!(dirs[1], Path::new("/usr/bin"));
+        assert_eq!(dirs[2], Path::new("/opt/homebrew/bin"));
+        assert_eq!(
+            dirs.iter()
+                .filter(|d| **d == Path::new("/custom/bin"))
+                .count(),
+            1
+        );
+        assert!(dirs.contains(&PathBuf::from("/test-home/.bun/bin")));
+        assert!(dirs.contains(&PathBuf::from("/test-home/.local/bin")));
+    }
+
+    #[tokio::test]
+    async fn agent_command_resolves_env_shebang_with_gui_path() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let home = tempfile::tempdir().unwrap();
+        let bin = home.path().join(".bun/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        symlink("/bin/sh", bin.join("oximemo-test-runtime")).unwrap();
+        let exe = bin.join("test-agent");
+        std::fs::write(
+            &exe,
+            "#!/usr/bin/env oximemo-test-runtime\nprintf 'agent-test/1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // The executable is found, but its runtime is absent from GUI PATH.
+        let broken = Command::new(&exe)
+            .env("PATH", "/usr/bin:/bin")
+            .output()
+            .await
+            .unwrap();
+        assert!(!broken.status.success());
+
+        let fixed = agent_command_in(
+            &exe,
+            Some("/usr/bin:/bin".into()),
+            Some(home.path().as_os_str().to_owned()),
+        )
+        .unwrap()
+        .output()
+        .await
+        .unwrap();
+        assert!(fixed.status.success());
+        assert_eq!(String::from_utf8(fixed.stdout).unwrap(), "agent-test/1\n");
+    }
+
+    #[tokio::test]
+    async fn version_probe_reports_failure_instead_of_timeout_or_version() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("test-agent");
+        std::fs::write(
+            &exe,
+            "#!/bin/sh\nprintf 'misleading version\\n'\nprintf 'runtime missing\\n' >&2\nexit 127\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let error = probe_version(&exe).await.unwrap_err();
+        assert!(error.contains("exit 127"), "{error}");
+        assert!(error.contains("runtime missing"), "{error}");
+
+        assert!(probe_version(Path::new("/usr/bin/true")).await.is_err());
+        assert!(probe_version(&dir.path().join("missing")).await.is_err());
+    }
+
+    /// Uses only OMP's local version/catalog commands, with no model turn.
+    #[tokio::test]
+    #[ignore = "requires a local OMP installation"]
+    async fn real_omp_probe_and_models() {
+        let exe = which("omp").expect("OMP must be installed");
+        let version = probe_version(&exe).await.unwrap();
+        assert!(version.starts_with("omp/"), "{version}");
+        let models = list_models("omp", &exe).await.unwrap();
+        assert!(!models.is_empty());
+        println!("{version}: {} selectable models", models.len());
     }
 
     /// REAL omp turn through the exact adapter path `copilot_send` uses

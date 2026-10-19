@@ -82,6 +82,7 @@ const FOLDERS_KEY = "oximemo:folders:v1";
 const CONFIG_KEY = "oximemo:config:v1";
 /** Browser-smoke copilot agent (mirrors the Rust [copilot] section). */
 const COPILOT_AGENT_KEY = "oximemo:copilot:agent";
+const COPILOT_MODEL_KEY = "oximemo:copilot:default-model:";
 
 /** Deep-merge `patch` into `target` (plain objects recurse; arrays and
  * scalars replace). Backs the localStorage config override below. */
@@ -478,6 +479,7 @@ async function browserFallback(
         activated: true,
         agent,
         agent_name: names[agent] ?? agent,
+        default_model: localStorage.getItem(COPILOT_MODEL_KEY + agent) ?? "",
         busy: false,
       };
     }
@@ -535,7 +537,8 @@ async function browserFallback(
         codex: { model: "gpt-5.6-terra", provider: "openai" },
         oxicode: { model: "deepseek-v4-flash", provider: "deepseek" },
       };
-      return { agent, ...(per[agent] ?? { model: null, provider: null }) };
+      const selected = localStorage.getItem(COPILOT_MODEL_KEY + agent);
+      return { agent, ...(selected ? { model: selected, provider: selected.includes("/") ? selected.split("/")[0] : per[agent]?.provider } : per[agent] ?? { model: null, provider: null }) };
     }
     case "copilot_activate":
       localStorage.setItem(COPILOT_AGENT_KEY, String(args?.agent ?? "oxios"));
@@ -575,12 +578,12 @@ async function browserFallback(
         },
       ];
     }
-    case "copilot_set_model":
-      return {
-        agent: "oxios",
-        model: (args?.model as string) ?? "",
-        provider: "zai-coding-plan",
-      };
+    case "copilot_set_model": {
+      const agent = localStorage.getItem(COPILOT_AGENT_KEY) ?? "oxios";
+      const model = String(args?.model ?? "");
+      localStorage.setItem(COPILOT_MODEL_KEY + agent, model);
+      return invoke("copilot_disclosure", { agent });
+    }
     case "set_copilot_config": {
       // Deactivation (agent: "") clears the smoke agent so the settings
       // pane and status stay coherent in browser mode.
@@ -630,6 +633,12 @@ async function browserFallback(
         provider: modelPer[agent]?.[1] ?? null,
         denials: agent === "claude" ? ["Write"] : null,
       };
+    }
+    case "list_trashed_memos": {
+      return Object.values(loadStore())
+        .filter((note) => note.deleted_at != null)
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id))
+        .map(summaryOf);
     }
     case "list_memos": {
       const after = (args?.after as string | null | undefined) ?? null;
@@ -1134,6 +1143,7 @@ async function browserFallback(
             agent,
             executable: agent ? `/Users/demo/.local/bin/${agent}` : "",
             timeout_secs: 600,
+            default_model: localStorage.getItem(COPILOT_MODEL_KEY + agent) ?? "",
           };
         })(),
         folders: [

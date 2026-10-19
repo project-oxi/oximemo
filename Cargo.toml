@@ -8,6 +8,8 @@ members = [
     "crates/oximemo-capture",
     "crates/oximemo-metadata",
     "crates/oximemo-session",
+    "crates/oximemo-sync",
+    "apps/mobile/src-tauri",
     "apps/desktop/src-tauri",
 ]
 

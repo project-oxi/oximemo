@@ -1,0 +1,120 @@
+/* Hallmark · pre-emit critique: P4 H4 E4 S5 R5 V4
+ * genre: modern-minimal · macrostructure: document library + focused reader
+ * theme: Oxi monochrome (DESIGN.md) · enrichment: none · motion: none
+ * mobile navigation: back stack · compose: fixed top-right action
+ * audience: personal note owner · use: read and write · tone: quiet, utilitarian
+ */
+
+html { font-size: 17px; }
+html, body, #root { overflow-y: clip; }
+@supports (font: -apple-system-body) { html { font: -apple-system-body; } }
+body { font-size: var(--iphone-body); }
+.app { --page-gutter: var(--iphone-gutter); position: fixed; left: 0; right: 0; }
+.app-header { min-height: 56px; padding-block: var(--space-xs); border-bottom: 0; }
+.library-header .page-title h1 { font-size: var(--iphone-title); font-weight: 700; letter-spacing: -.035em; }
+.library-header { padding-top: var(--space-md); padding-bottom: var(--space-sm); }
+.library-header { flex-wrap: wrap; }
+.header-actions { margin-left: auto; gap: var(--space-xs); }
+.header-compose { min-height: var(--tap-size); padding: var(--space-sm) var(--space-md); font-size: var(--iphone-preview); }
+.navigation-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: var(--space-xs); border-bottom: 1px solid var(--iphone-rule); }
+.navigation-header .page-title h1 { font-size: var(--iphone-body); font-weight: 600; }
+.navigation-spacer { justify-self: end; }
+.back-button { display: inline-flex; align-items: center; justify-content: flex-start; gap: 0; min-height: var(--tap-size); padding: 0; border: 0; border-radius: var(--mobile-radius-control); background: transparent; color: var(--text); font-size: var(--iphone-body); }
+.back-button > svg { margin-left: -6px; }
+.text-button, .button { font-size: var(--iphone-body); }
+.icon-button { width: max(var(--tap-size), 2.6rem); height: max(var(--tap-size), 2.6rem); }
+.library { display: block; }
+.note-scroll { height: 100%; padding: 0 var(--page-gutter) var(--space-lg); scroll-padding-block: var(--space-md); }
+.library-search { padding: var(--space-xs) 0 var(--space-sm); gap: var(--space-md); }
+.search-field { min-height: 44px; padding-left: var(--space-md); background: var(--iphone-search); border-radius: 10px; }
+.search-field::before { display: none; }
+.search-field input { min-height: 44px; height: 2.6rem; font-size: max(16px, var(--iphone-body)); }
+.search-field:focus-within { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
+.search-cancel { flex-shrink: 0; font-weight: 400; }
+.library-tools { padding: 0; }
+.library-filter { min-height: 44px; gap: var(--space-lg); border-bottom: 1px solid var(--iphone-rule); }
+.view-picker { display: flex; align-items: center; position: relative; min-width: 0; max-width: 55%; color: var(--secondary); }
+.view-picker select { min-width: 0; max-width: 100%; min-height: var(--tap-size); padding: 0 22px 0 0; border: 0; border-radius: 0; background: transparent; color: inherit; font-size: max(16px, var(--iphone-preview)); appearance: none; text-overflow: ellipsis; }
+.view-picker > svg { position: absolute; right: 0; pointer-events: none; }
+.folder-picker { max-width: 45%; padding-left: 0; }
+.folder-picker select { font-size: max(16px, var(--iphone-preview)); }
+.is-searching .library-tools { display: none; }
+.note-row { border-color: var(--iphone-rule); }
+.note-link { padding: var(--space-lg) 0; border-radius: 0; }
+.note-heading strong { font-size: var(--iphone-note-title); font-weight: 600; line-height: 1.4; letter-spacing: -.02em; -webkit-line-clamp: 2; }
+.note-preview { margin: var(--space-xs) 0 var(--space-sm); font-size: var(--iphone-preview); line-height: 1.5; -webkit-line-clamp: 2; color: var(--secondary); }
+.note-meta { font-size: var(--iphone-caption); line-height: 1.5; flex-wrap: wrap; }
+.note-state { white-space: nowrap; }
+.note-state svg { width: 14px; height: 14px; }
+.format-tag { font-size: inherit; }
+.list-caption { font-size: var(--iphone-caption); min-height: 36px; border-bottom: 0; }
+.is-library .note-scroll { padding-bottom: max(var(--space-lg), env(safe-area-inset-bottom)); }
+.library-summary.sync-overview { min-width: 0; display: inline-flex; justify-content: flex-start; align-items: center; gap: var(--space-sm); min-height: var(--tap-size); padding: 0; margin: 0; border: 0; background: transparent; color: var(--secondary); font-size: var(--iphone-caption); text-align: left; }
+.library-summary span { overflow: hidden; text-overflow: ellipsis; }
+.library-summary.sync-warning, .library-summary.sync-error { color: var(--text); font-weight: 550; }
+.back-button:active, .library-summary:active { opacity: .55; }
+.empty-state { min-height: 55dvh; padding: var(--space-2xl) 0; }
+.empty-state h2 { font-size: 1.12rem; }
+.empty-state p { max-width: 26em; font-size: var(--iphone-preview); }
+.editor-header { min-height: 56px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: var(--space-xs); background: var(--bg); border-bottom: 1px solid var(--iphone-rule); }
+.editor-status { min-width: 0; max-width: 34vw; font-size: var(--iphone-caption); }
+.editor-done { font-size: var(--iphone-body); font-weight: 600; color: var(--text); padding-right: 0; }
+.editor-done::before { display: none; }
+.header-trailing .text-button { padding-right: 0; }
+.header-trailing { gap: var(--space-md); }
+.editor-header:has(.preview-actions) { grid-template-columns: minmax(0, 1fr) auto; }
+.editor-header:has(.preview-actions) .editor-status { display: none; }
+.editor-scroll { scroll-padding-block: var(--space-lg); }
+.editor-page, .is-editing.has-editor-notice .editor-page { min-height: 100%; padding: var(--space-xl) var(--page-gutter) var(--space-2xl); max-width: 680px; }
+.note-reading-title, .note-title-input { font-size: var(--iphone-title); font-weight: 700; line-height: 1.3; margin: 0 0 var(--space-xl); letter-spacing: -.03em; }
+.note-title-input { min-height: 44px; font-size: max(16px, var(--iphone-title)); }
+.note-toolbar { min-height: var(--tap-size); margin-top: calc(-1 * var(--space-md)); margin-bottom: var(--space-md); color: var(--secondary); font-size: var(--iphone-caption); }
+.note-toolbar .text-button { font-size: var(--iphone-caption); font-weight: 400; padding: 0; }
+.note-body-input { min-height: 45dvh; margin: 0; padding: 0 0 var(--space-2xl); font-size: max(16px, var(--iphone-body)); line-height: 1.75; overflow-y: hidden; }
+.note-body-input.source-text { font-size: var(--iphone-source); }
+.editor-scroll.is-writing { display: flex; flex-direction: column; overflow: clip; }
+.is-writing .editor-page, .has-editor-notice .is-writing .editor-page { display: flex; flex-direction: column; height: 100%; min-height: 0; padding-block: var(--space-lg); }
+.is-writing .note-title-input { max-height: 3lh; overflow-y: auto; }
+.is-writing .note-body-input { flex: 1 1 0; height: 100%; min-height: 0; overflow-y: auto; padding-bottom: var(--space-lg); }
+.writing-format { position: relative; min-width: 0; display: flex; align-items: center; gap: var(--space-xs); }
+.writing-format select { min-height: var(--tap-size); max-width: 100%; padding: 0 20px 0 0; border: 0; appearance: none; background: transparent; font-size: max(16px, var(--iphone-caption)); color: var(--secondary); }
+.writing-format > svg { position: absolute; right: 0; pointer-events: none; }
+.format-picker select { font-size: max(16px, var(--iphone-body)); }
+.note-title-input:focus-visible, .note-body-input:focus-visible { outline: none; }
+.markdown-body { font-size: var(--iphone-body); line-height: 1.75; }
+.markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body blockquote, .markdown-body pre, .markdown-body table { margin-bottom: 1.1em; }
+.markdown-body pre code { font-size: .85em; }
+.markdown-body table { font-size: .88em; }
+.document-details { margin-top: var(--space-2xl); border-top-color: var(--iphone-rule); font-size: var(--iphone-caption); }
+.document-details summary, .read-only-hint, .source-format-hint { font-size: var(--iphone-caption); }
+.source-switch button { font-size: var(--iphone-preview); }
+.read-only-label { font-size: var(--iphone-caption); gap: var(--space-xs); white-space: nowrap; }
+.reading-switch { margin: calc(-1 * var(--space-md)) 0 var(--space-md); }
+.notice, .vault-notice { font-size: var(--iphone-caption); }
+.settings-page, .connection-page { padding-top: var(--space-xl); padding-bottom: calc(var(--space-2xl) + env(safe-area-inset-bottom)); }
+.settings-section-title { font-size: var(--iphone-caption); margin-top: var(--space-xl); margin-bottom: var(--space-sm); }
+.settings-group { border: 1px solid var(--iphone-rule); border-radius: var(--mobile-radius-panel); background: var(--surface); padding-inline: var(--space-lg); }
+.settings-row { min-height: 64px; gap: var(--space-md); padding-block: var(--space-md); }
+.settings-row strong { font-size: var(--iphone-body); font-weight: 500; }
+.settings-row small { font-size: var(--iphone-caption); margin-top: var(--space-xs); }
+.settings-row > svg:last-child { flex-shrink: 0; }
+.settings-fact { padding-block: var(--space-md); font-size: var(--iphone-preview); }
+.settings-appearance { min-height: 56px; font-size: var(--iphone-body); }
+.settings-appearance > span:last-child { font-size: var(--iphone-caption); }
+.settings-about { margin-top: var(--space-xl); }
+.settings-about summary, .settings-about p, .settings-version { font-size: var(--iphone-caption); }
+.pc-status { border-color: var(--iphone-rule); padding-bottom: var(--space-xl); }
+.pc-status-heading h2 { font-size: 1.12rem; }
+.pc-status-heading p, .connection-result strong, .connection-result p, .sync-facts { font-size: var(--iphone-preview); }
+.connection-description, .connection-scan-row, .connection-method > summary { font-size: var(--iphone-body); }
+.connection-scan-row, .connection-method > summary { min-height: 56px; }
+.pc-address, .section-heading, .connection-help summary, .connection-help li, .connection-notes summary, .connection-privacy, .offline-note { font-size: var(--iphone-caption); }
+.pc-status > .button { margin-top: var(--space-sm); font-size: var(--iphone-body); }
+.connection-method input, .pair-code { font-size: max(16px, 1rem); }
+.field-help, .connection-method label { font-size: var(--iphone-caption); }
+.dialog-content h2 { font-size: 1.24rem; }
+.dialog-content p { font-size: var(--iphone-preview); }
+.discard-button { font-size: var(--iphone-preview); }
+@media (max-width: 350px) { .app { --iphone-gutter: 16px; } }
+@media (min-width: 40rem) { .app { --iphone-gutter: 28px; } .note-link { padding-block: var(--space-lg); } }
+@media (prefers-contrast: more) { .note-preview, .note-meta, .library-summary.sync-overview { color: var(--text); } }

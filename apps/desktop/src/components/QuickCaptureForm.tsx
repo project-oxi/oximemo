@@ -53,12 +53,13 @@ export function QuickCaptureForm({
 
   return (
     <div className={cx("flex w-full flex-col", className)}>
-      <div className="relative rounded-[var(--popover-radius)] bg-surface-raised px-3 py-2.5 shadow-[var(--input-shadow)] transition-shadow duration-150 focus-within:shadow-[var(--input-shadow-focus)]">
+      <div className="glass-capture relative rounded-[var(--popover-radius)] px-4 py-3 transition-shadow duration-150 focus-within:shadow-[var(--input-shadow-focus)]">
         <div className="relative">
           <TextCtxMenu
             render={
               <textarea
                 ref={setRef}
+                value={body}
                 onChange={(e) => onBodyChange(e.target.value)}
                 spellCheck={false}
                 rows={1}

@@ -1,0 +1,1 @@
+{"identifier":"default","description":"Bundled mobile UI only; remote origins get no native capability.","windows":["main"],"permissions":["core:default"]}

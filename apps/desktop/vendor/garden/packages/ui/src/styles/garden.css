@@ -1,0 +1,458 @@
+/* Garden UI — generated web binding. DO NOT EDIT.
+ * Source of truth: contracts/tokens/garden.tokens.json (run scripts/build-tokens.mjs)
+ * Token vocabulary 1: beautifului components (page/canvas/surface/ink/line/…) — MIT, beautifului.dev
+ * Token vocabulary 2: shadcn/ui (background/foreground/primary/…)
+ * Neutral layer: --g-* (Garden semantic)
+ * Philosophy: Codex-extracted monochrome system (see DESIGN.md)
+ */
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Garden neutral layer + vocabulary aliases (light) ── */
+:root {
+  --g-ink: #1a1c1f;
+  --ink: var(--g-ink);
+  --g-ink2: color-mix(in srgb, var(--g-ink) 65%, transparent);
+  --ink-2: var(--g-ink2);
+  --g-ink3: color-mix(in srgb, var(--g-ink) 45%, transparent);
+  --ink-3: var(--g-ink3);
+  --g-page: #f9f9f9;
+  --page: var(--g-page);
+  --g-canvas: #ffffff;
+  --canvas: var(--g-canvas);
+  --g-surface: #ffffff;
+  --surface: var(--g-surface);
+  --g-inset: #f9f9f9;
+  --inset: var(--g-inset);
+  --g-hover: color-mix(in srgb, var(--g-ink) 5%, transparent);
+  --hover: var(--g-hover);
+  --g-hover2: color-mix(in srgb, var(--g-ink) 8%, transparent);
+  --hover-2: var(--g-hover2);
+  --g-line: color-mix(in srgb, var(--g-ink) 8%, transparent);
+  --line: var(--g-line);
+  --g-line-strong: color-mix(in srgb, var(--g-ink) 12%, transparent);
+  --line-strong: var(--g-line-strong);
+  --g-field: #f9f9f9;
+  --field: var(--g-field);
+  --g-stripe: color-mix(in srgb, var(--g-ink) 7%, transparent);
+  --stripe: var(--g-stripe);
+  --g-stripe-bg: #f3f3f3;
+  --stripe-bg: var(--g-stripe-bg);
+  --g-accent: #0285ff;
+  --accent: var(--g-accent);
+  --g-accent-ink: #0169cc;
+  --accent-ink: var(--g-accent-ink);
+  --g-accent-tint: #e5f3ff;
+  --accent-tint: var(--g-accent-tint);
+  --g-success: #00a240;
+  --green: var(--g-success);
+  --g-success-tint: #d9f4e4;
+  --green-tint: var(--g-success-tint);
+  --g-warning: #e25507;
+  --orange: var(--g-warning);
+  --g-warning-tint: #ffe7d9;
+  --orange-tint: var(--g-warning-tint);
+  --g-danger: #e02e2a;
+  --red: var(--g-danger);
+  --g-danger-tint: #ffd9d9;
+  --red-tint: var(--g-danger-tint);
+  --g-brand: #924ff7;
+  --g-primary: #181818;
+  --g-primary-ink: #ffffff;
+  --g-tooltip-bg: #1c1c1c;
+  --tooltip-bg: var(--g-tooltip-bg);
+  --g-tooltip-fg: #fcfcfc;
+  --tooltip-fg: var(--g-tooltip-fg);
+  --g-tooltip-muted: #9a9da3;
+  --tooltip-muted: var(--g-tooltip-muted);
+  --g-tooltip-line: #303030;
+  --tooltip-border: var(--g-tooltip-line);
+  --background: var(--g-canvas);
+  --foreground: var(--g-ink);
+  --card: var(--g-surface);
+  --card-foreground: var(--g-ink);
+  --popover: var(--g-surface);
+  --popover-foreground: var(--g-ink);
+  --primary: var(--g-primary);
+  --primary-foreground: var(--g-primary-ink);
+  --secondary: var(--g-inset);
+  --secondary-foreground: var(--g-ink);
+  --muted: var(--g-inset);
+  --muted-foreground: var(--g-ink2);
+  --destructive: var(--g-danger);
+  --destructive-foreground: var(--g-primary-ink);
+  --border: var(--g-line);
+  --input: var(--g-line-strong);
+  --ring: var(--g-accent);
+  --chart-1: var(--g-accent);
+  --chart-2: var(--g-success);
+  --chart-4: var(--g-brand);
+  --chart-5: var(--g-danger);
+}
+
+:root {
+  --shadow-hairline: 0 0 0 1px var(--g-line);
+  --shadow-btn: 0 0 0 1px var(--g-line-strong), 0 1px 2px rgba(16,24,40,0.05);
+  --shadow-card: 0 0 0 1px var(--g-line), 0 1px 2px rgba(16,24,40,0.04), 0 2px 6px rgba(16,24,40,0.03);
+  --shadow-raised: 0 0 0 1px var(--g-line), 0 2px 10px rgba(0,0,0,0.04);
+  --shadow-overlay: 0 0 0 1px var(--g-line), 0 8px 28px rgba(0,0,0,0.06);
+  --shadow-composer: 0 0 0 1px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.04), 0 4px 80px 8px rgba(0,0,0,0.02);
+  --shadow-inset-field: inset 0 1px 2px rgba(0,0,0,0.12);
+  --g-space-1: 4px;
+  --g-space-2: 8px;
+  --g-space-3: 12px;
+  --g-space-4: 16px;
+  --g-space-5: 20px;
+  --g-space-6: 24px;
+  --g-space-8: 32px;
+  --g-space-10: 40px;
+  --g-space-12: 48px;
+  --g-space-16: 64px;
+  --g-layout-page-gutter: 32px;
+  --g-layout-page-gutter-compact: 16px;
+  --g-layout-content-max: 960px;
+  --g-layout-document-max: 760px;
+  --g-layout-settings-max: 760px;
+  --g-layout-settings-nav: 240px;
+  --g-layout-panel-width: 300px;
+  --g-layout-section-gap: 32px;
+  --g-layout-group-gap: 24px;
+  --g-layout-row-gap: 16px;
+  --g-layout-field-gap: 8px;
+  --g-layout-property-label-width: 144px;
+  --g-layout-settings-row-min-height: 64px;
+  --g-layout-panel-header-height: 46px;
+  --g-layout-rail-width: 52px;
+  --g-layout-settings-top-padding: 72px;
+  --g-control-height: 28px;
+  --g-control-height-sm: 20px;
+  --g-nav-row-height: 29px;
+  --g-toolbar-height: 46px;
+  --g-sidebar-width: clamp(240px, 275px, min(520px, 100vw - 320px));
+  --g-composer-min-height: 44px;
+  --g-item-gap: 16px;
+  --g-item-gap-grouped: 4px;
+}
+
+/* ── dark theme overrides ── */
+.dark {
+  --g-ink: #dfdfdf;
+  --g-ink2: color-mix(in srgb, var(--g-ink) 65%, transparent);
+  --g-ink3: color-mix(in srgb, var(--g-ink) 45%, transparent);
+  --g-page: #212121;
+  --g-canvas: #181818;
+  --g-surface: #212121;
+  --g-inset: #131313;
+  --g-hover: color-mix(in srgb, var(--g-ink) 5%, transparent);
+  --g-hover2: color-mix(in srgb, var(--g-ink) 8%, transparent);
+  --g-line: color-mix(in srgb, var(--g-ink) 8%, transparent);
+  --g-line-strong: color-mix(in srgb, var(--g-ink) 12%, transparent);
+  --g-field: #212121;
+  --g-stripe: color-mix(in srgb, var(--g-ink) 7%, transparent);
+  --g-stripe-bg: #161616;
+  --g-accent: #339cff;
+  --g-accent-ink: #66b5ff;
+  --g-accent-tint: color-mix(in srgb, #339cff 16%, transparent);
+  --g-success: #40c977;
+  --g-success-tint: color-mix(in srgb, #04b84c 15%, transparent);
+  --g-warning: #ff8549;
+  --g-warning-tint: color-mix(in srgb, #fb6a22 16%, transparent);
+  --g-danger: #ff6764;
+  --g-danger-tint: color-mix(in srgb, #fa423e 16%, transparent);
+  --g-brand: #ad7bf9;
+  --g-primary: #ededed;
+  --g-primary-ink: #0d0d0d;
+  --g-tooltip-bg: #101010;
+  --g-tooltip-fg: #ededed;
+  --g-tooltip-muted: #8f8f8f;
+  --g-tooltip-line: #212121;
+}
+
+/* Garden additions exposed as Tailwind utilities */
+@theme inline {
+  --color-primary-solid: var(--g-primary);
+  --color-primary-ink: var(--g-primary-ink);
+  --color-success: var(--g-success);
+  --color-warning: var(--g-warning);
+  --color-danger: var(--g-danger);
+}
+
+/* shadcn utilities (--accent omitted: use bg-hover per PARITY.md) */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+/* Expose the tokens as Tailwind utilities. */
+@theme inline {
+  --color-page: var(--page);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-inset: var(--inset);
+  --color-hover: var(--hover);
+  --color-hover-2: var(--hover-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-field: var(--field);
+  --color-stripe: var(--stripe);
+  --color-stripe-bg: var(--stripe-bg);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+  --color-green: var(--green);
+  --color-green-tint: var(--green-tint);
+  --color-orange: var(--orange);
+  --color-orange-tint: var(--orange-tint);
+  --color-red: var(--red);
+  --color-red-tint: var(--red-tint);
+  --color-tooltip-bg: var(--tooltip-bg);
+  --color-tooltip-fg: var(--tooltip-fg);
+  --color-tooltip-muted: var(--tooltip-muted);
+  --color-tooltip-border: var(--tooltip-border);
+
+  --shadow-hairline: var(--shadow-hairline);
+  --shadow-btn: var(--shadow-btn);
+  --shadow-card: var(--shadow-card);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-overlay: var(--shadow-overlay);
+  --shadow-inset-field: var(--shadow-inset-field);
+
+  --radius-chip: 6px;
+  --radius-control: 8px;
+  --radius-card: 10px;
+
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-link: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, "SF Mono", monospace;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+/* ── Keyframes ─────────────────────────────────────────── */
+@keyframes shimmer-text{0%{background-position:150%}to{background-position:-50%}}
+@keyframes fade-up{0%{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fade-in{0%{opacity:0}to{opacity:1}}
+@keyframes eq-bounce{0%,to{transform:scaleY(.35)}50%{transform:scaleY(1)}}
+@keyframes stream-in{0%{opacity:0;filter:blur(4px)}to{opacity:1;filter:blur()}}
+@keyframes caret-blink{0%,to{opacity:1}50%{opacity:0}}
+@keyframes pop-in{0%{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+@keyframes spin{to{transform:rotate(1turn)}}
+@keyframes pixel-on{0%,to{opacity:.15}18%,42%{opacity:1}62%{opacity:.15}}
+
+/* ── Streaming caret (atoms/StreamText) ────────────────── */
+.stream-caret{background:var(--ink);vertical-align:text-bottom;border-radius:1px;width:2px;height:1.05em;margin-left:1.5px;animation:caret-blink 1s step-end infinite;display:inline-block;translate:0 -.5px}
+.stream-caret.is-streaming{animation:none}
+
+/* ── Animated underline ────────────────────────────────── */
+.animated-underline{display:inline-block;position:relative}
+.animated-underline:after{content:"";transform-origin:0;height:1px;transition:transform .28s var(--ease-link);background:currentColor;position:absolute;bottom:-1px;left:0;right:0;transform:scaleX(0)}
+a:focus-visible .animated-underline:after,a:hover .animated-underline:after{transform:scaleX(1)}
+
+/* ── Records table ─────────────────────────────────────── */
+.records-toolbar{border-bottom:1px solid var(--line-strong);background:var(--surface);justify-content:space-between;align-items:center;gap:12px;min-height:52px;padding:8px 10px;display:flex}
+.records-add-calculation,.records-company-header,.records-link,.records-primary-button,.records-quiet-button,.records-secondary-button,.records-select-button,.records-strength,.records-toolbar-left,.records-toolbar-right{align-items:center;display:inline-flex}
+.records-toolbar-left,.records-toolbar-right{gap:4px}
+.records-toolbar-right{flex-shrink:0}
+.records-primary-button,.records-quiet-button,.records-secondary-button,.records-select-button{border-radius:var(--radius-control);white-space:nowrap;height:32px;transition:background-color .14s var(--ease-out-strong),color .14s var(--ease-out-strong),transform .14s var(--ease-out-strong),box-shadow .14s var(--ease-out-strong);gap:7px;padding:0 10px;font-size:12px;font-weight:550}
+.records-select-button{color:var(--ink);border:1px solid var(--line);background:var(--surface);gap:8px}
+.records-quiet-button:hover,.records-secondary-button:hover,.records-select-button:hover{background:var(--hover);color:var(--ink)}
+.records-quiet-button{color:var(--ink-2)}
+.records-quiet-button.is-active{background:var(--accent-tint);color:var(--accent-ink)}
+.records-secondary-button{border:1px solid var(--tooltip-border);color:var(--ink-2);box-shadow:none}
+.records-primary-button{background:var(--accent);color:#fff;box-shadow:none;margin-left:3px}
+.records-primary-button:hover{filter:saturate(.9)brightness(1.04)}
+.records-add-calculation:active,.records-primary-button:active,.records-quiet-button:active,.records-secondary-button:active,.records-select-button:active{transform:scale(.96)}
+.records-database-icon{color:var(--green);display:inline-flex}
+.records-filter-wrap{position:relative}
+.records-filter-dot{background:var(--accent);border-radius:99px;width:5px;height:5px;margin-left:-2px}
+.records-filter-menu{z-index:30;border:1px solid var(--line-strong);border-radius:var(--radius-card);background:var(--surface);width:190px;box-shadow:var(--shadow-overlay);animation:pop-in .16s var(--ease-out-strong) both;transform-origin:0 0;padding:6px;position:absolute;top:calc(100% + 7px);left:0}
+.records-sort-menu{left:-48px}
+.records-filter-label{color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase;padding:5px 8px 6px;font-size:10.5px;font-weight:650}
+.records-filter-menu button{border-radius:var(--radius-chip);width:100%;color:var(--ink-2);text-align:left;align-items:center;gap:7px;padding:7px 8px;font-size:12px;transition:background-color .12s ease-out,color .12s ease-out;display:flex}
+.records-filter-menu button.is-selected,.records-filter-menu button:hover{background:var(--hover);color:var(--ink)}
+.records-menu-check{width:13px;color:var(--accent-ink);text-align:center;font-size:12px;font-weight:700}
+.records-company-col{width:270px}
+.records-category-col{width:275px}
+.records-last-col{width:190px}
+.records-strength-col{width:210px}
+.records-link-col{width:175px}
+.records-header-cell{padding:0}
+.records-header-cell.records-sticky-cell{z-index:7}
+.records-company-header,.records-header-button{gap:8px;width:100%;height:42px;padding:0 12px}
+.records-company-header{padding-left:6px}
+.records-header-button{color:var(--ink-2);text-align:left;align-items:center;transition:background-color .12s ease-out,color .12s ease-out;display:flex}
+.records-header-button:hover{background:var(--hover);color:var(--ink)}
+.records-header-icon{color:var(--ink-3);flex-shrink:0;display:inline-flex}
+.records-sort{opacity:0;transition:opacity .12s ease-out,transform .16s var(--ease-out-strong);flex-shrink:0;margin-left:auto;display:inline-flex}
+.records-header-button:hover .records-sort,.records-sort.is-visible{opacity:1}
+.records-company-header{display:flex}
+.records-company-header>span:not(.records-checkbox-box){white-space:nowrap}
+.records-add-field{color:var(--ink-3);opacity:0;margin-left:auto;transition:opacity .12s ease-out,color .12s ease-out;display:inline-flex}
+.records-add-field:focus-visible,.records-company-header:hover .records-add-field{opacity:1}
+.records-add-field:hover{color:var(--ink)}
+.records-checkbox{border-radius:var(--radius-chip);flex:0 0 24px;justify-content:center;align-items:center;width:24px;height:24px;display:inline-flex;position:relative}
+.records-checkbox input{opacity:0;width:1px;height:1px;position:absolute}
+.records-checkbox-box{color:#4d555e;width:18px;height:18px;transition:border-color .14s ease-out,background-color .14s ease-out,box-shadow .14s ease-out,transform .14s var(--ease-out-strong);background:#fff;border:1px solid #c7cdd3;border-radius:6px;justify-content:center;align-items:center;display:inline-flex}
+.records-checkbox:hover .records-checkbox-box{background:#f2f4f5;border-color:#aeb6bf}
+.records-checkbox:active .records-checkbox-box{transform:scale(.96)}
+.records-checkbox input:focus-visible+.records-checkbox-box{outline:2px solid var(--accent);outline-offset:2px}
+.records-checkbox-box.is-active{border-color:var(--accent);color:#fff;background:var(--accent);box-shadow:none}
+.records-checkbox-dash{background:#4d555e;border-radius:99px;width:8px;height:1.5px}
+.dark .records-checkbox-box{color:#e0e4e8;background:#343a41;border-color:#4f565f}
+.dark .records-checkbox:hover .records-checkbox-box{background:#3f464e;border-color:#626a74}
+.dark .records-checkbox-box.is-active{border-color:var(--accent);color:#fff;background:var(--accent)}
+.dark .records-checkbox-dash{background:#e0e4e8}
+.records-sticky-cell{z-index:2;background:var(--surface);position:sticky;left:0;box-shadow:5px 0 8px -10px #0006}
+.records-company-cell{align-items:center;gap:4px;padding-left:6px;display:flex;overflow:visible}
+.records-row.is-selected>.records-cell{background:var(--accent)}
+.records-company-mark{width:20px;height:20px;color:var(--ink-2);background:var(--field);border:0;border-radius:6px;flex:0 0 20px;justify-content:center;align-items:center;font-size:10px;font-weight:650;display:inline-flex}
+.records-company-name{min-width:0;color:var(--ink);text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;font-weight:500;overflow:hidden}
+.records-company-name.has-link:focus-visible,.records-company-name.has-link:hover{color:var(--accent-ink);text-underline-offset:3px;text-decoration:underline}
+.records-tags{gap:4px;min-width:0;display:flex}
+.records-tag,.records-tags{align-items:center;overflow:hidden}
+.records-tag{cursor:pointer;border:1px solid var(--tag-color);flex-shrink:0;max-width:115px;height:23px;display:inline-flex}
+.records-tag{color:var(--tag-color);border-radius:6px;padding:0 7px}
+.records-tag{background:var(--tag-color)}
+.records-tag{text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:500}
+.records-more-tag{border:1px solid var(--line-strong);height:23px;border-radius:6px;flex-shrink:0;align-items:center;padding:0 7px;font-size:11px;font-weight:500;display:inline-flex}
+.records-tag-dot{border-radius:50%;flex:0 0 5px;width:5px;height:5px;margin-right:5px}
+.records-more-tag{border-color:var(--line-strong);background:var(--inset)}
+.records-more-tag,.records-muted{color:var(--ink-3)}
+.records-strength{color:var(--ink-2);gap:8px}
+.records-strength-dot{border-radius:50%;flex:0 0 8px;width:8px;height:8px;display:inline-block}
+.records-link{max-width:100%;color:var(--accent-ink);text-overflow:ellipsis;gap:5px;text-decoration:underline;overflow:hidden}
+.records-link{text-underline-offset:3px;transition:color .12s ease-out,text-decoration-color .12s ease-out}
+.records-link:focus-visible,.records-link:hover{color:var(--ink);text-decoration-color:currentColor}
+.records-table tfoot td{z-index:4;background:var(--inset);height:38px;color:var(--ink-2);font-size:11.5px;position:sticky;bottom:0}
+.records-table tfoot .records-sticky-cell{z-index:6;background:var(--inset)}
+.records-calculation-label{color:var(--ink-2);font-weight:550}
+.records-calculation-number{color:var(--ink);font-variant-numeric:tabular-nums;margin-right:3px}
+.records-add-calculation{color:var(--ink-3);transition:color .12s ease-out,transform .14s var(--ease-out-strong);gap:6px}
+.records-add-calculation:hover{color:var(--ink)}
+.records-average{color:var(--ink-2);align-items:center;gap:7px;display:inline-flex}
+.records-calculation-row-secondary td{background:var(--inset);position:sticky;bottom:38px}
+.records-calculation-row-secondary .records-sticky-cell{background:var(--inset);position:sticky}
+.records-footer{min-height:38px;color:var(--ink-3);justify-content:space-between;align-items:center;gap:12px;padding:0 12px;font-size:11.5px;display:flex}
+.records-footer strong{color:var(--ink-2);font-weight:600}
+.records-footer-hint{opacity:0;align-items:center;gap:5px;transition:opacity .16s ease-out;display:inline-flex}
+.records-shell:hover .records-footer-hint{opacity:1}
+.records-scroll-cue{color:var(--ink-3);display:inline-flex}
+
+/* ── Insight cards chart ───────────────────────────────── */
+.insight-chart-stage{overflow:hidden}
+.insight-chart-cursor{z-index:4;background:var(--ink);opacity:.26;pointer-events:none;width:1px;position:absolute;top:0;bottom:0}
+.insight-chart-tooltip-anchor{z-index:5;pointer-events:none;position:absolute;top:8px;transform:translate(-50%)}
+.insight-chart-tooltip{border:1px solid var(--line-strong);min-width:154px;color:var(--tooltip-fg);background:var(--tooltip-bg);box-shadow:var(--shadow-overlay);border-radius:10px;padding:9px 10px;font-size:12px}
+.insight-chart-tooltip-time{color:var(--tooltip-muted);margin-bottom:7px;font-size:11px;display:block}
+.insight-chart-tooltip-row{justify-content:space-between;align-items:center;gap:16px;line-height:1.65;display:flex}
+.insight-chart-tooltip-label{color:var(--tooltip-fg);align-items:center;gap:7px;display:inline-flex}
+.insight-chart-tooltip-row strong{color:var(--tooltip-muted);font-variant-numeric:tabular-nums;font-weight:500}
+.insight-chart-tooltip-dot{border-radius:50%;flex:0 0 8px;width:8px;height:8px}
+
+
+/* Garden typography, radius, and motion tokens. These values are emitted even
+ * when authored CSS references them without a matching Tailwind utility. */
+@theme static {
+  --font-ui: var(--font-inter), Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-mono-face), 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-sans: var(--font-ui);
+  --text-micro: 11px;
+  --text-micro--line-height: 1.33;
+  --text-caption: 12px;
+  --text-caption--line-height: 1.43;
+  --text-ui: 13px;
+  --text-ui--line-height: 1.45;
+  --text-body: 14px;
+  --text-body--line-height: 1.5;
+  --text-bodyLg: 16px;
+  --text-bodyLg--line-height: 1.56;
+  --text-headingSm: 18px;
+  --text-headingSm--line-height: 1.4;
+  --text-heading: 20px;
+  --text-heading--line-height: 1.35;
+  --text-headingLg: 24px;
+  --text-headingLg--line-height: 1.3;
+  --text-mono: 12px;
+  --text-mono--line-height: 1.6;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.025em;
+  --radius-chip: 6px;
+  --radius-control: 8px;
+  --radius-card: 10px;
+  --radius-lg: 12.5px;
+  --radius-xl: 15px;
+  --radius-composer: 28px;
+  --radius-pill: 9999px;
+  --radius: var(--radius-control);
+  --radius-base: var(--radius-control);
+  --radius-sm: calc(var(--radius-control) - 4px);
+  --radius-md: var(--radius-chip);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-relaxed: 300ms;
+  --duration-slow: 500ms;
+  --ease-enter: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-exit: cubic-bezier(0.8, 0, 0.4, 1);
+  --ease-exitSnappy: cubic-bezier(0.65, 0, 0.4, 1);
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+:root {
+  --g-motion-default: cubic-bezier(0.4, 0, 0.2, 1) 150ms;
+}
+
+/* ── Garden overrides on vendored demo CSS ──
+ * beautifului's Records demo ships a blue action button; Garden identity forbids
+ * blue actions (inverse primary only). Re-skinned here, vendored file untouched. */
+.records-primary-button { background: var(--g-primary); color: var(--g-primary-ink); }
+
+/* ── beautifului primitive utilities ──
+ * Upstream defines these in site-level CSS that is absent from the vendored
+ * globals; without them card padding collapses (recommendation/fine-tune/
+ * diff-table). Values follow the upstream demo proportions on the 4px grid. */
+.primitive-card-bar { padding: 10px 12px; }
+.primitive-card-pad { padding: 12px; }
+.primitive-card-footer { padding: 10px 12px; }
+.primitive-icon-button {
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; border-radius: var(--radius-control); cursor: pointer;
+}
+.primitive-table-cell { padding: 7px 10px; text-align: left; vertical-align: middle; }
+
+@keyframes accordion-down { from { height: 0 } to { height: var(--radix-accordion-content-height) } }
+@keyframes accordion-up { from { height: var(--radix-accordion-content-height) } to { height: 0 } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

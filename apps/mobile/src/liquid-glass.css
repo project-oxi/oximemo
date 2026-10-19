@@ -1,0 +1,64 @@
+/* Hallmark · macrostructure: document library + focused reader · tone: clear, tactile · anchor hue: neutral
+ * theme: custom · vibe: silver glass, quiet paper, iPhone · fonts: system rounded / system sans
+ * design-system: DESIGN.md · designed-as-app · material: CSS, not native UIGlassEffect
+ */
+.app { background: var(--color-mobile-ground); }
+.app-header { position: relative; z-index: 3; background: transparent; padding-inline: var(--page-gutter); }
+.library-header { align-items: center; padding-block: var(--space-md) var(--space-sm); }
+.library-header .page-title h1 { font-family: var(--font-mobile-display); font-size: var(--text-mobile-large-title); letter-spacing: -.04em; }
+.header-actions { gap: var(--space-sm); }
+.header-actions > .icon-button, .back-button, .header-trailing > .text-button, .search-field {
+  border-radius: var(--radius-glass-control); background: var(--color-mobile-glass); box-shadow: var(--mobile-glass-shadow);
+  -webkit-backdrop-filter: blur(var(--mobile-glass-blur)) saturate(1.3); backdrop-filter: blur(var(--mobile-glass-blur)) saturate(1.3);
+}
+.header-compose { border-radius: var(--radius-glass-control); padding-inline: var(--space-md); box-shadow: 0 2px 8px var(--color-mobile-contact); }
+.library-search { padding: var(--space-sm) var(--page-gutter) var(--space-md); flex: 0 0 auto; position: relative; z-index: 2; gap: var(--space-sm); }
+.search-field { min-height: var(--tap-size); padding-left: var(--space-lg); }
+.search-field input { height: var(--tap-size); }
+.search-field:focus-within { outline: none; }
+.search-field:has(input:focus-visible) { outline: 2px solid var(--mobile-focus); }
+.search-cancel { min-width: var(--tap-size); padding-inline: var(--space-xs); }
+.is-searching > .library-header { display: none; }
+.is-searching > .library-search { padding-top: var(--space-md); }
+.library { min-height: 0; flex: 1; }
+.note-scroll { padding-bottom: max(var(--space-xl), env(safe-area-inset-bottom)); }
+.library-filter { border: 0; padding-inline: var(--space-xs); margin-bottom: var(--space-sm); }
+.view-picker { color: var(--text); font-weight: 600; }
+.library-summary.sync-overview { margin-bottom: var(--space-xs); }
+.note-list { background: var(--bg); border-radius: var(--radius-glass-group); padding-inline: var(--space-lg); overflow: clip; }
+.note-row:last-child { border-bottom: 0; }
+.note-link { padding-block: var(--space-md); }
+.note-heading strong { font-size: var(--iphone-body); line-height: 1.4; }
+.note-preview { font-size: var(--text-mobile-preview); margin-block: var(--space-xs); line-height: 1.5; }
+.note-meta { font-size: var(--text-mobile-meta); }
+.note-link:active:not(:disabled) { background: var(--iphone-search); }
+.note-link mark { color: inherit; background: var(--color-mobile-mark); border-radius: 2px; }
+.library-count { text-align: center; color: var(--secondary); font-size: var(--iphone-caption); padding-block: var(--space-lg); margin: 0; }
+.list-caption { padding-inline: var(--space-xs); min-height: var(--tap-size); }
+.is-searching .empty-state { min-height: 0; padding-block: var(--space-2xl); }
+.editor-header, .navigation-header { padding-block: var(--space-sm); border-bottom: 0; background: var(--color-mobile-ground); min-height: 60px; }
+.back-button { padding-inline: var(--space-sm) var(--space-md); justify-self: start; width: fit-content; }
+.back-button > svg { margin-left: -3px; }
+.header-trailing { gap: var(--space-sm); }
+.header-trailing > .text-button { min-width: var(--tap-size); padding-inline: var(--space-md); font-size: var(--iphone-preview); }
+.header-trailing > .editor-done { background: var(--button-primary-bg); color: var(--button-primary-text); }
+.editor-scroll { background: var(--bg); }
+.editor-page { padding-top: var(--space-xl); }
+.note-toolbar .text-button { min-height: var(--tap-size); padding-inline: var(--space-sm); border-radius: var(--radius-glass-control); background: var(--iphone-search); color: var(--text); }
+.settings-page, .connection-page { background: var(--color-mobile-ground); }
+.settings-group { background: var(--bg); border: 0; border-radius: var(--radius-glass-group); }
+.dialog-content { border-radius: var(--radius-glass-dialog); background: var(--bg); }
+.empty-state .button, .connection-page .button { border-radius: var(--radius-glass-control); }
+@supports not (backdrop-filter: blur(1px)) {
+  .header-actions > .icon-button, .back-button, .header-trailing > .text-button, .search-field { background: var(--bg); }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .header-actions > .icon-button, .back-button, .header-trailing > .text-button, .search-field { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; border: 1px solid var(--secondary); }
+  .note-meta, .note-preview { color: var(--text); }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+@media (min-width: 40rem) { .note-list { padding-inline: var(--space-xl); } }
+
+.search-field:has(input:focus-visible) { outline: none; }
+.search-guidance { margin: 0; padding: var(--space-sm) var(--space-xs); color: var(--secondary); font-size: var(--iphone-caption); }
+.source-switch button { min-width: var(--tap-size); }
