@@ -27,7 +27,7 @@ reqwest = { workspace = true }
 fs2 = { workspace = true }
 thiserror = { workspace = true }
 oximemo-core = { workspace = true }
-oxi-frontmatter = { path = "../oxi-frontmatter", version = "0.3" }
+oxi-frontmatter = { path = "../oxi-frontmatter", version = "0.4" }
 serde_yaml_ng = "0.10"
 
 [dev-dependencies]

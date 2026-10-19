@@ -6,7 +6,7 @@ name: Release
 # Official releases require Developer ID signing, notarization, and updater
 # signing. Forks may still build unsigned artifacts.
 #
-#   git tag v0.18.0 && git push origin v0.18.0
+#   git tag v0.19.0 && git push origin v0.19.0
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g. v0.18.0)'
+        description: 'Tag to release (e.g. v0.19.0)'
         required: true
 
 permissions:
@@ -44,7 +44,7 @@ jobs:
           fi
           echo "Validated release tag $RELEASE_TAG at $(git rev-parse --short HEAD)"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: aarch64-apple-darwin
 
@@ -54,10 +54,10 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       # The desktop crate's `generate_context!()` embeds build.frontendDist,
-      # so the frontend must be built before `cargo tauri build`.
+      # so the frontend must be built before the Tauri bundle.
       - name: Install frontend dependencies
         working-directory: apps/desktop
         run: bun install --frozen-lockfile
@@ -66,13 +66,8 @@ jobs:
         working-directory: apps/desktop
         run: bun run build
 
-      # @tauri-apps/cli is intentionally not a package.json dependency; install
-      # the Rust-backed Tauri CLI in the workflow instead.
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --locked --version "^2"
-
       - name: Build CLI binary
-        run: cargo build --release -p oximemo-cli --target ${{ env.TARGET }}
+        run: cargo build --locked --release -p oximemo-cli --target ${{ env.TARGET }}
 
       - name: Package CLI binary
         run: |
@@ -90,23 +85,16 @@ jobs:
 
       # Stage the CLI binary as a Tauri externalBin sidecar so the .app bundle
       # ships a signed, runnable `oximemo` command (Settings symlinks it onto
-      # PATH). Must precede `cargo tauri build`, which embeds + signs it.
+      # PATH). Must precede the Tauri build, which embeds + signs it.
       - name: Stage CLI sidecar for app bundle
         run: |
           mkdir -p apps/desktop/src-tauri/binaries
-          cp "target/${{ env.TARGET }}/release/oximemo" \
+          install -m 755 "target/${{ env.TARGET }}/release/oximemo" \
              "apps/desktop/src-tauri/binaries/oximemo-${{ env.TARGET }}"
 
       # Validate secret availability without writing secret values to
       # GITHUB_ENV or logs. Tauri imports the certificate into a temporary
       # keychain and checks the identity; the resulting app is verified below.
-      - name: Ensure secure prompt helper
-        run: |
-          if ! command -v expect >/dev/null 2>&1; then
-            brew install expect
-          fi
-          command -v expect
-
       - name: Validate release signing secrets
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -161,7 +149,8 @@ jobs:
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           fi
-          cargo tauri build --target ${{ env.TARGET }}
+          # Use the exact @tauri-apps/cli pin installed from bun.lock.
+          bun run tauri build --target ${{ env.TARGET }} -- --locked
 
       - name: Verify app signature and notarize DMG
         env:
@@ -190,6 +179,14 @@ jobs:
           fi
           export DMG_PATH
 
+          CLI="$APP/Contents/MacOS/oximemo"
+          test -x "$CLI"
+          VERSION="$(jq -r '.version' apps/desktop/src-tauri/tauri.conf.json)"
+          if [ "$("$CLI" --version)" != "oximemo $VERSION" ]; then
+            echo "::error::Bundled CLI version does not match the app"
+            exit 1
+          fi
+
           codesign --verify --deep --strict --verbose=2 "$APP"
           SIGNATURE="$(codesign -dv --verbose=4 "$APP" 2>&1)"
           AUTHORITY="$(printf '%s\n' "$SIGNATURE" | awk -F= '$1 == "Authority" { print substr($0, index($0, "=") + 1); exit }')"
@@ -209,46 +206,67 @@ jobs:
           xcrun stapler validate -v "$APP"
           spctl --assess --type execute --verbose=4 "$APP"
 
-          # notarytool prompts securely for the app-specific password when
-          # --password is omitted. Expect supplies it through the PTY, never
-          # as a process argument or workflow log value.
-          expect <<'EXPECT'
-          set timeout 120
-          log_user 0
-          set output ""
-          set prompted 0
-          spawn -noecho env -u APPLE_PASSWORD xcrun notarytool submit $env(DMG_PATH) --apple-id $env(APPLE_ID) --team-id $env(APPLE_TEAM_ID) --wait --output-format json
-          expect {
-            -re {(?i)password[^:\r\n]*:} {
-              append output $expect_out(buffer)
-              send -- "$env(APPLE_PASSWORD)\r"
-              set prompted 1
-            }
-            eof {
-              append output $expect_out(buffer)
-            }
-            timeout {
-              puts stderr "::error::Timed out waiting for the secure notarytool password prompt"
-              exit 1
-            }
-          }
-          if {$prompted} {
-            set timeout -1
-            expect eof
-            append output $expect_out(buffer)
-          }
-          set result [wait]
-          set output [string map [list $env(APPLE_PASSWORD) "<redacted>"] $output]
-          puts $output
-          if {[lindex $result 2] != 0 || [lindex $result 3] != 0} {
-            exit 1
-          }
-          if {![regexp -nocase {"status"\s*:\s*"accepted"} $output]} {
-            puts stderr "::error::Notarytool did not report an accepted DMG"
-            exit 1
-          }
-          puts "Apple notarization accepted"
-          EXPECT
+          # Python owns a fresh controlling PTY. The macOS system Expect
+          # helper can stall before notarytool emits its secure prompt.
+          # Password bytes go only through the no-echo PTY, never argv/logs.
+          python3 <<'PYTHON'
+          import errno, json, os, pty, re, select, signal, termios, time
+
+          password = os.environ["APPLE_PASSWORD"]
+          args = ["xcrun", "notarytool", "submit", os.environ["DMG_PATH"],
+                  "--apple-id", os.environ["APPLE_ID"],
+                  "--team-id", os.environ["APPLE_TEAM_ID"],
+                  "--wait", "--output-format", "json"]
+          child_env = dict(os.environ)
+          child_env.pop("APPLE_PASSWORD", None)
+          pid, fd = pty.fork()
+          if pid == 0:
+              os.execvpe(args[0], args, child_env)
+
+          output = bytearray()
+          sent = False
+          deadline = time.monotonic() + 120
+          exit_status = None
+          try:
+              attributes = termios.tcgetattr(fd)
+              attributes[3] &= ~(termios.ECHO | termios.ECHONL)
+              termios.tcsetattr(fd, termios.TCSANOW, attributes)
+              while True:
+                  ready, _, _ = select.select([fd], [], [], 1)
+                  if ready:
+                      try:
+                          chunk = os.read(fd, 65536)
+                      except OSError as error:
+                          if error.errno == errno.EIO:
+                              break
+                          raise
+                      if not chunk:
+                          break
+                      output.extend(chunk)
+                      if not sent and re.search(rb"(?i)password[^\r\n]*:", output):
+                          os.write(fd, password.encode() + b"\n")
+                          sent = True
+                  if not sent and time.monotonic() > deadline:
+                      raise RuntimeError("Timed out waiting for the secure password prompt")
+              _, exit_status = os.waitpid(pid, 0)
+          finally:
+              os.close(fd)
+              if exit_status is None:
+                  os.kill(pid, signal.SIGTERM)
+                  os.waitpid(pid, 0)
+
+          text = output.decode(errors="replace")
+          for field in ("APPLE_PASSWORD", "APPLE_ID", "APPLE_TEAM_ID"):
+              text = text.replace(os.environ[field], "<redacted>")
+          match = re.search(r"\{[\s\S]*\}\s*$", text)
+          if match is None:
+              raise RuntimeError("Notarytool did not produce a JSON receipt")
+          receipt = json.loads(match.group())
+          print(json.dumps({key: receipt.get(key) for key in ("id", "status", "message")}))
+          if os.waitstatus_to_exitcode(exit_status) != 0 or receipt.get("status") != "Accepted":
+              raise RuntimeError("Apple did not accept the DMG notarization")
+          print("Apple notarization accepted")
+          PYTHON
           xcrun stapler staple -v "$DMG_PATH"
           xcrun stapler validate -v "$DMG_PATH"
           spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
@@ -334,86 +352,30 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.tag.outputs.name }}"
+          python3 - "${TAG#v}" <<'PY'
+          import pathlib, re, sys
+          version = sys.argv[1]
+          changelog = pathlib.Path("CHANGELOG.md").read_text()
+          section = re.search(
+              r"^## \[" + re.escape(version) + r"\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              changelog, re.MULTILINE | re.DOTALL,
+          )
+          if section is None:
+              raise SystemExit("Release version is missing from CHANGELOG.md")
+          pathlib.Path("release-notes.md").write_text(section.group(1).strip() + "\n")
+          PY
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG exists — uploading assets"
             gh release upload "$TAG" staging/* --clobber
           else
             gh release create "$TAG" \
               --title "oximemo $TAG" \
-              --generate-notes \
+              --notes-file release-notes.md \
               staging/*
           fi
 
   publish-crates:
     name: Publish to crates.io
     needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: publish-crates
-
-      # Publish in dependency topology: core resolves oxi-frontmatter, while
-      # session and metadata resolve oximemo-core. Publish both before the CLI.
-      # Version comes from cargo metadata for workspace and standalone crates.
-      - name: Publish crates (frontmatter, vault-git, core, session, capture, metadata)
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          set -euo pipefail
-          for crate in oxi-frontmatter oxi-vault-git oximemo-core oximemo-session oximemo-capture oximemo-metadata; do
-            CV=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$crate\") | .version")
-            echo "Publishing $crate@$CV"
-            if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \
-                 | grep -q "\"max_stable_version\":\"$CV\""; then
-              echo "$crate@$CV already published — skipping"
-            else
-              cargo publish -p "$crate"
-            fi
-            # Wait for the sparse index to propagate before the next
-            # iteration: oximemo-core resolves oxi-frontmatter from the
-            # registry, so publishing it against a not-yet-indexed
-            # dependency fails resolution (learned in the v0.10.0 run).
-            for i in $(seq 1 30); do
-              if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/$crate" \
-                   | grep -q "\"max_stable_version\":\"$CV\""; then
-                echo "$crate@$CV indexed"
-                break
-              fi
-              echo "waiting for $crate@$CV to index ($i/30)…"
-              sleep 5
-            done
-          done
-
-      - name: Wait for crates.io to index oximemo-core (cli dependency)
-        run: |
-          set -euo pipefail
-          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          for i in $(seq 1 30); do
-            if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/oximemo-core" \
-                 | grep -q "\"max_stable_version\":\"$VERSION\""; then
-              echo "oximemo-core@$VERSION indexed"
-              exit 0
-            fi
-            echo "waiting for oximemo-core@$VERSION to index ($i/30)…"
-            sleep 10
-          done
-          echo "::error::oximemo-core@$VERSION not indexed in time"
-          exit 1
-
-      - name: Publish oximemo-cli
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          set -euo pipefail
-          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          if curl -fsSL -H "User-Agent: oximemo-release" "https://crates.io/api/v1/crates/oximemo-cli" \
-               | grep -q "\"max_stable_version\":\"$VERSION\""; then
-            echo "oximemo-cli@$VERSION already published — skipping"
-          else
-            cargo publish -p oximemo-cli
-          fi
+    uses: ./.github/workflows/publish-crates.yml
+    secrets: inherit

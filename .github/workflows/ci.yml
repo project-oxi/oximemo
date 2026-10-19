@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt, clippy
 
@@ -34,10 +34,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: clippy
-        run: cargo clippy --workspace --exclude oximemo-desktop --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --exclude oximemo-desktop --all-targets -- -D warnings
 
       - name: test
-        run: cargo test --workspace --exclude oximemo-desktop
+        run: cargo test --locked --workspace --exclude oximemo-desktop
 
   # Validate the desktop crate (apps/desktop/src-tauri) too. The desktop
   # compile embeds the built `dist/` via generate_context!(), so the
@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: clippy
 
@@ -61,7 +61,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - run: bun install --frozen-lockfile
 
@@ -73,15 +73,15 @@ jobs:
 
       - name: clippy (desktop)
         working-directory: .
-        run: cargo clippy -p oximemo-desktop --all-targets -- -D warnings
+        run: cargo clippy --locked -p oximemo-desktop --all-targets -- -D warnings
 
       - name: check (desktop)
         working-directory: .
-        run: cargo check -p oximemo-desktop
+        run: cargo check --locked -p oximemo-desktop
 
       - name: test (desktop)
         working-directory: .
-        run: cargo test -p oximemo-desktop
+        run: cargo test --locked -p oximemo-desktop
 
   frontend:
     name: Frontend (typecheck + build)
@@ -94,7 +94,9 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - run: bun install --frozen-lockfile
+      - run: bun test src/lib src/stores
+      - run: bun run garden:doctor
       - run: bun run build

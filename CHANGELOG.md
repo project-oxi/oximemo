@@ -17,6 +17,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `bun test` in the desktop app is scoped to app sources; the vendored Garden packages' own suites (which need their own dependency tree) no longer run and fail from the app root.
+## [0.19.2] — 2026-10-14
+
+### Fixed
+
+- Context submenus, folder paths and task editing popovers stay inside compact native windows. Long names truncate with tooltips; large menus scroll and keep keyboard navigation reachable while the window is resized.
+- Folder, property, filter, calendar and backlink popovers use the live anchor's available width and height, including inside the immersive editor. Filter controls wrap within compact windows.
+- Multiselect autocomplete retains text-input focus when suggestions open, supports Up/Down navigation, and returns to the input after adding a value or pressing Escape. Editor task popovers follow their task line when the native window or immersive layout changes.
+- Native folder schemas normalize Rust's serialized `type` field at the UI boundary, restoring select, multiselect, date and checkbox property editors instead of treating every field as text. Stored schemas and note bodies are unchanged by this adapter.
+
+## [0.19.1] — 2026-10-13
+
+### Fixed
+
+- The sidebar space switcher escapes sidebar clipping, constrains long names, and keeps its scrollable list and creation controls within the viewport. Escape and outside clicks dismiss it and restore focus.
+- Space switch/create commands reveal a collapsed sidebar; hiding the sidebar clears its open popup. Space name inputs handle IME confirmation and count Unicode characters consistently with the backend.
+- Space creation disables repeat submissions while pending, uses Garden field/action controls, and exposes localized accessible input/error labels.
+- Rust package publication now requires `oxi-frontmatter` 0.4, which exposes the repository's PDC 2 API, instead of resolving the older published 0.3 API. Package publication can run independently of native app signing.
+
+## [0.19.0] — 2026-10-12
+
+### Changed
+
+- The desktop workspace uses compact monochrome glass surfaces, configurable window sizing, a full-window immersive editor, system theme detection by default, and public Garden controls with reduced-motion support.
+
+### Fixed
 
 - Markdown live preview retains clicked positions, exposes the caret after focused window resizing, and advances through existing emphasis closers when typing Markdown. IME confirmation no longer triggers save/close or global shortcuts, and quick capture resets its visible draft when reopened.
 - Native Tauri dependencies use the exact Garden pins. Main-window size follows configuration, compact settings use a horizontal category strip, and app chrome and editor syntax use the requested monochrome palette.
@@ -1311,7 +1336,9 @@ vault registration goes through the oxibrain client boundary.
 [0.3.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.3.0
 [0.2.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/project-oxi/oximemo/releases/tag/v0.1.0
-[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/project-oxi/oximemo/compare/v0.19.1...HEAD
+[0.19.1]: https://github.com/project-oxi/oximemo/compare/v0.19.0...v0.19.1
+[0.19.0]: https://github.com/project-oxi/oximemo/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/project-oxi/oximemo/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/project-oxi/oximemo/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/project-oxi/oximemo/compare/v0.15.0...v0.16.0

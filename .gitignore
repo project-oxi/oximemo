@@ -54,3 +54,23 @@ data/
 
 # --- Design QA scratch (hallmark preflight logs) ---
 .hallmark/
+# --- Workspace package dependencies ---
+**/node_modules/
+
+# --- Private signing material ---
+*.p12
+*.p8
+*.keychain
+*.keychain-db
+
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+*.dmg
+*.app/
+*.zip
+*.tar.gz
+*.tgz
+/staging/
+/release-notes.md
