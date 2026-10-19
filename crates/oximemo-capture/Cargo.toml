@@ -22,4 +22,5 @@ objc2 = { workspace = true }
 objc2-foundation = { workspace = true }
 objc2-app-kit = { workspace = true }
 block2 = "0.6"
+objc2-core-foundation = { version = "0.3", features = ["CFRunLoop"] }
 thiserror = { workspace = true }

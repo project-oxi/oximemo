@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `bun test` in the desktop app is scoped to app sources; the vendored Garden packages' own suites (which need their own dependency tree) no longer run and fail from the app root.
+- The desktop app no longer burns a full CPU core while idle: the Option-key capture monitor's run loop cycled every 50 ms forever. A never-signalled port now keeps the run loop alive, so the thread sleeps in the kernel until an actual modifier-key event or shutdown, and the monitor is stopped cross-thread via `CFRunLoopStop`. Idle CPU drops from ~2.3% (one spinning thread) to 0.0%; the double-tap capture overlay still opens.
 ## [0.19.2] — 2026-10-14
 
 ### Fixed
