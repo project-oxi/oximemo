@@ -114,10 +114,10 @@ export function TimelineView({
                         <button
                           type="button"
                           aria-label={n.favorite ? t.action_unfavorite : t.action_favorite}
-                          className={`shrink-0 self-center rounded-md p-1 transition-colors duration-150 ${
+                          className={`shrink-0 self-center rounded-md p-1 transition-[color,opacity,background-color] duration-150 ${
                             n.favorite
-                              ? "text-hue-amber"
-                              : "text-text-subtle hover:bg-surface-muted hover:text-hue-amber"
+                              ? "text-hue-amber opacity-100"
+                              : "text-text-subtle opacity-0 hover:bg-surface-muted hover:text-hue-amber group-hover:opacity-100 focus-visible:opacity-100"
                           }`}
                           onClick={(e) => {
                             e.stopPropagation();

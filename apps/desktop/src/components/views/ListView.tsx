@@ -21,7 +21,7 @@ import { useFolderDrop } from "../../lib/dropTarget";
 import { relativeTime } from "../../lib/time";
 import { activateOnKey } from "../../lib/keyboardActivation";
 import { useUI } from "../../stores/ui";
-import { previewText, previewExcerpt } from "../../lib/markdownPreview";
+import { renderPreviewMarkdown, previewExcerpt } from "../../lib/markdownPreview";
 import { queryCountVersion, subscribeQueryCounts } from "../../lib/queryPreviewCounts";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
@@ -104,7 +104,7 @@ export function ListView({
                     e.dataTransfer.effectAllowed = "move";
                   }}
                   onDragEnd={() => setDraggingNote(null)}
-                  className="group flex cursor-pointer items-baseline gap-3 px-3 py-2.5 transition-colors hover:bg-surface-muted"
+                  className="note-list-row group"
                   onClick={() => onSelect(n.id)}
                 />
               }
@@ -112,10 +112,10 @@ export function ListView({
               <button
                 type="button"
                 aria-label={n.favorite ? t.action_unfavorite : t.action_favorite}
-                className={`shrink-0 self-center rounded-md p-1 transition-colors duration-150 ${
+                className={`shrink-0 self-center rounded-md p-1 transition-[color,opacity,background-color] duration-150 ${
                   n.favorite
-                    ? "text-hue-amber"
-                    : "text-text-subtle hover:bg-surface-muted hover:text-hue-amber"
+                    ? "text-hue-amber opacity-100"
+                    : "text-text-subtle opacity-0 hover:bg-surface-muted hover:text-hue-amber group-hover:opacity-100 focus-visible:opacity-100"
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -125,35 +125,34 @@ export function ListView({
                 <Star size={13} className={n.favorite ? "fill-hue-amber" : undefined} />
               </button>
               <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
+                <div className="note-list-heading">
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onSelect(n.id); }}
-                    className={`min-w-0 truncate rounded-sm text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${n.title ? "font-semibold text-text" : "text-text-subtle"}`}
+                    className={`note-list-title min-w-0 rounded-sm text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${n.title ? "font-semibold text-text" : "text-text-subtle"}`}
                   >
                     {n.title || t.empty_memo}
                   </button>
                   {n.folder && (
-                    <span className="shrink-0 font-mono text-[10px] text-text-subtle">
+                    <span className="note-list-folder text-xs text-text-subtle">
                       {n.folder}/
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs text-text-subtle">
-                  {previewText(previewExcerpt(n.preview, n.title, n.path), 200, { thisId: n.id, resultsN: t.query_embed_results_n }) || ""}
-                </div>
+                <div
+                  className="note-excerpt note-list-excerpt text-text-muted"
+                  dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(previewExcerpt(n.preview, n.title, n.path), 320, { thisId: n.id, resultsN: t.query_embed_results_n }) }}
+                />
+                {n.tags.length > 0 && (
+                  <div className="note-list-tags text-text-subtle">
+                    {n.tags.slice(0, 3).map((tag) => <span key={tag}>#{tag}</span>)}
+                    {n.tags.length > 3 && <span>+{n.tags.length - 3}</span>}
+                  </div>
+                )}
               </div>
-              <div className="flex shrink-0 items-baseline gap-2 text-[11px] text-text-subtle">
-                {n.tags.slice(0, 3).map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-0.5 text-text-muted"
-                  >
-                    #{tag}
-                  </span>
-                ))}
-                <span className="w-16 text-right tabular-nums">{relativeTime(n.updated_at, locale)}</span>
-              </div>
+              <time className="note-list-time text-text-subtle" dateTime={n.updated_at}>
+                {relativeTime(n.updated_at, locale)}
+              </time>
               <NoteCtxMenu
                 memo={n}
                 folderEntries={folderEntries}
