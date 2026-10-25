@@ -23,6 +23,10 @@ mock.module("@tauri-apps/api/core", () => ({
       });
     }
     if (command === "mobile_save") {
+      if (args.key) {
+        const current = state.cache.documents.find(d => d.key === args.key);
+        if (JSON.stringify(args.expected) !== JSON.stringify({ source: current?.source ?? null, pending: current?.pending ?? null })) throw new Error("원문이 바뀌었습니다.");
+      }
       savedKeys.push(args.key);
       const key = String(args.key || "saved");
       state.cache.documents = [...state.cache.documents.filter(document => document.key !== key), { key, attempted: false, pending: { operation_id: "immutable-id", change: { kind: "create", title: String(args.title), body: String(args.body), body_profile: String(args.profile) } } }];
@@ -36,6 +40,7 @@ const { App } = await import("../src/App");
 let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
+  window.localStorage.clear();
   state = { paired: false, endpoint: "", cache: { documents: [], diagnostics: [] } };
   syncFailure = ""; calls = []; savedKeys = [];
 });
@@ -181,4 +186,96 @@ describe("native history routes", () => {
     await historyGo(1);
     expect((document.querySelector('textarea[aria-label="메모 본문"]') as HTMLTextAreaElement).value).toBe("");
   });
+});
+
+describe("mobile authoring journey", () => {
+  test("compose checklist, undo/redo, preview, save, find and reopen exact source", async () => {
+    await mount(); await click("새 메모 작성");
+    await fill('textarea[aria-label="메모 제목"]', "주말 준비");
+    const selector = 'textarea[aria-label="메모 본문"]';
+    await fill(selector, "우유 사기");
+    const field = () => document.querySelector(selector) as HTMLTextAreaElement;
+    await act(async () => { field().focus(); field().setSelectionRange(5, 5); field().dispatchEvent(new dom.window.Event("select", { bubbles: true })); });
+    await click("체크리스트");
+    expect(field().value).toBe("- [ ] 우유 사기");
+    await click("본문 실행 취소"); expect(field().value).toBe("우유 사기");
+    await click("본문 다시 실행"); expect(field().value).toBe("- [ ] 우유 사기");
+    const cursor = field().selectionStart;
+    await click("미리보기");
+    expect(document.querySelector('article input[type="checkbox"]:disabled')).not.toBeNull();
+    expect(calls).not.toContain("mobile_save");
+    await click("편집"); expect(field().selectionStart).toBe(cursor);
+    await click("메모 저장");
+    expect(state.cache.documents[0].pending?.change.body).toBe("- [ ] 우유 사기");
+    await click("메모 목록으로");
+    await fill('input[aria-label="메모 검색"]', "주말");
+    await click("주말 준비"); await click("편집");
+    expect(field().value).toBe("- [ ] 우유 사기");
+    expect(calls.filter(call => call === "mobile_save")).toHaveLength(1);
+  });
+
+  test("format and save preserve mixed source terminators", async () => {
+    const body = "첫 줄\r\n%% 주석 %%\n마지막";
+    state.cache.documents = [{ key: "mixed", attempted: false, entry: { path: "mixed.md", class: "document", title: "혼합 개행", deleted: false, broken_document_links: [], missing_assets: [] }, source: { path: "mixed.md", content: `envelope\r\n${body}`, editable_body: body, title: "혼합 개행", body_profile: "pdc-markdown/1", sha256: "original" } }];
+    await mount(); await click("혼합 개행"); await click("편집");
+    const field = document.querySelector('textarea[aria-label="메모 본문"]') as HTMLTextAreaElement;
+    await act(async () => { field.focus(); field.setSelectionRange(0, 3); field.dispatchEvent(new dom.window.Event("select", { bubbles: true })); });
+    await click("굵게"); await click("메모 저장");
+    expect(state.cache.documents[0].pending?.change.body).toBe("**첫 줄**\r\n%% 주석 %%\n마지막");
+  });
+});
+
+describe("IME and read-only authoring boundaries", () => {
+  test("IME Enter does not continue a list; ordinary Enter does", async () => {
+    await mount(); await click("새 메모 작성");
+    await fill('textarea[aria-label="메모 본문"]', "- [ ] 항목");
+    const field = document.querySelector('textarea[aria-label="메모 본문"]') as HTMLTextAreaElement;
+    await act(async () => { field.focus(); field.setSelectionRange(field.value.length, field.value.length); field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true })); });
+    expect(field.value).toBe("- [ ] 항목");
+    await act(async () => { field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+    expect(field.value).toBe("- [ ] 항목\n- [ ] ");
+    expect(calls).not.toContain("mobile_save");
+  });
+});
+
+
+describe("unsaved recovery", () => {
+  test("relaunch restores exact unsaved text without queueing or syncing", async () => {
+    await mount(); await click("새 메모 작성");
+    await fill('textarea[aria-label="메모 제목"]', "복구 확인");
+    await fill('textarea[aria-label="메모 본문"]', "**아직 저장 전**\n- [ ] 확인");
+    await act(async () => root.unmount()); document.body.replaceChildren(); calls = [];
+    await mount();
+    expect((document.querySelector('textarea[aria-label="메모 본문"]') as HTMLTextAreaElement).value).toBe("**아직 저장 전**\n- [ ] 확인");
+    expect(calls).not.toContain("mobile_save"); expect(calls).not.toContain("mobile_sync");
+    await click("메모 목록으로");
+    expect(document.querySelector("dialog")?.hasAttribute("open")).toBe(true);
+    await click("계속 작성");
+    await click("메모 저장");
+    expect(window.localStorage.getItem("oximemo.unsaved.v1")).toBeNull();
+  });
+});
+
+
+test("a recovered stale snapshot cannot overwrite changed PC source and can be kept as a new note", async () => {
+  const original = { key: "old", attempted: false, entry: { path: "old.md", class: "document", title: "원문", deleted: false, broken_document_links: [], missing_assets: [] }, source: { path: "old.md", sha256: "before", content: "before", editable_body: "before", title: "원문", body_profile: "pdc-markdown/1" } };
+  window.localStorage.setItem("oximemo.unsaved.v1", JSON.stringify({ version: 1, original, title: "원문", body: "recovered", profile: "pdc-markdown/1" }));
+  state.cache.documents = [{ ...original, source: { ...original.source, sha256: "after", content: "after", editable_body: "after" } }];
+  await mount(); await click("메모 저장");
+  expect(savedKeys).toHaveLength(0);
+  expect(state.cache.documents[0].source?.content).toBe("after");
+  expect(window.localStorage.getItem("oximemo.unsaved.v1")).toContain("recovered");
+  await click("새 메모로 보관"); await click("메모 저장");
+  expect(savedKeys).toEqual([null]);
+  expect(state.cache.documents.find(d => d.key === "old")?.source?.content).toBe("after");
+});
+
+test("following a note link from an unsaved preview keeps the leave guard", async () => {
+  state.cache.documents = ["a", "b"].map(key => ({ key, attempted: false, entry: { path: `${key}.md`, class: "document", title: key, deleted: false, broken_document_links: [], missing_assets: [] }, source: { path: `${key}.md`, sha256: key, content: key, editable_body: key, title: key, body_profile: "pdc-markdown/1" } }));
+  await mount(); await click("a"); await click("편집");
+  await fill('textarea[aria-label="메모 본문"]', "[다른 메모](b.md)\n\n작성 중");
+  await click("미리보기"); await click("다른 메모 · 링크");
+  expect(document.querySelector("dialog")?.hasAttribute("open")).toBe(true);
+  await click("계속 작성"); await click("편집");
+  expect((document.querySelector('textarea[aria-label="메모 본문"]') as HTMLTextAreaElement).value).toContain("작성 중");
 });

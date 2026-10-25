@@ -42,8 +42,9 @@ describe("mobile Markdown preview", () => {
     expect(result.querySelector("script, img, iframe, style, input, a, form, svg")).toBeNull();
     expect(result.querySelector("[href], [src], [srcdoc], [style], [onerror], [autofocus]")).toBeNull();
     expect(result.textContent).toContain("window.bad = true");
-    expect(result.textContent).toContain("Bad Local Note Relative Web");
-    expect(result.textContent).toContain("[첨부: Diagram]");
+    for (const label of ["Bad", "Local", "Note", "Relative", "Web"]) expect(result.textContent).toContain(label);
+    expect(result.querySelectorAll(".markdown-reference")).toHaveLength(5);
+    expect(result.textContent).toContain("첨부 · Diagram");
     expect(result.textContent).toContain("<b>raw HTML</b>");
   });
 
@@ -58,7 +59,7 @@ describe("mobile Markdown preview", () => {
     expect(result.querySelector("h1")?.textContent).toBe("Semantic v2 document");
     expect(result.querySelector("pre code.language-base")?.textContent).toContain("tags.contains");
     expect(result.querySelectorAll("input:disabled")).toHaveLength(2);
-    expect(result.textContent).toContain("[[minimal|Wiki link to the minimal document]]");
+    expect(result.textContent).toContain("Wiki link to the minimal document");
     expect(result.textContent).toContain("%%source comment%%");
     expect(result.textContent).toContain("Inline math $a^2 + b^2 = c^2$");
     expect(result.textContent).toContain("^b-018f47c6-7dbe-7a14-9f67-6f89a5e3cc32");
@@ -131,5 +132,51 @@ describe("mobile reading and editing", () => {
     expect(document.querySelector("article strong")?.textContent).toBe("본문");
     await click("마크다운 원문");
     expect((document.querySelector('textarea[aria-label="메모 본문"]') as HTMLTextAreaElement).readOnly).toBe(true);
+  });
+});
+
+describe("mobile reading presentation", () => {
+  test("preserves table alignment, code escaping and inert controls", () => {
+    const html = fragment('| 왼쪽 | 가운데 | 오른쪽 |\n| :--- | :---: | ---: |\n| A | B | 100 |\n\n```html\n<script>alert(1)</script>\n```');
+    expect(html.querySelector('th.align-center')?.textContent).toBe('가운데');
+    expect(html.querySelector('td.align-right')?.textContent).toBe('100');
+    expect(html.querySelector('.markdown-table')?.getAttribute('tabindex')).toBe('0');
+    expect(html.querySelector('pre code')?.textContent).toBe('<script>alert(1)</script>\n');
+    expect(html.querySelector('script')).toBeNull();
+    expect(html.querySelector('button.markdown-copy')?.getAttribute('type')).toBe('button');
+  });
+
+  test("renders callouts and highlights without interpreting code or raw HTML", () => {
+    const html = fragment('> [!tip] 작은 팁\n> ==중요한 **내용**==을 읽으세요.\n\n`==코드==`\n\n<script>bad()</script>');
+    expect(html.querySelector('.markdown-callout-title')?.textContent).toBe('작은 팁');
+    expect(html.querySelector('mark strong')?.textContent).toBe('내용');
+    expect(html.querySelector('code')?.textContent).toBe('==코드==');
+    expect(html.querySelectorAll('mark')).toHaveLength(1);
+    expect(html.querySelector('script')).toBeNull();
+  });
+
+  test("only hides a real repeated leading H1, including a final unterminated line", async () => {
+    const { MarkdownPreview } = await import('../src/components/MarkdownPreview');
+    root = createRoot(document.body.appendChild(document.createElement('div')));
+    await act(async () => root!.render(<MarkdownPreview body="# 제목" title="제목"/>));
+    expect(document.querySelector('article h1')).toBeNull();
+    await act(async () => root!.render(<MarkdownPreview body={"    # 제목\n"} title="제목"/>));
+    expect(document.querySelector('pre code')?.textContent).toBe('# 제목\n');
+  });
+
+  test("code copy reports clipboard success and failure truthfully", async () => {
+    const { MarkdownPreview } = await import('../src/components/MarkdownPreview');
+    let copied = '';
+    Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied = value; } } });
+    root = createRoot(document.body.appendChild(document.createElement('div')));
+    await act(async () => root!.render(<MarkdownPreview body={'```ts\nconst value = "<safe>";\n```'}/>));
+    await click('복사');
+    expect(copied).toBe('const value = "<safe>";\n');
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('코드를 복사했어요.');
+    Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('denied'); } } });
+    await click('복사됨');
+    expect(document.querySelector('.markdown-copy')?.textContent).toBe('복사 실패');
+    expect(document.querySelector('[role="status"]')?.textContent).toContain('복사하지 못했어요');
+    Reflect.deleteProperty(window.navigator, 'clipboard');
   });
 });

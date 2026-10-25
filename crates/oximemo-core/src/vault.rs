@@ -1909,20 +1909,12 @@ impl Vault {
                 .map_err(crate::store::files::frontmatter_error_to_core)?;
                 if !matches!(outcome, WriteOutcome::NoOp) {
                     if defer_search {
-                        self.with_redb(|idx| {
-                            idx.upsert(&record_of(&note, &old_rel, &tasks_cfg))
-                        })?;
+                        self.with_redb(|idx| idx.upsert(&record_of(&note, &old_rel, &tasks_cfg)))?;
                     } else {
                         let (sbody, stitle, saliases) = search_fields(fmt, &note);
                         self.with_redb_and_search(|idx, search| {
                             idx.upsert(&record_of(&note, &old_rel, &tasks_cfg))?;
-                            search.upsert(
-                                note.id,
-                                &sbody,
-                                stitle.as_deref(),
-                                &note.tags,
-                                &saliases,
-                            )
+                            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
                         })?;
                     }
                 } else {
@@ -4883,17 +4875,27 @@ mod tests {
             .create_note_auto_without_search("", "Deferred Search Probe".into())
             .unwrap();
         // File + redb commit synchronously: every read is consistent.
-        assert!(v.get_memo(note.id).unwrap().body.contains("Deferred Search Probe"));
+        assert!(
+            v.get_memo(note.id)
+                .unwrap()
+                .body
+                .contains("Deferred Search Probe")
+        );
         // The search projection has not landed yet.
-        assert!(v.search_memos("Deferred Search Probe", 10).unwrap().is_empty());
+        assert!(
+            v.search_memos("Deferred Search Probe", 10)
+                .unwrap()
+                .is_empty()
+        );
 
         // Finalize projects the current file into the index.
         v.search_reproject(note.id).unwrap();
-        assert!(v
-            .search_memos("Deferred Search Probe", 10)
-            .unwrap()
-            .iter()
-            .any(|s| s.id == note.id));
+        assert!(
+            v.search_memos("Deferred Search Probe", 10)
+                .unwrap()
+                .iter()
+                .any(|s| s.id == note.id)
+        );
 
         // An external edit that keeps the identity envelope but rewrites the
         // body converges on the next reproject: the new body becomes
@@ -4905,11 +4907,12 @@ mod tests {
         v.search_reproject(note.id).unwrap();
         // tantivy's query parser is OR-by-default, so assert on tokens
         // unique to each body version.
-        assert!(v
-            .search_memos("Rewritten", 10)
-            .unwrap()
-            .iter()
-            .any(|s| s.id == note.id));
+        assert!(
+            v.search_memos("Rewritten", 10)
+                .unwrap()
+                .iter()
+                .any(|s| s.id == note.id)
+        );
         assert!(v.search_memos("Deferred", 10).unwrap().is_empty());
 
         // A deferred update keeps the previous projection searchable until
@@ -4922,25 +4925,31 @@ mod tests {
             None,
         )
         .unwrap();
-        assert!(v
-            .search_memos("Rewritten", 10)
-            .unwrap()
-            .iter()
-            .any(|s| s.id == note.id));
+        assert!(
+            v.search_memos("Rewritten", 10)
+                .unwrap()
+                .iter()
+                .any(|s| s.id == note.id)
+        );
         assert!(v.search_memos("Third", 10).unwrap().is_empty());
         v.search_reproject(note.id).unwrap();
-        assert!(v
-            .search_memos("Third", 10)
-            .unwrap()
-            .iter()
-            .any(|s| s.id == note.id));
+        assert!(
+            v.search_memos("Third", 10)
+                .unwrap()
+                .iter()
+                .any(|s| s.id == note.id)
+        );
         assert!(v.search_memos("Rewritten", 10).unwrap().is_empty());
 
         // A deleted note converges to removal, not re-indexing of its trash
         // copy.
         v.delete_memo(note.id).unwrap();
         v.search_reproject(note.id).unwrap();
-        assert!(v.search_memos("Rewritten Probe Body", 10).unwrap().is_empty());
+        assert!(
+            v.search_memos("Rewritten Probe Body", 10)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -9136,6 +9145,30 @@ watcher_retry_interval_ms = 200
         // to a timestamp per `create_note`'s `derive_filename_from_body`.
         let n = v.create_capture("# quick thought".into()).unwrap();
         assert_eq!(v.note_dto(&n).path, "inbox/quick-thought.md");
+    }
+
+    #[test]
+    fn create_capture_preserves_untitled_single_line_body_and_template_defaults() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        let template_path = v.paths.vault.join("inbox/TEMPLATE.md");
+        let template_before = std::fs::read(&template_path).unwrap();
+        for body in [
+            "생각을 빠르게 기록",
+            "#tag",
+            "[[다음에 읽을 노트]]",
+            "<p>한 줄 기록</p>",
+        ] {
+            let note = v.create_capture(body.into()).unwrap();
+            assert_eq!(note.body, body);
+            assert_eq!(
+                note.props.get("status"),
+                Some(&crate::props::PropValue::Str("fleeting".into()))
+            );
+            let reopened = v.get_memo(note.id).unwrap();
+            assert_eq!(reopened.body, body);
+        }
+        assert_eq!(std::fs::read(template_path).unwrap(), template_before);
     }
 
     #[test]

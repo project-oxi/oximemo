@@ -88,12 +88,15 @@ export function useNavigation<T>(read: () => T, apply: (route: T) => void,
     controller.current = {
       replace,
       push: route => {
-        replace();
-        index++; last = index;
-        // An opaque fragment makes each route independently addressable without
-        // leaking a document key, search text or body into the URL.
-        history.pushState({ oximemo: { session, index, route } }, "", `#view-${session}-${index}`);
-        callbacks.current.apply(route);
+        const proceed = () => {
+          replace();
+          index++; last = index;
+          // Never put document content or identifiers in the URL.
+          history.pushState({ oximemo: { session, index, route } }, "", `#view-${session}-${index}`);
+          callbacks.current.apply(route);
+        };
+        if (callbacks.current.blocked()) callbacks.current.onBlocked(proceed);
+        else proceed();
       },
       back: () => { if (index > 0) { replace(); go(index - 1); } },
       forward: () => { if (index < last) { replace(); go(index + 1); } },

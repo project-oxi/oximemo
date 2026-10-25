@@ -5,6 +5,8 @@ import { scan, cancel, Format, checkPermissions, requestPermissions } from "@tau
 import { bodyOf, editorTitle, titleOf, type Document, type View } from "./types";
 import { canEdit, filterDocuments, foldersOf, formatOf, type LibraryFilter } from "./lib/presentation";
 import { connectionError, type SyncState } from "./lib/connection";
+import { resolveNote } from "./lib/references";
+import { readRecovery, writeRecovery, clearRecovery, editSnapshot } from "./lib/recovery";
 import { useViewport } from "./lib/useViewport";
 import { useNavigation } from "./lib/useNavigation";
 import { NoteList } from "./components/NoteList";
@@ -87,8 +89,17 @@ export function App() {
   };
   const sync = () => run(async () => { await syncOnce(); });
   useEffect(() => {
-    reload().then(value => { setEndpoint(value.endpoint); if (value.paired) void sync(); }).catch(error => {
-      setLoadFailed(true); setNotice({ text: String(error).replace(/^Error:\s*/, ""), error: true });
+    reload().then(value => {
+      setEndpoint(value.endpoint);
+      const draft = readRecovery();
+      if (draft) {
+        if (draft.vault !== value.cache.vault_id) throw new Error("다른 보관함의 미저장 초안이 남아 있습니다. 원래 PC 보관함으로 연결해 주세요.");
+        navigation.push({ screen: "notes", key: draft.original === "new" ? "new" : draft.original.key, query: "", filter: "all", folder: "", searching: false, scroll: 0, connectionReturn: "settings" });
+        setSelected(draft.original); setTitle(draft.title); setBody(draft.body); setProfile(draft.profile); setEditing(true);
+        setNotice({ text: "저장 전 작성 내용을 복구했어요. 저장하면 PC 동기화 대기열에 추가됩니다." });
+      } else if (value.paired) void sync();
+    }).catch(error => {
+      setView(undefined); setLoadFailed(true); setNotice({ text: String(error).replace(/^Error:\s*/, ""), error: true });
     });
   }, []);
   useEffect(() => {
@@ -125,6 +136,12 @@ export function App() {
   const editable = selected === "new" || !!current && !raw && canEdit(current);
   const dirty = !!selected && (selected === "new" ? !!(title || body) : title !== editorTitle(selected) || body !== bodyOf(selected));
   useEffect(() => {
+    if (!selected) return;
+    if (!dirty) { try { clearRecovery(); } catch { /* A later save/discard retries. */ } return; }
+    try { writeRecovery({ version: 1, vault: view?.cache.vault_id, original: selected, title, body, profile }); }
+    catch { setNotice({ text: "작성 내용의 복구 사본을 보관하지 못했어요. 앱을 닫기 전에 저장해 주세요.", error: true }); }
+  }, [selected, title, body, profile, dirty]);
+  useEffect(() => {
     // A successful PC create replaces only the temporary draft key. Follow its
     // explicit native mapping without guessing document identity from content.
     if (!selected || selected === "new" || dirty || editing) return;
@@ -134,6 +151,13 @@ export function App() {
       setSelected(synchronized); setTitle(editorTitle(synchronized)); setBody(bodyOf(synchronized));
     }
   }, [view, selected, dirty, editing]);
+  const openLink = async (reference: string) => {
+    if (/^https?:\/\//i.test(reference)) { await invoke("mobile_open_link", { url: reference }); return; }
+    const target = resolveNote(reference, current?.source?.path || "", view?.cache.documents || []);
+    if (target) { open(target); return; }
+    if (!/^[a-z][\w+.-]*:/i.test(reference) && /\.[a-z0-9]+$/i.test(reference)) throw new Error("첨부는 이미지/첨부 버튼에서 열어 주세요.");
+    throw new Error("연결된 메모를 찾을 수 없습니다. PC와 동기화한 뒤 다시 열어 주세요.");
+  };
   const leave = () => navigation.back();
   const finishLeave = () => { setLeavePrompt(false); const proceed = pendingLeave.current; pendingLeave.current = undefined; proceed?.(); };
   useEffect(() => { navigation.replace(); }, [selected, screen, query, filter, folder, searching]);
@@ -142,7 +166,8 @@ export function App() {
     const saved = await run(async () => {
       if (!editable || !dirty) return;
       const oldKeys = new Set(view?.cache.documents.map(document => document.key));
-      const value = await invoke<View>("mobile_save", { key: selected === "new" ? null : current?.key, title, body, profile });
+      const value = await invoke<View>("mobile_save", { key: selected === "new" ? null : current?.key, title, body, profile, expected: editSnapshot(selected === "new" ? undefined : selected) });
+      clearRecovery();
       setView(value); paired = value.paired;
       if (selected === "new") { setFilter("all"); setQuery(""); setFolder(""); scrollRef.current = 0; }
       const savedDocument = value.cache.documents.find(document => selected === "new" ? !oldKeys.has(document.key) && document.pending?.change.title === title && document.pending.change.body === body : document.key === current?.key);
@@ -213,8 +238,8 @@ export function App() {
         <div className="page-title"><h1 ref={headingRef} tabIndex={-1}>{pageTitle}</h1></div><span className="navigation-spacer"/>
       </> : <><div className="page-title"><h1 ref={headingRef} tabIndex={-1}>메모</h1></div><div className="header-actions"><button className="icon-button" aria-label="설정" onClick={() => navigate("settings")}><SettingsIcon aria-hidden="true" size={22}/></button><button className="button primary header-compose" aria-label="새 메모 작성" onClick={() => open("new")} disabled={busy || !view}><SquarePen aria-hidden="true" size={20}/><span>새 메모</span></button></div></>}
     </header>
-    {notice && <div className={`notice ${notice.error ? "notice-error" : ""}`} role={notice.error ? "alert" : "status"}>{notice.error && <CircleAlert aria-hidden="true" size={17}/>}<span>{notice.text}</span><button className="icon-button" aria-label="알림 닫기" onClick={() => setNotice(undefined)}><X aria-hidden="true" size={17}/></button></div>}
-    {selected ? <NoteEditor key={selected === "new" ? "new" : selected.key} document={current} isNew={selected === "new"} editing={editing} onEditing={setEditing} title={!editable && current && !dirty ? titleOf(current) : title} body={body} profile={profile} raw={raw} editable={editable} busy={busy} dirty={dirty} onTitle={setTitle} onBody={setBody} onProfile={setProfile} onRaw={setRaw} onRetry={sync} onResolve={keep => void resolve(keep)} initialScroll={readerPositions.current.get(selected === "new" ? "new" : selected.key) || 0} onScroll={value => readerPositions.current.set(selected === "new" ? "new" : selected.key, value)} onFocus={field => { editorFocusRef.current = field; }}/>
+    {notice && <div className={`notice ${notice.error ? "notice-error" : ""}`} role={notice.error ? "alert" : "status"}>{notice.error && <CircleAlert aria-hidden="true" size={17}/>}<span>{notice.text}</span>{dirty && selected !== "new" && JSON.stringify(editSnapshot(selected)) !== JSON.stringify(editSnapshot(current)) && <button className="text-button" onClick={() => { setSelected("new"); setEditing(true); }}>새 메모로 보관</button>}<button className="icon-button" aria-label="알림 닫기" onClick={() => setNotice(undefined)}><X aria-hidden="true" size={17}/></button></div>}
+    {selected ? <NoteEditor onLink={openLink} key={selected === "new" ? "new" : selected.key} document={current} isNew={selected === "new"} editing={editing} onEditing={setEditing} title={!editable && current && !dirty ? titleOf(current) : title} body={body} profile={profile} raw={raw} editable={editable} busy={busy} dirty={dirty} onTitle={setTitle} onBody={setBody} onProfile={setProfile} onRaw={setRaw} onRetry={sync} onResolve={keep => void resolve(keep)} initialScroll={readerPositions.current.get(selected === "new" ? "new" : selected.key) || 0} onScroll={value => readerPositions.current.set(selected === "new" ? "new" : selected.key, value)} onFocus={field => { editorFocusRef.current = field; }}/>
     : screen === "notes" ? <>
       {searchField}
       <NoteList searching={searching} matches={matches} query={query} filter={filter} pending={pending} total={total} folders={foldersOf(documents)} folder={folder} loaded={!!view} failed={loadFailed} busy={busy} initialScroll={scrollRef.current} onScroll={value => { scrollRef.current = value; }} onFilter={value => { scrollRef.current = 0; setFilter(value); }} onFolder={value => { scrollRef.current = 0; setFolder(value); }} onCreate={() => open("new")} onClear={clearSearch} onOpen={open} onRetry={() => void run(async () => { await reload(); })}>
@@ -224,6 +249,6 @@ export function App() {
       </NoteList>
     </> : screen === "settings" ? <Settings view={view} pending={pending} sync={syncState} onConnection={showConnection} onTrash={() => navigation.push(route({ screen: "notes", filter: "trash", query: "", folder: "", searching: false, scroll: 0 }))}/>
     : <Connection view={view} sync={syncState} pending={pending} endpoint={endpoint} token={token} code={pairCode} pairEndpoint={pairEndpoint} scanning={scanning} busy={busy} onEndpoint={setEndpoint} onToken={setToken} onCode={value => { setPairCode(value); setPairEndpoint(""); }} onScan={scanPair} onCancelScan={() => void cancel().catch(() => setNotice({ text: "스캐너 화면의 취소 버튼으로 닫아 주세요.", error: true }))} onPreview={() => void run(() => previewPair(pairCode))} onConnectPair={connectPair} onConnectManual={connectManual} onSync={sync}/>}
-    <LeaveDialog open={leavePrompt} busy={busy} onClose={() => { pendingLeave.current = undefined; setLeavePrompt(false); }} onSave={() => void save(true)} onDiscard={finishLeave} returnFocus={() => editorFocusRef.current?.focus({ preventScroll: true })}/>
+    <LeaveDialog open={leavePrompt} busy={busy} onClose={() => { pendingLeave.current = undefined; setLeavePrompt(false); }} onSave={() => void save(true)} onDiscard={() => { try { clearRecovery(); finishLeave(); } catch { setNotice({ text: "초안을 지우지 못했어요. 다시 시도해 주세요.", error: true }); } }} returnFocus={() => editorFocusRef.current?.focus({ preventScroll: true })}/>
   </div>;
 }

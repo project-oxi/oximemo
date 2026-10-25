@@ -744,3 +744,54 @@ mod tests {
         assert!(cache.documents[0].pending.is_none());
     }
 }
+
+pub const MAX_ATTACHMENT: usize = 8 * 1024 * 1024;
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Attachment {
+    pub name: String,
+    pub sha256: String,
+    pub bytes: Vec<u8>,
+}
+impl Attachment {
+    pub fn verify(&self, reference: &str) -> Result<()> {
+        use sha2::{Digest, Sha256};
+        if self.bytes.len() > MAX_ATTACHMENT {
+            anyhow::bail!("attachment too large");
+        }
+        let actual = format!("{:x}", Sha256::digest(&self.bytes));
+        if actual != self.sha256
+            || reference
+                .strip_prefix("pdc://asset/sha256/")
+                .is_some_and(|expected| expected != actual)
+        {
+            anyhow::bail!("asset digest mismatch");
+        }
+        Ok(())
+    }
+}
+pub fn fetch_attachment(
+    endpoint: &str,
+    token: &str,
+    path: &str,
+    reference: &str,
+) -> Result<Attachment> {
+    use std::io::Read;
+    let base = endpoint_url(endpoint)?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let response = client
+        .post(base.join("v1/attachment")?)
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "path": path, "reference": reference }))
+        .send()?
+        .error_for_status()?;
+    let mut bytes = Vec::new();
+    response
+        .take((MAX_ATTACHMENT * 5 + 4096) as u64)
+        .read_to_end(&mut bytes)?;
+    let attachment: Attachment = serde_json::from_slice(&bytes)?;
+    attachment.verify(reference)?;
+    Ok(attachment)
+}

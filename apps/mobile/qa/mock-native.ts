@@ -1,3 +1,5 @@
+import attachmentImage from "../src-tauri/icons/128x128.png?url";
+import { markdownFixture } from "./markdown-fixture";
 import type { Document, View } from "../src/types";
 
 const scenario = new URLSearchParams(location.search).get("case") || "populated";
@@ -27,11 +29,17 @@ docs.push(deleted);
 let state: View = {
   endpoint: ["paired", "connected", "sync-error"].includes(scenario) ? "https://garden-mac.tail123.ts.net" : "",
   paired: ["paired", "connected", "sync-error"].includes(scenario),
-  cache: { documents: scenario === "empty" ? [] : scenario === "connected" ? docs.filter(document => document.key !== "conflict") : docs, last_sync: String(Math.floor(Date.now() / 1000) - 600), diagnostics: [], vault_id: "ui-fixture-vault" },
+  cache: { documents: scenario === "markdown" ? [entry("markdown", "주말을 가볍게 준비하기", markdownFixture)] : scenario === "empty" ? [] : scenario === "connected" ? docs.filter(document => document.key !== "conflict") : docs, last_sync: String(Math.floor(Date.now() / 1000) - 600), diagnostics: [], vault_id: "ui-fixture-vault" },
 };
 let serial = 0;
 
 export async function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+  if (command === "mobile_attachment") {
+    if (args.reference !== "assets/shopping.png") throw new Error("첨부 파일을 찾을 수 없습니다.");
+    const bytes = Array.from(new Uint8Array(await (await fetch(attachmentImage)).arrayBuffer()));
+    return { name: "shopping.png", bytes } as T;
+  }
+  if (command === "mobile_open_link") throw new Error("외부 브라우저 열기는 설치된 앱에서 테스트합니다.");
   if (scenario === "load-error" && command === "mobile_state") throw new Error("기기에 저장된 메모를 불러오지 못했습니다.");
   if (command === "mobile_pair_preview") {
     if (!String(args.code).startsWith("OM1:")) throw new Error("연결 코드를 확인해 주세요.");

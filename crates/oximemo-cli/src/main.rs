@@ -13,6 +13,7 @@ use oximemo_core::memo::MemoId;
 
 mod commands;
 mod format;
+mod mobile_assets;
 mod mobile_server;
 mod upgrade;
 

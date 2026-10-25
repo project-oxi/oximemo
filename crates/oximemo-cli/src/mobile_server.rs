@@ -319,6 +319,18 @@ fn route_request(
                     .transpose()?,
             })?)
         }
+        (&Method::Post, "/v1/attachment") => {
+            let request: Value = serde_json::from_slice(body)?;
+            let note = request["path"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("missing note path"))?;
+            let reference = request["reference"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("missing attachment reference"))?;
+            Ok(serde_json::to_value(crate::mobile_assets::read(
+                paths, note, reference,
+            )?)?)
+        }
         (&Method::Post, "/v1/source") => {
             let request: Value = serde_json::from_slice(body)?;
             let path = request
@@ -661,6 +673,46 @@ mod tests {
                 .contains("# owned comment\ncustom: {nested: [one, two]}")
         );
         assert_eq!(apply(&paths, &id, update).unwrap(), result);
+    }
+    #[test]
+    fn attachment_transport_checks_containment_and_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(dir.path());
+        documents::ensure_manifest(&paths.vault).unwrap();
+        let id = vault_id(&paths).unwrap();
+        let note = apply(&paths, &id, create(&id)).unwrap();
+        let parent = Path::new(&note.path).parent().unwrap();
+        let asset = paths.vault.join(parent).join("image.png");
+        fs::write(&asset, b"image fixture").unwrap();
+        let loaded = crate::mobile_assets::read(&paths, &note.path, "image.png").unwrap();
+        loaded.verify("image.png").unwrap();
+        assert_eq!(loaded.bytes, b"image fixture");
+        for reference in [
+            "../../../../secret",
+            "/etc/passwd",
+            "file:///etc/passwd",
+            "https://example.com/image",
+            "../.pdc/vault.json",
+            "%2e%2e/secret",
+        ] {
+            assert!(
+                crate::mobile_assets::read(&paths, &note.path, reference).is_err(),
+                "{reference}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&asset, asset.with_file_name("linked.png")).unwrap();
+            assert!(crate::mobile_assets::read(&paths, &note.path, "linked.png").is_err());
+        }
+        let digest = "a".repeat(64);
+        let managed = paths.vault.join(format!(".pdc/assets/sha256/aa/{digest}"));
+        fs::create_dir_all(managed.parent().unwrap()).unwrap();
+        fs::write(managed, b"wrong bytes").unwrap();
+        assert!(
+            crate::mobile_assets::read(&paths, &note.path, &format!("pdc://asset/sha256/{digest}"))
+                .is_err()
+        );
     }
     #[test]
     fn auth_and_source_containment() {

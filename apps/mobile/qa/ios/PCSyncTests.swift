@@ -11,6 +11,7 @@ final class PCSyncTests: XCTestCase {
         let phoneTitle: String
         let phoneMarker: String
         let pcUpdateMarker: String
+        let attachmentName: String?
         let existingTitle: String
     }
     let app = XCUIApplication(bundleIdentifier: "com.oximemo.mobile")
@@ -34,6 +35,7 @@ final class PCSyncTests: XCTestCase {
     }
 
     func syncFromLibrary() {
+        if app.buttons["취소"].exists { tapReady(app.buttons["취소"]) }
         tapReady(app.buttons["설정"])
         tapReady(app.buttons["PC 연결"])
         syncConnectionAndReturn()
@@ -97,12 +99,23 @@ final class PCSyncTests: XCTestCase {
         openBySearch(fixture.pcTitle)
         XCTAssertTrue(containsText(fixture.pcMarker).waitForExistence(timeout: 10))
         capture("physical-pc-created-note")
+        if let name = fixture.attachmentName {
+            tapReady(app.buttons["첨부 · Simulator image"])
+            XCTAssertTrue(app.images[name].waitForExistence(timeout: 20))
+            capture("simulator-attachment-rendered")
+            tapReady(app.buttons["닫기"])
+            tapReady(app.buttons["External example · 링크"])
+            XCTAssertTrue(XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").wait(for: .runningForeground, timeout: 15))
+            app.activate()
+            XCTAssertTrue(containsText(fixture.pcMarker).waitForExistence(timeout: 10))
+        }
         tapReady(app.buttons["메모 목록으로"])
         openBySearch(fixture.existingTitle)
         capture("physical-existing-pc-note")
         tapReady(app.buttons["메모 목록으로"])
 
-        app.buttons["새 메모 작성"].tap()
+        if app.buttons["취소"].exists { tapReady(app.buttons["취소"]) }
+        tapReady(app.buttons["새 메모 작성"])
         let title = app.textViews["메모 제목"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         title.typeText(fixture.phoneTitle + "\n")

@@ -66,3 +66,10 @@ host. Its name describes the test surface; SPA transitions are owned by the app,
 not UINavigationController or WKWebView's default gesture list. It checks two
 backward and two forward hops, followed by continue/discard protection of an
 unsaved draft. The suite never saves this draft.
+
+2026-10-21 follow-up: `ReadingWritingTests` also verifies process termination,
+exact unsaved recovery, guarded exit and explicit discard across another launch.
+`PCSyncTests` accepts an optional `attachmentName` fixture to check a test image
+and explicit external-browser opening. `run_sync_check.py --simulator` selects an
+iOS Simulator destination; this is not evidence of physical-device verification.
+The runner exits search mode before looking for library compose/settings controls.
