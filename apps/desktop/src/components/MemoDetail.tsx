@@ -38,6 +38,7 @@ import { HtmlNoteEditor } from "./HtmlNoteEditor";
 import { TagChipRow } from "./TagChipRow";
 import { MemoEditorForm } from "./MemoEditorForm";
 import { SuggestionStrip } from "./SuggestionStrip";
+import { DigestButton } from "./DigestButton";
 import { IconTool } from "./IconTool";
 import type { FolderComboboxHandle } from "./FolderCombobox";
 import type { FolderEntry, Memo } from "../lib/types";
@@ -445,6 +446,25 @@ export function MemoDetail() {
       setBody((current) => selectedIdRef.current === editingId ? value : current);
     });
   };
+  // AI applies (suggestion chips, digest insert) must write through the
+  // editor, not around it: editBody only syncs the draft state because it
+  // assumes CodeMirror already holds the text. A state-only write here
+  // desyncs the view, and the next keystroke would silently overwrite the
+  // applied suggestion. One whole-doc dispatch keeps a single undo step
+  // and flows through the editor's own editBody listener.
+  const applyBodyEdit = (next: string) => {
+    const view = editorView;
+    if (!view) {
+      editBody(next);
+      return;
+    }
+    const current = view.state.doc.toString();
+    if (next === current) return;
+    view.dispatch({
+      changes: { from: 0, to: current.length, insert: next },
+      scrollIntoView: true,
+    });
+  };
   // CSS positions the reading sheet beside Copilot when the viewport fits
   // both; at narrow widths the established overlay ordering remains.
   const copilotOpen = useUI((s) => s.copilotOpen);
@@ -522,6 +542,15 @@ export function MemoDetail() {
                   >
                     <ChevronRight size={13} />
                   </IconTool>
+                  {copilotVisible && (
+                    <DigestButton
+                      memoId={memo.data!.id}
+                      body={body}
+                      dirty={dirty}
+                      saving={saving}
+                      onInsertBody={applyBodyEdit}
+                    />
+                  )}
                 </div>
               )}
               <div className="memo-sheet-actions">
@@ -630,7 +659,7 @@ export function MemoDetail() {
                     saving={saving}
                     copilotReady={copilotVisible}
                     autoEnabled={autoSuggest}
-                    onApplyBody={editBody}
+                    onApplyBody={applyBodyEdit}
                   />
                 )}
                 <ContextDock
