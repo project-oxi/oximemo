@@ -3408,14 +3408,15 @@ mod commands {
                     }
                     None => None,
                 };
-                let note = note_parts.as_ref().map(|(title, tags, body)| {
-                    crate::copilot::SuggestNote {
-                        id: memo_id_for_note.as_deref().unwrap_or(""),
-                        title,
-                        tags,
-                        body,
-                    }
-                });
+                let note =
+                    note_parts
+                        .as_ref()
+                        .map(|(title, tags, body)| crate::copilot::SuggestNote {
+                            id: memo_id_for_note.as_deref().unwrap_or(""),
+                            title,
+                            tags,
+                            body,
+                        });
                 let vault_tags: Vec<String> = vault
                     .list_facets()
                     .map(|f| f.tags.iter().take(30).map(|(t, _)| t.clone()).collect())
@@ -3463,7 +3464,8 @@ mod commands {
                 &args,
                 &stdin_data,
                 cwd.as_deref(),
-                cfg.timeout_secs.min(crate::copilot::SUGGEST_TIMEOUT_CAP_SECS),
+                cfg.timeout_secs
+                    .min(crate::copilot::SUGGEST_TIMEOUT_CAP_SECS),
                 |pgid| turn_guard.spawned(pgid),
             )
             .await;
