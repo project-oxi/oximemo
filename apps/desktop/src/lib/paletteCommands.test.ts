@@ -210,6 +210,28 @@ describe("buildCommands", () => {
     expect(cmds.find((c) => c.id === "tag:dev")?.title).toBe("#dev");
   });
 
+  test("ask command: minted only with the callback, localized both ways", () => {
+    const withAsk = deps({ callbacks: { ...cbs(), ask: () => {} } });
+    const koCmd = buildCommands(withAsk).find((c) => c.id === "action.ask");
+    expect(koCmd).toBeDefined();
+    expect(koCmd!.icon).toBe("sparkles");
+    expect(koCmd!.group).toBe("action");
+    expect(koCmd!.title).toBe("AI 필터: 조건을 자연어로 입력");
+    expect(koCmd!.alias).toBe("AI filter: describe conditions in plain language");
+    const enCmd = buildCommands({ ...withAsk, locale: "en" }).find(
+      (c) => c.id === "action.ask",
+    );
+    expect(enCmd!.title).toBe("AI filter: describe conditions in plain language");
+    expect(enCmd!.alias).toBe("AI 필터: 조건을 자연어로 입력");
+    expect(buildCommands(deps()).some((c) => c.id === "action.ask")).toBe(false);
+  });
+
+  test("ask command is rankable via title and alias", () => {
+    const cmds = buildCommands(deps({ callbacks: { ...cbs(), ask: () => {} } }));
+    expect(rankCommands(cmds, "필터", new RecencyLog()).some((c) => c.id === "action.ask")).toBe(true);
+    expect(rankCommands(cmds, "filter", new RecencyLog()).some((c) => c.id === "action.ask")).toBe(true);
+  });
+
   test("ids are unique and stable across rebuilds", () => {
     const a = buildCommands(deps());
     const b = buildCommands(deps());

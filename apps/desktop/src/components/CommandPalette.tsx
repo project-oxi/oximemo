@@ -35,6 +35,7 @@ import {
   PanelLeft,
   Search,
   Settings,
+  Sparkles,
   Star,
   Sun,
   Zap,
@@ -84,6 +85,7 @@ const ICONS: Record<PaletteIcon, typeof Layers> = {
   "folder-plus": FolderPlus,
   zap: Zap,
   settings: Settings,
+  sparkles: Sparkles,
   sun: Sun,
   moon: Moon,
   monitor: Monitor,
@@ -181,6 +183,15 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
   );
   // Saved query collections (spec §5 쿼리 열기) — shared ["bases"] cache.
   const basesQ = useQuery({ queryKey: ["bases"], queryFn: listBases });
+  // F6 (AI 필터): the ask command must receive the palette's live input.
+  // buildCommands memoizes on the callbacks object — never per keystroke —
+  // so the current query is bound into the callback here. Without `ask`
+  // the object passes through untouched (the command stays absent).
+  const paletteCallbacks = useMemo(() => {
+    if (!callbacks.ask) return callbacks;
+    const ask = callbacks.ask;
+    return { ...callbacks, ask: () => ask(query.trim()) };
+  }, [callbacks, query]);
   const commands = useMemo(
     () =>
       buildCommands({
@@ -195,9 +206,9 @@ export function CommandPalette({ open, onClose, folders, folderDefs, callbacks, 
         // The installed 할 일 base has its own sidebar surface; the
         // palette lists only user queries.
         bases: (basesQ.data ?? []).filter((b) => b.path !== TASKS_BASE_PATH),
-        callbacks,
+        callbacks: paletteCallbacks,
       }),
-    [locale, noteView, theme, folders, facets.data, dailyEnabled, configQ.data, reviewFolders, basesQ.data, callbacks],
+    [locale, noteView, theme, folders, facets.data, dailyEnabled, configQ.data, reviewFolders, basesQ.data, paletteCallbacks],
   );
 
   const q = query.trim();

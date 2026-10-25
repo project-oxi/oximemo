@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.20.0] — 2026-10-25
 
+### Added
+
+- **Structured AI suggestions (opt-in).** When a copilot agent is activated, the note sheet can render an AI suggestion strip: tag chips, `[[link]]` suggestions, and task candidates extracted from the note in one delegated turn. Applying a suggestion goes through the editor's guarded autosave (tags/links) or the native `add_task` path (tasks) — never a raw file write. Automatic post-save suggestions exist behind a new "저장 후 AI 제안" setting, off by default: a suggestion turn sends note text to the activated agent's provider, so it never runs unless explicitly enabled. A sentence-continuation button in the editor toolbar inserts a suggested continuation at the caret, and the daily-note header gains a digest button that summarizes the note into an insertable markdown section.
+- **See also.** The links card lists related notes ranked by a local BM25 projection over the note's own frequent terms (title-weighted, index-analyzer tokenized so Korean text matches) — no model, no network, source note excluded.
+- **Brain contradictions.** The brain card can list contradicted statements from oxibrain's memory plane (read-only, fetched only while the card is open and online; offline degrades silently like the other brain surfaces).
+- **Copilot streaming.** The panel now renders honest incremental assistant text while the subprocess runs, for the adapters that emit JSONL event streams (omp, codex). The final parsed response remains the source of truth; claude/oxios/oxicode keep their wait-then-render behavior because their dialects carry no incremental payload.
+- **Ask-filter in the command palette.** A palette command hands the current query text to the activated agent, which translates it into an oximemo `.query` YAML; the result opens as a live inline query view. Translation only — execution stays local.
+
 ### Changed
 
 - **Deterministic window layering.** Floating surfaces now own one band of a

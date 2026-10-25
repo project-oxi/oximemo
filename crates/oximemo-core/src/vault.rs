@@ -2856,6 +2856,40 @@ impl Vault {
         Ok(out)
     }
 
+    /// Related-note candidates for one note: the search index ranks other
+    /// notes sharing the note's most frequent terms (title-weighted).
+    /// Read-only projection over the same BM25 index as `search_memos` —
+    /// no model, no new data. The source note and soft-deleted rows never
+    /// appear in the result.
+    pub fn related_memos(&self, id: MemoId, limit: u32) -> Result<Vec<MemoSummary>> {
+        let memo = self.get_memo(id)?;
+        let _g = self.lock(LockKind::Shared)?;
+        let (body, title, _aliases) = {
+            let idx = RedbIndex::open(&self.paths.meta_db_path())?;
+            let fmt = match idx.get(id)? {
+                Some(r) => crate::memo::NoteFormat::from_rel(&r.path),
+                None => crate::memo::NoteFormat::Markdown,
+            };
+            search_fields(fmt, &memo)
+        };
+        let search = TantivySearch::open(&self.paths.search_dir())?;
+        let ids = search.related(id, &body, title.as_deref(), limit)?;
+        let idx = RedbIndex::open(&self.paths.meta_db_path())?;
+        let mut out = Vec::with_capacity(ids.len());
+        for nid in ids {
+            if nid == id {
+                continue;
+            }
+            if let Some(r) = idx.get(nid)? {
+                if r.deleted {
+                    continue;
+                }
+                out.push(r.to_summary());
+            }
+        }
+        Ok(out)
+    }
+
     pub fn get_note_summary(&self, id: MemoId) -> Result<MemoSummary> {
         self.with_redb(|idx| match idx.get(id)? {
             Some(r) => Ok(r.to_summary()),

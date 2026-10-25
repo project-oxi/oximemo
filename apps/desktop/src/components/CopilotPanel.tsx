@@ -31,6 +31,7 @@ import { useWorkspaceMotion } from "../lib/workspaceMotion";
 import { useI18n } from "../lib/i18n";
 import { useUI, type CopilotEntry, type CopilotRetryPayload } from "../stores/ui";
 import { clipboardWriteText } from "../lib/clipboard";
+import { listen } from "../lib/tauri";
 import { renderChatMarkdown } from "../lib/chatMarkdown";
 import { runCopilotTurn } from "../lib/copilotTurn";
 import { expandCommand, type CopilotCommandId } from "../lib/copilotCommands";
@@ -111,6 +112,7 @@ export function CopilotPanel() {
   const entries = useUI((s) => s.copilotEntries);
   const detachedMemoId = useUI((s) => s.copilotDetachedMemoId);
   const busy = useUI((s) => s.copilotBusy);
+  const streamText = useUI((s) => s.copilotStream);
   const startedAt = useUI((s) => s.copilotStartedAt);
   const resetCopilotChat = useUI((s) => s.resetCopilotChat);
   const draft = useUI((s) => s.copilotDraft);
@@ -187,7 +189,26 @@ export function CopilotPanel() {
   useEffect(() => {
     if (followRef.current) listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
     else setShowLatest(true);
-  }, [entries.length, busy]);
+  }, [entries.length, busy, streamText]);
+
+  // Live stream (goal 2026-10-25): advisory assistant text from the
+  // in-flight subprocess. Only a running turn may append — the turn owner
+  // clears the buffer when the parsed response lands or the turn fails.
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | null = null;
+    void listen<{ text: string }>("copilot-stream", (payload) => {
+      if (!alive || !useUI.getState().copilotBusy) return;
+      if (payload.text) useUI.getState().appendCopilotStream(payload.text);
+    }).then((fn) => {
+      if (!alive) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
 
   const provider = disclosure.data?.provider ?? t.copilot_consent_unknown_provider;
   const currentModelLabel = disclosure.data?.model || status.data?.default_model || t.copilot_model_auto;
@@ -297,6 +318,11 @@ export function CopilotPanel() {
             onRetry={busy ? undefined : () => (e.role === "error" || e.role === "agent") && e.retry && void sendTurn(e.retry)}
           />
         ))}
+        {busy && streamText.trim() !== "" && (
+          <div className="mr-4 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-text" data-copilot-stream>
+            {renderChatMarkdown(streamText, t.copilot_copy)}
+          </div>
+        )}
         {busy && (
           <div className="flex items-center gap-2 px-1 py-2 text-[11px] text-text-subtle">
             <Loader2 size={12} className="animate-spin" />

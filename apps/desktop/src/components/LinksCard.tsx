@@ -9,7 +9,7 @@ import { useSyncExternalStore } from "react";
 import { useI18n } from "../lib/i18n";
 import { previewExcerpt, previewText } from "../lib/markdownPreview";
 import { queryCountVersion, subscribeQueryCounts } from "../lib/queryPreviewCounts";
-import type { BacklinkInfo } from "../lib/types";
+import type { BacklinkInfo, MemoSummary } from "../lib/types";
 
 import { ListSkeleton } from "./Skeletons";
 
@@ -17,11 +17,13 @@ import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
 
 export interface LinksCardProps {
   backlinks: BacklinkInfo[];
+  /** Related-note candidates (BM25 see-also); undefined while loading/idle. */
+  seeAlso?: MemoSummary[];
   isLoading: boolean;
   onNavigate: (id: string) => void;
 }
 
-export function LinksCard({ backlinks, isLoading, onNavigate }: LinksCardProps) {
+export function LinksCard({ backlinks, seeAlso, isLoading, onNavigate }: LinksCardProps) {
   const { t } = useI18n();
   useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
 
@@ -74,6 +76,27 @@ export function LinksCard({ backlinks, isLoading, onNavigate }: LinksCardProps) 
               </li>
             ))}
           </ul>
+        )}
+        {seeAlso && seeAlso.length > 0 && (
+          <div className="mt-1 border-t border-line px-1 pt-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">{t.see_also}</p>
+            <ul className="mt-0.5 space-y-0.5">
+              {seeAlso.map((m) => (
+                <li key={m.id}>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(m.id)}
+                    className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-muted"
+                  >
+                    <span className="block truncate font-medium text-text">{m.title || m.folder || m.path}</span>
+                    <span className="mt-0.5 line-clamp-2 whitespace-pre-line text-text-subtle">
+                      {previewText(previewExcerpt(m.preview, m.title, m.path), 200) || ""}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
     </div>

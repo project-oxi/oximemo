@@ -10,7 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo as reactMemo, useEffect, useState } from "react";
 import { Brain, Link2 } from "lucide-react";
 
-import { brainGather, brainStatus, createMemo, getBacklinks, getConfig } from "../lib/api";
+import { brainContradictions, brainGather, brainStatus, createMemo, getBacklinks, getConfig, relatedMemos } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import type { BrainLayer } from "../lib/types";
@@ -83,11 +83,30 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
     enabled: !!noteId,
   });
 
+  const related = useQuery({
+    queryKey: ["related", noteId],
+    queryFn: () => relatedMemos(noteId),
+    enabled: !!noteId,
+    staleTime: 30_000,
+    retry: false,
+  });
+
   const status = useQuery({
     queryKey: ["brain-status"],
     queryFn: brainStatus,
     staleTime: 60_000,
     enabled: brainEnabled,
+  });
+
+  // See-also section (§3.2): undefined while loading → LinksCard hides it.
+  // Contradictions fetch only while the brain card is open and online;
+  // an error leaves data undefined and the card renders nothing (C1).
+  const contradictions = useQuery({
+    queryKey: ["brain-contradictions"],
+    queryFn: brainContradictions,
+    retry: false,
+    staleTime: 60_000,
+    enabled: open === "brain" && status.data?.online === true,
   });
 
   // The dialog swaps `noteId` in place when navigating (backlink click, wiki
@@ -169,6 +188,7 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
             <Popover.Popup className="viewport-popup animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
               <LinksCard
                 backlinks={backlinks.data ?? []}
+                seeAlso={related.data}
                 isLoading={backlinks.isLoading}
                 onNavigate={navigateToBacklink}
               />
@@ -207,6 +227,7 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
                   gathering={gathering}
                   offline={offline}
                   dropped={dropped}
+                  contradictions={contradictions.data}
                   onGather={gather}
                   onRetryStatus={() => void status.refetch()}
                   onDistill={distill}
