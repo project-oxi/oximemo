@@ -26,6 +26,10 @@ import { dragCommitsStatus } from "../../lib/taskCellCommit";
 import type { BasePage, BaseRow, BaseSource, BaseValue, PropMutation, RunBaseReq, TaskRef } from "../../lib/types";
 import { useUI } from "../../stores/ui";
 import { TaskCheckbox } from "../TaskCheckbox";
+import { CtxRoot, CtxTrigger } from "../ContextMenu";
+import { NoteCtxMenu } from "../NoteCtxMenu";
+import { TaskRowCtxMenu } from "../TaskRowCtxMenu";
+import { useNoteRowActions } from "./BaseAdapters";
 
 const COL_PAGE = 20;
 
@@ -263,7 +267,8 @@ function BoardColumn({
 
 /** One board card: note rows show title + formula cell snippet; task
  *  rows show `TaskCheckbox` + text + parent breadcrumb (spec §7.0).
- *  The checkbox click wires to `patch_task` Toggle (Task 6). */
+ *  The checkbox click wires to `patch_task` Toggle (Task 6). Right-click
+ *  offers the shared note/task context menus (CONTEXT-MENUS §3.2). */
 function BoardCard({
   row,
   draggable,
@@ -284,6 +289,10 @@ function BoardCard({
   const { t } = useI18n();
   const qc = useQueryClient();
   const setToast = useUI((s) => s.setToast);
+  // Shared note actions (CONTEXT-MENUS §3.2): the card's context menu
+  // offers the same items as the grid cards, committing through the
+  // same api calls with ["base"] invalidated.
+  const actions = useNoteRowActions();
   const title = row.summary.title ?? row.summary.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
   // The view doesn't carry a config-aware status table; send bare
   // `Toggle` so the kernel resolves the next symbol from its
@@ -300,38 +309,62 @@ function BoardCard({
       });
   };
   return (
-    <button
-      type="button"
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={() => onSelect(row.summary.id)}
-      title={
-        titleDisabled
-          ? t.board_drag_disabled
-          : !statusDrag && row.task
-            ? t.board_task_only_status
-            : undefined
-      }
-      className="rounded-[var(--tag-radius)] border border-line bg-surface px-2 py-1.5 text-left text-[12px] text-text shadow-sm transition-colors duration-150 hover:border-line-strong"
-    >
-      {row.task ? (
-        <div className="flex items-center gap-1.5">
-          <TaskCheckbox
-            statusType={row.task.status_type}
-            label={row.task.text}
+    <CtxRoot>
+      {/* Trigger merges onto the card button itself — no wrapper DOM. */}
+      <CtxTrigger
+        render={
+          <button
+            type="button"
+            draggable={draggable}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onClick={() => onSelect(row.summary.id)}
+            title={
+              titleDisabled
+                ? t.board_drag_disabled
+                : !statusDrag && row.task
+                  ? t.board_task_only_status
+                  : undefined
+            }
+            className="rounded-[var(--tag-radius)] border border-line bg-surface px-2 py-1.5 text-left text-[12px] text-text shadow-sm transition-colors duration-150 hover:border-line-strong"
+          />
+        }
+      >
+        {row.task ? (
+          <div className="flex items-center gap-1.5">
+            <TaskCheckbox
+              statusType={row.task.status_type}
+              label={row.task.text}
+              onToggle={onToggle}
+            />
+            <span className="block truncate font-medium">{row.task.text}</span>
+          </div>
+        ) : (
+          <span className="block truncate font-medium">{title}</span>
+        )}
+        <span className="mt-0.5 block truncate text-[10px] text-text-subtle">
+          {row.task
+            ? `@ ${title}`
+            : row.cells.slice(1, 3).map((c) => (c.error ? "⚠︎" : formatBaseValue(c.value as BaseValue | null))).join(" · ")}
+        </span>
+        {row.task ? (
+          <TaskRowCtxMenu
+            done={row.task.status_type === "DONE"}
+            text={row.task.text}
+            onOpen={() => onSelect(row.summary.id)}
             onToggle={onToggle}
           />
-          <span className="block truncate font-medium">{row.task.text}</span>
-        </div>
-      ) : (
-        <span className="block truncate font-medium">{title}</span>
-      )}
-      <span className="mt-0.5 block truncate text-[10px] text-text-subtle">
-        {row.task
-          ? `@ ${title}`
-          : row.cells.slice(1, 3).map((c) => (c.error ? "⚠︎" : formatBaseValue(c.value as BaseValue | null))).join(" · ")}
-      </span>
-    </button>
+        ) : (
+          <NoteCtxMenu
+            memo={row.summary}
+            folderEntries={actions.folderEntries}
+            onToggleFavorite={actions.onToggleFavorite}
+            onMoveFolder={actions.onMoveFolder}
+            onCopyBody={actions.onCopyBody}
+            onDelete={actions.onDelete}
+          />
+        )}
+      </CtxTrigger>
+    </CtxRoot>
   );
 }

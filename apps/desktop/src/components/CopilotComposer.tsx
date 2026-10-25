@@ -43,6 +43,7 @@ import {
 } from "../lib/copilotMention";
 import { searchMemos } from "../lib/api";
 import type { ActiveMemoRef, MemoRef } from "../lib/api";
+import { CtxItem, CtxMenu, CtxRoot, CtxSeparator, CtxTrigger } from "./ContextMenu";
 import { useUI } from "../stores/ui";
 
 /** Composer-level icon per command id (catalog itself stays data-only). */
@@ -364,61 +365,97 @@ export function CopilotComposer({
       {((activeMemo && attachActive) || refs.length > 0) && (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {activeMemo && attachActive && (
-            <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted">
-              <FileText size={10} className="shrink-0 text-text-subtle" />
-              <span className="truncate">
-                {t.copilot_at_active}: {activeMemo.title || activeMemo.path}
-              </span>
-              <button
-                type="button"
-                aria-label={t.copilot_selection_detach}
-                title={t.copilot_selection_detach}
-                onClick={() => setDetachedMemoId(activeMemo.id)}
-                className="shrink-0 rounded p-0.5 text-text-subtle transition-colors hover:text-text"
+            <CtxRoot>
+              <CtxTrigger
+                render={
+                  <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted" />
+                }
               >
-                <X size={10} />
-              </button>
-            </span>
+                <FileText size={10} className="shrink-0 text-text-subtle" />
+                <span className="truncate">
+                  {t.copilot_at_active}: {activeMemo.title || activeMemo.path}
+                </span>
+                <button
+                  type="button"
+                  aria-label={t.copilot_selection_detach}
+                  title={t.copilot_selection_detach}
+                  onClick={() => setDetachedMemoId(activeMemo.id)}
+                  className="shrink-0 rounded p-0.5 text-text-subtle transition-colors hover:text-text"
+                >
+                  <X size={10} />
+                </button>
+                <CtxMenu>
+                  <CtxItem icon={FileText} label={t.memo_open} onClick={() => openMemo(activeMemo.id)} />
+                  <CtxSeparator />
+                  <CtxItem icon={X} label={t.chip_remove} onClick={() => setDetachedMemoId(activeMemo.id)} />
+                </CtxMenu>
+              </CtxTrigger>
+            </CtxRoot>
           )}
           {attachActive && attachedSelection && (
-            <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted">
-              <TextSelect size={10} className="shrink-0 text-text-subtle" />
-              <span className="truncate" title={attachedSelection}>
-                {t.copilot_at_selection}
-              </span>
-              <button
-                type="button"
-                aria-label={t.copilot_selection_detach}
-                title={t.copilot_selection_detach}
-                onClick={onClearSelection}
-                className="shrink-0 rounded p-0.5 text-text-subtle transition-colors hover:text-text"
+            <CtxRoot>
+              <CtxTrigger
+                render={
+                  <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted" />
+                }
               >
-                <X size={10} />
-              </button>
-            </span>
+                <TextSelect size={10} className="shrink-0 text-text-subtle" />
+                <span className="truncate" title={attachedSelection}>
+                  {t.copilot_at_selection}
+                </span>
+                <button
+                  type="button"
+                  aria-label={t.copilot_selection_detach}
+                  title={t.copilot_selection_detach}
+                  onClick={onClearSelection}
+                  className="shrink-0 rounded p-0.5 text-text-subtle transition-colors hover:text-text"
+                >
+                  <X size={10} />
+                </button>
+                <CtxMenu>
+                  {activeMemo && (
+                    <CtxItem icon={FileText} label={t.memo_open} onClick={() => openMemo(activeMemo.id)} />
+                  )}
+                  <CtxSeparator />
+                  <CtxItem icon={X} label={t.chip_remove} onClick={onClearSelection} />
+                </CtxMenu>
+              </CtxTrigger>
+            </CtxRoot>
           )}
           {refs.map((r) => (
-            <span
-              key={r.id}
-              className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted"
-            >
-              <button
-                type="button"
-                onClick={() => openMemo(r.id)}
-                title={r.path}
-                className="min-w-0 truncate text-text-muted underline decoration-line underline-offset-2 hover:text-text"
+            <CtxRoot key={r.id}>
+              <CtxTrigger
+                render={
+                  <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted" />
+                }
               >
-                {r.title || t.copilot_memo_untitled}
-              </button>
-              <button
-                type="button"
-                aria-label={t.copilot_selection_detach}
-                onClick={() => setRefs(refs.filter((x) => x.id !== r.id))}
-                className="shrink-0 rounded p-0.5 text-text-subtle transition-colors hover:text-text"
-              >
-                <X size={10} />
-              </button>
-            </span>
+                <button
+                  type="button"
+                  onClick={() => openMemo(r.id)}
+                  title={r.path}
+                  className="min-w-0 truncate text-text-muted underline decoration-line underline-offset-2 hover:text-text"
+                >
+                  {r.title || t.copilot_memo_untitled}
+                </button>
+                <button
+                  type="button"
+                  aria-label={t.copilot_selection_detach}
+                  onClick={() => setRefs(refs.filter((x) => x.id !== r.id))}
+                  className="shrink-0 rounded p-0.5 text-text-subtle transition-colors hover:text-text"
+                >
+                  <X size={10} />
+                </button>
+                <CtxMenu>
+                  <CtxItem icon={FileText} label={t.memo_open} onClick={() => openMemo(r.id)} />
+                  <CtxSeparator />
+                  <CtxItem
+                    icon={X}
+                    label={t.chip_remove}
+                    onClick={() => setRefs(refs.filter((x) => x.id !== r.id))}
+                  />
+                </CtxMenu>
+              </CtxTrigger>
+            </CtxRoot>
           ))}
         </div>
       )}

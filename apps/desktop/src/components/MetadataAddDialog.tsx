@@ -18,6 +18,7 @@ import { Dialog } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { BookOpen, Clapperboard, Search, X } from "lucide-react";
+import { TextCtxMenu } from "./TextCtxMenu";
 
 import {
   createMemo,
@@ -173,12 +174,16 @@ export function MetadataAddDialog({
               void run();
             }}
           >
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={t.metadata_fill_query}
-              className="min-w-0 flex-1 rounded-[var(--button-radius)] border border-line bg-surface-sunken px-3 py-1.5 text-[13px] text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
+            <TextCtxMenu
+              render={
+                <input
+                  autoFocus
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder={t.metadata_fill_query}
+                  className="min-w-0 flex-1 rounded-[var(--button-radius)] border border-line bg-surface-sunken px-3 py-1.5 text-[13px] text-text outline-none placeholder:text-text-subtle focus:ring-1 focus:ring-line"
+                />
+              }
             />
             <button
               type="submit"

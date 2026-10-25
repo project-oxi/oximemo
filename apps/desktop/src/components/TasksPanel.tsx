@@ -27,6 +27,8 @@ import type { BaseDef, BasePage, BaseRow, RunBaseReq } from "../lib/types";
 import { useUI } from "../stores/ui";
 import { TaskCheckbox } from "./TaskCheckbox";
 import { TaskFieldChip } from "./TaskFieldChip";
+import { TaskRowCtxMenu } from "./TaskRowCtxMenu";
+import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { useI18n } from "../lib/i18n";
 
 /** View index 0 of the installed base = "오늘" (overdue + today). The
@@ -263,32 +265,43 @@ function PanelTaskRow({
   // matching the overdue/today grouping. Fall back to scheduled.
   const chipDate = task.due ?? task.scheduled;
   const dateField = task.due ? "due" : "scheduled";
+  const done = task.status_type === "DONE";
   return (
-    <div
-      className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text"
-    >
-      <TaskCheckbox
-        statusType={task.status_type}
-        label={task.text}
-        onToggle={onToggle}
-      />
-      <button
-        type="button"
-        onClick={() => void open(task.task_ref)}
-        className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-        title={task.text}
+    <CtxRoot>
+      <CtxTrigger
+        render={
+          <div className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text" />
+        }
       >
-        {task.text || "—"}
-      </button>
-      {chipDate && (
-        <span className="shrink-0">
-          <TaskFieldChip
-            field={dateField}
-            value={relativeDayLabel(chipDate, todayISO, locale)}
-            tone={dayTone(chipDate, todayISO)}
-          />
-        </span>
-      )}
-    </div>
+        <TaskCheckbox
+          statusType={task.status_type}
+          label={task.text}
+          onToggle={onToggle}
+        />
+        <button
+          type="button"
+          onClick={() => void open(task.task_ref)}
+          className="min-w-0 flex-1 truncate text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          title={task.text}
+        >
+          {task.text || "—"}
+        </button>
+        {chipDate && (
+          <span className="shrink-0">
+            <TaskFieldChip
+              field={dateField}
+              value={relativeDayLabel(chipDate, todayISO, locale)}
+              tone={dayTone(chipDate, todayISO)}
+            />
+          </span>
+        )}
+        <TaskRowCtxMenu
+          done={done}
+          text={task.text}
+          onOpen={() => void open(task.task_ref)}
+          onToggle={onToggle}
+        />
+      </CtxTrigger>
+    </CtxRoot>
   );
 }

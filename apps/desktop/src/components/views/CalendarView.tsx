@@ -15,6 +15,9 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { addMonths, isoToLocalDate, monthGrid, monthTitle, weekdayLabels } from "../../lib/dates";
 import { useI18n } from "../../lib/i18n";
 import { Popover } from "@base-ui-components/react";
+import { CtxRoot, CtxTrigger } from "../ContextMenu";
+import { NoteCtxMenu } from "../NoteCtxMenu";
+import { useNoteRowActions } from "./BaseAdapters";
 
 import type { FolderDef, MemoSummary } from "../../lib/types";
 
@@ -63,6 +66,10 @@ export function CalendarView({
   onOpenDailyNote,
 }: Props) {
   const { t, locale: i18nLocale } = useI18n();
+  // Shared note actions (CONTEXT-MENUS §3.2): the day-cell note buttons
+  // offer the same menu as the grid cards, committing through the same
+  // api calls with ["base"] invalidated.
+  const actions = useNoteRowActions();
   const effectiveLocale = locale || i18nLocale || "ko";
   const todayLabel = t.calendar_today;
   const moreLabel = (n: number) => t.calendar_more.replace("{n}", String(n));
@@ -168,15 +175,29 @@ export function CalendarView({
                 </div>
               )}
               {visible.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onSelect(m.id); }}
-                  title={m.title ?? m.path}
-                  className="truncate rounded-[var(--tag-radius)] px-1 text-left text-[11px] text-text hover:bg-surface-muted"
-                >
-                  {memoLabel(m)}
-                </button>
+                <CtxRoot key={m.id}>
+                  {/* Trigger merges onto the note button itself. */}
+                  <CtxTrigger
+                    render={
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onSelect(m.id); }}
+                        title={m.title ?? m.path}
+                        className="truncate rounded-[var(--tag-radius)] px-1 text-left text-[11px] text-text hover:bg-surface-muted"
+                      />
+                    }
+                  >
+                    {memoLabel(m)}
+                    <NoteCtxMenu
+                      memo={m}
+                      folderEntries={actions.folderEntries}
+                      onToggleFavorite={actions.onToggleFavorite}
+                      onMoveFolder={actions.onMoveFolder}
+                      onCopyBody={actions.onCopyBody}
+                      onDelete={actions.onDelete}
+                    />
+                  </CtxTrigger>
+                </CtxRoot>
               ))}
               {overflow > 0 && (
                 <OverflowPopover

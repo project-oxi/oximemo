@@ -13,6 +13,7 @@ import { invoke, listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import type { PdcInventory, PdcInventoryEntry, PdcSourceFile, PdcWriteReceipt } from "../lib/pdcInventory";
 import { SessionRecorderPanel } from "./SessionRecorderPanel";
+import { TextCtxMenu } from "./TextCtxMenu";
 import { ListSkeleton } from "./Skeletons";
 import { useUI } from "../stores/ui";
 
@@ -157,21 +158,29 @@ function SourceViewer({ entry, onClose }: { entry: OpenSource; onClose: () => vo
         <div className="space-y-3">
           <label className="block text-xs text-text-subtle">
             {t.pdc_title}
-            <input
-              aria-label={t.pdc_title}
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              className="mt-1 w-full rounded border border-line bg-surface px-2 py-1.5 font-mono text-sm text-text"
+            <TextCtxMenu
+              render={
+                <input
+                  aria-label={t.pdc_title}
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  className="mt-1 w-full rounded border border-line bg-surface px-2 py-1.5 font-mono text-sm text-text"
+                />
+              }
             />
           </label>
           <label className="block text-xs text-text-subtle">
             {t.pdc_body}
-            <textarea
-              aria-label={t.pdc_body}
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              spellCheck={false}
-              className="mt-1 min-h-[45vh] w-full resize-y rounded border border-line bg-surface px-2 py-2 font-mono text-xs leading-relaxed text-text"
+            <TextCtxMenu
+              render={
+                <textarea
+                  aria-label={t.pdc_body}
+                  value={body}
+                  onChange={(event) => setBody(event.target.value)}
+                  spellCheck={false}
+                  className="mt-1 min-h-[45vh] w-full resize-y rounded border border-line bg-surface px-2 py-2 font-mono text-xs leading-relaxed text-text"
+                />
+              }
             />
           </label>
           {saveError && (
@@ -297,19 +306,27 @@ function CreateDocumentForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block text-xs text-text-subtle">
           {t.pdc_title}
-          <input
-            autoFocus
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            className="mt-1 w-full rounded border border-line bg-surface px-2 py-1.5 text-sm text-text"
+          <TextCtxMenu
+            render={
+              <input
+                autoFocus
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                className="mt-1 w-full rounded border border-line bg-surface px-2 py-1.5 text-sm text-text"
+              />
+            }
           />
         </label>
         <label className="block text-xs text-text-subtle">
           {t.pdc_folder}
-          <input
-            value={folder}
-            onChange={(event) => setFolder(event.target.value)}
-            className="mt-1 w-full rounded border border-line bg-surface px-2 py-1.5 font-mono text-sm text-text"
+          <TextCtxMenu
+            render={
+              <input
+                value={folder}
+                onChange={(event) => setFolder(event.target.value)}
+                className="mt-1 w-full rounded border border-line bg-surface px-2 py-1.5 font-mono text-sm text-text"
+              />
+            }
           />
         </label>
         <label className="block text-xs text-text-subtle">
@@ -325,21 +342,29 @@ function CreateDocumentForm({
         </label>
         <label className="block text-xs text-text-subtle">
           {t.pdc_tags_hint}
-          <textarea
-            value={tags}
-            onChange={(event) => setTags(event.target.value)}
-            rows={2}
-            className="mt-1 w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-sm text-text"
+          <TextCtxMenu
+            render={
+              <textarea
+                value={tags}
+                onChange={(event) => setTags(event.target.value)}
+                rows={2}
+                className="mt-1 w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-sm text-text"
+              />
+            }
           />
         </label>
       </div>
       <label className="block text-xs text-text-subtle">
         {t.pdc_body}
-        <textarea
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          spellCheck={false}
-          className="mt-1 min-h-[24vh] w-full resize-y rounded border border-line bg-surface px-2 py-2 font-mono text-xs leading-relaxed text-text"
+        <TextCtxMenu
+          render={
+            <textarea
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              spellCheck={false}
+              className="mt-1 min-h-[24vh] w-full resize-y rounded border border-line bg-surface px-2 py-2 font-mono text-xs leading-relaxed text-text"
+            />
+          }
         />
       </label>
       {error && <p className="text-xs text-status-error" role="alert">{error}</p>}

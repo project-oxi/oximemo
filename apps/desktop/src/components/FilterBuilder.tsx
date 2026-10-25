@@ -8,6 +8,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Popover } from "@base-ui-components/react";
 import { Plus, Trash2, X } from "lucide-react";
+import { TextCtxMenu } from "./TextCtxMenu";
 import { useState } from "react";
 import { baseProps } from "../lib/api";
 import { useI18n } from "../lib/i18n";
@@ -261,11 +262,15 @@ function RowEditor({
   if (node.kind === "expr") {
     return (
       <div className="flex items-center gap-1">
-        <input
-          value={node.text}
-          onChange={(e) => onChange({ kind: "expr", text: e.target.value })}
-          placeholder='예: (now() - file.created).days() > 7'
-          className="min-w-0 flex-1 rounded-[var(--input-radius)] border border-line bg-surface px-1.5 py-1 text-[11px] outline-none"
+        <TextCtxMenu
+          render={
+            <input
+              value={node.text}
+              onChange={(e) => onChange({ kind: "expr", text: e.target.value })}
+              placeholder='예: (now() - file.created).days() > 7'
+              className="min-w-0 flex-1 rounded-[var(--input-radius)] border border-line bg-surface px-1.5 py-1 text-[11px] outline-none"
+            />
+          }
         />
         <button type="button" onClick={onRemove} aria-label={t.query_delete} className="text-text-subtle hover:text-status-error">
           <Trash2 size={11} />
@@ -305,14 +310,18 @@ function RowEditor({
         ))}
         {!ops.includes(node.op) && <option value={node.op}>{node.op}</option>}
       </select>
-      <input
-        value={node.value === null ? "" : String(node.value)}
-        list={options.length ? `fb-${node.ident}` : undefined}
-        onChange={(e) => {
-          const v = e.target.value;
-          onChange({ ...node, value: v === "" ? null : /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v });
-        }}
-        className="min-w-0 flex-1 rounded-[var(--input-radius)] border border-line bg-surface px-1.5 py-1 text-[11px]"
+      <TextCtxMenu
+        render={
+          <input
+            value={node.value === null ? "" : String(node.value)}
+            list={options.length ? `fb-${node.ident}` : undefined}
+            onChange={(e) => {
+              const v = e.target.value;
+              onChange({ ...node, value: v === "" ? null : /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v });
+            }}
+            className="min-w-0 flex-1 rounded-[var(--input-radius)] border border-line bg-surface px-1.5 py-1 text-[11px]"
+          />
+        }
       />
       {options.length > 0 && (
         <datalist id={`fb-${node.ident}`}>

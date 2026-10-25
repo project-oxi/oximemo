@@ -831,5 +831,21 @@
   "copilot_model_no_match": "일치하는 모델이 없습니다.",
   "copilot_latest": "최신 응답으로",
   "copilot_failed": "실행이 완료되지 않았습니다 (종료 코드 {code}).",
-  "copilot_model_use_id": "입력한 모델 ID 사용"
+  "copilot_model_use_id": "입력한 모델 ID 사용",
+  "task_menu_open": "노트 열기",
+  "task_menu_done": "완료로 표시",
+  "task_menu_undone": "미완료로 표시",
+  "task_menu_copy_text": "텍스트 복사",
+  "property_menu_copy_name": "속성 이름 복사",
+  "property_menu_copy_value": "값 복사",
+  "property_menu_remove": "속성 제거",
+  "copilot_menu_copy": "복사",
+  "copilot_menu_retry": "재시도",
+  "copilot_menu_clear": "대화 초기화",
+  "copilot_menu_clear_arm": "초기화 확인",
+  "memo_open": "노트 열기",
+  "chip_remove": "참조에서 제거",
+  "view_menu_rename": "뷰 이름 변경",
+  "view_menu_delete": "뷰 삭제",
+  "view_name_placeholder": "뷰 이름"
 }

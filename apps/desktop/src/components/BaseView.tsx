@@ -8,7 +8,7 @@
  * table view materialized in memory.
  */
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Code2, Database, Plus, TriangleAlert } from "lucide-react";
+import { Code2, Database, PenLine, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import YAML from "yaml";
 import { defaultKeymap } from "@codemirror/commands";
@@ -27,6 +27,7 @@ import { BaseCardsAdapter, BaseListAdapter } from "./views/BaseAdapters";
 import { TasksView } from "./views/TasksView";
 import { listFolders } from "../lib/api";
 import { FilterBuilder } from "./FilterBuilder";
+import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 
 const PAGE = 100;
 const KNOWN_TYPES: Record<string, true | undefined> = { table: true, board: true, cards: true, list: true, tasks: true };
@@ -226,6 +227,55 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
       def.views.push({ type: "table", name: t.view_table });
     });
 
+  // 뷰 탭 우클릭 메뉴 (CONTEXT-MENUS §3.4): rename (inline input) +
+  // two-step armed delete. The arm follows FolderMenu's rules — it
+  // resets when the menu closes and auto-expires after 4s — so it can
+  // never survive into a later menu session (window.confirm is
+  // unreliable in Tauri's WKWebView). Deleting is refused on the last
+  // remaining view: `views: []` silently materializes an unnamed
+  // default table tab (spec §1) and the named view would be lost.
+  const [renaming, setRenaming] = useState<number | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [armedDelete, setArmedDelete] = useState<number | null>(null);
+  const armTimer = useRef<number | null>(null);
+  const disarmViewDelete = () => {
+    setArmedDelete(null);
+    if (armTimer.current) {
+      window.clearTimeout(armTimer.current);
+      armTimer.current = null;
+    }
+  };
+  useEffect(() => () => disarmViewDelete(), []);
+  /** Write `views[i].name` back to the base YAML. Empty input drops the
+   *  name (tab label falls back to the type); a label equal to another
+   *  view's effective label is refused — the input stays open. */
+  const commitViewRename = (i: number) => {
+    const target = views[i];
+    if (!target || renaming !== i) return;
+    const trimmed = renameDraft.trim();
+    const effective = trimmed || target.type;
+    if (views.some((v, j) => j !== i && (v.name?.trim() || v.type) === effective)) return;
+    saveYaml((def) => {
+      def.views ??= [DEFAULT_VIEW];
+      const v = def.views[i];
+      if (!v) return;
+      if (trimmed) def.views[i] = { ...v, name: trimmed };
+      else {
+        const { name: _drop, ...rest } = v;
+        def.views[i] = rest;
+      }
+    });
+    setRenaming(null);
+  };
+  const deleteView = (i: number) => {
+    clockRef.current = null;
+    saveYaml((def) => {
+      def.views ??= [];
+      if (def.views.length <= 1 || !def.views[i]) return;
+      def.views.splice(i, 1);
+    });
+  };
+
   const baseFilter: FilterNode | null = "error" in parsed ? null : parseFilters(parsed.def.filters);
   const viewFilter: FilterNode | null = "error" in parsed || !view ? null : parseFilters(view.filters);
   const total = runQ.data?.pages[0]?.total ?? 0;
@@ -245,27 +295,95 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
           <Database size={14} className="text-text-subtle" />
           {"path" in source ? source.path.split("/").at(-1)?.replace(/\.query$/, "") : t.query_inline}
         </span>
-        {names.map((name, i) => (
-          <button
-            key={`${name}:${i}`}
-            type="button"
-            aria-pressed={i === idx}
-            onClick={() => {
-              clockRef.current = null;
-              setViewIndex(i);
-            }}
-            className={`rounded-[var(--tag-radius)] px-2.5 py-1 text-xs transition-colors duration-150 ${
-              i === idx
-                ? "bg-surface-muted font-semibold text-text"
-                : "text-text-muted hover:bg-surface-muted hover:text-text"
-            }`}
-          >
-            {name}
-            {views[i] && KNOWN_TYPES[views[i].type] !== true && (
-              <TriangleAlert size={10} className="ml-1 inline text-hue-amber" aria-label={t.query_unknown_view_type} />
-          )}
-          </button>
-        ))}
+        {names.map((name, i) => {
+          if (renaming === i) {
+            return (
+              <input
+                key={`rename:${i}`}
+                autoFocus
+                value={renameDraft}
+                placeholder={t.view_name_placeholder}
+                aria-label={t.view_menu_rename}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onBlur={() => commitViewRename(i)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitViewRename(i);
+                  else if (e.key === "Escape") setRenaming(null);
+                }}
+                className="w-28 rounded-[var(--tag-radius)] border border-hue-blue/50 bg-surface-muted px-2 py-1 text-xs text-text outline-none"
+              />
+            );
+          }
+          const v = views[i];
+          return (
+            <CtxRoot
+              key={`${name}:${i}`}
+              onOpenChange={(open) => {
+                if (!open) disarmViewDelete();
+              }}
+            >
+              <CtxTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-pressed={i === idx}
+                    onClick={() => {
+                      clockRef.current = null;
+                      setViewIndex(i);
+                    }}
+                    className={`rounded-[var(--tag-radius)] px-2.5 py-1 text-xs transition-colors duration-150 ${
+                      i === idx
+                        ? "bg-surface-muted font-semibold text-text"
+                        : "text-text-muted hover:bg-surface-muted hover:text-text"
+                    }`}
+                  />
+                }
+              >
+                {name}
+                {v && KNOWN_TYPES[v.type] !== true && (
+                  <TriangleAlert size={10} className="ml-1 inline text-hue-amber" aria-label={t.query_unknown_view_type} />
+                )}
+                {!readOnly && (
+                  <CtxMenu>
+                    <CtxItem
+                      icon={PenLine}
+                      label={t.view_menu_rename}
+                      onClick={() => {
+                        setRenameDraft(v?.name ?? "");
+                        setRenaming(i);
+                      }}
+                    />
+                    <CtxSeparator />
+                    {armedDelete === i ? (
+                      <CtxItem
+                        icon={Trash2}
+                        label={t.delete_confirm_arm}
+                        danger
+                        onClick={() => {
+                          disarmViewDelete();
+                          deleteView(i);
+                        }}
+                      />
+                    ) : (
+                      <CtxItem
+                        icon={Trash2}
+                        label={t.view_menu_delete}
+                        danger
+                        disabled={views.length <= 1}
+                        keepOpen
+                        onClick={() => {
+                          setArmedDelete(i);
+                          if (armTimer.current) window.clearTimeout(armTimer.current);
+                          armTimer.current = window.setTimeout(disarmViewDelete, 4000);
+                        }}
+                      />
+                    )}
+                  </CtxMenu>
+                )}
+              </CtxTrigger>
+            </CtxRoot>
+          );
+        })}
         {!readOnly && (
           <button
             type="button"
@@ -356,7 +474,6 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
           folders={folderDefsOf(foldersQ.data)}
           folderEntries={foldersQ.data ?? []}
           onSelect={onSelect}
-          onToggleFavorite={() => {}}
         />
       ) : view.type === "list" ? (
         <BaseListAdapter rows={runQ.data?.pages.flatMap((pg) => pg.rows) ?? []} onSelect={onSelect} />
@@ -404,7 +521,6 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
               if (runQ.hasNextPage) void runQ.fetchNextPage();
             }}
             onSelect={onSelect}
-            onToggleFavorite={() => {}}
           />
           {runQ.hasNextPage && (
             <div className="flex justify-center py-3">

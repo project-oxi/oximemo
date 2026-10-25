@@ -21,33 +21,107 @@
 import { useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
 import { Pencil } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Card } from "../Card";
 import { useI18n } from "../../lib/i18n";
 import { useFolderNames } from "../../lib/folders";
+import { useUI } from "../../stores/ui";
 import { previewText } from "../../lib/markdownPreview";
 import { queryCountVersion, subscribeQueryCounts } from "../../lib/queryPreviewCounts";
 import { relativeDayLabel, dayTone, useTodayKey } from "../../lib/relativeDay";
 import { useTaskEditMany, useTaskToggle } from "../../lib/taskToggle";
 import { relativeTime } from "../../lib/time";
 import { cfgFromJson, type TaskLineCfg } from "../../lib/taskLine";
-import { getConfig } from "../../lib/api";
+import {
+  getConfig, listFolders, getMemo, moveNote, updateMemo, deleteMemo, restoreNotes,
+} from "../../lib/api";
 import type { BaseRow, FolderDef, FolderEntry, TaskDto } from "../../lib/types";
 import { TaskCheckbox } from "../TaskCheckbox";
 import { TaskFieldChip } from "../TaskFieldChip";
 import { TaskEditPopover } from "../TaskEditPopover";
 import { initialFromDto } from "../../lib/taskPopoverSeed";
 
+/**
+ * Shared note row actions for view surfaces (CONTEXT-MENUS §3.2) — table
+ * rows, board cards, calendar buttons. Mirrors CardGrid's canonical
+ * handlers (same api calls, same invalidation family, delete keeps the
+ * undo toast) with `["base"]` added so base-mode views (TableView /
+ * BoardView mounted through BaseView) refresh too. The folder list rides
+ * the shared ["folders"] cache and feeds NoteCtxMenu's move submenu.
+ */
+export function useNoteRowActions() {
+  const qc = useQueryClient();
+  const { t } = useI18n();
+  const setToast = useUI((s) => s.setToast);
+  const displayFolder = useFolderNames().displayName;
+  const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
+  const fail = (e: unknown) => setToast(String(e).split("\n")[0] ?? String(e));
+  const onToggleFavorite = (id: string, favorite: boolean) => {
+    void updateMemo(id, null, !favorite)
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["memos"] });
+        void qc.invalidateQueries({ queryKey: ["facets"] });
+        void qc.invalidateQueries({ queryKey: ["base"] });
+      })
+      .catch(fail);
+  };
+  const onMoveFolder = (id: string, folder: string) => {
+    void moveNote(id, folder)
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["memos"] });
+        void qc.invalidateQueries({ queryKey: ["search"] });
+        void qc.invalidateQueries({ queryKey: ["facets"] });
+        void qc.invalidateQueries({ queryKey: ["folders"] });
+        void qc.invalidateQueries({ queryKey: ["base"] });
+        setToast(`→ ${displayFolder(folder) || t.folder_root}`);
+      })
+      .catch(fail);
+  };
+  const onCopyBody = (id: string) => {
+    void getMemo(id)
+      .then((m) => void navigator.clipboard.writeText(m.body))
+      .catch(fail);
+  };
+  const onDelete = (id: string) => {
+    void deleteMemo(id)
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["memos"] });
+        void qc.invalidateQueries({ queryKey: ["search"] });
+        void qc.invalidateQueries({ queryKey: ["facets"] });
+        void qc.invalidateQueries({ queryKey: ["folders"] });
+        void qc.invalidateQueries({ queryKey: ["base"] });
+        setToast(t.memo_deleted, {
+          label: t.undo,
+          onClick: () => {
+            void restoreNotes([id])
+              .then(() => {
+                void qc.invalidateQueries({ queryKey: ["memos"] });
+                void qc.invalidateQueries({ queryKey: ["search"] });
+                void qc.invalidateQueries({ queryKey: ["facets"] });
+                void qc.invalidateQueries({ queryKey: ["folders"] });
+                void qc.invalidateQueries({ queryKey: ["trash"] });
+                void qc.invalidateQueries({ queryKey: ["base"] });
+                setToast(t.memo_restored);
+              })
+              .catch(fail);
+          },
+        });
+      })
+      .catch(fail);
+  };
+  return { folderEntries: foldersQ.data ?? [], onToggleFavorite, onMoveFolder, onCopyBody, onDelete };
+}
+
 interface CardsProps {
   rows: BaseRow[];
   folders: FolderDef[];
   folderEntries: FolderEntry[];
   onSelect: (id: string) => void;
-  onToggleFavorite: (id: string, favorite: boolean) => void;
 }
 
-export function BaseCardsAdapter({ rows, folders, folderEntries, onSelect, onToggleFavorite }: CardsProps) {
+export function BaseCardsAdapter({ rows, folders, folderEntries, onSelect }: CardsProps) {
+  const actions = useNoteRowActions();
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 p-2">
       {rows.map((r) =>
@@ -60,10 +134,10 @@ export function BaseCardsAdapter({ rows, folders, folderEntries, onSelect, onTog
             folders={folders}
             folderEntries={folderEntries}
             onSelect={onSelect}
-            onToggleFavorite={onToggleFavorite}
-            onMoveFolder={() => {}}
-            onCopyBody={() => {}}
-            onDelete={() => {}}
+            onToggleFavorite={actions.onToggleFavorite}
+            onMoveFolder={actions.onMoveFolder}
+            onCopyBody={actions.onCopyBody}
+            onDelete={actions.onDelete}
           />
         ),
       )}

@@ -40,6 +40,10 @@ import { TaskCellEditor } from "../TaskCellEditor";
 import { TaskCheckbox } from "../TaskCheckbox";
 import { TaskFieldChip } from "../TaskFieldChip";
 import { PropCellEditor } from "../propEditors";
+import { CtxRoot, CtxTrigger } from "../ContextMenu";
+import { NoteCtxMenu } from "../NoteCtxMenu";
+import { TaskRowCtxMenu } from "../TaskRowCtxMenu";
+import { useNoteRowActions } from "./BaseAdapters";
 
 const GROUP_H = 28;
 const ROW_H = 34;
@@ -58,7 +62,9 @@ export interface TableViewProps {
   /** Infinite-list hook: called when the table nears its last rows. */
   onLoadMore?: () => void;
   onSelect: (id: string) => void;
-  onToggleFavorite: (m: MemoSummary) => void;
+  /** Star handler in folder mode (CardGrid owns it). When omitted — base
+   *  mode mounts — the shared view actions (`useNoteRowActions`) toggle. */
+  onToggleFavorite?: (m: MemoSummary) => void;
   // --- Base mode (query views spec §4): explicit columns from the view
   // def replace the schema-derived folder set. Drag persists via
   // onColumnsReordered (YAML write-back); formula columns are read-only
@@ -101,6 +107,12 @@ export function TableView({
   const qc = useQueryClient();
   const setToast = useUI((s) => s.setToast);
   const todayISO = useTodayKey();
+  // Shared row actions (CONTEXT-MENUS §3.2): the note context menus commit
+  // through the same api calls CardGrid owns, with ["base"] invalidated so
+  // base-mode mounts refresh. The star keeps the prop when a folder-mode
+  // parent supplies it.
+  const actions = useNoteRowActions();
+  const toggleFavorite = onToggleFavorite ?? ((m: MemoSummary) => actions.onToggleFavorite(m.id, m.favorite));
 
   const built = useMemo(
     () => (columns !== undefined ? columns : buildColumns(schemas, folderOrder)),
@@ -429,11 +441,18 @@ export function TableView({
             }
             const row = entry.row;
             return (
-              <div
-                key={row.row_id}
-                style={{ position: "absolute", top: 0, left: 0, transform: `translateY(${v.start}px)`, width: "100%", height: ROW_H }}
-                className="group/row"
-              >
+              <CtxRoot key={row.row_id}>
+                {/* Right-click trigger merges onto the positioned row div
+                 * itself — the virtualizer measures that exact element, so
+                 * no wrapper DOM may be introduced (CONTEXT-MENUS §3.2). */}
+                <CtxTrigger
+                  render={
+                    <div
+                      style={{ position: "absolute", top: 0, left: 0, transform: `translateY(${v.start}px)`, width: "100%", height: ROW_H }}
+                      className="group/row"
+                    />
+                  }
+                >
                 <div
                   role="row"
                   className="grid h-full items-center border-b border-line/40 transition-colors duration-100 hover:bg-surface-muted/40"
@@ -445,7 +464,7 @@ export function TableView({
                       todayISO={todayISO}
                       locale={locale}
                       onSelect={onSelect}
-                      onToggleFavorite={onToggleFavorite}
+                      onToggleFavorite={toggleFavorite}
                       onToggleTask={onTaskToggle(row)}
                     />
                   </div>
@@ -522,7 +541,25 @@ export function TableView({
                     );
                   })}
                 </div>
-              </div>
+                {row.task ? (
+                  <TaskRowCtxMenu
+                    done={row.task.status_type === "DONE"}
+                    text={row.task.text}
+                    onOpen={() => onSelect(row.summary.id)}
+                    onToggle={onTaskToggle(row)}
+                  />
+                ) : (
+                  <NoteCtxMenu
+                    memo={row.summary}
+                    folderEntries={actions.folderEntries}
+                    onToggleFavorite={actions.onToggleFavorite}
+                    onMoveFolder={actions.onMoveFolder}
+                    onCopyBody={actions.onCopyBody}
+                    onDelete={actions.onDelete}
+                  />
+                )}
+                </CtxTrigger>
+              </CtxRoot>
             );
           })}
         </div>
