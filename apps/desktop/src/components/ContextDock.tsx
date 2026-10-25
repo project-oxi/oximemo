@@ -137,6 +137,7 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
       .then((n) => {
         setOpen(null);
         setDraftId(n.id);
+        qc.setQueryData(["memo", n.id], n);
         onNavigateMemo(n.id);
       })
       .catch((e) => setError(String(e).split("\n")[0]));

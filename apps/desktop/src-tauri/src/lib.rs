@@ -995,7 +995,7 @@ mod commands {
         Ok(state.vault.note_dto(&memo))
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn create_memo(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1028,7 +1028,7 @@ mod commands {
     /// folder with root fallback. Identical shape to `create_memo`
     /// but with no `folder`/`format` params: the backend resolves
     /// the destination.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn create_capture(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1051,7 +1051,7 @@ mod commands {
         pub created: bool,
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn open_daily_note(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1065,7 +1065,7 @@ mod commands {
         })
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn update_memo(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1288,7 +1288,7 @@ mod commands {
     /// validates first — an unparseable YAML never reaches disk. A
     /// mismatched `expected_mtime_ms` is the reload conflict. Returns
     /// the fresh mtime for the next save.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn save_base(
         state: State<'_, AppState>,
         path: String,
@@ -1312,7 +1312,7 @@ mod commands {
     /// Rename/move a `.query` file. Emits `bases:changed` so the
     /// sidebar re-lists; in-place saves ride the `.query` file watcher
     /// instead (already emits the same event).
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn rename_base(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1330,7 +1330,7 @@ mod commands {
 
     /// Move a `.query` file into `.trash/_queries/`; returns the token
     /// `restore_base` consumes.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn trash_base(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1343,7 +1343,7 @@ mod commands {
 
     /// Restore a trashed `.query`; returns the restored vault-relative
     /// path.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn restore_base(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1418,7 +1418,7 @@ mod commands {
         Ok(())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn delete_memo(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1430,7 +1430,7 @@ mod commands {
         Ok(())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn reset_vault(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
         state.vault.reset().map_err(|e| e.to_string())?;
         let _ = app.emit("memos:changed", ());
@@ -1449,7 +1449,7 @@ mod commands {
             .map_err(|e| e.to_string())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn export_manifest(
         state: State<'_, AppState>,
         since: Option<String>,
@@ -1464,7 +1464,7 @@ mod commands {
             .map_err(|e| e.to_string())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn reindex(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1474,7 +1474,7 @@ mod commands {
         Ok(stats)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn doctor(state: State<'_, AppState>, fix: bool) -> Result<serde_json::Value, String> {
         let r = state.vault.doctor(fix).map_err(|e| e.to_string())?;
         serde_json::to_value(r).map_err(|e| e.to_string())
@@ -1504,7 +1504,7 @@ mod commands {
     }
 
     /// Read one visible UTF-8 source through inventory path-containment checks.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn pdc_read_source(
         state: State<'_, AppState>,
         path: String,
@@ -1514,7 +1514,7 @@ mod commands {
     }
 
     /// Create a canonical PDC 2 Markdown or HTML document.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn pdc_create_document(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -1527,7 +1527,7 @@ mod commands {
     }
 
     /// Save a PDC 2 title/body edit only if the source digest still matches.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn pdc_update_document(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -2029,7 +2029,7 @@ mod commands {
             .map_err(|e| e.to_string())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn create_folder(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -2043,7 +2043,7 @@ mod commands {
         Ok(())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn delete_folder(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -2065,7 +2065,7 @@ mod commands {
     }
 
     /// Restore notes to their original folders after note or folder deletion.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn restore_notes(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -2082,7 +2082,7 @@ mod commands {
         let _ = app.emit("memos:changed", ());
         Ok(restored.into_iter().map(|id| id.to_string()).collect())
     }
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn rename_folder(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -2097,7 +2097,7 @@ mod commands {
         Ok(())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn move_folder(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -2174,7 +2174,7 @@ mod commands {
         Ok(())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn rename_tag(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -2189,7 +2189,7 @@ mod commands {
         Ok(n)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn move_note(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -2395,7 +2395,7 @@ mod commands {
     /// `source_url` (attribution link) when the schema declares it.
     /// Existing values are never overwritten — the core walker owns
     /// that contract.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn stamp_metadata(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -2529,7 +2529,7 @@ mod commands {
         Ok(())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn get_backlinks(
         state: State<'_, AppState>,
         id: String,
@@ -2560,7 +2560,7 @@ mod commands {
 
     // -- image assets ----------------------------------------------------
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn save_image_bytes(
         state: State<'_, AppState>,
         base64_data: String,
@@ -2583,7 +2583,7 @@ mod commands {
 
     /// Delete assets referenced by no memo (gallery "clean up"). Returns the
     /// count removed.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn gc_assets(state: State<'_, AppState>) -> Result<u64, String> {
         state.vault.gc_assets().map_err(|e| e.to_string())
     }
@@ -3481,7 +3481,7 @@ mod commands {
     /// Apply one guarded edit to a persisted task line (spec §5). The
     /// vault takes one exclusive lock across read → verify hash →
     /// rewrite → upsert.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn patch_task(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -3501,7 +3501,7 @@ mod commands {
 
     /// Append a new task line under the target's configured section
     /// (spec §6/§7): a note, today's daily note, or the Inbox.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn add_task(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -3521,7 +3521,7 @@ mod commands {
 
     /// Atomically move task subtrees between notes (spec §7). One
     /// exclusive lock covers verification, both writes, and rollback.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn move_tasks(
         state: State<'_, AppState>,
         app: AppHandle,
@@ -3540,7 +3540,7 @@ mod commands {
     /// Guarded inverse of `move_tasks` (spec §7): proceeds only while
     /// both notes still equal the receipt's post-move hashes; otherwise
     /// an intervening edit wins and undo refuses to erase it.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn undo_move_tasks(
         state: State<'_, AppState>,
         app: AppHandle,

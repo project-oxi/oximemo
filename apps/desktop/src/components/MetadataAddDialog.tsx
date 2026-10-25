@@ -129,7 +129,9 @@ export function MetadataAddDialog({
       // Browser fallback returns null from stamp — the note (with its
       // H1) is still created; only the cache set is skipped.
       const dto = await stampMetadata(memo.id, hit).catch(() => null);
-      if (dto) qc.setQueryData(["memo", memo.id], dto);
+      // Prime the detail cache either way — an unstamped note still beats
+      // the "…" gate (mirrors the wiki-link open path's priming).
+      qc.setQueryData(["memo", memo.id], dto ?? memo);
       select(memo.id);
       void qc.invalidateQueries({ queryKey: ["memos"] });
       void qc.invalidateQueries({ queryKey: ["facets"] });

@@ -725,6 +725,9 @@ export function CardGrid() {
       void createMemo("", folderFilter, format)
         .then((n) => {
           setDraftId(n.id);
+          // create_memo already returns the full NoteDto — prime the detail
+          // cache so MemoDetail renders the editor instead of the "…" gate.
+          qc.setQueryData(["memo", n.id], n);
           select(n.id);
           qc.invalidateQueries({ queryKey: ["memos"] });
           qc.invalidateQueries({ queryKey: ["facets"] });
@@ -758,6 +761,8 @@ export function CardGrid() {
       void createMemo("", folder)
         .then((n) => {
           setDraftId(n.id);
+          // Same priming as onNewNote — the NoteDto is already in hand.
+          qc.setQueryData(["memo", n.id], n);
           select(n.id);
           qc.invalidateQueries({ queryKey: ["memos"] });
           qc.invalidateQueries({ queryKey: ["facets"] });
@@ -1107,13 +1112,14 @@ export function CardGrid() {
     openDailyNote(todayLocalISO())
       .then(({ memo, created }) => {
         setView("memos");
+        qc.setQueryData(["memo", memo.id], memo);
         select(memo.id);
         // Fresh daily note: closing it untouched discards it (Sidebar's
         // openDaily flow).
         if (created) setDraftId(memo.id, memo.body);
       })
       .catch((e) => setError(String(e).split("\n")[0]));
-  }, [configQ.data, setView, select, setDraftId, setError]);
+  }, [configQ.data, setView, select, setDraftId, setError, qc]);
 
   // Bridge row: graduate the palette's transient query into the
   // persistent header search, in global query mode.
@@ -1650,6 +1656,7 @@ export function CardGrid() {
           onOpenDailyNote={(date) => {
             void openDailyNote(date)
               .then(({ memo, created }) => {
+                qc.setQueryData(["memo", memo.id], memo);
                 select(memo.id);
                 // Fresh daily note: closing it untouched discards it
                 // (mirrors Sidebar's openDaily flow).
