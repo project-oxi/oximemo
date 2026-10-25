@@ -2,10 +2,12 @@
  * MemoDetail 전용 편집 폼. 본문은 atomic-editor 기반 `MarkdownEditor`,
  * 추출된 `#태그`와 폴더·이미지 보조 제어만 제공한다.
  */
-import { Image as ImageIcon } from "lucide-react";
+import { Image as ImageIcon, Undo2, Redo2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { undo, redo, undoDepth, redoDepth } from "@codemirror/commands";
+import { IconTool } from "./IconTool";
 import { EditorView } from "@codemirror/view";
 import type { Text } from "@codemirror/state";
 
@@ -95,6 +97,7 @@ export function MemoEditorForm({
   const setCopilotSelection = useUI((s) => s.setCopilotSelection);
   const editorHandleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null);
   const viewHandleRef = useRef<ImageViewHandle | null>(null);
+  const [history, setHistory] = useState({ undo: false, redo: false });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Tasks (spec §7.1): the widget cfg mirrors the vault's [tasks]
   // table. Shared ["config"] query cache (MemoDetail uses the same
@@ -319,6 +322,8 @@ export function MemoEditorForm({
       // CM6 state, not DOM selection — synced on every selection/doc
       // change; cleared when the editor unmounts (dialog close).
       EditorView.updateListener.of((u) => {
+        const next = { undo: undoDepth(u.state) > 0, redo: redoDepth(u.state) > 0 };
+        setHistory((prev) => prev.undo === next.undo && prev.redo === next.redo ? prev : next);
         if (!u.selectionSet && !u.docChanged) return;
         const sel = u.state.selection.main;
         if (sel.empty) {
@@ -336,6 +341,7 @@ export function MemoEditorForm({
     [setCopilotSelection],
   );
   useEffect(() => {
+    setHistory({ undo: false, redo: false });
     if (!autoFocus) return;
     const id = requestAnimationFrame(() => editorHandleRef.current?.focus());
     return () => cancelAnimationFrame(id);
@@ -377,6 +383,16 @@ export function MemoEditorForm({
 
   const toolbar = (
     <div className="memo-editor-tools flex items-center gap-2">
+      <div className="memo-history-tools" role="group" aria-label={t.editor_history}>
+        <IconTool label={t.undo} hint="⌘Z" disabled={!history.undo} onClick={() => {
+          const view = viewHandleRef.current?.view;
+          if (view) { undo(view); view.focus(); }
+        }}><Undo2 size={15} /></IconTool>
+        <IconTool label={t.redo} hint="⇧⌘Z" disabled={!history.redo} onClick={() => {
+          const view = viewHandleRef.current?.view;
+          if (view) { redo(view); view.focus(); }
+        }}><Redo2 size={15} /></IconTool>
+      </div>
       <FolderCombobox
         ref={folderPickerRef}
         popupSide={toolbarTarget ? "bottom" : "top"}

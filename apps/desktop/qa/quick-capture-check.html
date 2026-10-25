@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>Quick capture integration check</title>
+<div id="root"></div>
+<button id="recapture" style="position:fixed;top:56px;left:8px;z-index:110">Capture again</button>
+<output id="motion-results" style="position:fixed;top:88px;left:8px;z-index:110;max-width:210px;font:11px monospace;white-space:pre-wrap"></output>
+<script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { TooltipProvider } from '@garden/ui';
+import { App } from '/src/components/App.tsx';
+import { CaptureOverlay } from '/src/components/CaptureOverlay.tsx';
+import { I18nProvider } from '/src/lib/i18n.tsx';
+import { emit, listen } from '/src/lib/tauri.ts';
+import '/src/app.css';
+
+// Exercise the actual shell listener and composer in one browser event bus.
+// This page uses only the browser's localStorage vault, never native storage.
+const h = React.createElement;
+let saved = false;
+let session = 0;
+let traceSerial = 0;
+document.getElementById('recapture').onclick = () => emit('capture:show', ++session);
+function traceMotion() {
+  const serial = ++traceSerial;
+  document.getElementById('motion-results').textContent = '';
+  const samples = [];
+  const started = performance.now();
+  function sample() {
+    if (serial !== traceSerial) return;
+    const panel = document.querySelector('.capture-panel');
+    if (panel) {
+      const rect = panel.getBoundingClientRect();
+      samples.push({t:Math.round(performance.now()-started), width:Math.round(rect.width), height:Math.round(rect.height), bottom:Math.round(rect.bottom), opacity:Number(getComputedStyle(panel).opacity)});
+    }
+    if (performance.now()-started < 350) requestAnimationFrame(sample);
+    else document.getElementById('motion-results').textContent = JSON.stringify(samples, null, 1);
+  }
+  requestAnimationFrame(sample);
+}
+await listen('memos:changed', () => { saved = true; traceMotion(); });
+await listen('capture:show', traceMotion);
+await listen('capture:closing', traceMotion);
+await listen('capture:open-note', () => {
+  document.title = saved ? 'PASS: explicit capture open' : 'FAIL: open before save';
+});
+createRoot(document.getElementById('root')).render(
+  h(I18nProvider, null, h(TooltipProvider, null,
+    h(App),
+    h('div', {style:{position:'fixed',inset:0,zIndex:100,pointerEvents:'none'}},
+      h('div', {style:{width:560,height:'100%',margin:'auto',pointerEvents:'auto'}}, h(CaptureOverlay))),
+  )),
+);
+</script>
+</html>
