@@ -7,6 +7,36 @@
  * window from the renderer.
  */
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit, invoke } from "./tauri";
+
+export const isNativeWindow = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+export async function completeCapture(id: string, generation: number): Promise<boolean> {
+  return isNativeWindow() ? invoke<boolean>("complete_capture", { id, generation }) : true;
+}
+
+export async function dismissCapture(generation: number): Promise<void> {
+  if (isNativeWindow()) await invoke("dismiss_capture", { generation });
+  else await emit("capture:closing", generation + 1);
+}
+
+/** Park the native window only after the visible card has finished leaving. */
+export async function finishCaptureDismissal(generation: number): Promise<void> {
+  if (isNativeWindow()) await invoke("finish_capture_dismissal", { generation });
+  else await emit("capture:hide");
+}
+
+export async function openCapturedNote(id: string, generation: number): Promise<void> {
+  if (isNativeWindow()) await invoke("open_captured_note", { generation });
+  else {
+    await dismissCapture(generation);
+    await emit("capture:open-note", id);
+  }
+}
+
+export async function holdCaptureReceipt(generation: number, hold: boolean): Promise<void> {
+  if (isNativeWindow()) await invoke("hold_capture_receipt", { generation, hold });
+}
 
 export function isRouteCapture(): boolean {
   if (typeof window === "undefined") return false;
