@@ -60,9 +60,46 @@ pub fn space_dir(oxi_home: &Path, name: &str) -> PathBuf {
     spaces_root(oxi_home).join(name)
 }
 
-/// `<oxi-home>/spaces/<name>/vault/` for a validated space name.
+/// `<oxi-home>/spaces/<name>/vault/` — a validated space's vault root.
 pub fn space_vault_dir(oxi_home: &Path, name: &str) -> PathBuf {
     space_dir(oxi_home, name).join(crate::paths::VAULT_DEFAULT_SUBDIR)
+}
+
+/// `vault/oximemo.toml` — the ownership marker. Its presence says "this
+/// vault belongs to oximemo". The `~/.oxi/spaces/` tree is shared with
+/// oxibrain, which provisions machine-managed project-memory vaults in
+/// the same layout (`codex-<project>-<hash>` et al.); those carry no
+/// marker and must not surface as switchable oximemo spaces. The file
+/// is still the optional settings file it always was — an empty body
+/// means defaults — but it now also claims ownership. oximemo writes it
+/// when creating a space, when the open path opens a space vault
+/// (adoption), and when the user explicitly switches to an unmarked
+/// space (see [`switch_space`]).
+pub fn ownership_marker_path(oxi_home: &Path, name: &str) -> PathBuf {
+    space_vault_dir(oxi_home, name).join(crate::paths::CONFIG_NAME)
+}
+
+/// True when the space's vault carries the ownership marker. Invalid
+/// names are never owned.
+pub fn is_owned_space(oxi_home: &Path, name: &str) -> bool {
+    validate_space_name(name).is_ok() && ownership_marker_path(oxi_home, name).is_file()
+}
+
+/// Write the ownership marker when missing. Creates the vault
+/// directory if needed; an existing marker is left untouched. The body
+/// matches [`create_space`]'s historical scaffold: an all-defaults
+/// configuration.
+pub fn ensure_ownership_marker(oxi_home: &Path, name: &str) -> Result<()> {
+    let name = validate_space_name(name)?;
+    let path = ownership_marker_path(oxi_home, &name);
+    if path.is_file() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    oxi_frontmatter::atomic_write(&path, b"# oximemo vault configuration\n")?;
+    Ok(())
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -143,11 +180,16 @@ pub fn resolve_vault_spec(explicit: Option<&Path>, space: Option<&str>) -> Resul
     Ok(VaultSpec::Space(DEFAULT_SPACE_NAME.to_string()))
 }
 
-/// Every space directory under `~/.oxi/spaces/`: subdirectories whose
-/// names pass validation, skipping dotfiles, sorted. The filesystem is
-/// the registry — the daemon is never consulted (offline is normal).
+/// Spaces oximemo owns: directories under `~/.oxi/spaces/` whose vault
+/// carries the ownership marker ([`ownership_marker_path`]), sorted.
+/// The filesystem plus marker is the registry — the daemon is never
+/// consulted (offline is normal). Unmarked directories in the shared
+/// tree (oxibrain project-memory vaults and other machine-managed
+/// stores) stay invisible here but remain openable through explicit
+/// `--space`/`--vault`, which adopts them.
 pub fn list_spaces() -> Vec<String> {
-    let root = spaces_root(&crate::paths::oxi_home());
+    let oxi_home = crate::paths::oxi_home();
+    let root = spaces_root(&oxi_home);
     let mut names: Vec<String> = std::fs::read_dir(&root)
         .into_iter()
         .flatten()
@@ -155,44 +197,41 @@ pub fn list_spaces() -> Vec<String> {
         .filter(|e| e.path().is_dir())
         .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
         .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| validate_space_name(n).is_ok())
+        .filter(|n| is_owned_space(&oxi_home, n))
         .collect();
     names.sort();
     names
 }
 
-/// Create a space by name (idempotent) and scaffold its `vault/`: `mkdir -p`,
-/// then `Vault::open_spec` + `ensure_initialized` (folders, config).
-/// No brain-directory writes here — the active space's documents root
-/// is ensured on the next open (brain 0.10 cutover spec §2).
+/// Create a space by name (idempotent) and scaffold its `vault/`:
+/// `mkdir -p`, then `Vault::open_spec` + `ensure_initialized` (folders,
+/// config). The open path writes the ownership marker. No
+/// brain-directory writes here — the active space's documents root is
+/// ensured on the next open (brain 0.10 cutover spec §2).
 pub fn create_space(name: &str) -> Result<PathBuf> {
     let name = validate_space_name(name)?;
     let home = crate::paths::oxi_home();
-    let dir = space_dir(&home, &name);
-    let vault_dir = space_vault_dir(&home, &name);
-    std::fs::create_dir_all(&vault_dir)?;
-    let vault = crate::Vault::open_spec(&VaultSpec::Space(name))?;
+    std::fs::create_dir_all(space_vault_dir(&home, &name))?;
+    let vault = crate::Vault::open_spec(&VaultSpec::Space(name.clone()))?;
     vault.migrate()?;
-    let config = vault_dir.join(crate::paths::CONFIG_NAME);
-    if !config.is_file() {
-        oxi_frontmatter::atomic_write(&config, b"# oximemo vault configuration\n")?;
-    }
-    Ok(dir)
+    Ok(space_dir(&home, &name))
 }
 
 /// Record the user's space selection. The directory must already exist
-/// (create first). Returns the space dir for the caller to report.
+/// (create first). Switching to an unmarked space adopts it: the
+/// ownership marker is written so the space appears in listings from
+/// then on. Returns the space dir for the caller to report.
 pub fn switch_space(name: &str) -> Result<PathBuf> {
     let name = validate_space_name(name)?;
     let home = crate::paths::oxi_home();
-    let dir = space_dir(&home, &name);
     if !space_vault_dir(&home, &name).is_dir() {
         return Err(CoreError::Other(format!(
             "space '{name}' does not exist (create it first: oximemo space add {name})"
         )));
     }
+    ensure_ownership_marker(&home, &name)?;
     set_last_space(&name)?;
-    Ok(dir)
+    Ok(space_dir(&home, &name))
 }
 
 #[cfg(test)]
@@ -263,15 +302,44 @@ mod tests {
     // -- list/create/switch --
 
     #[test]
-    fn list_spaces_is_sorted_and_validated() {
+    fn list_spaces_sorted_validated_and_owned_only() {
         let home = tempfile::tempdir().unwrap().keep();
         crate::migrate_vault::with_home(&home, || {
             let oxi = home.join(".oxi");
-            std::fs::create_dir_all(space_dir(&oxi, "beta")).unwrap();
-            std::fs::create_dir_all(space_dir(&oxi, "alpha")).unwrap();
+            // Owned: the marker is present.
+            ensure_ownership_marker(&oxi, "beta").unwrap();
+            ensure_ownership_marker(&oxi, "alpha").unwrap();
+            // Unmarked machine-provisioned vault (oxibrain project
+            // memory shape): a valid directory, never listed.
+            std::fs::create_dir_all(space_vault_dir(&oxi, "codex-x-12345678")).unwrap();
             std::fs::create_dir_all(space_dir(&oxi, ".hidden")).unwrap();
             std::fs::create_dir_all(space_dir(&oxi, "not ok")).unwrap();
             assert_eq!(list_spaces(), vec!["alpha".to_string(), "beta".to_string()]);
+        });
+    }
+
+    #[test]
+    fn open_adopts_unmarked_space() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            let oxi = home.join(".oxi");
+            std::fs::create_dir_all(space_vault_dir(&oxi, "legacy")).unwrap();
+            assert!(!is_owned_space(&oxi, "legacy"));
+            crate::Vault::open_spec(&VaultSpec::Space("legacy".into())).unwrap();
+            assert!(is_owned_space(&oxi, "legacy"));
+            assert_eq!(list_spaces(), vec!["legacy".to_string()]);
+        });
+    }
+
+    #[test]
+    fn switch_space_adopts_unmarked_space() {
+        let home = tempfile::tempdir().unwrap().keep();
+        crate::migrate_vault::with_home(&home, || {
+            let oxi = home.join(".oxi");
+            std::fs::create_dir_all(space_vault_dir(&oxi, "imported")).unwrap();
+            switch_space("imported").unwrap();
+            assert!(is_owned_space(&oxi, "imported"));
+            assert_eq!(list_spaces(), vec!["imported".to_string()]);
         });
     }
 

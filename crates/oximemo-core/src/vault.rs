@@ -322,6 +322,22 @@ impl Vault {
             }
         }
         let paths = Paths::resolve_spec(spec);
+        // Ownership adoption: opening a space vault claims it for
+        // oximemo by writing `vault/oximemo.toml`. The shared
+        // `~/.oxi/spaces/` tree also holds machine-provisioned vaults
+        // (oxibrain project memory); only marked vaults are listed as
+        // spaces and registered with the brain (gate below). Explicit
+        // `--vault` paths are never auto-marked — a marker there must
+        // come from the vault's owner.
+        if let crate::spaces::VaultSpec::Space(name) = spec {
+            if let Err(e) = crate::spaces::ensure_ownership_marker(&oxi, name) {
+                tracing::warn!(
+                    error = %e,
+                    space = %name,
+                    "ownership marker not written; space stays unlisted"
+                );
+            }
+        }
         let config = VaultConfig::load(&paths);
         // Brain documents-plane glue (unified home): record the active
         // space's registration request. Pure filesystem inside
@@ -331,7 +347,14 @@ impl Vault {
         // delivers it through the oxibrain-client
         // `register_document_root` boundary; until then the request
         // waits in `pending_root_registration.json` (doctor-visible).
-        if config.brain.enabled {
+        //
+        // Only owned vaults register: the vault must carry
+        // `vault/oximemo.toml`. Space vaults are marked by the adoption
+        // above; custom `--vault` paths register only when they were
+        // created as oximemo vaults. This keeps machine-provisioned
+        // dirs in the shared tree and one-off targets (test tempdirs,
+        // foreign checkouts) out of the brain's documents.toml.
+        if config.brain.enabled && paths.vault.join(crate::paths::CONFIG_NAME).is_file() {
             let space = crate::brain::vault_space_name(&paths.vault);
             crate::brain::record_pending_root_registration(&paths.vault, &space);
             tracing::debug!(space = %space, "brain: document root registration recorded");

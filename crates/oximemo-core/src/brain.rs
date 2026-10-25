@@ -483,4 +483,35 @@ mod tests {
             assert!(out.is_none());
         });
     }
+
+    #[test]
+    fn open_registers_only_owned_vaults() {
+        let home = tempfile::tempdir().unwrap().keep();
+        with_home(&home, || {
+            let pending_dir = home.join("pending-test");
+            let vault = home.join("custom-vault");
+            std::fs::create_dir_all(&vault).unwrap();
+            with_test_pending_dir(&pending_dir, || {
+                // Unmarked custom vault: opens fine but never registers.
+                // Explicit paths are not auto-marked either — ownership
+                // there is the vault owner's statement.
+                crate::Vault::open_spec(&crate::spaces::VaultSpec::Explicit(vault.clone()))
+                    .unwrap();
+                assert!(!pending_dir.join(PENDING_FILE_NAME).exists());
+                assert!(!vault.join(crate::paths::CONFIG_NAME).exists());
+
+                // The owner marks the vault; the next open registers it.
+                std::fs::write(
+                    vault.join(crate::paths::CONFIG_NAME),
+                    b"# oximemo vault configuration\n",
+                )
+                .unwrap();
+                crate::Vault::open_spec(&crate::spaces::VaultSpec::Explicit(vault.clone()))
+                    .unwrap();
+                let pending = pending_root_registration().unwrap();
+                assert_eq!(pending.requests.len(), 1);
+                assert_eq!(pending.requests[0].request.alias, "custom-vault");
+            });
+        });
+    }
 }

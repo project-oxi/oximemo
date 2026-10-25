@@ -207,16 +207,26 @@ The default vault is the active space's vault, `~/.oxi/spaces/<space>/vault/`
 
 ```plain
 ~/.oxi/
-├── spaces/
+├── spaces/                  # shared tree — not every directory is an oximemo space
 │   └── personal/
 │       └── vault/           # the default vault
 │           ├── <folder>/<title-slug>.md
 │           ├── _assets/     # images, referenced as oximg://
 │           ├── .trash/      # soft-deleted notes
-│           └── oximemo.toml # optional vault settings
+│           └── oximemo.toml # ownership marker + optional vault settings
 ├── oximemo/                 # oximemo-private state (settings, index)
 └── brain/                   # oxibrain's data plane (never written by oximemo)
 ```
+
+The `spaces/` tree is shared with oxibrain, which provisions
+machine-managed project-memory vaults in the same layout
+(`codex-<project>-<hash>`, `chatgpt-general`, …). `vault/oximemo.toml`
+is the ownership marker: only marked vaults appear in `oximemo space
+list` and the desktop space picker, and only marked vaults register as
+brain document roots. Opening a space adopts it (the marker is written
+on open), switching to an unmarked space adopts it, and explicit
+`--vault` paths are never auto-marked — mark a custom vault by placing
+the file to claim it.
 
 Older installs keep working: the pre-unification vaults (macOS
 Application Support, the flat `~/.oxi/vault`) are migrated into the
