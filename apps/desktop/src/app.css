@@ -14,6 +14,25 @@
 @import "./workspace-motion.css";
 @import "./garden-adapter.css";
 
+/* UI chrome is not text: nothing selects by default (sidebar, breadcrumb,
+ * panels, buttons, cards). Only content surfaces opt back in — editors,
+ * inputs, and rendered markdown previews. HTML previews are sandboxed
+ * iframes with their own document, so they are unaffected. */
+html {
+  user-select: none;
+  -webkit-user-select: none;
+}
+html :is(input, textarea),
+html [contenteditable="true"],
+html [contenteditable="true"] *,
+html .cm-editor,
+html .cm-editor *,
+html .md-preview,
+html .md-preview * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* dark: variant retargeted to the .dark class (§8.3) — tokens-only. */
 @custom-variant dark (&:where(.dark, .dark *));
 
