@@ -5,6 +5,53 @@ All notable changes to oximemo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] — 2026-10-25
+
+### Added
+
+- **Custom context menus across surfaces.** Notes, tasks, properties, editor
+  text, view tabs, chips, and the copilot panel get right-click menus with
+  keyboard navigation and localized labels: open/copy/remove property values,
+  copy task text, mark done, rename or delete views, retry or clear copilot
+  turns. Submenus and long labels stay inside compact windows.
+- **Mobile note references and readable code.** The phone reader renders note
+  references and links as inert buttons that only navigate on an explicit tap
+  through the host resolver, and code blocks gain a language caption with a
+  copy button.
+- **Mobile attachment sync.** The sync server exposes an explicit attachment
+  read endpoint with managed asset serving. Relative references reject vault
+  escapes, symlinks, and private paths, and managed payloads must match their
+  SHA-256 on both the server and the phone.
+- **Editor history.** The memo editor gains explicit undo/redo history actions.
+
+### Changed
+
+- **Fast memo creation.** Note creation and autosave commit the file and
+  document index synchronously but defer the full-text search projection to a
+  convergent reproject pass, cutting the click-to-new-note path from ~210 ms
+  to ~47 ms while interleaved writers always converge to file truth.
+- **UI motion polish.** Popovers, toasts, and panels animate their exit;
+  view switches, hover, and drag-and-drop get directional feedback; mobile
+  navigation slides with the push/pop direction.
+- **Quick-capture owns its session.** The capture overlay tracks focus,
+  receipt, and dismissal in one session module: finishing a capture returns
+  focus to the interrupted app, and stale dismissals are generation-guarded.
+
+### Fixed
+
+- Right-clicking no longer selects surrounding UI chrome: text selection is
+  suppressed outside content surfaces, which opt back in explicitly.
+- The main titlebar and the memo sheet header drag the window again, without
+  stealing clicks from the buttons embedded in them.
+- Desktop grid and list excerpts render through an isolated parser with an
+  inert allowlist: links keep their label without navigating, and Markdown
+  images keep descriptions without loading sources.
+- Mobile editing preserves untouched CRLF/mixed line endings, compatibility
+  syntax, and source comments; unsaved drafts recover separately from the
+  canonical document, and the native save boundary rejects changed sources.
+- The daily-note template now applies only to truly empty input; a body with
+  content but no heading is left as authored instead of being templated.
+
 ## [0.20.0] — 2026-10-25
 
 ### Added
