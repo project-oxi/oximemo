@@ -45,6 +45,7 @@ import {
   listFolders,
   listMemos,
   copilotStatus,
+  copilotSuggest,
   folderSchema,
   queryNotes,
   installCollection,
@@ -1205,6 +1206,36 @@ export function CardGrid() {
         setView("memos");
         useUI.getState().openBase({ path });
       },
+      // F6 (AI 필터, goal 2026-10-25): the palette's input → live query
+      // view. Copilot-gated — the command only exists when an agent is
+      // activated, since ask ships the typed text to it. Empty input
+      // only hints (the agent is never called with ""); a failure or an
+      // empty translation toasts instead of opening a broken view.
+      ...(copilotVisible
+        ? {
+            ask: (text: string) => {
+              const q = text.trim();
+              if (q === "") {
+                setToast(t.palette_ask);
+                return;
+              }
+              copilotSuggest("query", null, q)
+                .then((res) => {
+                  const base = res.base?.trim();
+                  if (!base) {
+                    setToast(t.palette_ask_failed);
+                    return;
+                  }
+                  setView("memos");
+                  useUI.getState().setCmdPaletteOpen(false);
+                  useUI.getState().openBase({ inline: base });
+                })
+                .catch((e) =>
+                  setToast(`${t.palette_ask_failed} ${String(e).split("\n")[0]}`),
+                );
+            },
+          }
+        : {}),
       // SettingsMenu mounts only in the memos header — from gallery the
       // drawer would ghost-open with nothing consuming settingsOpen.
       openSettings: () => {
@@ -1232,7 +1263,7 @@ export function CardGrid() {
     [
       jumpToFolder, openToday, setView, setFavoritesOnly, setFolderFilter,
       cycleTag, setNoteView, toggleSidebar, onNewNote, onNewHtmlNote,
-      setError, configQ.data, qc, t, setToast,
+      setError, configQ.data, qc, t, setToast, copilotVisible,
     ],
   );
   // Knowledge-preset folder creation (§6.3): the palette action arms a

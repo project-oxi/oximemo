@@ -23,7 +23,7 @@ export type PaletteIcon =
   | "layers" | "star" | "images" | "archive" | "calendar" | "folder"
   | "hash" | "grid" | "list" | "timeline" | "graph" | "sidebar"
   | "note-md" | "note-html" | "folder-plus" | "zap" | "settings"
-  | "sun" | "moon" | "monitor" | "library" | "table";
+  | "sun" | "moon" | "monitor" | "library" | "table" | "sparkles";
 
 export interface PaletteCommand {
   /** Stable identity for the recency log (e.g. "folder:work/2026"). */
@@ -75,6 +75,11 @@ export interface CommandCallbacks {
   /** Query views (spec §5): create + open a new .query; open a listed one. */
   newQuery?: () => void;
   openQuery?: (path: string) => void;
+  /** F6 (AI 필터): the palette's input text → oximemo `.query` YAML via
+   *  the copilot agent. Present only when an agent is activated
+   *  (privacy: the typed text leaves the vault); CommandPalette binds
+   *  the live input before the command runs. */
+  ask?: (query: string) => void;
   openSettings: () => void;
   /** ⌘K space 전환 — opens the sidebar picker popover. */
   openSpacePicker?: () => void;
@@ -231,6 +236,15 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
       const alias = locale === "ko" ? b.name : b.name;
       add(`query:${b.path}`, "table", `${b.name}`, alias, "nav", () => callbacks.openQuery?.(b.path));
     }
+  }
+  // F6 (AI 필터): the typed input itself becomes the filter — the host
+  // translates it via copilot_suggest("query"). Exists only when the
+  // callback does (copilot activated); CommandPalette wraps `ask` to
+  // feed the live input text (the "" here only satisfies the signature).
+  if (callbacks.ask) {
+    const a = pair(locale, "palette_ask");
+    const ask = callbacks.ask;
+    add("action.ask", "sparkles", a.title, a.alias, "action", () => ask(""));
   }
 
   const md = pair(locale, "new_note_md");

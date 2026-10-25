@@ -593,6 +593,33 @@ async function browserFallback(
     }
     case "copilot_cancel":
       return true;
+    case "copilot_suggest": {
+      // Browser-only fixtures so suggestion UIs are exercisable without a
+      // subprocess; same smoke-fixture discipline as copilot_send.
+      const kind = (args?.kind as string) ?? "all";
+      if (kind === "query") {
+        return {
+          base: 'source: notes\nfilters: \'file.hasTag("inbox")\'\nviews:\n  - type: table\n    name: 기본',
+        };
+      }
+      if (kind === "continue") {
+        return { continuation: "(브라우저 미리보기용 예시 문장입니다.)" };
+      }
+      if (kind === "digest") {
+        return { markdown: "## 요약\n\n(브라우저 미리보기용 예시 요약입니다.)" };
+      }
+      if (kind === "tasks") {
+        return { tasks: ["(브라우저 미리보기용 예시 할 일)"] };
+      }
+      if (kind === "tags") {
+        return { tags: ["예시태그"] };
+      }
+      return {
+        tags: ["예시태그"],
+        links: [],
+        tasks: ["(브라우저 미리보기용 예시 할 일)"],
+      };
+    }
     case "copilot_send": {
       // 1.5s delay so the busy state (Send↔Stop toggle, elapsed timer) is
       // exercisable in browser smoke. Browser-only; no subprocess runs.
@@ -1303,6 +1330,11 @@ async function browserFallback(
     case "brain_status":
       // Browser preview has no brain: a failure reason is a normal state.
       return { online: false, reason: "binary_missing" };
+    case "brain_contradictions":
+      throw new Error("Brain is offline");
+    case "related_memos":
+      // Browser preview has no search index: the See-also section hides.
+      return [];
     case "space_list":
       return [{ name: "personal", current: true }];
     case "space_create":

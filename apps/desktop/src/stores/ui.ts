@@ -180,6 +180,11 @@ interface UIState {
   /** Turn start epoch ms; drives the elapsed timer across remounts. */
   copilotStartedAt: number | null;
   setCopilotStartedAt: (t: number | null) => void;
+  /** Assistant text streamed in by the in-flight turn ("copilot-stream"
+   * events). Advisory: the final parsed response replaces it. */
+  copilotStream: string;
+  appendCopilotStream: (text: string) => void;
+  resetCopilotStream: () => void;
   resetCopilotChat: () => void;
   requestFolderCreate: () => void;
   /** One-shot request from the palette: create a folder in the main
@@ -436,6 +441,10 @@ export const useUI = create<UIState>((set, get) => ({
   copilotAgent: "",
   copilotStartedAt: null,
   setCopilotStartedAt: (t) => set({ copilotStartedAt: t }),
+  copilotStream: "",
+  appendCopilotStream: (text) =>
+    set((s) => ({ copilotStream: s.copilotStream ? `${s.copilotStream}\n\n${text}` : text })),
+  resetCopilotStream: () => set({ copilotStream: "" }),
   resetCopilotChat: () =>
     set((s) => ({
       copilotEpoch: s.copilotEpoch + 1,
@@ -446,6 +455,7 @@ export const useUI = create<UIState>((set, get) => ({
       copilotEntries: [],
       copilotSession: null,
       copilotModel: null,
+      copilotStream: "",
       // Resetting a conversation does not stop its native process.
       // The turn owner releases busy when that process actually settles.
     })),

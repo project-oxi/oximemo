@@ -94,3 +94,25 @@ test("nonzero completion keeps response and exact retry context", async () => {
   expect(entry.result.response).toBe("Partial work");
   expect(entry.retry).toEqual(payload);
 });
+
+test("stream buffer resets at send and when the turn settles", async () => {
+  useUI.getState().appendCopilotStream("stale text from a previous turn");
+  const pending = Promise.withResolvers<TurnResult>();
+  const turn = runCopilotTurn(payload, () => pending.promise);
+  expect(useUI.getState().copilotStream).toBe("");
+  useUI.getState().appendCopilotStream("partial");
+  useUI.getState().appendCopilotStream(" answer");
+  expect(useUI.getState().copilotStream).toBe("partial\n\n answer");
+  pending.resolve(result);
+  await turn;
+  expect(useUI.getState().copilotStream).toBe("");
+});
+
+test("stream buffer resets on a failed turn", async () => {
+  useUI.setState({ copilotBusy: false, copilotStartedAt: null });
+  await runCopilotTurn(payload, async () => {
+    useUI.getState().appendCopilotStream("half an answer");
+    throw new Error("agent died");
+  });
+  expect(useUI.getState().copilotStream).toBe("");
+});

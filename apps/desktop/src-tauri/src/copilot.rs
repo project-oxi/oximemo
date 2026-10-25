@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
@@ -764,6 +764,22 @@ pub async fn run_agent_process(
     timeout_secs: u64,
     on_spawn: impl FnOnce(i32),
 ) -> Result<ProcessOutcome, String> {
+    run_agent_process_streaming(exe, args, stdin_data, cwd, timeout_secs, on_spawn, |_| {}).await
+}
+
+/// [`run_agent_process`] plus incremental stdout line events: `on_line`
+/// fires for every complete stdout line as it lands (and once for a
+/// final unterminated tail), enabling live rendering of JSONL event
+/// streams. The full stdout buffer is still returned as usual.
+pub async fn run_agent_process_streaming(
+    exe: &Path,
+    args: &[String],
+    stdin_data: &str,
+    cwd: Option<&Path>,
+    timeout_secs: u64,
+    on_spawn: impl FnOnce(i32),
+    on_line: impl Fn(&str) + Send + 'static,
+) -> Result<ProcessOutcome, String> {
     let mut cmd = agent_command(exe)?;
     cmd.args(args)
         .stdin(std::process::Stdio::piped())
@@ -796,9 +812,29 @@ pub async fn run_agent_process(
     // draining only after wait() deadlocks the turn until the timeout.
     let stdout_task = child.stdout.take().map(|mut p| {
         tokio::spawn(async move {
-            let mut buf = Vec::new();
             use tokio::io::AsyncReadExt;
-            let _ = p.read_to_end(&mut buf).await;
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 8192];
+            let mut scanned = 0usize;
+            loop {
+                match p.read(&mut chunk).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&chunk[..n]);
+                        // Every complete line fires the moment it lands —
+                        // this is what makes JSONL streams renderable live.
+                        while let Some(rel) = buf[scanned..].iter().position(|&b| b == b'\n') {
+                            let end = scanned + rel;
+                            on_line(&String::from_utf8_lossy(&buf[scanned..end]));
+                            scanned = end + 1;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            if scanned < buf.len() {
+                on_line(&String::from_utf8_lossy(&buf[scanned..]));
+            }
             buf
         })
     });
@@ -1217,6 +1253,70 @@ pub fn parse_codex_jsonl(stdout: &str) -> CodexTurn {
 
 // ---- OxiCode (verified 0.76.0) -------------------------------------------
 
+/// Incremental assistant text from ONE stdout line, for live rendering of
+/// the panel while the subprocess runs (goal 2026-10-25). Only the JSONL
+/// dialects have honest incremental payloads:
+/// - omp: each assistant `message_end` carries the message's text parts;
+/// - codex: each `item.completed` with an `agent_message` item carries text.
+///
+/// claude and oxios print ONE payload at exit; oxicode's text lands in its
+/// final event — for these the stream is the parsed final response, so
+/// this returns None and the panel simply waits.
+pub fn extract_stream_text(agent: &str, line: &str) -> Option<String> {
+    let line = line.trim();
+    if !line.starts_with('{') {
+        return None;
+    }
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+        return None;
+    };
+    match agent {
+        "omp" => {
+            if v.get("type").and_then(|t| t.as_str()) != Some("message_end") {
+                return None;
+            }
+            let m = v.get("message");
+            if m.and_then(|m| m.get("role")).and_then(|r| r.as_str()) != Some("assistant") {
+                return None;
+            }
+            let text = m
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                item.get("text").and_then(|t| t.as_str())
+                            } else {
+                                None
+                            }
+                        })
+                        .filter(|t| !t.trim().is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                        .join("\n\n")
+                })
+                .unwrap_or_default();
+            if text.is_empty() { None } else { Some(text) }
+        }
+        "codex" => {
+            if v.get("type").and_then(|t| t.as_str()) != Some("item.completed") {
+                return None;
+            }
+            let item = v.get("item");
+            if item.and_then(|i| i.get("type")).and_then(|t| t.as_str()) != Some("agent_message") {
+                return None;
+            }
+            item.and_then(|i| i.get("text"))
+                .and_then(|t| t.as_str())
+                .filter(|t| !t.trim().is_empty())
+                .map(str::to_string)
+        }
+        _ => None,
+    }
+}
+
 /// Build the oxicode argv for one turn. Verified contract: `--print` is
 /// single-shot non-interactive, `--mode=json` emits NDJSON events,
 /// `-m`/`-p` select model/provider. Two verified gaps shape this
@@ -1266,6 +1366,247 @@ pub fn parse_oxicode_jsonl(stdout: &str) -> String {
 /// (the field is the spec §7 sample's own shape, not instruction prose).
 pub fn oxicode_prompt(ctx: &str, message: &str) -> String {
     format!("{ctx}user_request: {message}\n")
+}
+
+// ---- Structured suggestions (goal 2026-10-25) ------------------------------
+//
+// A suggest turn is a stateless, text-in/JSON-out delegation: the prompt
+// embeds capped note facts plus vault vocabulary, the agent answers ONE
+// strict JSON object, and the panel renders apply-able chips. No context
+// block, no session resume, no CLI handoff — advice must stay cheap and
+// predictable, and the JSON contract makes it machine-applicable.
+
+/// Hard cap on the embedded body: suggestions work on an excerpt, and the
+/// prompt discloses the truncation so it is never silent.
+pub const SUGGEST_BODY_MAX_CHARS: usize = 16_000;
+
+/// A suggest turn is advice, not work. Chat turns keep the configured
+/// budget (measured 2026-08-31: real turns need ~510 s); a suggestion that
+/// needs minutes is worthless by definition.
+pub const SUGGEST_TIMEOUT_CAP_SECS: u64 = 90;
+
+/// Valid suggest kinds — `copilot_suggest` validates against this list.
+pub const SUGGEST_KINDS: &[&str] = &["tags", "tasks", "all", "continue", "query", "digest"];
+
+/// The note facts a suggest prompt embeds.
+pub struct SuggestNote<'a> {
+    pub id: &'a str,
+    pub title: &'a str,
+    pub tags: &'a [String],
+    pub body: &'a str,
+}
+
+/// Vault vocabulary so suggestions reuse existing labels/titles instead of
+/// inventing new ones.
+pub struct SuggestVocab<'a> {
+    pub vault_tags: &'a [String],
+    pub related_titles: &'a [String],
+}
+
+fn suggest_body_block(note: &SuggestNote<'_>) -> String {
+    let mut body = note.body.to_string();
+    if body.chars().count() > SUGGEST_BODY_MAX_CHARS {
+        body = body.chars().take(SUGGEST_BODY_MAX_CHARS).collect();
+        body.push_str("\n…(본문 일부만 포함)");
+    }
+    format!(
+        "노트 id: {}\n제목: {}\n기존 태그: {}\n본문:\n{}",
+        note.id,
+        note.title,
+        if note.tags.is_empty() {
+            "(없음)".to_string()
+        } else {
+            note.tags.join(", ")
+        },
+        body,
+    )
+}
+
+fn vocab_line(list: &[String]) -> String {
+    if list.is_empty() {
+        "(없음)".to_string()
+    } else {
+        list.join(", ")
+    }
+}
+
+/// The user-request text for one suggest kind. Korean instruction prose
+/// mirrors the composer command templates; the JSON contract is the ONLY
+/// output the agent may produce.
+pub fn suggest_request(
+    kind: &str,
+    note: Option<&SuggestNote<'_>>,
+    vocab: &SuggestVocab<'_>,
+    text: &str,
+) -> Result<String, String> {
+    match kind {
+        "tags" => {
+            let note = note.ok_or("tags suggestion requires the active note")?;
+            Ok(format!(
+                "아래 노트에 어울리는 태그를 최대 5개 제안하라. 기존 태그 어휘를 재사용하고 새 단어는 필요할 때만 만들어라. 태그는 공백 없는 한 단어여야 한다. 설명 없이 JSON 한 개만 출력한다.\n출력 형식: {{\"tags\":[\"태그1\",\"태그2\"]}}\n\n기존 태그 어휘: {}\n\n{}",
+                vocab_line(vocab.vault_tags),
+                suggest_body_block(note),
+            ))
+        }
+        "tasks" => {
+            let note = note.ok_or("task suggestion requires the active note")?;
+            Ok(format!(
+                "아래 노트 본문에서 실행 가능한 할 일을 최대 10개 추출하라. 각 항목은 한 문장으로, 본문에 근거가 없는 일은 만들지 않는다. 할 일이 없으면 빈 배열을 담아라. 설명 없이 JSON 한 개만 출력한다.\n출력 형식: {{\"tasks\":[\"할 일 문장\"]}}\n\n{}",
+                suggest_body_block(note),
+            ))
+        }
+        "all" => {
+            let note = note.ok_or("suggestion requires the active note")?;
+            Ok(format!(
+                "아래 노트에 대해 세 가지 제안을 만들어라. (1) tags: 최대 5개의 태그, 기존 태그 어휘 재사용 우선. (2) links: 함께 링크하면 좋은 기존 노트 제목 — 아래 후보 목록에서만 고르고, 어울리는 것이 없으면 빈 배열. (3) tasks: 본문에서 추출한 실행 가능한 할 일 최대 5개, 근거가 없으면 빈 배열. 설명 없이 JSON 한 개만 출력한다.\n출력 형식: {{\"tags\":[],\"links\":[],\"tasks\":[]}}\n\n기존 태그 어휘: {}\n노트 후보: {}\n\n{}",
+                vocab_line(vocab.vault_tags),
+                vocab_line(vocab.related_titles),
+                suggest_body_block(note),
+            ))
+        }
+        "continue" => {
+            let note = note.ok_or("continuation requires the active note")?;
+            Ok(format!(
+                "아래 노트 본문이 끝난 지점을 자연스럽게 이어서 한두 문장을 써라. 목록이나 제목을 새로 만들지 말고 본문 어조를 따라가라. 설명 없이 JSON 한 개만 출력한다.\n출력 형식: {{\"continuation\":\"이어지는 문장\"}}\n\n{}",
+                suggest_body_block(note),
+            ))
+        }
+        "query" => {
+            if text.trim().is_empty() {
+                return Err("query suggestion requires the request text".to_string());
+            }
+            Ok(format!(
+                "다음 요청을 oximemo 쿼리 컬렉션(.query) YAML 하나로 변환하라. 최상위 키는 source(보통 notes), filters, views이고 views에는 type: table 또는 list와 order를 넣는다. filters는 문자열 식 또는 and/or/not 맵이며 식 예시는 file.hasTag(\"중요\"), updated > \"2026-01-01\", status == \"stub\", file.folder == \"daily\" 같은 형태다. 임의 필드는 식별자 그대로 쓴다. 설명 없이 JSON 한 개만 출력한다.\n출력 형식: {{\"base\":\"<YAML 문자열>\"}}\n\n요청: {}",
+                text.trim(),
+            ))
+        }
+        "digest" => {
+            let note = note.ok_or("digest requires the active note")?;
+            Ok(format!(
+                "아래 노트 내용을 깔끔한 마크다운 요약으로 정리하라. 새 사실을 만들지 말고 노트에 있는 내용만 다듬어라. 날짜·할 일·주제를 구조화하되 원래 표기와 태스크 문법(`- [ ]`, `📅`)은 보존하라. 설명 없이 JSON 한 개만 출력한다.\n출력 형식: {{\"markdown\":\"요약 마크다운\"}}\n\n{}",
+                suggest_body_block(note),
+            ))
+        }
+        other => Err(format!("unknown suggest kind '{other}'")),
+    }
+}
+
+/// A parsed suggestion payload. Every field is optional and clamped — a
+/// runaway model must not be able to flood the panel.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SuggestResult {
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub links: Vec<String>,
+    #[serde(default)]
+    pub tasks: Vec<String>,
+    #[serde(default)]
+    pub continuation: Option<String>,
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub markdown: Option<String>,
+}
+
+const SUGGEST_LIST_CAP: usize = 10;
+const SUGGEST_ITEM_MAX_CHARS: usize = 200;
+/// `.query` YAML is legitimately longer than one line — its own ceiling.
+const SUGGEST_BASE_MAX_CHARS: usize = 4000;
+/// A digest summary is real prose — a page, not a line.
+const SUGGEST_DIGEST_MAX_CHARS: usize = 20_000;
+
+fn clamp_scalar(raw: &str, cap: usize) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if s.chars().count() > cap {
+        Some(s.chars().take(cap).collect())
+    } else {
+        Some(s.to_string())
+    }
+}
+
+fn clamp_list(raw: Vec<String>) -> Vec<String> {
+    raw.into_iter()
+        .map(|s| {
+            let s = s.trim().to_string();
+            if s.chars().count() > SUGGEST_ITEM_MAX_CHARS {
+                s.chars().take(SUGGEST_ITEM_MAX_CHARS).collect()
+            } else {
+                s
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .take(SUGGEST_LIST_CAP)
+        .collect()
+}
+
+/// Extract the JSON suggestion object from a model response. Fences and
+/// prose are tolerated; the outermost `{...}` span is the candidate.
+pub fn parse_suggest_json(response: &str) -> Result<SuggestResult, String> {
+    let trimmed = response.trim();
+    let start = trimmed
+        .find('{')
+        .ok_or_else(|| "suggestion response has no JSON object".to_string())?;
+    let end = trimmed
+        .rfind('}')
+        .filter(|&e| e > start)
+        .ok_or_else(|| "suggestion response has no JSON object".to_string())?;
+    let mut result: SuggestResult = serde_json::from_str(&trimmed[start..=end])
+        .map_err(|e| format!("invalid suggestion JSON: {e}"))?;
+    result.tags = clamp_list(result.tags);
+    result.links = clamp_list(result.links);
+    result.tasks = clamp_list(result.tasks);
+    result.continuation = result
+        .continuation
+        .as_deref()
+        .and_then(|c| clamp_scalar(c, SUGGEST_ITEM_MAX_CHARS));
+    result.base = result
+        .base
+        .as_deref()
+        .and_then(|b| clamp_scalar(b, SUGGEST_BASE_MAX_CHARS));
+    result.markdown = result
+        .markdown
+        .as_deref()
+        .and_then(|m| clamp_scalar(m, SUGGEST_DIGEST_MAX_CHARS));
+    Ok(result)
+}
+
+/// Adapter argv for a stateless suggest turn: no context block, no session
+/// resume. oxicode ignores stdin, so the request rides the prompt; the
+/// others receive it as the positional prompt with empty stdin.
+pub fn suggest_invocation(
+    agent: &str,
+    model: Option<&str>,
+    request: &str,
+    vault_root: &Path,
+) -> Result<(Vec<String>, Option<std::path::PathBuf>, String), String> {
+    match agent {
+        "oxios" => Ok((oxios_args(None, request), None, String::new())),
+        "omp" => Ok((
+            omp_args(None, model, request),
+            Some(vault_root.to_path_buf()),
+            String::new(),
+        )),
+        "claude" => Ok((
+            claude_args(None, model, request),
+            Some(vault_root.to_path_buf()),
+            String::new(),
+        )),
+        "codex" => Ok((
+            codex_args(None, model, request),
+            Some(vault_root.to_path_buf()),
+            String::new(),
+        )),
+        "oxicode" => Ok((
+            oxicode_args(model, request),
+            Some(vault_root.to_path_buf()),
+            String::new(),
+        )),
+        other => Err(format!("no copilot adapter for '{other}'")),
+    }
 }
 
 /// One selectable model in the panel's model picker.
@@ -1483,6 +1824,171 @@ pub async fn oxios_set_default_model(exe: &Path, model: &str) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suggest_request_validates_kinds_and_required_inputs() {
+        let note = SuggestNote {
+            id: "m1",
+            title: "제목",
+            tags: &["old".into()],
+            body: "본문",
+        };
+        let vocab = SuggestVocab {
+            vault_tags: &["old".into()],
+            related_titles: &["다른 노트".into()],
+        };
+        assert!(suggest_request("tags", Some(&note), &vocab, "").is_ok());
+        assert!(suggest_request("tags", None, &vocab, "").is_err());
+        assert!(suggest_request("tasks", Some(&note), &vocab, "").is_ok());
+        assert!(suggest_request("all", Some(&note), &vocab, "").is_ok());
+        assert!(suggest_request("continue", Some(&note), &vocab, "").is_ok());
+        assert!(suggest_request("query", None, &vocab, "이번 주 마감 태스크").is_ok());
+        assert!(suggest_request("query", None, &vocab, "   ").is_err());
+        assert!(suggest_request("digest", Some(&note), &vocab, "").is_ok());
+        assert!(suggest_request("digest", None, &vocab, "").is_err());
+        assert!(suggest_request("bogus", Some(&note), &vocab, "").is_err());
+        assert!(SUGGEST_KINDS.contains(&"all"));
+    }
+
+    #[test]
+    fn suggest_request_truncates_long_body_with_marker() {
+        let long_body = "가".repeat(SUGGEST_BODY_MAX_CHARS + 100);
+        let note = SuggestNote {
+            id: "m1",
+            title: "",
+            tags: &[],
+            body: &long_body,
+        };
+        let vocab = SuggestVocab {
+            vault_tags: &[],
+            related_titles: &[],
+        };
+        let req = suggest_request("continue", Some(&note), &vocab, "").unwrap();
+        assert!(req.contains("(본문 일부만 포함)"));
+        assert!(req.chars().count() < SUGGEST_BODY_MAX_CHARS + 500);
+    }
+
+    #[test]
+    fn suggest_json_parses_fenced_and_prose_wrapped_objects() {
+        let r = parse_suggest_json(
+            "알겠습니다.\n```json\n{\"tags\":[\"rust\", \"\", \"  \"], \"tasks\":[\"x\"], \"continuation\":\" \"}\n```\n위와 같습니다.",
+        )
+        .unwrap();
+        assert_eq!(r.tags, vec!["rust"]);
+        assert_eq!(r.links, Vec::<String>::new());
+        assert_eq!(r.tasks, vec!["x"]);
+        assert_eq!(r.continuation, None);
+        assert_eq!(r.base, None);
+        assert!(parse_suggest_json("no json here").is_err());
+        assert!(parse_suggest_json("{not json}").is_err());
+        let empty = parse_suggest_json("{}").unwrap();
+        assert_eq!(empty, SuggestResult::default());
+    }
+
+    #[test]
+    fn suggest_json_clamps_runaway_payloads() {
+        let long_tag = "t".repeat(500);
+        let mut many = Vec::new();
+        for i in 0..30 {
+            many.push(format!("tag{i}"));
+        }
+        let payload = format!(
+            "{{\"tags\":{}, \"continuation\":\"{}\"}}",
+            serde_json::to_string(&many).unwrap(),
+            long_tag
+        );
+        let r = parse_suggest_json(&payload).unwrap();
+        assert_eq!(r.tags.len(), SUGGEST_LIST_CAP);
+        assert_eq!(
+            r.continuation.unwrap().chars().count(),
+            SUGGEST_ITEM_MAX_CHARS
+        );
+    }
+
+    #[test]
+    fn suggest_invocation_shapes_per_adapter() {
+        let root = std::path::Path::new("/tmp/vault");
+        for agent in ["oxios", "omp", "claude", "codex", "oxicode"] {
+            let (args, cwd, stdin) = suggest_invocation(agent, None, "요청", root).unwrap();
+            assert!(!args.is_empty());
+            assert_eq!(stdin, "");
+            if agent == "oxios" {
+                assert!(cwd.is_none());
+            } else {
+                assert_eq!(cwd.as_deref(), Some(root));
+            }
+        }
+        assert!(suggest_invocation("unknown", None, "r", root).is_err());
+    }
+
+    #[test]
+    fn stream_text_extracts_jsonl_assistant_payloads() {
+        // omp: assistant message_end text parts.
+        let omp_line = r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"part one"}]}}"#;
+        assert_eq!(
+            extract_stream_text("omp", omp_line).as_deref(),
+            Some("part one")
+        );
+        assert_eq!(
+            extract_stream_text(
+                "omp",
+                r#"{"type":"message_start","message":{"role":"assistant","model":"glm-5.2"}}"#
+            ),
+            None,
+            "message_start carries no text"
+        );
+        assert_eq!(
+            extract_stream_text(
+                "omp",
+                r#"{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}"#
+            ),
+            None,
+            "user messages never stream"
+        );
+        // codex: item.completed agent_message text.
+        let codex_line =
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"중간 답변"}}"#;
+        assert_eq!(
+            extract_stream_text("codex", codex_line).as_deref(),
+            Some("중간 답변")
+        );
+        assert_eq!(
+            extract_stream_text(
+                "codex",
+                r#"{"type":"item.completed","item":{"type":"command_execution","text":"ls"}}"#
+            ),
+            None
+        );
+        // Single-payload dialects: honest None.
+        assert_eq!(extract_stream_text("claude", r#"{"result":"x"}"#), None);
+        assert_eq!(extract_stream_text("oxios", r#"{"response":"x"}"#), None);
+        assert_eq!(extract_stream_text("omp", "TUI noise"), None);
+        assert_eq!(extract_stream_text("omp", "{not json"), None);
+    }
+
+    #[tokio::test]
+    async fn streaming_callback_receives_stdout_lines() {
+        use std::sync::Mutex;
+        let lines: std::sync::Arc<Mutex<Vec<String>>> = std::sync::Arc::default();
+        let sink = lines.clone();
+        let sh = std::path::Path::new("/bin/sh");
+        let args = vec!["-c".to_string(), "printf 'first\\nsecond\\n'".to_string()];
+        let outcome = run_agent_process_streaming(
+            sh,
+            &args,
+            "",
+            None,
+            10,
+            |_| {},
+            move |line| {
+                sink.lock().unwrap().push(line.to_string());
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome.exit_code, Some(0));
+        assert_eq!(*lines.lock().unwrap(), vec!["first", "second"]);
+    }
 
     #[test]
     fn saved_default_discloses_the_exact_qualified_selector() {

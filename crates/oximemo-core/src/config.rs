@@ -152,6 +152,10 @@ pub struct CopilotConfig {
     /// the epoch. A mismatch at turn start means the binary was swapped
     /// (upgrade/replacement) — spec §6.4: re-activate, never auto-run.
     pub exe_mtime_secs: u64,
+    /// Post-save suggestion strip (goal 2026-10-25). Opt-in: a suggest
+    /// turn sends note text to the activated agent's provider, so it
+    /// never runs unless explicitly enabled here.
+    pub suggest_after_save: bool,
 }
 
 impl Default for CopilotConfig {
@@ -163,6 +167,7 @@ impl Default for CopilotConfig {
             default_model: String::new(),
             timeout_secs: 600,
             exe_mtime_secs: 0,
+            suggest_after_save: false,
         }
     }
 }

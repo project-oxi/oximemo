@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 import { EditorView } from "@codemirror/view";
 import type { Text } from "@codemirror/state";
 
-import { createFolder, folderTemplate, getConfig, transformTaskDraft } from "../lib/api";
+import { copilotStatus, copilotSuggest, createFolder, folderTemplate, getConfig, transformTaskDraft } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { FolderCombobox, type FolderComboboxHandle } from "./FolderCombobox";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -149,6 +149,80 @@ export function MemoEditorForm({
   } | null>(null);
   const setError = useUI((s) => s.setError);
   const [imageError, setImageError] = useState<string[] | null>(null);
+  // AI 이어쓰기 (copilot continuation): visible only when the copilot
+  // agent is activated — the same ["copilot-status"] shared-cache query
+  // MemoDetail/CardGrid use. HTML notes never reach this form (MemoDetail
+  // mounts HtmlNoteEditor for them), so the markdown-only affordance is
+  // hidden there by construction.
+  const copilotQ = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
+  const copilotVisible = (copilotQ.data?.enabled ?? false) && (copilotQ.data?.activated ?? false);
+  const [contBusy, setContBusy] = useState(false);
+  const [contError, setContError] = useState<string | null>(null);
+  const contBusyRef = useRef(false);
+  const contAliveRef = useRef(true);
+  const contErrorRef = useRef<string | null>(null);
+  contAliveRef.current = true;
+  useEffect(() => () => {
+    contAliveRef.current = false;
+  }, []);
+  // The transient error line clears on the next doc change; the
+  // extension array must not depend on the error state, so the clear
+  // goes through refs (set only when something is showing).
+  const contClearRef = useRef<() => void>(() => {});
+  contClearRef.current = () => {
+    if (contErrorRef.current !== null) {
+      contErrorRef.current = null;
+      setContError(null);
+    }
+  };
+  const contClearExtension = useMemo(
+    () => EditorView.updateListener.of((u) => {
+      if (u.docChanged) contClearRef.current();
+    }),
+    [],
+  );
+
+  const runContinuation = useCallback(async () => {
+    const view = viewHandleRef.current?.view;
+    if (!view || contBusyRef.current) return;
+    contBusyRef.current = true;
+    setContError(null);
+    contErrorRef.current = null;
+    setContBusy(true);
+    try {
+      const out = await copilotSuggest("continue", documentId);
+      const continuation = out.continuation ?? "";
+      // Re-read the view after the await: the note may have been edited
+      // (or the editor swapped) while the agent was running.
+      const live = viewHandleRef.current?.view;
+      if (!continuation || !live) {
+        if (contAliveRef.current) {
+          const msg = continuation ? t.suggest_failed : t.suggest_empty;
+          contErrorRef.current = msg;
+          setContError(msg);
+        }
+        return;
+      }
+      const { state } = live;
+      const pos = state.selection.main.head;
+      const before = pos > 0 ? state.sliceDoc(pos - 1, pos) : "";
+      const joiner = before === "" || /\s/.test(before) ? "" : " ";
+      live.dispatch({
+        changes: { from: pos, insert: joiner + continuation },
+        selection: { anchor: pos + joiner.length + continuation.length },
+        scrollIntoView: true,
+      });
+    } catch (e) {
+      if (contAliveRef.current) {
+        const msg = e instanceof Error && e.message ? e.message.split("\n")[0] : t.suggest_failed;
+        contErrorRef.current = msg;
+        setContError(msg);
+      }
+    } finally {
+      contBusyRef.current = false;
+      if (contAliveRef.current) setContBusy(false);
+    }
+  }, [documentId, t]);
   const reportImageErrors = useCallback((files: string[]) => {
     setImageError(files.length ? files : null);
   }, []);
@@ -314,6 +388,7 @@ export function MemoEditorForm({
       // scroll container with the property block), so CM can't keep the
       // caret visible itself — delegate that to the outer scroller.
       outerScrollExtension(),
+      contClearExtension,
       // Selection → copilot context (Claude-desktop style): the panel
       // folds whatever is highlighted into the next turn. Authoritative
       // CM6 state, not DOM selection — synced on every selection/doc
@@ -329,7 +404,7 @@ export function MemoEditorForm({
         setCopilotSelection(text.trim() ? { memoId: documentId, text } : null);
       }),
     ],
-    [onNavigateMemo, onSaveAndClose, locale, t, documentId, setCopilotSelection, slashDeps, taskCfg, todayKey, wikiCfg],
+    [onNavigateMemo, onSaveAndClose, locale, t, documentId, setCopilotSelection, slashDeps, taskCfg, todayKey, wikiCfg, contClearExtension],
   );
   useEffect(
     () => () => setCopilotSelection(null),
@@ -403,6 +478,25 @@ export function MemoEditorForm({
       >
         <ImageIcon size={15} />
       </button>
+      {copilotVisible && (
+        <>
+          <button
+            type="button"
+            onClick={() => void runContinuation()}
+            disabled={contBusy}
+            aria-label={t.suggest_continuation}
+            title={`${t.suggest_continuation} · ${t.suggest_continuation_hint}`}
+            className="memo-editor-continue inline-flex h-8 items-center justify-center rounded-[var(--button-radius)] px-2 text-[11px] text-text-subtle shadow-[var(--input-shadow)] transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)] disabled:cursor-default disabled:opacity-50"
+          >
+            {contBusy ? t.suggest_continuation_running : t.suggest_continuation}
+          </button>
+          {contError && (
+            <span role="alert" className="text-[11px] text-text-subtle">
+              {contError}
+            </span>
+          )}
+        </>
+      )}
       <input
         ref={fileInputRef}
         type="file"
