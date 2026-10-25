@@ -37,13 +37,30 @@ import { PropertyPanel } from "./PropertyPanel";
 import { HtmlNoteEditor } from "./HtmlNoteEditor";
 import { TagChipRow } from "./TagChipRow";
 import { MemoEditorForm } from "./MemoEditorForm";
+import { NoteCtxMenu } from "./NoteCtxMenu";
+import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { IconTool } from "./IconTool";
 import type { FolderComboboxHandle } from "./FolderCombobox";
-import type { FolderEntry, Memo } from "../lib/types";
+import type { FolderEntry, Memo, MemoSummary } from "../lib/types";
 
 const AUTOSAVE_IDLE_MS = 1200;
 
-export function MemoDetail() {
+/** Note-menu callbacks owned by the CardGrid scope (undo-toast delete,
+ *  shared favorite/move/copy handlers). All optional: MemoDetail falls
+ *  back to its own draft-aware actions until threaded (§3.2). */
+export interface MemoDetailProps {
+  onToggleFavorite?: (id: string, favorite: boolean) => void;
+  onMoveFolder?: (id: string, folder: string) => void;
+  onCopyBody?: (id: string) => void;
+  onDelete?: (id: string) => void;
+}
+
+export function MemoDetail({
+  onToggleFavorite,
+  onMoveFolder,
+  onCopyBody,
+  onDelete,
+}: MemoDetailProps = {}) {
   const { t } = useI18n();
   const displayFolder = useFolderNames().displayName;
   const selectedId = useUI((s) => s.selectedId);
@@ -384,6 +401,41 @@ export function MemoDetail() {
       });
   };
 
+  // Header right-click (§3.2): the open note reuses NoteCtxMenu so every
+  // note surface offers the same actions. Favorite/move/copy act on the
+  // open draft directly; delete prefers the CardGrid-owned handler (undo
+  // toast) when threaded, otherwise deletes and closes inline.
+  const menuSummary: MemoSummary | null = memo.data
+    ? { ...memo.data, preview: "", deleted: false }
+    : null;
+  const onMenuToggleFavorite = (id: string, next: boolean) => {
+    if (id !== memo.data?.id) return;
+    if (onToggleFavorite) { onToggleFavorite(id, next); return; }
+    edit(setFavorite)(next);
+  };
+  const onMenuMoveFolder = (id: string, f: string) => {
+    if (id !== memo.data?.id) return;
+    if (onMoveFolder) { onMoveFolder(id, f); return; }
+    applyFolder(f);
+  };
+  const onMenuCopyBody = (id: string) => {
+    if (onCopyBody) { onCopyBody(id); return; }
+    void navigator.clipboard.writeText(bodyRef.current).catch((e) => setError(String(e).split("\n")[0]));
+  };
+  const onMenuDelete = (id: string) => {
+    if (onDelete) { onDelete(id); return; }
+    void (async () => {
+      try {
+        await deleteMemo(id);
+        void qc.invalidateQueries({ queryKey: ["memos"] });
+        void qc.invalidateQueries({ queryKey: ["folderChildren"] });
+        select(null);
+      } catch (e) {
+        setError(String(e).split("\n")[0]);
+      }
+    })();
+  };
+
   // Daily-note navigation (user prompt 2026-08-23): a note living at
   // `{daily.folder}/YYYY-MM-DD.*` is a journal entry — offer day arrows
   // and a relative-date chip. Arrows open (or mint, like the calendar)
@@ -490,7 +542,11 @@ export function MemoDetail() {
         >
           <div className="flex h-full flex-col">
             <Dialog.Title className="sr-only">{memo.data?.title || t.empty_memo}</Dialog.Title>
-            <div className="memo-sheet-header" data-tauri-drag-region>
+            <CtxRoot>
+              <CtxTrigger
+                render={<span className="contents" />}
+              >
+                <div className="memo-sheet-header" data-tauri-drag-region="deep">
               {(!memo.data || memo.data.format === "html") && (
                 <span className="inline-flex items-center gap-1 text-xs text-text-subtle">
                   <Folder size={12} aria-hidden />
@@ -551,7 +607,19 @@ export function MemoDetail() {
                   {t.done}
                 </Button>
               </div>
-            </div>
+                </div>
+                {menuSummary && (
+                  <NoteCtxMenu
+                    memo={menuSummary}
+                    folderEntries={folders}
+                    onToggleFavorite={onMenuToggleFavorite}
+                    onMoveFolder={onMenuMoveFolder}
+                    onCopyBody={onMenuCopyBody}
+                    onDelete={onMenuDelete}
+                  />
+                )}
+              </CtxTrigger>
+            </CtxRoot>
             {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
               // Skeleton in the sheet's shape: title, property chips, body
               // paragraphs — stands in for PropertyPanel + content.

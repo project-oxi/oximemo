@@ -36,7 +36,8 @@ import { useI18n } from "../lib/i18n";
 import { useUI, type Location } from "../stores/ui";
 import { useFolderDrop } from "../lib/dropTarget";
 import { useFolderNames } from "../lib/folders";
-import type { FolderDef, FolderEntry } from "../lib/types";
+import { FolderMenu } from "./FolderTile";
+import type { FolderCard, FolderDef, FolderEntry } from "../lib/types";
 
 export interface BreadcrumbBarProps {
   folders: FolderEntry[];
@@ -50,6 +51,14 @@ export interface BreadcrumbBarProps {
   /** 「이 필터를 쿼리로 저장」 (spec §5): present when tag filters are
    *  active; CardGrid supplies the saver. */
   saveAsQuery?: () => void;
+  /** Folder management for the segment right-click menu (§3.2). Absent →
+   *  no menu (segments keep navigation only). Threaded from CardGrid. */
+  onRenameFolder?: (path: string) => void;
+  onToggleFolderPin?: (path: string, pinned: boolean) => void;
+  onDeleteFolder?: (path: string, deep: number, confirmed?: boolean) => void;
+  /** FolderCard counts — `note_count_deep` powers the delete-confirm
+   *  wording. Falls back to the entry's direct count when absent. */
+  folderCards?: FolderCard[];
 }
 
 /** Direct children of `path` ("" = root level). */
@@ -124,7 +133,17 @@ function queryHeaderFor(
   return { icon: <Layers size={13} aria-hidden="true" />, label: labels.all };
 }
 
-export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFolderTree, saveAsQuery }: BreadcrumbBarProps) {
+export function BreadcrumbBar({
+  folders,
+  folderDefs = [],
+  onMoveNote,
+  onMoveFolderTree,
+  saveAsQuery,
+  onRenameFolder,
+  onToggleFolderPin,
+  onDeleteFolder,
+  folderCards,
+}: BreadcrumbBarProps) {
   const { t } = useI18n();
   const folderFilter = useUI((s) => s.folderFilter);
   const setFolderFilter = useUI((s) => s.setFolderFilter);
@@ -248,7 +267,6 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
       <nav
         ref={wrapRef}
         aria-label={t.breadcrumb_label}
-        data-tauri-drag-region="false"
         className="flex min-w-24 flex-1 items-center overflow-hidden text-[13px]"
       >
         <span aria-current="page" className="flex items-center gap-1.5 px-1 font-semibold text-text">
@@ -274,7 +292,6 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
     <nav
       ref={wrapRef}
       aria-label={t.breadcrumb_label}
-      data-tauri-drag-region="false"
       className="flex min-w-24 flex-1 items-center gap-0.5 overflow-hidden text-[13px]"
     >
       <SegmentButton
@@ -287,6 +304,10 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
         onClick={() => setFolderFilter("")}
         onMoveNote={onMoveNote}
         onMoveFolderTree={onMoveFolderTree}
+        onRenameFolder={onRenameFolder}
+        onToggleFolderPin={onToggleFolderPin}
+        onDeleteFolder={onDeleteFolder}
+        folderCards={folderCards}
       />
       {collapsed > 0 && (
         <button
@@ -313,6 +334,10 @@ export function BreadcrumbBar({ folders, folderDefs = [], onMoveNote, onMoveFold
             last={last}
             onMoveNote={onMoveNote}
             onMoveFolderTree={onMoveFolderTree}
+            onRenameFolder={onRenameFolder}
+            onToggleFolderPin={onToggleFolderPin}
+            onDeleteFolder={onDeleteFolder}
+            folderCards={folderCards}
             onClick={() => setFolderFilter(path)}
           />
         );
@@ -333,6 +358,14 @@ interface SegmentButtonProps {
   onMoveNote: (id: string, folder: string) => void;
   /** Move a dragged folder subtree into this segment's folder. */
   onMoveFolderTree?: (path: string, dest: string) => void;
+  /** Folder management handlers for the right-click menu (§3.2). All
+   *  three must be present for the menu to render — a partial set would
+   *  produce dead items. The root segment never gets a menu: it has no
+   *  rename/pin/delete state (design §5 no-op). */
+  onRenameFolder?: (path: string) => void;
+  onToggleFolderPin?: (path: string, pinned: boolean) => void;
+  onDeleteFolder?: (path: string, deep: number, confirmed?: boolean) => void;
+  folderCards?: FolderCard[];
 }
 
 function SegmentButton({
@@ -345,6 +378,10 @@ function SegmentButton({
   onClick,
   onMoveNote,
   onMoveFolderTree,
+  onRenameFolder,
+  onToggleFolderPin,
+  onDeleteFolder,
+  folderCards,
 }: SegmentButtonProps) {
   const { t } = useI18n();
   // Every segment carries a ▾ dropdown. For non-last: siblings + own
@@ -363,33 +400,68 @@ function SegmentButton({
     onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
   );
 
+  // §3.2: the segment is a FolderMenu trigger (open / rename / pin /
+  // armed delete) in addition to its existing click + ▾ navigation. The
+  // trigger merges onto the segment's own element, so the DOM and the
+  // left-click behavior stay unchanged.
+  const deep = folderCards?.find((f) => f.path === path)?.note_count_deep
+    ?? folders.find((f) => f.path === path)?.note_count ?? 0;
+  const pinned = folderDefs.find((d) => d.path === path)?.pinned ?? false;
+  const hasMenu = !isRoot && !!onRenameFolder && !!onToggleFolderPin && !!onDeleteFolder;
+  const content = (
+    <>
+      {isRoot ? <Folder size={13} aria-hidden="true" className="shrink-0 text-text-subtle" /> : null}
+      <span className="truncate">{label}</span>
+    </>
+  );
+  // The segment element is built by a children-taking helper so the same
+  // element serves both the plain render and the FolderMenu trigger merge
+  // (CtxTrigger injects FolderMenu's children as the element's content,
+  // the FolderTile pattern).
+  const lastSegment = (children: ReactNode) => (
+    <span
+      data-breadcrumb-path={path}
+      aria-current="page"
+      {...dropProps}
+      className={`inline-flex min-w-0 items-center gap-1 truncate px-1 font-semibold text-text ${dropCls ?? ""}`}
+    >
+      {children}
+    </span>
+  );
+  const buttonSegment = (children: ReactNode) => (
+    <button
+      type="button"
+      data-breadcrumb-path={path}
+      {...dropProps}
+      onClick={onClick}
+      aria-label={isRoot ? t.vault_root : label}
+      className={`inline-flex min-w-0 items-center gap-1 truncate rounded-[var(--tag-radius)] px-1 py-0.5 text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text ${dropCls ?? ""}`}
+    >
+      {children}
+    </button>
+  );
+  const segmentEl = last ? lastSegment : buttonSegment;
+
   return (
     <span className="flex min-w-0 items-center gap-0.5">
       {isRoot ? null : (
         <ChevronRight size={11} aria-hidden="true" className="shrink-0 text-text-subtle" />
       )}
-      {last ? (
-        <span
-          data-breadcrumb-path={path}
-          aria-current="page"
-          {...dropProps}
-          className={`inline-flex min-w-0 items-center gap-1 truncate px-1 font-semibold text-text ${dropCls ?? ""}`}
+      {hasMenu ? (
+        <FolderMenu
+          path={path}
+          deep={deep}
+          pinned={pinned}
+          onOpen={onClick}
+          onRename={onRenameFolder}
+          onTogglePin={onToggleFolderPin}
+          onDelete={(p, d, confirmed) => onDeleteFolder(p, d, confirmed)}
+          render={segmentEl(null)}
         >
-          {isRoot ? <Folder size={13} aria-hidden="true" className="shrink-0 text-text-subtle" /> : null}
-          <span className="truncate">{label}</span>
-        </span>
+          {content}
+        </FolderMenu>
       ) : (
-        <button
-          type="button"
-          data-breadcrumb-path={path}
-          {...dropProps}
-          onClick={onClick}
-          aria-label={isRoot ? t.vault_root : label}
-          className={`inline-flex min-w-0 items-center gap-1 truncate rounded-[var(--tag-radius)] px-1 py-0.5 text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text ${dropCls ?? ""}`}
-        >
-          {isRoot ? <Folder size={13} aria-hidden="true" className="shrink-0 text-text-subtle" /> : null}
-          <span className="truncate">{label}</span>
-        </button>
+        segmentEl(content)
       )}
       <SegmentPopover
         items={items}
