@@ -431,7 +431,10 @@ function ConversationEntry({
   if (entry.role === "user") {
     return (
       <CtxRoot onOpenChange={(open) => !open && disarm()}>
-        <CtxTrigger render={<div className="ml-8" />}>
+        {/* 시트 Dialog.Popup 안에서는 보이는 요소로의 render-merge 트리거가
+            열리지 않는다(rc.0) — TextCtxMenu와 같은 contents 래퍼를 쓴다. */}
+        <CtxTrigger render={<span className="contents" />}>
+          <div className="ml-8">
           <div className="rounded-lg bg-interactive-primary/10 px-3 py-2 text-xs text-text">
             {entry.text}
           </div>
@@ -457,6 +460,7 @@ function ConversationEntry({
               ))}
             </div>
           )}
+          </div>
           {chatMenu}
         </CtxTrigger>
       </CtxRoot>
@@ -465,7 +469,8 @@ function ConversationEntry({
   if (entry.role === "error") {
     return (
       <CtxRoot onOpenChange={(open) => !open && disarm()}>
-        <CtxTrigger render={<div className="mr-4 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-red-500" />}>
+        <CtxTrigger render={<span className="contents" />}>
+          <div className="mr-4 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-red-500">
           <p>{entry.text}</p>
           {entry.retry && onRetry && (
             <button
@@ -476,6 +481,7 @@ function ConversationEntry({
               {t.copilot_retry}
             </button>
           )}
+          </div>
           {chatMenu}
         </CtxTrigger>
       </CtxRoot>
@@ -483,9 +489,11 @@ function ConversationEntry({
   }
   return (
     <CtxRoot onOpenChange={(open) => !open && disarm()}>
-      <CtxTrigger render={<div className="space-y-2" />}>
+      <CtxTrigger render={<span className="contents" />}>
+        <div className="space-y-2">
         <AgentMessage result={entry.result} agentName={agentName} />
         {entry.retry && onRetry && <button type="button" className="rounded-md px-2 py-1 text-xs text-text-muted" onClick={onRetry}>{t.copilot_retry}</button>}
+        </div>
         {chatMenu}
       </CtxTrigger>
     </CtxRoot>

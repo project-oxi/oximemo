@@ -50,13 +50,21 @@ import { initialFromDto } from "../../lib/taskPopoverSeed";
  * BoardView mounted through BaseView) refresh too. The folder list rides
  * the shared ["folders"] cache and feeds NoteCtxMenu's move submenu.
  */
-export function useNoteRowActions() {
+export interface NoteRowActions {
+  folderEntries: FolderEntry[];
+  onToggleFavorite: (id: string, favorite: boolean) => void;
+  onMoveFolder: (id: string, folder: string) => void;
+  onCopyBody: (id: string) => void;
+  onDelete: (id: string) => void;
+}
+
+export function useNoteRowActions(): NoteRowActions {
   const qc = useQueryClient();
   const { t } = useI18n();
   const setToast = useUI((s) => s.setToast);
   const displayFolder = useFolderNames().displayName;
   const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
-  const fail = (e: unknown) => setToast(String(e).split("\n")[0] ?? String(e));
+  const fail = (e: unknown) => setToast(String(e).split("\n")[0]);
   const onToggleFavorite = (id: string, favorite: boolean) => {
     void updateMemo(id, null, !favorite)
       .then(() => {

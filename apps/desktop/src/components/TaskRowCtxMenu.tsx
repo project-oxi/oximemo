@@ -4,6 +4,7 @@
  */
 import { ClipboardCopy, FileText, Square, SquareCheck } from "lucide-react";
 
+import { clipboardWriteText } from "../lib/clipboard";
 import { useI18n } from "../lib/i18n";
 
 import { CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
@@ -30,7 +31,9 @@ export function TaskRowCtxMenu({ done, text, onOpen, onToggle }: Props) {
         icon={ClipboardCopy}
         label={t.task_menu_copy_text}
         onClick={() => {
-          void navigator.clipboard.writeText(text);
+          void clipboardWriteText(text).catch(() => {
+            // 권한 없는 환경 — 조용히 실패 (기존 복사 항목과 동일)
+          });
         }}
       />
     </CtxMenu>

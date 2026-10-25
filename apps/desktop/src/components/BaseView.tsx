@@ -256,7 +256,10 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
     const effective = trimmed || target.type;
     if (views.some((v, j) => j !== i && (v.name?.trim() || v.type) === effective)) return;
     saveYaml((def) => {
-      def.views ??= [DEFAULT_VIEW];
+      // YAML `views: []`는 UI에서 합성 기본 탭으로 렌더된다 — `??=`는 빈
+      // 배열을 통과시켜 리네임이 조용히 무시되므로 UI와 같은 방식으로
+      // 구체화한다.
+      if (!def.views?.length) def.views = [{ ...DEFAULT_VIEW }];
       const v = def.views[i];
       if (!v) return;
       if (trimmed) def.views[i] = { ...v, name: trimmed };
@@ -269,6 +272,8 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
   };
   const deleteView = (i: number) => {
     clockRef.current = null;
+    // 선행 탭이 지워지면 활성 탭이 오른쪽으로 밀리지 않게 보정한다.
+    if (i < viewIndex) setViewIndex((v) => v - 1);
     saveYaml((def) => {
       def.views ??= [];
       if (def.views.length <= 1 || !def.views[i]) return;

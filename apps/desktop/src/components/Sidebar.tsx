@@ -15,7 +15,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, useIsPresent } from "motion/react";
 import { useWorkspaceMotion } from "../lib/workspaceMotion";
 import { SpacePicker } from "./SpacePicker";
-import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
+import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase, listFolders } from "../lib/api";
 import { createQueryCollection, defaultQueryYaml } from "../lib/queryCreation";
 import { TASKS_BASE_PATH } from "../lib/tasksPanel";
 import { colorForFolder } from "../lib/color";
@@ -304,6 +304,9 @@ export function Sidebar({
 
   // 배경 메뉴의 새 폴더 — 볼트 루트 대상, CardGrid와 같은 낙관적 생성 흐름.
   const createFolderAt = useFolderCreate();
+  // config 기반 `folders`는 핀된 폴더만 담고 있어 접미 가드가 미비하다 —
+  // 볼트 전체 스캔(listFolders)을 써야 미고정 폴더와의 이름 충돌을 피한다.
+  const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
 
   return (
     <motion.aside
@@ -517,7 +520,7 @@ export function Sidebar({
           return (
             <CtxRoot key={b.path}>
               <BtnMenuRoot>
-              <div className="group/query relative mx-2">
+              <CtxTrigger render={<div className="group/query relative mx-2" />}>
                 <button
                   type="button"
                   onClick={openQuery}
@@ -581,7 +584,7 @@ export function Sidebar({
                     ),
                   )}
                 </CtxMenu>
-              </div>
+              </CtxTrigger>
             </BtnMenuRoot>
             </CtxRoot>
           );
@@ -748,7 +751,7 @@ export function Sidebar({
       </div>
           <CtxMenu>
             <CtxItem icon={FileText} label={t.new_note_md} onClick={onRequestAdd} />
-            <CtxItem icon={FolderPlus} label={t.folder_new} onClick={() => createFolderAt("", folders.map((f) => f.path))} />
+            <CtxItem icon={FolderPlus} label={t.folder_new} onClick={() => createFolderAt("", (foldersQ.data ?? []).map((f) => f.path))} />
             <CtxSeparator />
             <CtxItem icon={Plus} label={t.query_new} onClick={createQuery} />
           </CtxMenu>

@@ -29,7 +29,7 @@ import { TaskCheckbox } from "../TaskCheckbox";
 import { CtxRoot, CtxTrigger } from "../ContextMenu";
 import { NoteCtxMenu } from "../NoteCtxMenu";
 import { TaskRowCtxMenu } from "../TaskRowCtxMenu";
-import { useNoteRowActions } from "./BaseAdapters";
+import { useNoteRowActions, type NoteRowActions } from "./BaseAdapters";
 
 const COL_PAGE = 20;
 
@@ -188,6 +188,9 @@ function BoardColumn({
 }) {
   const { t } = useI18n();
   const [dropOn, setDropOn] = useState(false);
+  // Shared note actions (CONTEXT-MENUS §3.2): hoisted here so cards don't
+  // each mount a ["folders"] query observer — one per column, not per card.
+  const actions = useNoteRowActions();
   const q = useInfiniteQuery({
     queryKey: ["base", sourceKey, viewIndex, "group", column],
     queryFn: ({ pageParam }) => {
@@ -241,6 +244,7 @@ function BoardColumn({
         <BoardCard
           key={r.row_id}
           row={r}
+          actions={actions}
           draggable={draggable}
           onDragStart={() => setDrag({ rowId: r.row_id, taskRef: r.task?.task_ref ?? null })}
           onDragEnd={() => setDrag(null)}
@@ -271,6 +275,7 @@ function BoardColumn({
  *  offers the shared note/task context menus (CONTEXT-MENUS §3.2). */
 function BoardCard({
   row,
+  actions,
   draggable,
   onDragStart,
   onDragEnd,
@@ -279,6 +284,7 @@ function BoardCard({
   statusDrag,
 }: {
   row: BaseRow;
+  actions: NoteRowActions;
   draggable: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -289,10 +295,6 @@ function BoardCard({
   const { t } = useI18n();
   const qc = useQueryClient();
   const setToast = useUI((s) => s.setToast);
-  // Shared note actions (CONTEXT-MENUS §3.2): the card's context menu
-  // offers the same items as the grid cards, committing through the
-  // same api calls with ["base"] invalidated.
-  const actions = useNoteRowActions();
   const title = row.summary.title ?? row.summary.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
   // The view doesn't carry a config-aware status table; send bare
   // `Toggle` so the kernel resolves the next symbol from its

@@ -366,11 +366,10 @@ export function CopilotComposer({
         <div className="mb-1.5 flex flex-wrap gap-1">
           {activeMemo && attachActive && (
             <CtxRoot>
-              <CtxTrigger
-                render={
-                  <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted" />
-                }
-              >
+              {/* 시트 Dialog.Popup 도킹 시 보이는 요소로의 render-merge는
+                  열리지 않는다(rc.0) — contents 래퍼로 감싼다. */}
+              <CtxTrigger render={<span className="contents" />}>
+                <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted">
                 <FileText size={10} className="shrink-0 text-text-subtle" />
                 <span className="truncate">
                   {t.copilot_at_active}: {activeMemo.title || activeMemo.path}
@@ -384,6 +383,7 @@ export function CopilotComposer({
                 >
                   <X size={10} />
                 </button>
+                </span>
                 <CtxMenu>
                   <CtxItem icon={FileText} label={t.memo_open} onClick={() => openMemo(activeMemo.id)} />
                   <CtxSeparator />
@@ -394,11 +394,8 @@ export function CopilotComposer({
           )}
           {attachActive && attachedSelection && (
             <CtxRoot>
-              <CtxTrigger
-                render={
-                  <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted" />
-                }
-              >
+              <CtxTrigger render={<span className="contents" />}>
+                <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted">
                 <TextSelect size={10} className="shrink-0 text-text-subtle" />
                 <span className="truncate" title={attachedSelection}>
                   {t.copilot_at_selection}
@@ -412,23 +409,21 @@ export function CopilotComposer({
                 >
                   <X size={10} />
                 </button>
+                </span>
                 <CtxMenu>
                   {activeMemo && (
                     <CtxItem icon={FileText} label={t.memo_open} onClick={() => openMemo(activeMemo.id)} />
                   )}
                   <CtxSeparator />
-                  <CtxItem icon={X} label={t.chip_remove} onClick={onClearSelection} />
+                  <CtxItem icon={X} label={t.copilot_selection_detach} onClick={onClearSelection} />
                 </CtxMenu>
               </CtxTrigger>
             </CtxRoot>
           )}
           {refs.map((r) => (
             <CtxRoot key={r.id}>
-              <CtxTrigger
-                render={
-                  <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted" />
-                }
-              >
+              <CtxTrigger render={<span className="contents" />}>
+                <span className="flex max-w-full items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-muted">
                 <button
                   type="button"
                   onClick={() => openMemo(r.id)}
@@ -445,6 +440,7 @@ export function CopilotComposer({
                 >
                   <X size={10} />
                 </button>
+                </span>
                 <CtxMenu>
                   <CtxItem icon={FileText} label={t.memo_open} onClick={() => openMemo(r.id)} />
                   <CtxSeparator />
