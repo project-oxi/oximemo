@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Deterministic window layering.** Floating surfaces now own one band of a
+  documented z-scale (`liquid-glass.css`), so paint order never depends on
+  portal/DOM order: system modals (settings, command palette, metadata add,
+  gallery lightbox, PDC source sheet) and their backdrops sit at 65/70, above
+  the copilot window (60), which still overlays the memo sheet (40/50) it
+  partners with. Anchored popovers and menus move to 80, toasts to 85,
+  tooltips to 90, task quick-add stays topmost at 95. Fixes the copilot panel
+  floating above the open settings window (and the palette-over-copilot twin).
 - **Space ownership marker.** `vault/oximemo.toml` now marks a vault as oximemo-owned, and only marked vaults appear in `oximemo space list` and the desktop space picker. The `~/.oxi/spaces/` tree is shared with oxibrain, which provisions machine-managed project-memory vaults (`codex-<project>-<hash>`, `chatgpt-general`, …) in the same layout — those no longer surface as switchable oximemo spaces and can no longer be opened for editing through the picker. Opening a space adopts it (the marker is written on open), switching to an unmarked space adopts it, and explicit `--vault` paths are never auto-marked — a custom vault is claimed by placing the file. The same marker gates brain document-root registration: unmarked vaults (test tempdirs, foreign checkouts) no longer enter the brain's `documents.toml`, closing the stale-root leak that registered `/tmp` test vaults.
 
 - **Single-pass mobile sync manifest.** The PC sync server's `/v1/manifest` route now takes the source SHA-256 and tombstone flag from the inventory scan it already runs, instead of re-reading and re-classifying every document per request. One sync previously cost four full vault read+parse passes; it now costs one, and the phone skips the second manifest fetch when nothing was applied. Manifest responses serialize once to bytes, and mobile write receipts older than 30 days are pruned at server startup.

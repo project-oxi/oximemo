@@ -86,11 +86,11 @@ export const FolderCombobox = forwardRef<
         }
       />
       <Popover.Portal>
-        {/* Opens toward the available workspace and layers above the
-         *  dialog surface: z-index must sit
-         *  on the POSITIONER — a z on the Popup loses paint order against
-         *  the dialog's own z-50 surface and backdrop blur. */}
-        <Popover.Positioner side={popupSide} align="start" sideOffset={4} collisionPadding={12} className="z-[60]">
+        {/* Opens toward the available workspace and layers above the memo
+         *  sheet, the copilot window and other popovers (band 80): z-index
+         *  must sit on the POSITIONER — a z on the Popup loses paint order
+         *  against the dialog's own z-50 surface and backdrop blur. */}
+        <Popover.Positioner side={popupSide} align="start" sideOffset={4} collisionPadding={12} className="z-[80]">
           <Popover.Popup className="glass-menu viewport-popup flex w-72 flex-col p-2 animate-popover-in">
             <TextCtxMenu
               render={

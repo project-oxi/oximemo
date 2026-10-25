@@ -49,7 +49,7 @@ export function PropSelect({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="end" sideOffset={3} collisionPadding={12} className="z-[60]">
+        <Popover.Positioner side="bottom" align="end" sideOffset={3} collisionPadding={12} className="z-[80]">
           <Popover.Popup className="glass-menu viewport-popup min-w-40 [--popup-max-width:320px] [--popup-max-height:256px] p-1 animate-popover-in">
             <ul role="listbox">
               {options.map((o) => {

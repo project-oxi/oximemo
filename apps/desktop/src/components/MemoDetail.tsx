@@ -405,6 +405,7 @@ export function MemoDetail() {
       return openDailyNote(shiftISODate(dailyDate, delta));
     })()
       .then(({ memo: m, created }) => {
+        qc.setQueryData(["memo", m.id], m);
         select(m.id);
         if (created) setDraftId(m.id, m.body);
       })

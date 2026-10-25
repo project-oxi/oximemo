@@ -1,5 +1,22 @@
 /* Hallmark · genre: modern-minimal · macrostructure: Workbench
  * Oxi Glass — material belongs to navigation and controls; paper to content. */
+/*
+ * Window layering scale — every floating surface owns exactly one band;
+ * roles never share a band, so paint order never depends on portal/DOM
+ * order. Tailwind classes use the same numbers (z-[65], z-[80], …).
+ *   10–29  in-page layout (sticky cells, cards, sidebar 20/35, toolbar 25)
+ *   30     workspace chrome overlays (CLI nudge, compact-sidebar scrim)
+ *   40     memo-dialog backdrop
+ *   50     memo sheet — the one dialog the copilot partners with
+ *   60     copilot floating window (above the memo sheet only)
+ *   65     system-modal backdrops — dim the memo sheet AND the copilot
+ *   70     system-modal dialogs & full-screen overlays (settings, command
+ *          palette, metadata add, gallery lightbox, PDC source sheet)
+ *   80     anchored popovers & menus — clear every dialog and the copilot
+ *   85     toasts
+ *   90     tooltips
+ *   95     task quick-add spotlight (⌘⇧T)
+ */
 html, body { overflow-x: clip; }
 body { font-family: var(--font-sans); }
 ::selection { background: var(--color-selection); color: var(--color-text); }

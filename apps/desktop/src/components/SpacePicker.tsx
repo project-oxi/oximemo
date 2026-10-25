@@ -86,7 +86,7 @@ export function SpacePicker() {
           <ChevronDown size={12} aria-hidden className="shrink-0 text-text-subtle" />
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Positioner side="bottom" align="start" sideOffset={6} collisionPadding={12} className="z-[60]">
+          <Popover.Positioner side="bottom" align="start" sideOffset={6} collisionPadding={12} className="z-[80]">
             <Popover.Popup
               className="space-picker-popup glass-menu"
               initialFocus={() => (createMode ? inputRef.current : currentRef.current) ?? true}
