@@ -175,7 +175,7 @@ function Lightbox({ asset, onClose }: { asset: AssetInfo; onClose: () => void })
   }, [asset.url]);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-surface/70 p-8 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-surface/70 p-8 backdrop-blur-sm"
       onClick={onClose}
     >
       <button

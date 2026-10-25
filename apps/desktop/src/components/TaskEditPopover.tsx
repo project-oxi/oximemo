@@ -217,7 +217,7 @@ export function TaskEditPopover({
           align="start"
           sideOffset={4}
           collisionPadding={12}
-          className="z-[60]"
+          className="z-[80]"
         >
           <Popover.Popup
             data-task-edit-popover

@@ -661,7 +661,7 @@ export function Sidebar({
             <ChevronRight size={12} aria-hidden className="ml-auto" />
           </Popover.Trigger>
           <Popover.Portal>
-            <Popover.Positioner side="right" align="end" sideOffset={12} className="z-[60]">
+            <Popover.Positioner side="right" align="end" sideOffset={12} className="z-[80]">
               <Popover.Popup className="recent-popup glass-menu">
                 <Popover.Title className="recent-popup-title">{t.recents_section}</Popover.Title>
                 {recents.length === 0 && <p className="p-3 text-xs text-text-subtle">{t.workspace_no_recents}</p>}

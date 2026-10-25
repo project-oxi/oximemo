@@ -45,7 +45,7 @@ export function PointMenu({
   return (
     <div
       data-point-menu
-      className="fixed z-[70] min-w-44 rounded-lg border border-line bg-surface-raised p-1 text-sm text-text shadow-lg"
+      className="fixed z-[80] min-w-44 rounded-lg border border-line bg-surface-raised p-1 text-sm text-text shadow-lg"
       style={{
         left: Math.min(x, window.innerWidth - 200),
         top: Math.min(y, window.innerHeight - 160),

@@ -207,7 +207,7 @@ function SourceViewer({ entry, onClose }: { entry: OpenSource; onClose: () => vo
   };
 
   return (
-    <div className="glass-backdrop fixed inset-0 z-50 flex items-center justify-center p-6" onClick={requestClose}>
+    <div className="glass-backdrop fixed inset-0 z-[70] flex items-center justify-center p-6" onClick={requestClose}>
       <div
         className="pdc-source-sheet flex max-h-[85vh] w-full max-w-3xl flex-col border border-line bg-surface"
         onClick={(e) => e.stopPropagation()}

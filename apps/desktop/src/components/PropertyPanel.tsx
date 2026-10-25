@@ -273,7 +273,7 @@ function AddPropertyRow({
           }
         />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[70]">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[80]">
           <Popover.Popup className="viewport-popup w-64 rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
             <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
               {t.prop_new_section}
@@ -407,7 +407,7 @@ function MetadataFill({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[70]">
+        <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[80]">
           <Popover.Popup className="viewport-popup flex w-72 flex-col rounded-[var(--popover-radius)] border border-line bg-surface-raised p-2 shadow-lg animate-popover-in">
             <form
               className="flex shrink-0 gap-1"

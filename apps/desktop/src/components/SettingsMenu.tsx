@@ -1891,9 +1891,9 @@ export function SettingsMenu() {
         )}
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="glass-backdrop fixed inset-0 z-40 transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+        <Dialog.Backdrop className="glass-backdrop fixed inset-0 z-[65] transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <Dialog.Popup
-          className="glass-settings fixed left-1/2 top-1/2 z-50 flex h-[min(680px,90vh)] w-[min(920px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line transition-[opacity,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0"
+          className="glass-settings fixed left-1/2 top-1/2 z-[70] flex h-[min(680px,90vh)] w-[min(920px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line transition-[opacity,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0"
         >
           {/* Header */}
           <div className="settings-header flex items-center justify-between border-b border-line px-5 py-3.5">
