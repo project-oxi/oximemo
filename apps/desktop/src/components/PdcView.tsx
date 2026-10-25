@@ -13,6 +13,7 @@ import { invoke, listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import type { PdcInventory, PdcInventoryEntry, PdcSourceFile, PdcWriteReceipt } from "../lib/pdcInventory";
 import { SessionRecorderPanel } from "./SessionRecorderPanel";
+import { ListSkeleton } from "./Skeletons";
 import { useUI } from "../stores/ui";
 
 function fmt(n: number, template: string): string {
@@ -377,7 +378,11 @@ function InventoryResults({
 }) {
   const { t } = useI18n();
   if (inv.isLoading) {
-    return <p className="mt-16 text-center text-sm text-text-subtle">…</p>;
+    return (
+      <div className="mt-4">
+        <ListSkeleton rows={6} />
+      </div>
+    );
   }
   if (inv.isError) {
     return <p className="mt-16 text-center text-sm text-status-error">{String(inv.error)}</p>;

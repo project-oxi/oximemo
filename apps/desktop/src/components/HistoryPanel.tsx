@@ -6,10 +6,12 @@
  * panel's. Collapsed by default; the chain is fetched on first expand and
  * marked stale so reopened panels refresh.
  */
-import { History, Loader2 } from "lucide-react";
+import { History } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { brainHistory } from "../lib/api";
+
+import { ListSkeleton } from "./Skeletons";
 import { useI18n } from "../lib/i18n";
 
 export function HistoryPanel({ path }: { path: string }) {
@@ -39,7 +41,6 @@ export function HistoryPanel({ path }: { path: string }) {
       >
         <History size={12} />
         {t.brain_history}
-        {q.isLoading && <Loader2 size={11} className="animate-spin" />}
         {!q.isLoading && episodes.length > 0 && (
           <span className="font-normal text-text-subtle">
             {t.brain_history_count.replace("{n}", String(episodes.length))}
@@ -48,7 +49,7 @@ export function HistoryPanel({ path }: { path: string }) {
       </button>
       {open && (
         <div className="note-history-content mt-1 max-h-56 space-y-1.5 overflow-y-auto px-1 pb-1">
-          {q.isLoading ? null : episodes.length === 0 ? (
+          {q.isLoading ? <ListSkeleton rows={3} /> : episodes.length === 0 ? (
             <p className="py-1 text-xs text-text-subtle">{t.brain_history_empty}</p>
           ) : (
             newest.map((e) => {

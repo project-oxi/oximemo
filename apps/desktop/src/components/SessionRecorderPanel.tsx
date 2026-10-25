@@ -7,6 +7,7 @@ import { getConfig } from "../lib/api";
 import { listen, invoke } from "../lib/tauri";
 import { useI18n, type Dict } from "../lib/i18n";
 import type { PdcSourceFile } from "../lib/pdcInventory";
+import { RowsSkeleton } from "./Skeletons";
 import {
   sessionActivityDiscard,
   sessionActivityList,
@@ -261,7 +262,7 @@ export function SessionRecorderPanel() {
   // (project rule).
   const sessionsList = () => {
     if (sessions.isLoading) {
-      return <p className="text-center text-sm text-text-subtle">…</p>;
+      return <RowsSkeleton rows={4} />;
     }
     if ((sessions.data ?? []).length === 0) {
       return (
