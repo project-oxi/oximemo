@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 // NDL/DNB (XML) and KMDB (approval-gated) adapters stay stubs — see
 // the fetch_* bodies in metadata.rs for the follow-up notes.
+mod capture;
 mod copilot;
 
 pub struct AppState {
@@ -26,6 +27,7 @@ pub struct AppState {
     /// overlay when it had previously gained focus, so the show→focus
     /// sequence can't trip a spurious self-dismiss.
     pub capture_focused: AtomicBool,
+    capture_session: Mutex<capture::Session>,
     /// Active tray-menu language ("ko" / "en"). Updated from the renderer's
     /// chosen locale via `set_menu_locale`; defaults to the system locale.
     pub menu_locale: Mutex<String>,
@@ -67,6 +69,7 @@ impl AppState {
             watcher: Mutex::new(None),
             copilot_active: copilot::TurnControl::default(),
             capture_focused: AtomicBool::new(false),
+            capture_session: Mutex::new(capture::Session::default()),
             menu_locale: Mutex::new(default_locale()),
             tray: Mutex::new(None),
             git,
@@ -98,6 +101,43 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // macOS WKWebView rubber-bands every scroll container (panels,
+        // popups, the page itself). `overscroll-behavior` does not stop it,
+        // so intercept wheel at document level: only preventDefault when no
+        // scrollable ancestor can still consume the delta — native smooth
+        // scrolling and momentum inside real scroll areas are untouched.
+        // Runs for every window (main, capture) on each page load.
+        .on_page_load(|webview, payload| {
+            if payload.event() != tauri::webview::PageLoadEvent::Started {
+                return;
+            }
+            let _ = webview.eval(
+                r"(function () {
+  if (window.__oximemoNoBounce) return;
+  window.__oximemoNoBounce = true;
+  var EPS = 1;
+  function consumes(el, dx, dy) {
+    var cs = getComputedStyle(el);
+    var vScroll = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') &&
+      el.scrollHeight > el.clientHeight;
+    var hScroll = (cs.overflowX === 'auto' || cs.overflowX === 'scroll') &&
+      el.scrollWidth > el.clientWidth;
+    if (dy > 0 && vScroll && el.scrollTop < el.scrollHeight - el.clientHeight - EPS) return true;
+    if (dy < 0 && vScroll && el.scrollTop > EPS) return true;
+    if (dx > 0 && hScroll && el.scrollLeft < el.scrollWidth - el.clientWidth - EPS) return true;
+    if (dx < 0 && hScroll && el.scrollLeft > EPS) return true;
+    return false;
+  }
+  document.addEventListener('wheel', function (e) {
+    if (e.ctrlKey) return;
+    for (var el = e.target; el; el = el.parentElement) {
+      if (consumes(el, e.deltaX, e.deltaY)) return;
+    }
+    e.preventDefault();
+  }, { passive: false });
+})();",
+            );
+        })
         .register_uri_scheme_protocol("oximg", |ctx, request| {
             // Serve a content-addressed image from `<vault>/assets/`. The path is
             // the bare `<hash>.<ext>` name; `read_asset` re-validates it (no
@@ -364,8 +404,15 @@ pub fn run() {
                     .try_state::<AppState>()
                     .is_some_and(|s| s.capture_focused.swap(false, Ordering::Relaxed));
                 if hide {
-                    let _ = window.hide();
-                    let _ = window.app_handle().emit("capture:hide", ());
+                    let receipt_visible = window
+                        .app_handle()
+                        .state::<AppState>()
+                        .capture_session
+                        .lock()
+                        .has_receipt();
+                    if !receipt_visible {
+                        capture::dismiss(window.app_handle(), None, false);
+                    }
                 }
             }
             _ => {}
@@ -474,6 +521,11 @@ pub fn run() {
             commands::install_cli,
             commands::uninstall_cli,
             commands::show_capture_window,
+            capture::complete_capture,
+            capture::dismiss_capture,
+            capture::open_captured_note,
+            capture::hold_capture_receipt,
+            capture::finish_capture_dismissal,
             commands::copilot_status,
             commands::copilot_probe_agents,
             commands::copilot_disclosure,
@@ -698,6 +750,11 @@ fn spawn_git_consumer(
     });
 }
 fn show_capture(handle: &AppHandle) {
+    let app = handle.clone();
+    let _ = handle.run_on_main_thread(move || show_capture_inner(&app));
+}
+
+fn show_capture_inner(handle: &AppHandle) {
     use tauri::{LogicalPosition, LogicalSize};
 
     let Some(win) = handle.get_webview_window("capture") else {
@@ -710,10 +767,19 @@ fn show_capture(handle: &AppHandle) {
     // repositioning/refreshing it. The window is parked (hidden), never
     // destroyed, mirroring Escape.
     if win.is_visible().unwrap_or(false) {
-        let _ = win.hide();
-        let _ = handle.emit("capture:hide", ());
-        return;
+        // A fresh trigger replaces a receipt with a new composer. Only the
+        // input itself toggles closed.
+        let composing = {
+            let state = handle.state::<AppState>();
+            let session = state.capture_session.lock();
+            !session.has_receipt() && !session.is_closing()
+        };
+        if composing {
+            capture::dismiss(handle, None, true);
+            return;
+        }
     }
+    let generation = capture::begin(handle);
 
     // Anchor the overlay to the monitor the main window sits on — that's the
     // screen the user runs the app on and expects the overlay to appear. The
@@ -742,7 +808,7 @@ fn show_capture(handle: &AppHandle) {
             tracing::warn!(error = ?e, "capture: show failed");
         }
         let _ = win.set_focus();
-        let _ = handle.emit("capture:show", ());
+        let _ = handle.emit("capture:show", generation);
         return;
     };
     let pos = monitor.position();
@@ -772,7 +838,7 @@ fn show_capture(handle: &AppHandle) {
         tracing::info!("capture: overlay shown");
     }
     let _ = win.set_focus();
-    let _ = handle.emit("capture:show", ());
+    let _ = handle.emit("capture:show", generation);
 }
 
 fn show_main_window(handle: &AppHandle) {
@@ -995,6 +1061,24 @@ mod commands {
         Ok(state.vault.note_dto(&memo))
     }
 
+    /// Finalize the deferred search projection off the interaction path,
+    /// then let surfaces refresh. The list-plane commits (file + redb)
+    /// already happened synchronously; this late `memos:changed` covers
+    /// search-driven views, which must not query before the projection
+    /// lands.
+    fn defer_search_finalize(
+        vault: std::sync::Arc<oximemo_core::Vault>,
+        app: AppHandle,
+        id: oximemo_core::MemoId,
+    ) {
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = vault.search_reproject(id) {
+                tracing::warn!(%error, %id, "deferred search finalize failed");
+            }
+            let _ = app.emit("memos:changed", ());
+        });
+    }
+
     #[tauri::command(async)]
     pub fn create_memo(
         state: State<'_, AppState>,
@@ -1008,19 +1092,22 @@ mod commands {
             _ => oximemo_core::memo::NoteFormat::Markdown,
         };
         // Explicit format wins; without one the folder's templates decide
-        // (TEMPLATE.html-only folders produce html notes, spec D8).
+        // (TEMPLATE.html-only folders produce html notes, spec D8). The
+        // file + redb index commit synchronously so reads are immediately
+        // consistent; the fsync-bound search commit finalizes off-thread
+        // instead of sitting between the click and the editor.
         let memo = if format.is_some() {
             state
                 .vault
-                .create_note(folder.as_deref().unwrap_or(""), body, fmt)
+                .create_note_without_search(folder.as_deref().unwrap_or(""), body, fmt)
                 .map_err(|e| e.to_string())?
         } else {
             state
                 .vault
-                .create_note_auto(folder.as_deref().unwrap_or(""), body)
+                .create_note_auto_without_search(folder.as_deref().unwrap_or(""), body)
                 .map_err(|e| e.to_string())?
         };
-        let _ = app.emit("memos:changed", ());
+        defer_search_finalize(state.vault.clone(), app, memo.id);
         Ok(state.vault.note_dto(&memo))
     }
 
