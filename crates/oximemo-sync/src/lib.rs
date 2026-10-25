@@ -537,9 +537,9 @@ pub fn reconcile(cache: &mut Cache, manifest: &Manifest) {
     let entry_keys: Vec<String> = manifest.entries.iter().map(key_of).collect();
     let live_keys: std::collections::HashSet<&str> =
         entry_keys.iter().map(String::as_str).collect();
-    cache.documents.retain(|d| {
-        d.pending.is_some() || live_keys.contains(d.key.as_str())
-    });
+    cache
+        .documents
+        .retain(|d| d.pending.is_some() || live_keys.contains(d.key.as_str()));
     let mut position: std::collections::HashMap<String, usize> =
         std::collections::HashMap::with_capacity(cache.documents.len());
     for (index, document) in cache.documents.iter().enumerate() {

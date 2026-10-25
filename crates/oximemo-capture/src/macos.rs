@@ -5,7 +5,7 @@ use block2::RcBlock;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
 use objc2_core_foundation::CFRunLoop;
-use objc2_foundation::{NSDate, NSPort, NSRunLoop, NSDefaultRunLoopMode};
+use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPort, NSRunLoop};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};

@@ -139,10 +139,7 @@ struct SnapshotState {
 /// Return of [`Vault::snapshot_with_gen`]: the record snapshot plus the
 /// database write generation it was read at — callers use the counter as
 /// their cache key (spec §3).
-pub(crate) type SnapshotWithGen = (
-    std::sync::Arc<Vec<crate::store::index::IndexRecord>>,
-    u64,
-);
+pub(crate) type SnapshotWithGen = (std::sync::Arc<Vec<crate::store::index::IndexRecord>>, u64);
 
 /// Row staged for the tantivy upsert batch in `reindex`:
 /// `(id, body, title, tags, path)`.
@@ -329,14 +326,14 @@ impl Vault {
         // spaces and registered with the brain (gate below). Explicit
         // `--vault` paths are never auto-marked — a marker there must
         // come from the vault's owner.
-        if let crate::spaces::VaultSpec::Space(name) = spec {
-            if let Err(e) = crate::spaces::ensure_ownership_marker(&oxi, name) {
-                tracing::warn!(
-                    error = %e,
-                    space = %name,
-                    "ownership marker not written; space stays unlisted"
-                );
-            }
+        if let crate::spaces::VaultSpec::Space(name) = spec
+            && let Err(e) = crate::spaces::ensure_ownership_marker(&oxi, name)
+        {
+            tracing::warn!(
+                error = %e,
+                space = %name,
+                "ownership marker not written; space stays unlisted"
+            );
         }
         let config = VaultConfig::load(&paths);
         // Brain documents-plane glue (unified home): record the active

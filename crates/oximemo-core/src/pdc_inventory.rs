@@ -1013,9 +1013,11 @@ fn classify_entry(
             .and_then(|v| v.as_str())
             .map(str::to_string),
         body_profile: doc.as_ref().map(|d| d.profile.id_str().to_string()),
-        deleted: doc
-            .as_ref()
-            .is_some_and(|d| d.envelope.get("deleted").is_some_and(|v| matches!(v, Yaml::Bool(true)))),
+        deleted: doc.as_ref().is_some_and(|d| {
+            d.envelope
+                .get("deleted")
+                .is_some_and(|v| matches!(v, Yaml::Bool(true)))
+        }),
         diagnostic: diagnostic.as_ref().map(PdcDiagnosticDto::from_pdc),
         ..base
     };

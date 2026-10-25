@@ -30,7 +30,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 
-
 use parking_lot::Mutex;
 
 use crate::base::exec::{BaseCell, BaseRow, GroupCount, PropInfo, SummaryValue};
