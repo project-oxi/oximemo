@@ -87,6 +87,7 @@ import { TextCtxMenu } from "./TextCtxMenu";
 import type { NamingSession } from "./FolderTile";
 import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
+import { useFolderCreate } from "../lib/useFolderCreate";
 import { GalleryView } from "./GalleryView";
 import { PdcView } from "./PdcView";
 import { SettingsMenu } from "./SettingsMenu";
@@ -795,39 +796,16 @@ export function CardGrid() {
   // naming session with `isNew: true` — cancel (Esc/empty) tears the
   // just-created folder down, a typed name renames it, Enter on the
   // untouched default keeps it. The chip bar `＋ 새 폴더` chip and the
-  // empty-area context menu both route through here.
+  // empty-area context menu both route through here. The create+suffix+
+  // invalidate core lives in useFolderCreate, shared with the sidebar's
+  // background menu (vault root).
+  const createFolderAt = useFolderCreate();
   const startFolderCreate = useCallback(() => {
     const loc = folderFilter ?? "";
-    // Auto-suffix "새 폴더" → "새 폴더 2" → "새 폴더 3" when the base
-    // name is already taken. The backend create_folder now rejects
-    // duplicates with an authoritative error (vault.rs create_folder
-    // existence guard), so this client-side guard avoids a round-trip
-    // and a visible toast for the common case. Falls back to the
-    // backend error if the loop somehow misses (race between typing
-    // and an external delete, etc).
-    const existing = new Set<string>(folderEntries.map((f) => f.path));
-    let def = loc ? `${loc}/${t.folder_new}` : t.folder_new;
-    let n = 2;
-    while (existing.has(def)) {
-      const candidate = loc ? `${loc}/${t.folder_new} ${n}` : `${t.folder_new} ${n}`;
-      if (!existing.has(candidate)) {
-        def = candidate;
-        break;
-      }
-      n += 1;
-      if (n > 999) {
-        setError(t.folder_name_invalid);
-        return;
-      }
-    }
-    void createFolder(def)
-      .then(() => {
-        qc.invalidateQueries({ queryKey: ["folderChildren"] });
-        qc.invalidateQueries({ queryKey: ["folders"] });
-        setNamingPath({ path: def, isNew: true });
-      })
-      .catch((e) => setError(String(e).split("\n")[0]));
-  }, [folderFilter, t.folder_new, t.folder_name_invalid, folderEntries, qc, setError]);
+    void createFolderAt(loc, folderEntries.map((f) => f.path)).then((def) => {
+      if (def) setNamingPath({ path: def, isNew: true });
+    });
+  }, [folderFilter, folderEntries, createFolderAt]);
 
   // Folder context menu → inline rename of an EXISTING folder (cancel is
   // then a no-op, unlike the optimistic-create cancel above).
@@ -1456,7 +1434,21 @@ export function CardGrid() {
       <div className="workspace-shell" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
         {sidebarScrim}
         <AnimatePresence initial={false}>
-          {!sidebarCollapsed && <Sidebar key="sidebar" onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />}
+          {!sidebarCollapsed && (
+            <Sidebar
+              key="sidebar"
+              onMoveNote={onMoveFolder}
+              onMoveFolderTree={moveFolderTree}
+              noteActions={{
+                folderEntries,
+                onToggleFavorite,
+                onMoveFolder,
+                onCopyBody,
+                onDelete,
+              }}
+              onRequestAdd={() => requestAdd()}
+            />
+          )}
         </AnimatePresence>
         <div className="workspace-main">
           <header
@@ -1471,7 +1463,12 @@ export function CardGrid() {
           </header>
           <GalleryView />
         </div>
-        <MemoDetail />
+        <MemoDetail
+          onToggleFavorite={onToggleFavorite}
+          onMoveFolder={onMoveFolder}
+          onCopyBody={onCopyBody}
+          onDelete={onDelete}
+        />
         {commandPalette}
       </div>
     );
@@ -1720,7 +1717,21 @@ export function CardGrid() {
     <div className="workspace-shell" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
       {sidebarScrim}
       <AnimatePresence initial={false}>
-        {!sidebarCollapsed && <Sidebar key="sidebar" onMoveNote={onMoveFolder} onMoveFolderTree={moveFolderTree} />}
+        {!sidebarCollapsed && (
+        <Sidebar
+          key="sidebar"
+          onMoveNote={onMoveFolder}
+          onMoveFolderTree={moveFolderTree}
+          noteActions={{
+            folderEntries,
+            onToggleFavorite,
+            onMoveFolder,
+            onCopyBody,
+            onDelete,
+          }}
+          onRequestAdd={() => requestAdd()}
+        />
+      )}
       </AnimatePresence>
       <div className="workspace-main">
         <header
@@ -1733,6 +1744,10 @@ export function CardGrid() {
             folderDefs={folders}
             onMoveNote={onMoveFolder}
             onMoveFolderTree={moveFolderTree}
+            onRenameFolder={onRenameFolder}
+            onToggleFolderPin={onToggleFolderPin}
+            onDeleteFolder={onDeleteFolder}
+            folderCards={folderCards}
             saveAsQuery={
               showNoteTools && (includeTags.length > 0 || excludeTags.length > 0)
                 ? () => {
@@ -2004,7 +2019,12 @@ export function CardGrid() {
         schema={schema}
         onManual={() => onNewNote()}
       />
-      <MemoDetail />
+      <MemoDetail
+        onToggleFavorite={onToggleFavorite}
+        onMoveFolder={onMoveFolder}
+        onCopyBody={onCopyBody}
+        onDelete={onDelete}
+      />
       {commandPalette}
     </div>
   );

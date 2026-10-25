@@ -1339,24 +1339,54 @@ impl Vault {
     /// with `TEMPLATE.html` but no `TEMPLATE.md` produces html notes;
     /// everything else defaults to markdown (spec §D8).
     pub fn create_note_auto(&self, folder: &str, body: String) -> Result<Memo> {
-        let fmt = if crate::template::load_template_guarded(
+        let fmt = self.auto_folder_format(folder)?;
+        self.create_note(folder, body, fmt)
+    }
+
+    /// [`Self::create_note_auto`] with the full-text-search projection
+    /// deferred (2026-10-25 perf): the file (source of truth) and the redb
+    /// index commit synchronously so every read is immediately consistent,
+    /// while the fsync-bound tantivy commit (~120-155ms measured) is left
+    /// for [`Self::search_reproject`]. The desktop new-note path uses this;
+    /// the CLI keeps the atomic [`Self::create_note`].
+    pub fn create_note_auto_without_search(&self, folder: &str, body: String) -> Result<Memo> {
+        let fmt = self.auto_folder_format(folder)?;
+        self.create_note_without_search(folder, body, fmt)
+    }
+
+    /// [`Self::create_note`] with the search projection deferred — see
+    /// [`Self::create_note_auto_without_search`].
+    pub fn create_note_without_search(
+        &self,
+        folder: &str,
+        body: String,
+        fmt: crate::memo::NoteFormat,
+    ) -> Result<Memo> {
+        self.create_note_core(folder, body, fmt, |note, rel| {
+            let tasks_cfg = self.with_config(|c| c.tasks.clone());
+            self.with_redb(|idx| idx.upsert(&record_of(note, rel, &tasks_cfg)))
+        })
+        .map(|(memo, _rel, _abs)| memo)
+    }
+
+    fn auto_folder_format(&self, folder: &str) -> Result<crate::memo::NoteFormat> {
+        let html = crate::template::load_template_guarded(
             &self.paths,
             folder,
             crate::memo::NoteFormat::Html,
         )?
-        .is_some()
-            && crate::template::load_template_guarded(
-                &self.paths,
-                folder,
-                crate::memo::NoteFormat::Markdown,
-            )?
-            .is_none()
-        {
+        .is_some();
+        let markdown = crate::template::load_template_guarded(
+            &self.paths,
+            folder,
+            crate::memo::NoteFormat::Markdown,
+        )?
+        .is_some();
+        Ok(if html && !markdown {
             crate::memo::NoteFormat::Html
         } else {
             crate::memo::NoteFormat::Markdown
-        };
-        self.create_note(folder, body, fmt)
+        })
     }
     /// Quick-capture entry: write into the Inbox (`idea` preset)
     /// folder, falling back to vault root when the inbox is absent
@@ -1606,6 +1636,36 @@ impl Vault {
         props: Option<crate::props::PropMutation>,
         expected_sha256: Option<&str>,
     ) -> Result<Memo> {
+        self.update_note_inner(id, body, favorite, props, expected_sha256, false)
+    }
+
+    /// [`Self::update_note_with_snapshot`] with the full-text-search
+    /// projection deferred (see [`Self::create_note_auto_without_search`]):
+    /// file + redb commit synchronously, the caller finalizes via
+    /// [`Self::search_reproject`]. The desktop autosave uses this — every
+    /// typing idle window used to pay the fsync-bound tantivy commit.
+    /// Rename propagation onto OTHER notes keeps its synchronous
+    /// projection: title renames are rare and must stay readable.
+    pub fn update_note_with_snapshot_deferring_search(
+        &self,
+        id: MemoId,
+        body: Option<String>,
+        favorite: Option<bool>,
+        props: Option<crate::props::PropMutation>,
+        expected_sha256: Option<&str>,
+    ) -> Result<Memo> {
+        self.update_note_inner(id, body, favorite, props, expected_sha256, true)
+    }
+
+    fn update_note_inner(
+        &self,
+        id: MemoId,
+        body: Option<String>,
+        favorite: Option<bool>,
+        props: Option<crate::props::PropMutation>,
+        expected_sha256: Option<&str>,
+        defer_search: bool,
+    ) -> Result<Memo> {
         let mut note = self.get_memo(id)?;
         let tasks_cfg = self.with_config(|c| c.tasks.clone());
         let rec = self.with_redb(|idx| idx.get(id))?;
@@ -1706,15 +1766,21 @@ impl Vault {
             if outcome != WriteOutcome::NoOp || needs_rename {
                 let relative = self.paths.relative_path(&destination).unwrap_or_default();
                 let (rel, _) = strip_trash_prefix(&relative);
-                let (sbody, stitle, saliases) = search_fields(fmt, &note);
-                self.with_redb_and_search(|idx, search| {
-                    idx.upsert(&record_of(&note, rel, &tasks_cfg))?;
-                    if note.deleted_at.is_some() {
-                        search.remove(note.id)
-                    } else {
-                        search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
-                    }
-                })?;
+                if defer_search {
+                    // The redb record commits now; search_reproject re-reads
+                    // this file later, so a deleted note converges to removal.
+                    self.with_redb(|idx| idx.upsert(&record_of(&note, rel, &tasks_cfg)))?;
+                } else {
+                    let (sbody, stitle, saliases) = search_fields(fmt, &note);
+                    self.with_redb_and_search(|idx, search| {
+                        idx.upsert(&record_of(&note, rel, &tasks_cfg))?;
+                        if note.deleted_at.is_some() {
+                            search.remove(note.id)
+                        } else {
+                            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+                        }
+                    })?;
+                }
             }
         } else if needs_rename {
             // Derive new filename and folder from old path. Stage the
@@ -1752,11 +1818,15 @@ impl Vault {
                 std::fs::remove_file(&old_path)?;
             }
             let new_rel = self.paths.relative_path(&new_path).unwrap_or_default();
-            let (sbody, stitle, saliases) = search_fields(fmt, &note);
-            self.with_redb_and_search(|idx, search| {
-                idx.upsert(&record_of(&note, &new_rel, &tasks_cfg))?;
-                search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
-            })?;
+            if defer_search {
+                self.with_redb(|idx| idx.upsert(&record_of(&note, &new_rel, &tasks_cfg)))?;
+            } else {
+                let (sbody, stitle, saliases) = search_fields(fmt, &note);
+                self.with_redb_and_search(|idx, search| {
+                    idx.upsert(&record_of(&note, &new_rel, &tasks_cfg))?;
+                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+                })?;
+            }
         } else {
             // Write in place at the existing path.
             if !old_path.exists() {
@@ -1813,11 +1883,15 @@ impl Vault {
                 }
                 // Index the (re)located note under the new live path.
                 let rel = self.paths.relative_path(&p).unwrap_or_default();
-                let (sbody, stitle, saliases) = search_fields(fmt, &note);
-                self.with_redb_and_search(|idx, search| {
-                    idx.upsert(&record_of(&note, &rel, &tasks_cfg))?;
-                    search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
-                })?;
+                if defer_search {
+                    self.with_redb(|idx| idx.upsert(&record_of(&note, &rel, &tasks_cfg)))?;
+                } else {
+                    let (sbody, stitle, saliases) = search_fields(fmt, &note);
+                    self.with_redb_and_search(|idx, search| {
+                        idx.upsert(&record_of(&note, &rel, &tasks_cfg))?;
+                        search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+                    })?;
+                }
             } else {
                 // In-place rewrite: the existing file carries the
                 // id/created forward through write_document. A NoOp
@@ -1834,11 +1908,15 @@ impl Vault {
                 )
                 .map_err(crate::store::files::frontmatter_error_to_core)?;
                 if !matches!(outcome, WriteOutcome::NoOp) {
-                    let (sbody, stitle, saliases) = search_fields(fmt, &note);
-                    self.with_redb_and_search(|idx, search| {
-                        idx.upsert(&record_of(&note, &old_rel, &tasks_cfg))?;
-                        search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
-                    })?;
+                    if defer_search {
+                        self.with_redb(|idx| idx.upsert(&record_of(&note, &old_rel, &tasks_cfg)))?;
+                    } else {
+                        let (sbody, stitle, saliases) = search_fields(fmt, &note);
+                        self.with_redb_and_search(|idx, search| {
+                            idx.upsert(&record_of(&note, &old_rel, &tasks_cfg))?;
+                            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+                        })?;
+                    }
                 } else {
                     note.updated_at = original_updated;
                 }
@@ -2888,6 +2966,34 @@ impl Vault {
             }
         }
         Ok(out)
+    }
+
+    /// Convergent search finalize for deferred-search writes
+    /// ([`Self::create_note_auto_without_search`]). Re-reads the note's
+    /// CURRENT file and reprojects it into the full-text index, so
+    /// interleaved writers always converge to file truth; a deleted or
+    /// vanished note is removed from the index instead. Idempotent.
+    pub fn search_reproject(&self, id: MemoId) -> Result<()> {
+        let record = self.with_redb(|idx| idx.get(id))?;
+        let Some(record) = record else {
+            return self.search_remove_only(id);
+        };
+        if record.deleted {
+            return self.search_remove_only(id);
+        }
+        let abs = self.paths.vault.join(&record.path);
+        let Some(note) = self.files.read_memo(&abs)? else {
+            return self.search_remove_only(id);
+        };
+        let fmt = crate::memo::NoteFormat::from_rel(&record.path);
+        self.with_redb_and_search(|_idx, search| {
+            let (sbody, stitle, saliases) = search_fields(fmt, &note);
+            search.upsert(note.id, &sbody, stitle.as_deref(), &note.tags, &saliases)
+        })
+    }
+
+    fn search_remove_only(&self, id: MemoId) -> Result<()> {
+        self.with_redb_and_search(|_idx, search| search.remove(id))
     }
 
     pub fn get_note_summary(&self, id: MemoId) -> Result<MemoSummary> {
@@ -4794,6 +4900,90 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let v = Vault::open(Some(dir.path())).unwrap();
         (dir, v)
+    }
+
+    #[test]
+    fn deferred_create_reads_consistent_and_reproject_converges() {
+        let (_t, v) = tmp_vault();
+        let note = v
+            .create_note_auto_without_search("", "Deferred Search Probe".into())
+            .unwrap();
+        // File + redb commit synchronously: every read is consistent.
+        assert!(
+            v.get_memo(note.id)
+                .unwrap()
+                .body
+                .contains("Deferred Search Probe")
+        );
+        // The search projection has not landed yet.
+        assert!(
+            v.search_memos("Deferred Search Probe", 10)
+                .unwrap()
+                .is_empty()
+        );
+
+        // Finalize projects the current file into the index.
+        v.search_reproject(note.id).unwrap();
+        assert!(
+            v.search_memos("Deferred Search Probe", 10)
+                .unwrap()
+                .iter()
+                .any(|s| s.id == note.id)
+        );
+
+        // An external edit that keeps the identity envelope but rewrites the
+        // body converges on the next reproject: the new body becomes
+        // findable and the stale one disappears.
+        let path = v.note_file_path(&note).unwrap();
+        let original = std::fs::read_to_string(&path).unwrap();
+        let (frontmatter, _) = original.split_once("\n---\n").unwrap();
+        std::fs::write(&path, format!("{frontmatter}\n---\nRewritten Probe Body\n")).unwrap();
+        v.search_reproject(note.id).unwrap();
+        // tantivy's query parser is OR-by-default, so assert on tokens
+        // unique to each body version.
+        assert!(
+            v.search_memos("Rewritten", 10)
+                .unwrap()
+                .iter()
+                .any(|s| s.id == note.id)
+        );
+        assert!(v.search_memos("Deferred", 10).unwrap().is_empty());
+
+        // A deferred update keeps the previous projection searchable until
+        // the finalize lands, then converges to the new body.
+        v.update_note_with_snapshot_deferring_search(
+            note.id,
+            Some("Third Probe Body".into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(
+            v.search_memos("Rewritten", 10)
+                .unwrap()
+                .iter()
+                .any(|s| s.id == note.id)
+        );
+        assert!(v.search_memos("Third", 10).unwrap().is_empty());
+        v.search_reproject(note.id).unwrap();
+        assert!(
+            v.search_memos("Third", 10)
+                .unwrap()
+                .iter()
+                .any(|s| s.id == note.id)
+        );
+        assert!(v.search_memos("Rewritten", 10).unwrap().is_empty());
+
+        // A deleted note converges to removal, not re-indexing of its trash
+        // copy.
+        v.delete_memo(note.id).unwrap();
+        v.search_reproject(note.id).unwrap();
+        assert!(
+            v.search_memos("Rewritten Probe Body", 10)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -8989,6 +9179,30 @@ watcher_retry_interval_ms = 200
         // to a timestamp per `create_note`'s `derive_filename_from_body`.
         let n = v.create_capture("# quick thought".into()).unwrap();
         assert_eq!(v.note_dto(&n).path, "inbox/quick-thought.md");
+    }
+
+    #[test]
+    fn create_capture_preserves_untitled_single_line_body_and_template_defaults() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        let template_path = v.paths.vault.join("inbox/TEMPLATE.md");
+        let template_before = std::fs::read(&template_path).unwrap();
+        for body in [
+            "생각을 빠르게 기록",
+            "#tag",
+            "[[다음에 읽을 노트]]",
+            "<p>한 줄 기록</p>",
+        ] {
+            let note = v.create_capture(body.into()).unwrap();
+            assert_eq!(note.body, body);
+            assert_eq!(
+                note.props.get("status"),
+                Some(&crate::props::PropValue::Str("fleeting".into()))
+            );
+            let reopened = v.get_memo(note.id).unwrap();
+            assert_eq!(reopened.body, body);
+        }
+        assert_eq!(std::fs::read(template_path).unwrap(), template_before);
     }
 
     #[test]

@@ -7,6 +7,7 @@
  */
 import { Popover } from "@base-ui-components/react";
 import { Button, Input } from "@garden/ui";
+import { TextCtxMenu } from "./TextCtxMenu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Plus } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
@@ -114,22 +115,26 @@ export function SpacePicker() {
               <div className="space-picker-actions mt-1 shrink-0 border-t border-line pt-1">
                 {createMode ? (
                   <div className="flex min-w-0 items-center gap-2 px-1 py-1">
-                    <Input
-                      ref={inputRef}
-                      value={name}
-                      aria-label={t.space_name_ph}
-                      aria-invalid={badName}
-                      aria-describedby={badName ? errorId : undefined}
-                      disabled={pending}
-                      placeholder={t.space_name_ph}
-                      onChange={(e) => setName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
-                          e.preventDefault();
-                          create();
-                        }
-                      }}
-                      className="flex-1 px-2 font-mono text-[12px]"
+                    <TextCtxMenu
+                      render={
+                        <Input
+                          ref={inputRef}
+                          value={name}
+                          aria-label={t.space_name_ph}
+                          aria-invalid={badName}
+                          aria-describedby={badName ? errorId : undefined}
+                          disabled={pending}
+                          placeholder={t.space_name_ph}
+                          onChange={(e) => setName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
+                              e.preventDefault();
+                              create();
+                            }
+                          }}
+                          className="flex-1 px-2 font-mono text-[12px]"
+                        />
+                      }
                     />
                     <Button
                       type="button"

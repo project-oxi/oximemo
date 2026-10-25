@@ -216,8 +216,23 @@ fn mobile_save(
     title: String,
     body: String,
     profile: String,
+    expected: Option<serde_json::Value>,
 ) -> Result<View, String> {
     let mut cache = lock_ok(&state.cache);
+    if let Some(key) = &key {
+        let document = cache
+            .documents
+            .iter()
+            .find(|d| &d.key == key)
+            .ok_or("원문을 찾을 수 없습니다. 복구한 작성 내용은 유지됩니다.")?;
+        let actual = serde_json::json!({ "source": document.source, "pending": document.pending });
+        if expected.as_ref() != Some(&actual) {
+            return Err(
+                "편집을 시작한 뒤 원문이 바뀌었습니다. 작성 내용은 복구 사본에 보관되어 있습니다."
+                    .into(),
+            );
+        }
+    }
     // Only publish an in-memory edit after durable persistence succeeds.
     let mut candidate = cache.clone();
     candidate
@@ -295,9 +310,50 @@ async fn mobile_sync(app: tauri::AppHandle) -> Result<View, String> {
     .await
     .map_err(|e| e.to_string())?
 }
+#[tauri::command]
+async fn mobile_attachment(
+    app: tauri::AppHandle,
+    key: String,
+    reference: String,
+) -> Result<oximemo_sync::Attachment, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<MobileState>();
+        let path = lock_ok(&state.cache)
+            .documents
+            .iter()
+            .find(|d| d.key == key)
+            .and_then(|d| d.source.as_ref())
+            .map(|s| s.path.clone())
+            .ok_or("먼저 메모를 PC와 동기화해 주세요.")?;
+        let (endpoint, token) = {
+            let connection = lock_ok(&state.connection);
+            (connection.endpoint.clone(), connection.token.clone())
+        };
+        oximemo_sync::fetch_attachment(&endpoint, &token, &path, &reference)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn mobile_open_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
+    if !matches!(parsed.scheme(), "https" | "http")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("이 링크 형식은 열 수 없습니다.".into());
+    }
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             #[cfg(any(target_os = "android", target_os = "ios"))]
             app.handle().plugin(tauri_plugin_barcode_scanner::init())?;
@@ -319,6 +375,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            mobile_attachment,
+            mobile_open_link,
             mobile_state,
             mobile_connect,
             mobile_pair_preview,

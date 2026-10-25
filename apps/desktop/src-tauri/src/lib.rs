@@ -1174,9 +1174,17 @@ mod commands {
         let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
         let memo = state
             .vault
-            .update_note_with_snapshot(id, body, favorite, props, expected_sha256.as_deref())
+            .update_note_with_snapshot_deferring_search(
+                id,
+                body,
+                favorite,
+                props,
+                expected_sha256.as_deref(),
+            )
             .map_err(|e| e.to_string())?;
-        let _ = app.emit("memos:changed", ());
+        // List-plane commits are synchronous; the search projection and the
+        // refresh ping ride the finalize so search views never query stale.
+        defer_search_finalize(state.vault.clone(), app, memo.id);
         Ok(state.vault.note_dto(&memo))
     }
 

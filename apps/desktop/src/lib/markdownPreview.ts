@@ -13,10 +13,10 @@
  */
 import DOMPurify from "dompurify";
 import { queryPreviewCount } from "./queryPreviewCounts";
-import { marked } from "marked";
+import { Marked } from "marked";
 import { preprocessTaskMarkdown, stripTaskMetadata } from "./taskPreview";
 
-marked.setOptions({
+const previewParser = new Marked({
   // Render single newlines as <br> so the card preview keeps the line breaks
   // the user typed (make_preview now preserves them as "\n").
   breaks: true,
@@ -33,27 +33,39 @@ export interface QueryPreviewOpts {
   resultsN: string;
 }
 
-/** Card preview HTML. First block only; truncated at `maxLen` chars. */
+/** Inert preview: no links, remote media, forms, authored styles or IDs. */
+const PREVIEW_TAGS = ["p", "br", "strong", "em", "del", "code", "pre", "blockquote",
+  "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "span",
+  "table", "thead", "tbody", "tr", "th", "td", "hr"];
+const escapeText = (s: string) => s.replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+previewParser.use({ renderer: {
+  image({ text }) { return `<span class="preview-attachment">▧ ${escapeText(text || "")}</span>`; },
+} });
+
+/** Several blocks can share the excerpt; CSS owns the visible line budget. */
 export function renderPreviewMarkdown(
   body: string,
-  maxLen = 200,
+  maxLen = 320,
   query?: QueryPreviewOpts,
 ): string {
   const trimmed = body.trim();
   if (!trimmed) return "";
-  // First block: everything up to the first blank line.
-  const firstBlock = trimmed.split(/\n\s*\n/, 1)[0];
-  const raw =
-    firstBlock.length <= maxLen
-      ? firstBlock
-      : firstBlock.slice(0, maxLen).trimEnd() + "\u2026";
-  return DOMPurify.sanitize(
-    marked.parse(preprocessTaskMarkdown(collapseWikiLinks(collapseQueryBlocks(raw, query))), { async: false }) as string,
-    {
-      FORBID_TAGS: ["script", "iframe", "object", "embed", "style"],
-      FORBID_ATTR: ["onerror", "onclick", "onload", "onmouseover", "onfocus"],
-    },
+  const chars = [...trimmed];
+  const raw = chars.length <= maxLen ? trimmed : chars.slice(0, maxLen).join("").trimEnd() + "…";
+  const fragment = DOMPurify.sanitize(
+    previewParser.parse(preprocessTaskMarkdown(collapseWikiLinks(collapseQueryBlocks(raw, query))), { async: false }) as string,
+    { ALLOWED_TAGS: PREVIEW_TAGS, ALLOWED_ATTR: ["class", "aria-hidden"], ALLOW_DATA_ATTR: false, RETURN_DOM_FRAGMENT: true },
   );
+  // Author-supplied utility classes cannot turn an excerpt into app chrome.
+  for (const el of fragment.querySelectorAll("[class]")) {
+    const classes = [...el.classList].filter((name) => /^ox-task-[a-z-]+$/.test(name) || name === "preview-attachment");
+    if (classes.length) el.setAttribute("class", classes.join(" "));
+    else el.removeAttribute("class");
+  }
+  const container = document.createElement("div");
+  container.append(fragment);
+  return container.innerHTML;
 }
 
 export function previewText(
@@ -64,12 +76,13 @@ export function previewText(
   const trimmed = body.trim();
   if (!trimmed) return "";
   const html = DOMPurify.sanitize(
-    marked.parse(stripTaskMetadata(collapseWikiLinks(collapseQueryBlocks(trimmed, query))), {
+    previewParser.parse(stripTaskMetadata(collapseWikiLinks(collapseQueryBlocks(trimmed, query))), {
       async: false,
     }) as string,
     {
-      FORBID_TAGS: ["script", "iframe", "object", "embed", "style"],
-      FORBID_ATTR: ["onerror", "onclick", "onload", "onmouseover", "onfocus"],
+      ALLOWED_TAGS: PREVIEW_TAGS,
+      ALLOWED_ATTR: [],
+      ALLOW_DATA_ATTR: false,
     },
   );
   const doc = new DOMParser().parseFromString(html, "text/html");

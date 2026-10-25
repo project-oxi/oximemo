@@ -291,3 +291,35 @@ cargo test -p oximemo-core pdc
 cargo clippy -p oxi-frontmatter -p oximemo-core -p oximemo-cli -p oximemo-capture --all-targets -- -D warnings
 cd apps/desktop && bun test src/lib/pdc/corpus.test.ts && bun run build
 ```
+
+### Mobile authoring safety follow-up · 2026-10-21
+
+The Stage 2 source-preserving editor gate now includes mobile formatting actions
+and textarea input normalization. Textarea LF offsets map back to exact source
+positions; edits retain untouched CRLF/mixed line endings, compatibility syntax
+and source comments. Explicit formatting and list continuation update only the
+editor draft. Preview and Undo/Redo perform no native writes, and existing save,
+immutable-retry and conflict paths remain in use. Formatting, Enter behavior,
+undo/preview/save/reopen and mixed-newline app regressions cover this addition.
+The full Stage 2 exit, native keyboard validation and unsaved crash recovery
+remain open; this does not claim complete mobile PDC Reader support.
+
+Mobile follow-up adds source/pending snapshot checks at the native save boundary,
+unsaved recovery separate from the canonical document and outgoing queue, and an
+explicit attachment read endpoint. Relative attachments reject vault escapes,
+symlinks and private paths; managed asset payloads must match their SHA-256 both
+server-side and client-side. Rendering admits raster signatures only and never
+places source-supplied URLs in image src. This advances the Stage 2 safe preview
+and guarded edit gate; it does not close the full migration gate. Recovery,
+changed-source rejection, link navigation guards and readable multiline library
+excerpts are covered by the mobile suite.
+
+### Desktop excerpt safety follow-up · 2026-10-22
+
+Desktop grid/list previews now use an isolated parser and an inert allowlist.
+Links retain text without navigation; Markdown images retain descriptions
+without resource requests. Forms, embedded media, authored styles and layout
+classes are excluded. Paragraphs, explicit line breaks and task states remain
+visible without modifying source. Six real-browser regression checks passed;
+see `docs/DESKTOP-UX-2026-10-22.md`. This advances the Stage 2 preview gate but
+is not evidence that the full stage or native sync verification is complete.

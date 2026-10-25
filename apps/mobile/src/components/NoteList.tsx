@@ -39,7 +39,8 @@ function NoteRow({ document, query, onOpen, busy }: { document: Document; query:
   const StatusIcon = document.error ? CircleAlert : document.pending ? Clock3 : LockKeyhole;
   const preview = previewOf(document);
   const hit = query.trim() ? preview.toLocaleLowerCase().indexOf(query.trim().toLocaleLowerCase()) : -1;
-  const excerpt = hit > 50 ? `…${preview.slice(hit - 32)}` : preview;
+  const visibleExcerpt = hit > 50 ? `…${preview.slice(hit - 32)}` : preview;
+  const excerpt = visibleExcerpt.length > 240 ? `${visibleExcerpt.slice(0, 240)}…` : visibleExcerpt;
   return <li className="note-row">
     <button className="note-link" aria-label={titleOf(document)} aria-describedby={`${id}-preview ${id}-meta`} disabled={busy} onClick={onOpen}>
       <div className="note-heading"><strong><Highlight text={titleOf(document)} query={query}/></strong></div>

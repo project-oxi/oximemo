@@ -63,8 +63,8 @@
 :root {
   --font-mobile-display: ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif;
   --text-mobile-large-title: 2rem;
-  --text-mobile-preview: .84rem;
-  --text-mobile-meta: .72rem;
+  --text-mobile-preview: .88rem;
+  --text-mobile-meta: .765rem;
   --color-mobile-paper: oklch(99.6% 0 0);
   --color-mobile-ground: oklch(96.6% .003 250);
   --color-mobile-glass: oklch(100% 0 0 / .74);

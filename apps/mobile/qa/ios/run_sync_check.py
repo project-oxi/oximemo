@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--vault", type=Path, required=True)
     parser.add_argument("--device", required=True)
+    parser.add_argument("--simulator", action="store_true")
     parser.add_argument("--result-name", default="physical-sync")
     args = parser.parse_args()
     output = args.output.resolve()
@@ -39,11 +40,13 @@ def main():
     fixture_path.write_text(json.dumps(fixture, ensure_ascii=False, indent=2))
     fixture_path.chmod(0o600)
     command = ["xcodebuild", "test", "-project", str(output / "OxiMemoSyncQA.xcodeproj"),
-               "-scheme", "SyncQA", "-destination", "platform=iOS,id=" + args.device,
+               "-scheme", "SyncQA", "-destination", ("platform=iOS Simulator,id=" if args.simulator else "platform=iOS,id=") + args.device,
                "-only-testing:PCSyncTests/PCSyncTests/testPairAndRealRoundTrip",
                "-collect-test-diagnostics", "never", "-derivedDataPath", str(output / "DerivedData"),
                "-resultBundlePath", str(output / (args.result_name + ".xcresult")), "-allowProvisioningUpdates"]
-    report = {"endpoint": fixture["endpoint"], "vault": str(args.vault), "host_pc_edit": False}
+    if args.simulator:
+        command.append("CODE_SIGNING_ALLOWED=NO")
+    report = {"simulator": args.simulator, "endpoint": fixture["endpoint"], "vault": str(args.vault), "host_pc_edit": False}
     log_path = output / (args.result_name + ".log")
     with log_path.open("w") as log:
         log_path.chmod(0o600)

@@ -26,6 +26,10 @@ import { dragCommitsStatus } from "../../lib/taskCellCommit";
 import type { BasePage, BaseRow, BaseSource, BaseValue, PropMutation, RunBaseReq, TaskRef } from "../../lib/types";
 import { useUI } from "../../stores/ui";
 import { TaskCheckbox } from "../TaskCheckbox";
+import { CtxRoot, CtxTrigger } from "../ContextMenu";
+import { NoteCtxMenu } from "../NoteCtxMenu";
+import { TaskRowCtxMenu } from "../TaskRowCtxMenu";
+import { useNoteRowActions, type NoteRowActions } from "./BaseAdapters";
 
 const COL_PAGE = 20;
 
@@ -184,6 +188,9 @@ function BoardColumn({
 }) {
   const { t } = useI18n();
   const [dropOn, setDropOn] = useState(false);
+  // Shared note actions (CONTEXT-MENUS §3.2): hoisted here so cards don't
+  // each mount a ["folders"] query observer — one per column, not per card.
+  const actions = useNoteRowActions();
   const q = useInfiniteQuery({
     queryKey: ["base", sourceKey, viewIndex, "group", column],
     queryFn: ({ pageParam }) => {
@@ -237,6 +244,7 @@ function BoardColumn({
         <BoardCard
           key={r.row_id}
           row={r}
+          actions={actions}
           draggable={draggable}
           onDragStart={() => setDrag({ rowId: r.row_id, taskRef: r.task?.task_ref ?? null })}
           onDragEnd={() => setDrag(null)}
@@ -263,9 +271,11 @@ function BoardColumn({
 
 /** One board card: note rows show title + formula cell snippet; task
  *  rows show `TaskCheckbox` + text + parent breadcrumb (spec §7.0).
- *  The checkbox click wires to `patch_task` Toggle (Task 6). */
+ *  The checkbox click wires to `patch_task` Toggle (Task 6). Right-click
+ *  offers the shared note/task context menus (CONTEXT-MENUS §3.2). */
 function BoardCard({
   row,
+  actions,
   draggable,
   onDragStart,
   onDragEnd,
@@ -274,6 +284,7 @@ function BoardCard({
   statusDrag,
 }: {
   row: BaseRow;
+  actions: NoteRowActions;
   draggable: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -300,38 +311,62 @@ function BoardCard({
       });
   };
   return (
-    <button
-      type="button"
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={() => onSelect(row.summary.id)}
-      title={
-        titleDisabled
-          ? t.board_drag_disabled
-          : !statusDrag && row.task
-            ? t.board_task_only_status
-            : undefined
-      }
-      className="rounded-[var(--tag-radius)] border border-line bg-surface px-2 py-1.5 text-left text-[12px] text-text shadow-sm transition-colors duration-150 hover:border-line-strong"
-    >
-      {row.task ? (
-        <div className="flex items-center gap-1.5">
-          <TaskCheckbox
-            statusType={row.task.status_type}
-            label={row.task.text}
+    <CtxRoot>
+      {/* Trigger merges onto the card button itself — no wrapper DOM. */}
+      <CtxTrigger
+        render={
+          <button
+            type="button"
+            draggable={draggable}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onClick={() => onSelect(row.summary.id)}
+            title={
+              titleDisabled
+                ? t.board_drag_disabled
+                : !statusDrag && row.task
+                  ? t.board_task_only_status
+                  : undefined
+            }
+            className="rounded-[var(--tag-radius)] border border-line bg-surface px-2 py-1.5 text-left text-[12px] text-text shadow-sm transition-colors duration-150 hover:border-line-strong"
+          />
+        }
+      >
+        {row.task ? (
+          <div className="flex items-center gap-1.5">
+            <TaskCheckbox
+              statusType={row.task.status_type}
+              label={row.task.text}
+              onToggle={onToggle}
+            />
+            <span className="block truncate font-medium">{row.task.text}</span>
+          </div>
+        ) : (
+          <span className="block truncate font-medium">{title}</span>
+        )}
+        <span className="mt-0.5 block truncate text-[10px] text-text-subtle">
+          {row.task
+            ? `@ ${title}`
+            : row.cells.slice(1, 3).map((c) => (c.error ? "⚠︎" : formatBaseValue(c.value as BaseValue | null))).join(" · ")}
+        </span>
+        {row.task ? (
+          <TaskRowCtxMenu
+            done={row.task.status_type === "DONE"}
+            text={row.task.text}
+            onOpen={() => onSelect(row.summary.id)}
             onToggle={onToggle}
           />
-          <span className="block truncate font-medium">{row.task.text}</span>
-        </div>
-      ) : (
-        <span className="block truncate font-medium">{title}</span>
-      )}
-      <span className="mt-0.5 block truncate text-[10px] text-text-subtle">
-        {row.task
-          ? `@ ${title}`
-          : row.cells.slice(1, 3).map((c) => (c.error ? "⚠︎" : formatBaseValue(c.value as BaseValue | null))).join(" · ")}
-      </span>
-    </button>
+        ) : (
+          <NoteCtxMenu
+            memo={row.summary}
+            folderEntries={actions.folderEntries}
+            onToggleFavorite={actions.onToggleFavorite}
+            onMoveFolder={actions.onMoveFolder}
+            onCopyBody={actions.onCopyBody}
+            onDelete={actions.onDelete}
+          />
+        )}
+      </CtxTrigger>
+    </CtxRoot>
   );
 }

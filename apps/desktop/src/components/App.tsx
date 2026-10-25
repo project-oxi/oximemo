@@ -21,6 +21,7 @@ import { useI18n } from "../lib/i18n";
 import { cliStatus, installCli } from "../lib/api";
 import { checkForUpdate } from "../lib/updater";
 import { AnimatePresence } from "motion/react";
+import { listen } from "../lib/tauri";
 
 const qc = new QueryClient({
   defaultOptions: { queries: { staleTime: 5_000, refetchOnWindowFocus: false } },
@@ -55,6 +56,13 @@ export function App() {
 }
 
 function Shell() {
+  useEffect(() => {
+    const listener = listen<string>("capture:open-note", (id) => {
+      useUI.getState().setView("memos");
+      useUI.getState().select(id);
+    });
+    return () => { void listener.then((unlisten) => unlisten()); };
+  }, []);
   const copilotOpen = useUI((s) => s.copilotOpen);
   const setUpdateAvailable = useUI((s) => s.setUpdateAvailable);
   const setToast = useUI((s) => s.setToast);

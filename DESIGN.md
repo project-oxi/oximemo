@@ -95,8 +95,8 @@ surfaces, system rounded display text and system sans reading text. Touch layout
 is independent of desktop control density. This is a CSS material treatment in
 the existing webview, not native UIGlassEffect.
 
-Glass is limited to navigation controls and search, with a fine inner highlight
-and a small contact shadow. The main list is one continuous paper group with
+Glass is limited to navigation controls; search uses a quiet inset fill, with a fine inner highlight
+and a small contact shadow. The main list is one continuous, edge-aligned paper surface with
 fine separators; individual notes are not floating glass cards. Reading and
 writing stay opaque. Search matches use a restrained warm highlight. All theme
 and accessibility variants have explicit material fallbacks.
@@ -247,3 +247,37 @@ Copyable export adapters (keep `tokens.css` beside the destination stylesheet):
 
 - [Apple: materials](https://developer.apple.com/design/human-interface-guidelines/materials)
 - [Apple: macOS 27 design updates](https://developer.apple.com/videos/play/wwdc2026/289/)
+
+## Mobile refinement · 2026-10-21
+
+Library headings, search, filters and note text share one content edge. Notes
+use the full content measure without a second card inset. Titles use 1.06rem,
+previews .88rem and metadata .765rem; rows have 16px vertical padding. Search
+has 12px corners and a visible focus outline. Settings keeps grouped surfaces
+with 12px corners. QR scanning is the primary connection action; manual code
+and address entry remain disclosures. Existing routes and document behavior
+are unchanged.
+
+Mobile source writing now has a bottom accessory group: persistent body Undo/Redo
+and a horizontally scrollable set of checklist, bold, bullet, heading, italic
+and quote actions. All actions have 44px targets and accessible names. The body
+keeps its own scrollport above these controls. Preview returns to the saved
+selection and scroll position; it does not commit. Full mobile journeys and
+remaining PC capability gaps are specified in `docs/MOBILE-UX-2026-10-21.md`.
+
+Mobile Markdown reading retains table column alignment, isolates horizontal
+scroll to tables/code, labels and copies code blocks, and renders callouts and
+highlights without changing source. Checklist markers have distinct completed
+states without duplicate bullets. Links and assets remain visible inert
+fallbacks until a verified resolver exists. Light/dark native controls follow
+the active theme; Korean prose prioritizes word boundaries during wrapping.
+
+### Desktop excerpt and writing refinement · 2026-10-22
+
+Desktop list rows separate title, a three-line structured excerpt, tags and
+recency. Titles may wrap to two lines; narrow containers place folder context
+beneath the title. Grid and list share inert Markdown preview styling with
+paragraphs and task states. Empty properties begin collapsed; populated
+properties remain visible. Undo/redo controls expose the editor's actual
+history and return focus to writing. Existing shell, tokens and native window
+ownership are retained. Evidence: `docs/DESKTOP-UX-2026-10-22.md`.

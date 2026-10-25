@@ -14,7 +14,7 @@
  */
 import { Popover, } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, ChevronRight, ListChecks, Pencil, Plus, Sparkles, SquareCheck, Tags, TriangleAlert, Type, X } from "lucide-react";
+import { Calendar, ChevronRight, Copy, ListChecks, Pencil, Plus, Sparkles, SquareCheck, Tags, Trash2, TriangleAlert, Type, X } from "lucide-react";
 import { memo as reactMemo, useEffect, useMemo, useState } from "react";
 import {
   folderSchema,
@@ -28,6 +28,7 @@ import {
 import { effectiveRegion, hasSearchProvider, metadataDomainOf } from "../lib/metadataRegion";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
+import { clipboardWriteText } from "../lib/clipboard";
 import { isoToLocalDate, todayLocalISO } from "../lib/dates";
 import { propKeyLabel } from "../lib/propDisplay";
 import type {
@@ -43,6 +44,7 @@ import { inferredType } from "../lib/tableModel";
 import { isComposingKey } from "../lib/editorKeys";
 import { PropCellEditor } from "./propEditors";
 import { AnimatedDisclosure } from "./AnimatedDisclosure";
+import { CtxItem, CtxMenu, CtxRoot, CtxSeparator, CtxTrigger } from "./ContextMenu";
 
 function members(v: PropValue | undefined): string[] {
   if (!v) return [];
@@ -137,85 +139,114 @@ function PropertyRow({
             : SquareCheck;
 
   return (
-    <div className="group grid grid-cols-[1rem_6.5rem_minmax(0,1fr)_1.25rem] items-start gap-1 rounded-md px-1 py-1 transition-colors duration-150 hover:bg-surface-muted/60">
-      <TypeIcon
-        size={12}
-        aria-hidden
-        className="mt-1 shrink-0 text-text-subtle/70"
-      />
-      {naming ? (
-        <input
-          autoFocus
-          value={nameDraft}
-          onChange={(e) => setNameDraft(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          onBlur={() => {
-            const v = nameDraft.trim();
-            setNaming(false);
-            if (v && v !== propKey) onRename?.(v);
-          }}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") e.currentTarget.blur();
-            else if (e.key === "Escape") {
-              setNameDraft(propKey);
-              setNaming(false);
-            }
-          }}
-          className="w-full bg-transparent px-0.5 py-0 text-[12px] font-medium text-text outline-none"
+    <CtxRoot>
+      {/* Inside the memo sheet's Dialog.Popup a render-merged trigger on a
+          visible div never opens (Base UI rc.0 hit-testing against the
+          dialog's internal backdrop) — wrap with display:contents instead,
+          like TextCtxMenu. The div stays the parent grid's item. */}
+      <CtxTrigger render={<span className="contents" />}>
+        <div className="group grid grid-cols-[1rem_6.5rem_minmax(0,1fr)_1.25rem] items-start gap-1 rounded-md px-1 py-1 transition-colors duration-150 hover:bg-surface-muted/60">
+        <TypeIcon
+          size={12}
+          aria-hidden
+          className="mt-1 shrink-0 text-text-subtle/70"
         />
-      ) : onRename ? (
-        <button
-          type="button"
-          title={t.prop_rename_hint}
-          onClick={() => {
-            setNameDraft(propKey);
-            setNaming(true);
-          }}
-          className="group/name flex min-w-0 items-center gap-0.5 truncate py-0.5 text-left text-[12px] text-text-subtle transition-colors duration-150 hover:text-text"
-        >
-          <span className="truncate">{label}</span>
-          <Pencil
-            size={9}
-            aria-hidden
-            className="shrink-0 opacity-0 transition-opacity duration-150 group-hover/name:opacity-100"
+        {naming ? (
+          <input
+            autoFocus
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={() => {
+              const v = nameDraft.trim();
+              setNaming(false);
+              if (v && v !== propKey) onRename?.(v);
+            }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") e.currentTarget.blur();
+              else if (e.key === "Escape") {
+                setNameDraft(propKey);
+                setNaming(false);
+              }
+            }}
+            className="w-full bg-transparent px-0.5 py-0 text-[12px] font-medium text-text outline-none"
           />
-        </button>
-      ) : (
-        <span className="truncate py-0.5 text-[12px] text-text-subtle" title={propKey}>
-          {label}
-        </span>
-      )}
-      <div className="flex min-w-0 flex-col gap-0.5">
-        {valueEditor()}
-        {violation && (
-          <span className="inline-flex items-center gap-0.5 pl-1 text-[10px] leading-tight text-hue-red">
-            <TriangleAlert size={9} aria-hidden className="shrink-0" />
-            {violation === "required"
-              ? t.prop_violation_required
-              : violation.startsWith("not allowed: ")
-                ? t.prop_violation_not_allowed.replace(
-                    "{v}",
-                    violation.slice("not allowed: ".length),
-                  )
-                : violation}
+        ) : onRename ? (
+          <button
+            type="button"
+            title={t.prop_rename_hint}
+            onClick={() => {
+              setNameDraft(propKey);
+              setNaming(true);
+            }}
+            className="group/name flex min-w-0 items-center gap-0.5 truncate py-0.5 text-left text-[12px] text-text-subtle transition-colors duration-150 hover:text-text"
+          >
+            <span className="truncate">{label}</span>
+            <Pencil
+              size={9}
+              aria-hidden
+              className="shrink-0 opacity-0 transition-opacity duration-150 group-hover/name:opacity-100"
+            />
+          </button>
+        ) : (
+          <span className="truncate py-0.5 text-[12px] text-text-subtle" title={propKey}>
+            {label}
           </span>
         )}
-      </div>
-      {values.length > 0 ? (
-        <button
-          type="button"
-          aria-label={`${t.prop_remove}: ${label}`}
-          title={`${t.prop_remove}: ${label}`}
-          onClick={() => onCommit(null)}
-          className="mt-0.5 grid size-5 place-items-center rounded-sm text-text-subtle opacity-0 transition-opacity duration-150 hover:text-text focus-visible:opacity-100 group-hover:opacity-100"
-        >
-          <X size={11} />
-        </button>
-      ) : (
-        <span aria-hidden />
-      )}
-    </div>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          {valueEditor()}
+          {violation && (
+            <span className="inline-flex items-center gap-0.5 pl-1 text-[10px] leading-tight text-hue-red">
+              <TriangleAlert size={9} aria-hidden className="shrink-0" />
+              {violation === "required"
+                ? t.prop_violation_required
+                : violation.startsWith("not allowed: ")
+                  ? t.prop_violation_not_allowed.replace(
+                      "{v}",
+                      violation.slice("not allowed: ".length),
+                    )
+                  : violation}
+            </span>
+          )}
+        </div>
+        {values.length > 0 ? (
+          <button
+            type="button"
+            aria-label={`${t.prop_remove}: ${label}`}
+            title={`${t.prop_remove}: ${label}`}
+            onClick={() => onCommit(null)}
+            className="mt-0.5 grid size-5 place-items-center rounded-sm text-text-subtle opacity-0 transition-opacity duration-150 hover:text-text focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <X size={11} />
+          </button>
+        ) : (
+          <span aria-hidden />
+        )}
+        </div>
+        <CtxMenu>
+          <CtxItem
+            icon={Copy}
+            label={t.property_menu_copy_value}
+            disabled={values.length === 0}
+            onClick={() => void clipboardWriteText(values.join(", "))}
+          />
+          <CtxItem
+            icon={Copy}
+            label={t.property_menu_copy_name}
+            onClick={() => void clipboardWriteText(propKey)}
+          />
+          <CtxSeparator />
+          <CtxItem
+            icon={Trash2}
+            label={t.property_menu_remove}
+            danger
+            disabled={values.length === 0}
+            onClick={() => onCommit(null)}
+          />
+        </CtxMenu>
+      </CtxTrigger>
+    </CtxRoot>
   );
 }
 
@@ -485,7 +516,7 @@ export const PropertyPanel = reactMemo(function PropertyPanel({ memo, folder }: 
     : effectiveRegion("") || undefined;
 
   const [props, setProps] = useState<Props>(memo.props ?? {});
-  const [expanded, setExpanded] = useState(true);
+  const [expansion, setExpansion] = useState<{ id: string; value: boolean } | null>(null);
   useEffect(() => setProps(memo.props ?? {}), [memo.id, memo.props]);
 
   const commit = async (mutation: PropMutation) => {
@@ -531,6 +562,8 @@ export const PropertyPanel = reactMemo(function PropertyPanel({ memo, folder }: 
     return [...new Set([...fromSchema, ...present])].sort();
   }, [defs, props]);
 
+  const expanded = expansion?.id === memo.id ? expansion.value : keys.length > 0;
+
   const rows = keys.map((key) => (
     <PropertyRow
       key={key}
@@ -564,7 +597,7 @@ export const PropertyPanel = reactMemo(function PropertyPanel({ memo, folder }: 
       <button
         type="button"
         aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setExpansion({ id: memo.id, value: !expanded })}
         className="flex items-center gap-1 self-start text-[10px] font-semibold uppercase tracking-wide text-text-subtle transition-colors duration-150 hover:text-text"
       >
         <ChevronRight

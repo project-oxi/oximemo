@@ -25,6 +25,8 @@ export interface QuickCaptureFormProps {
   bodyClassName?: string;
   hint: string;
   className?: string;
+  /** Let a shared animated panel own the glass surface. */
+  embedded?: boolean;
 }
 
 export function QuickCaptureForm({
@@ -35,6 +37,7 @@ export function QuickCaptureForm({
   bodyClassName,
   hint,
   className,
+  embedded = false,
 }: QuickCaptureFormProps) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
   const setRef = (el: HTMLTextAreaElement | null) => {
@@ -53,7 +56,7 @@ export function QuickCaptureForm({
 
   return (
     <div className={cx("flex w-full flex-col", className)}>
-      <div className="glass-capture relative rounded-[var(--popover-radius)] px-4 py-3 transition-shadow duration-150 focus-within:shadow-[var(--input-shadow-focus)]">
+      <div className={cx("relative px-4 py-3", !embedded && "glass-capture rounded-[var(--popover-radius)] transition-shadow duration-150 focus-within:shadow-[var(--input-shadow-focus)]")}>
         <div className="relative">
           <TextCtxMenu
             render={

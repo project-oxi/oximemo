@@ -32,14 +32,23 @@ export function previewOf(document: Document): string {
     text = text.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ").replace(/<[^>]*>/g, " ");
   } else {
     text = text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
-    text = text.replace(/^\s*#{1,6}\s+([^\n]+)\n*/, (_, heading: string) => heading.trim() === titleOf(document).trim() ? "" : `${heading} `);
+    text = text.replace(/^\s*#{1,6}\s+([^\n]+)\n*/, (_, heading: string) => heading.trim() === titleOf(document).trim() ? "" : `${heading}\n`);
   }
-  return text.replace(/```[^\n]*\n[\s\S]*?(?:```|$)/g, " [코드] ")
+  return text.replace(/%%[\s\S]*?%%/g, "")
+    .replace(/!\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g, "첨부 · $1")
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target: string, label: string) => label || target)
+    .replace(/^\s*[-*+] +\[([ xX])\] +/gm, (_, checked: string) => checked.trim() ? "☑ " : "☐ ")
+    .replace(/```[^\n]*\n[\s\S]*?(?:```|$)/g, " [코드] ")
+    .replace(/^\s*\|?[ :|-]+\|[ :|-]*$/gm, "")
+    .replace(/^\s*\|(.+)\|\s*$/gm, (_, row: string) => row.split("|").map(cell => cell.trim()).join(" · "))
+    .replace(/\[![a-z]+\][+-]?\s*/gi, "")
+    .replace(/^\s*(?:---+|\*\*\*+|___+)\s*$/gm, "")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/(?:\*\*|__|~~|`)/g, "")
+    .replace(/(?:\*\*|__|~~|==|`)/g, "")
+    .replace(/([*_])([^\n]+?)\1/g, "$2")
     .replace(/^\s*(?:[-*+]\s+|>\s*|#{1,6}\s+)/gm, "")
-    .replace(/\s+/g, " ").trim() || "내용 없음";
+    .replace(/[ \t]+/g, " ").replace(/\r\n?/g, "\n").replace(/\n[ \t]*\n+/g, "\n").trim() || "내용 없음";
 }
 
 export function filterDocuments(documents: Document[], filter: LibraryFilter, query: string, folder = ""): Document[] {

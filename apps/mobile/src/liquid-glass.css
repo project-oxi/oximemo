@@ -62,3 +62,120 @@
 .search-field:has(input:focus-visible) { outline: none; }
 .search-guidance { margin: 0; padding: var(--space-sm) var(--space-xs); color: var(--secondary); font-size: var(--iphone-caption); }
 .source-switch button { min-width: var(--tap-size); }
+
+/* Mobile refinement · document library · existing Oxi neutral system
+ * Hallmark pre-emit critique: P4 H4 E4 S4 R5 V4
+ * Content edges align with the heading; glass belongs to navigation only. */
+.library-header { padding-top: var(--space-xl); padding-bottom: var(--space-md); }
+.library-header .page-title h1 { font-size: var(--text-mobile-large-title); line-height: 1.15; }
+.header-actions > .icon-button { background: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.header-compose { gap: var(--space-sm); padding-inline: var(--space-lg); box-shadow: none; }
+.library-search { padding-bottom: var(--space-lg); }
+.search-field { border-radius: var(--mobile-radius-panel); background: var(--iphone-search); box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.search-field:focus-within { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
+.search-field:has(input:focus-visible) { outline: 2px solid var(--mobile-focus); }
+.is-library { background: var(--bg); }
+.library-filter { padding-inline: 0; margin-bottom: 0; border-bottom: 1px solid var(--iphone-rule); gap: var(--space-md); }
+.note-list { background: transparent; border-radius: 0; padding-inline: 0; overflow: visible; }
+.note-link { padding-block: var(--space-lg); }
+.note-heading strong { font-size: var(--iphone-note-title); font-weight: 650; line-height: 1.45; letter-spacing: -.025em; }
+.note-preview { font-size: var(--iphone-preview); line-height: 1.6; margin-block: var(--space-xs) var(--space-sm); }
+.note-meta { font-size: var(--iphone-caption); line-height: 1.5; gap: var(--space-md); flex-wrap: wrap; }
+.note-state { flex-shrink: 0; }
+.note-state.text-error { font-weight: 600; }
+.note-link:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; border-radius: var(--mobile-radius-control); }
+.library-count { padding-block: var(--space-xl); }
+.list-caption { padding-inline: 0; }
+.library-summary.sync-warning, .library-summary.sync-error { padding-block: var(--space-sm); border-bottom: 1px solid var(--iphone-rule); width: 100%; }
+.settings-page, .connection-page { width: 100%; }
+.settings-section-title { letter-spacing: 0; font-weight: 550; margin-bottom: var(--space-md); }
+.settings-section-title:first-child { margin-top: 0; }
+.settings-group { border-radius: var(--mobile-radius-panel); }
+.settings-row { min-height: 76px; }
+.settings-row > span:nth-child(2) { min-width: 0; }
+.settings-row small { line-height: 1.55; white-space: normal; }
+.settings-icon { color: var(--text); }
+.settings-version { margin-top: var(--space-2xl); }
+.pc-status { padding-top: var(--space-sm); }
+.pc-status-heading { align-items: flex-start; gap: var(--space-md); }
+.pc-status-heading h2 { line-height: 1.4; }
+.pc-status-heading p { line-height: 1.6; }
+.connection-description { line-height: 1.7; margin-top: var(--space-lg); }
+.pairing-section { margin-top: var(--space-xl); }
+.section-heading { margin-bottom: var(--space-md); }
+.connection-scan-row { min-height: 56px; padding-inline: var(--space-lg); border: 0; border-radius: var(--mobile-radius-panel); background: var(--button-primary-bg); color: var(--button-primary-text); font-weight: 600; }
+.connection-methods { margin-top: var(--space-sm); }
+.connection-method > summary { gap: var(--space-md); }
+.connection-help { margin-top: var(--space-xl); }
+.connection-help summary { min-height: 56px; }
+.connection-page .button { border-radius: var(--mobile-radius-panel); }
+@media (hover: hover) {
+  .note-link:hover:not(:disabled), .settings-row:hover { background: var(--iphone-search); }
+}
+@media (max-width: 350px) {
+  .header-compose { padding-inline: var(--space-md); }
+  .library-filter { gap: var(--space-sm); }
+  .folder-picker { padding-left: 0; }
+}
+@media (prefers-contrast: more) {
+  .note-row, .library-filter { border-color: var(--secondary); }
+}
+
+/* Keyboard accessory: stable history actions and horizontally scrollable formats. */
+.writing-tools { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-sm); border-top: 1px solid var(--iphone-rule); padding-top: var(--space-sm); margin-top: var(--space-sm); }
+.writing-history, .writing-formats { display: flex; align-items: center; }
+.writing-history { flex-shrink: 0; border-right: 1px solid var(--iphone-rule); padding-right: var(--space-sm); }
+.writing-formats { min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.writing-tools button { display: grid; place-items: center; width: var(--tap-size); min-width: var(--tap-size); height: var(--tap-size); padding: 0; border: 0; border-radius: var(--mobile-radius-control); background: transparent; color: var(--text); }
+.writing-tools button:disabled { opacity: .35; }
+.writing-tools button:active:not(:disabled) { background: var(--iphone-search); }
+.writing-tools button:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: -3px; }
+.is-writing .note-body-input { padding-bottom: var(--space-sm); }
+[data-theme="light"] body { color-scheme: light; }
+[data-theme="dark"] body { color-scheme: dark; }
+.markdown-body li:has(> input[type="checkbox"]) { list-style: none; }
+
+/* Reading rhythm: prose wraps; tables and code own their horizontal scroll. */
+.markdown-body { line-height: 1.8; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1.65em; margin-bottom: .65em; text-wrap: pretty; }
+.markdown-body li + li { margin-top: .35em; }
+.markdown-body li > p { margin-bottom: .5em; }
+.markdown-body ul:has(> li > input[type="checkbox"]) { padding-left: var(--space-sm); }
+.markdown-body li > input[type="checkbox"] { width: 1em; height: 1em; vertical-align: -.12em; opacity: 1; }
+.markdown-body blockquote { border-left-width: 2px; padding-left: var(--space-lg); color: var(--text); }
+.markdown-body .markdown-callout { padding: var(--space-lg); border: 1px solid var(--iphone-rule); border-left: 3px solid var(--secondary); border-radius: var(--mobile-radius-control); background: var(--iphone-search); }
+.markdown-body .markdown-callout-title { font-weight: 650; margin-bottom: var(--space-sm); }
+.markdown-body mark { background: var(--color-mobile-mark); color: inherit; padding-inline: .1em; }
+.markdown-body .markdown-code { margin: var(--space-xl) 0; border: 1px solid var(--iphone-rule); border-radius: var(--mobile-radius-panel); overflow: clip; background: var(--iphone-search); }
+.markdown-code figcaption { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); padding-inline: var(--space-lg) var(--space-sm); font-family: var(--font-mono); color: var(--secondary); font-size: var(--iphone-caption); }
+.markdown-copy { min-height: var(--tap-size); min-width: var(--tap-size); padding-inline: var(--space-sm); border: 0; border-radius: var(--mobile-radius-control); background: transparent; color: var(--text); font-size: var(--iphone-caption); }
+.markdown-copy:active { background: var(--muted); }
+.markdown-body .markdown-code pre { margin: 0; padding: 0 var(--space-lg) var(--space-lg); border-radius: 0; background: transparent; overflow-wrap: normal; white-space: pre; }
+.markdown-body .markdown-table { max-width: 100%; overflow-x: auto; margin-block: var(--space-xl); border: 1px solid var(--iphone-rule); border-radius: var(--mobile-radius-control); }
+.markdown-body .markdown-table table { display: table; width: 100%; margin: 0; font-size: var(--iphone-preview); line-height: 1.5; }
+.markdown-table th, .markdown-table td { min-width: 7em; overflow-wrap: normal; padding: var(--space-md); border-color: var(--iphone-rule); vertical-align: top; }
+.markdown-body .align-right { text-align: right; font-variant-numeric: tabular-nums; }
+.markdown-body .align-center { text-align: center; }
+.markdown-body .align-left { text-align: left; }
+.markdown-table:focus-visible, .markdown-code pre:focus-visible, .markdown-copy:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: -3px; }
+.markdown-reference { text-decoration: underline; text-decoration-color: var(--secondary); text-underline-offset: .2em; }
+.markdown-reference-kind { color: var(--secondary); font-size: var(--iphone-caption); text-decoration: none; }
+.markdown-attachment { display: inline-block; padding: var(--space-sm) var(--space-md); border: 1px solid var(--iphone-rule); border-radius: var(--mobile-radius-control); font-size: var(--iphone-preview); }
+.markdown-copy-status { color: var(--secondary); font-size: var(--iphone-caption); line-height: 1.5; }
+.markdown-copy-status:empty { display: none; }
+.markdown-body li > input[type="checkbox"] { appearance: none; position: relative; border: 1px solid var(--secondary); border-radius: 3px; background: transparent; }
+.markdown-body li > input[type="checkbox"]:checked { border-color: var(--text); background: var(--text); }
+.markdown-body li > input[type="checkbox"]:checked::after { content: ""; position: absolute; left: 30%; top: 12%; width: 25%; height: 50%; border: solid var(--bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.markdown-reference { text-decoration: none; border-bottom: 1px dotted var(--secondary); }
+.note-reading-title, .markdown-body { word-break: keep-all; overflow-wrap: anywhere; }
+.markdown-code pre, .markdown-code code { word-break: normal; overflow-wrap: normal; }
+
+.markdown-body button.markdown-reference { display: inline; padding: 0; background: transparent; color: var(--accent, #356b9f); border: 0; text-align: left; text-decoration: underline; font: inherit; overflow-wrap: anywhere; }
+.markdown-body button.markdown-attachment { display: block; max-width: 100%; padding: 12px; margin: 8px 0; background: var(--bg-secondary, #eeeeec); border: 1px solid var(--border, #ddd); border-radius: 8px; color: inherit; font: inherit; text-align: left; overflow-wrap: anywhere; }
+.mobile-attachment-preview { margin: 12px 0; }
+.mobile-attachment-preview img { display: block; width: auto; max-width: 100%; max-height: 65vh; object-fit: contain; border-radius: 6px; }
+.mobile-attachment-preview figcaption { overflow-wrap: anywhere; font-size: .8rem; padding: 8px 0; }
+.mobile-attachment-preview button { margin-left: 12px; padding: 10px; }
+.note-preview { white-space: pre-line; overflow-wrap: anywhere; word-break: keep-all; }
+.note-heading strong { overflow-wrap: anywhere; word-break: keep-all; }
+.mobile-attachment-preview button { border: 0; border-radius: 6px; background: transparent; color: var(--secondary); font: inherit; text-decoration: underline; }

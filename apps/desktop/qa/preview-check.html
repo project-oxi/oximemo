@@ -1,0 +1,40 @@
+<!doctype html><meta charset="utf-8"><title>Desktop excerpt regression checks</title>
+<h1>Desktop excerpt regression checks</h1><pre id="results"></pre>
+<script type="module">
+import { renderPreviewMarkdown, previewText } from '/src/lib/markdownPreview.ts';
+const results = [];
+function check(label, fn) {
+  try { if (!fn()) throw new Error('Assertion failed'); results.push(`PASS ${label}`); }
+  catch (e) { results.push(`FAIL ${label}: ${e.message}`); }
+}
+function render(source, limit = 320) {
+  const el = document.createElement('div'); el.innerHTML = renderPreviewMarkdown(source, limit); return el;
+}
+check('paragraphs and explicit line breaks survive', () => {
+ const el = render('First **bold** line\nSecond line\n\nNext paragraph');
+ return el.querySelectorAll('p').length === 2 && el.querySelector('strong')?.textContent === 'bold' && !!el.querySelector('br');
+});
+check('completed and open task markers remain distinct', () => {
+ const el = render('- [x] Done\n- [ ] Next');
+ const boxes = [...el.querySelectorAll('.ox-task-box')];
+ return boxes.length === 2 && boxes[0].className !== boxes[1].className;
+});
+check('links, forms and media cannot execute inside rows', () => {
+ const el = render('[Site](https://example.com) ![Diagram](https://example.com/track.png)\n<img src="https://example.com/raw.png"><iframe src="https://example.com"></iframe><form><input autofocus></form>');
+ return !el.querySelector('a,img,iframe,input,form,[src],[href]') && el.textContent.includes('Diagram') && el.textContent.includes('Site');
+});
+check('raw HTML cannot supply layout classes, styles or handlers', () => {
+ const el = render('<div class="fixed inset-0" style="position:fixed" onclick="alert(1)">Readable</div>');
+ return !el.querySelector('[style],[onclick],.fixed,.inset-0') && el.textContent.includes('Readable');
+});
+check('Unicode truncation keeps complete code points', () => {
+ const text = render('📝'.repeat(20), 5).textContent.trim();
+ return text === '📝'.repeat(5) + '…' && !text.includes('\uFFFD');
+});
+check('plain excerpt retains line boundaries and image descriptions', () => {
+ const text = previewText('One\nTwo\n\n![Diagram](https://example.com/track.png)');
+ return text.includes('One\nTwo') && text.includes('Diagram');
+});
+document.querySelector('#results').textContent = results.join('\n');
+document.title = `${results.filter(x => x.startsWith('PASS')).length}/${results.length} passed — Desktop excerpt checks`;
+</script>

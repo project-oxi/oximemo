@@ -22,7 +22,7 @@ import { CopilotModelPicker } from "./CopilotModelPicker";
  * titles; errors offer retry.
  */
 import { useQuery, useQueryClient, useQueries } from "@tanstack/react-query";
-import { Bot, Check, Copy, Loader2, MessageSquarePlus, X } from "lucide-react";
+import { Bot, Check, Copy, Loader2, MessageSquarePlus, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, useIsPresent } from "motion/react";
@@ -36,6 +36,7 @@ import { renderChatMarkdown } from "../lib/chatMarkdown";
 import { runCopilotTurn } from "../lib/copilotTurn";
 import { expandCommand, type CopilotCommandId } from "../lib/copilotCommands";
 import { COMMAND_ICONS, CopilotComposer, type ComposerSendPayload } from "./CopilotComposer";
+import { CtxItem, CtxMenu, CtxRoot, CtxSeparator, CtxTrigger } from "./ContextMenu";
 import {
   copilotCancel,
   copilotStatus,
@@ -316,6 +317,15 @@ export function CopilotPanel() {
             entry={e}
             agentName={agentName}
             onRetry={busy ? undefined : () => (e.role === "error" || e.role === "agent") && e.retry && void sendTurn(e.retry)}
+            onSendRetry={busy ? undefined : (p) => void sendTurn(p)}
+            onClearChat={
+              busy
+                ? undefined
+                : () => {
+                    resetCopilotChat();
+                    setDraft("");
+                  }
+            }
           />
         ))}
         {busy && streamText.trim() !== "" && (
@@ -352,65 +362,168 @@ export function CopilotPanel() {
   );
 }
 /** One row: user turn (with its attached-context chips), agent turn, or
- * error (with retry). */
+ * error (with retry). Right-click: copy / retry (user·error) / armed
+ * clear-conversation (design 2026-10-25 §3.4). */
 function ConversationEntry({
   entry,
   agentName,
   onRetry,
+  onSendRetry,
+  onClearChat,
 }: {
   entry: CopilotEntry;
   agentName: string;
   onRetry?: () => void;
+  /** Right-click "retry" — resends this turn's exact payload; undefined
+   *  while a turn runs. */
+  onSendRetry?: (payload: CopilotRetryPayload) => void;
+  /** Right-click armed "clear conversation"; undefined while busy. */
+  onClearChat?: () => void;
 }) {
   const { t } = useI18n();
+  // Two-click armed clear (FolderMenu rules): arm resets when the menu
+  // closes or 4s after arming.
+  const [armed, setArmed] = useState(false);
+  const armTimer = useRef<number | null>(null);
+  const disarm = () => {
+    setArmed(false);
+    if (armTimer.current) {
+      window.clearTimeout(armTimer.current);
+      armTimer.current = null;
+    }
+  };
+  useEffect(() => () => disarm(), []);
+
+  const text = entry.role === "agent" ? entry.result.response : entry.text;
+  // Retry target (§3.4): user entries rebuild their exact sent payload
+  // from the stored attachment snapshot; error entries keep the payload
+  // captured at failure. Agent turns retry via their inline button.
+  const retryPayload: CopilotRetryPayload | null =
+    entry.role === "error"
+      ? entry.retry
+      : entry.role === "user"
+        ? {
+            message: entry.text,
+            memo: entry.attached.active
+              ? { ...entry.attached.active, selection: entry.attached.selection }
+              : null,
+            referenced: entry.attached.memos,
+          }
+        : null;
+
+  const chatMenu = (
+    <CtxMenu>
+      <CtxItem
+        icon={Copy}
+        label={t.copilot_menu_copy}
+        onClick={() => void clipboardWriteText(text)}
+      />
+      {retryPayload && onSendRetry && (
+        <CtxItem
+          icon={RotateCcw}
+          label={t.copilot_menu_retry}
+          onClick={() => onSendRetry(retryPayload)}
+        />
+      )}
+      <CtxSeparator />
+      {armed ? (
+        <CtxItem
+          icon={Trash2}
+          label={t.copilot_menu_clear_arm}
+          danger
+          disabled={!onClearChat}
+          onClick={() => {
+            disarm();
+            onClearChat?.();
+          }}
+        />
+      ) : (
+        <CtxItem
+          icon={Trash2}
+          label={t.copilot_menu_clear}
+          danger
+          keepOpen
+          disabled={!onClearChat}
+          onClick={() => {
+            setArmed(true);
+            if (armTimer.current) window.clearTimeout(armTimer.current);
+            armTimer.current = window.setTimeout(disarm, 4000);
+          }}
+        />
+      )}
+    </CtxMenu>
+  );
+
   if (entry.role === "user") {
     return (
-      <div className="ml-8">
-        <div className="rounded-lg bg-interactive-primary/10 px-3 py-2 text-xs text-text">
-          {entry.text}
-        </div>
-        {(entry.attached.active || entry.attached.selection || entry.attached.memos.length > 0) && (
-          <div className="mt-1 flex flex-wrap gap-1 px-1">
-            {entry.attached.active && (
-              <span className="max-w-full truncate rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[9px] text-text-subtle">
-                {t.copilot_at_active}: {entry.attached.active.title || entry.attached.active.path}
-              </span>
-            )}
-            {entry.attached.selection && (
-              <span className="max-w-full truncate rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[9px] text-text-subtle">
-                {t.copilot_at_selection}
-              </span>
-            )}
-            {entry.attached.memos.map((m) => (
-              <span
-                key={m.id}
-                className="max-w-full truncate rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[9px] text-text-subtle"
-              >
-                {m.title || m.path}
-              </span>
-            ))}
+      <CtxRoot onOpenChange={(open) => !open && disarm()}>
+        {/* 시트 Dialog.Popup 안에서는 보이는 요소로의 render-merge 트리거가
+            열리지 않는다(rc.0) — TextCtxMenu와 같은 contents 래퍼를 쓴다. */}
+        <CtxTrigger render={<span className="contents" />}>
+          <div className="ml-8">
+          <div className="rounded-lg bg-interactive-primary/10 px-3 py-2 text-xs text-text">
+            {entry.text}
           </div>
-        )}
-      </div>
+          {(entry.attached.active || entry.attached.selection || entry.attached.memos.length > 0) && (
+            <div className="mt-1 flex flex-wrap gap-1 px-1">
+              {entry.attached.active && (
+                <span className="max-w-full truncate rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[9px] text-text-subtle">
+                  {t.copilot_at_active}: {entry.attached.active.title || entry.attached.active.path}
+                </span>
+              )}
+              {entry.attached.selection && (
+                <span className="max-w-full truncate rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[9px] text-text-subtle">
+                  {t.copilot_at_selection}
+                </span>
+              )}
+              {entry.attached.memos.map((m) => (
+                <span
+                  key={m.id}
+                  className="max-w-full truncate rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[9px] text-text-subtle"
+                >
+                  {m.title || m.path}
+                </span>
+              ))}
+            </div>
+          )}
+          </div>
+          {chatMenu}
+        </CtxTrigger>
+      </CtxRoot>
     );
   }
   if (entry.role === "error") {
     return (
-      <div className="mr-4 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-red-500">
-        <p>{entry.text}</p>
-        {entry.retry && onRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-1 rounded-md bg-surface-muted px-2 py-1 text-[10px] text-text-muted transition-colors hover:text-text"
-          >
-            {t.copilot_retry}
-          </button>
-        )}
-      </div>
+      <CtxRoot onOpenChange={(open) => !open && disarm()}>
+        <CtxTrigger render={<span className="contents" />}>
+          <div className="mr-4 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-red-500">
+          <p>{entry.text}</p>
+          {entry.retry && onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-1 rounded-md bg-surface-muted px-2 py-1 text-[10px] text-text-muted transition-colors hover:text-text"
+            >
+              {t.copilot_retry}
+            </button>
+          )}
+          </div>
+          {chatMenu}
+        </CtxTrigger>
+      </CtxRoot>
     );
   }
-  return <><AgentMessage result={entry.result} agentName={agentName} />{entry.retry && onRetry && <button type="button" className="rounded-md px-2 py-1 text-xs text-text-muted" onClick={onRetry}>{t.copilot_retry}</button>}</>;
+  return (
+    <CtxRoot onOpenChange={(open) => !open && disarm()}>
+      <CtxTrigger render={<span className="contents" />}>
+        <div className="space-y-2">
+        <AgentMessage result={entry.result} agentName={agentName} />
+        {entry.retry && onRetry && <button type="button" className="rounded-md px-2 py-1 text-xs text-text-muted" onClick={onRetry}>{t.copilot_retry}</button>}
+        </div>
+        {chatMenu}
+      </CtxTrigger>
+    </CtxRoot>
+  );
 }
 
 /** One finished agent turn: markdown response, observed changes, and

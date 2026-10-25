@@ -11,6 +11,13 @@ final class ReadingWritingTests: XCTestCase {
         originalOrientation = XCUIDevice.shared.orientation
         XCUIDevice.shared.orientation = .portrait
         app.launch()
+        if app.textViews["메모 제목"].waitForExistence(timeout: 2),
+           app.textViews["메모 제목"].value as? String == "Recovery check",
+           app.textViews["메모 본문"].value as? String == "**Unsaved**\n- [ ] Still here" {
+            app.buttons["메모 목록으로"].tap()
+            XCTAssertTrue(app.buttons["저장하지 않고 나가기"].waitForExistence(timeout: 5))
+            app.buttons["저장하지 않고 나가기"].tap()
+        }
         XCTAssertTrue(app.buttons["새 메모 작성"].waitForExistence(timeout: 20))
     }
 
@@ -38,6 +45,27 @@ final class ReadingWritingTests: XCTestCase {
         let image = try XCTUnwrap(UIImage(data: XCUIScreen.main.screenshot().pngRepresentation)?.cgImage)
         try VNImageRequestHandler(cgImage: image).perform([request])
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined().uppercased().filter { $0.isLetter }
+    }
+
+    func testUnsavedDraftSurvivesTermination() {
+        app.buttons["새 메모 작성"].tap()
+        let title = app.textViews["메모 제목"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.tap(); title.typeText("Recovery check")
+        let body = app.textViews["메모 본문"]
+        body.tap(); body.typeText("**Unsaved**\n- [ ] Still here")
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(body.waitForExistence(timeout: 10))
+        XCTAssertEqual(body.value as? String, "**Unsaved**\n- [ ] Still here")
+        capture("simulator-recovered-draft")
+        app.buttons["미리보기"].tap()
+        XCTAssertTrue(app.staticTexts["Unsaved"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["메모 목록으로"].tap()
+        app.buttons["저장하지 않고 나가기"].tap()
+        XCTAssertTrue(app.buttons["새 메모 작성"].waitForExistence(timeout: 5))
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons["새 메모 작성"].waitForExistence(timeout: 10))
     }
 
     func testReadingAndWritingWithKeyboard() throws {

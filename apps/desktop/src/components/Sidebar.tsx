@@ -8,14 +8,14 @@
  * switcher pinned to the bottom edge. Folder browsing happens in the main area.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowUpDown, BookMarked, CalendarDays, ChevronRight, Clock3, Database, FileText, Folder, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Search, Star, Trash2, TriangleAlert, X } from "lucide-react";
+import { Archive, ArrowUpDown, BookMarked, CalendarDays, ChevronRight, Clock3, Database, FileText, Folder, FolderPlus, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Search, Star, Trash2, TriangleAlert, X } from "lucide-react";
 import { Popover } from "@base-ui-components/react";
 import { Button } from "@garden/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, useIsPresent } from "motion/react";
 import { useWorkspaceMotion } from "../lib/workspaceMotion";
 import { SpacePicker } from "./SpacePicker";
-import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase } from "../lib/api";
+import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase, listFolders } from "../lib/api";
 import { createQueryCollection, defaultQueryYaml } from "../lib/queryCreation";
 import { TASKS_BASE_PATH } from "../lib/tasksPanel";
 import { colorForFolder } from "../lib/color";
@@ -28,8 +28,16 @@ import { folderDisplayName, useFolderNames, useSchemaInfo, DEFAULT_KNOWLEDGE_FOL
 import { TasksPanel } from "./TasksPanel";
 import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
 import { TextCtxMenu } from "./TextCtxMenu";
+import type { LucideIcon } from "lucide-react";
 import { useUI, type TagState } from "../stores/ui";
-import type { FolderDef } from "../lib/types";
+import type { FolderDef, FolderEntry } from "../lib/types";
+import { NoteCtxMenu } from "./NoteCtxMenu";
+import { useFolderCreate } from "../lib/useFolderCreate";
+/** 쿼리 행 메뉴 항목 — ⋯ 팝오버와 우클릭이 공유(설계 원칙 2). */
+type QueryMenuItem =
+  | { label: string; icon?: LucideIcon; danger?: boolean; onClick: () => void }
+  | { separator: true };
+
 /** Static preset-id → icon table (drives 위치 collection rows). */
 const PRESET_ICON: Record<string, (typeof COLLECTION_CATALOG)[number]["icon"]> =
   Object.fromEntries(COLLECTION_CATALOG.map((c) => [c.id, c.icon]));
@@ -43,10 +51,22 @@ const STATE_CLASS: Record<TagState, string> = {
 export function Sidebar({
   onMoveNote,
   onMoveFolderTree,
+  noteActions,
+  onRequestAdd,
 }: {
   onMoveNote: (id: string, folder: string) => void;
   /** Move a dragged folder subtree into a pinned/seeded row's folder. */
   onMoveFolderTree?: (path: string, dest: string) => void;
+  /** NoteCtxMenu 액션 — CardGrid가 소유(설계 §3.1 최근 항목 메뉴 재사용). */
+  noteActions: {
+    folderEntries: FolderEntry[];
+    onToggleFavorite: (id: string, favorite: boolean) => void;
+    onMoveFolder: (id: string, folder: string) => void;
+    onCopyBody: (id: string) => void;
+    onDelete: (id: string) => void;
+  };
+  /** 배경 메뉴의 새 노트 — CardGrid의 requestAdd 위임(스키마 추가 게이트 포함). */
+  onRequestAdd: () => void;
 }) {
   const { t, locale } = useI18n();
   const present = useIsPresent();
@@ -282,6 +302,12 @@ export function Sidebar({
       .catch((e) => setError(String(e).split("\n")[0]));
   };
 
+  // 배경 메뉴의 새 폴더 — 볼트 루트 대상, CardGrid와 같은 낙관적 생성 흐름.
+  const createFolderAt = useFolderCreate();
+  // config 기반 `folders`는 핀된 폴더만 담고 있어 접미 가드가 미비하다 —
+  // 볼트 전체 스캔(listFolders)을 써야 미고정 폴더와의 이름 충돌을 피한다.
+  const foldersQ = useQuery({ queryKey: ["folders"], queryFn: listFolders });
+
   return (
     <motion.aside
       id="workspace-sidebar"
@@ -303,6 +329,12 @@ export function Sidebar({
         useUI.getState().toggleSidebar();
       }}
     >
+      {/* 배경 메뉴(설계 §3.1): 사이드바 여백 우클릭 = 생성. `contents` div라
+          레이아웃에 영향 없고, 폴더 핀·태그 칩 등 기존 개별 트리거와 중첩된다
+          (CardGrid 빈 영역의 검증된 패턴). FAVORITES·LOCATIONS 고정 셀은
+          의도적 no-op — 이 배경 메뉴가 여백 우클릭을 담당한다. */}
+      <CtxRoot>
+        <CtxTrigger className="contents">
       <div data-tauri-drag-region className="sidebar-window-handle">
         <Button type="button" size="icon" variant="ghost" aria-label={t.hide_sidebar} onClick={() => useUI.getState().toggleSidebar()} className="sidebar-compact-close">
           <X size={15} aria-hidden />
@@ -473,15 +505,25 @@ export function Sidebar({
           const active = location.kind === "base" && "path" in location.source && location.source.path === b.path;
           const warn = !b.loadable || ambiguousNames.has(b.name);
           const renaming = queryNaming === b.path;
+          const openQuery = () => {
+            setView("memos");
+            openBase({ path: b.path });
+          };
+          // ⋯ 팝오버와 우클릭 = 같은 메뉴의 두 진입점(설계 원칙 2) — 항목을
+          // 한 번 정의하고 두 래퍼가 각자 렌더한다.
+          const menuItems: QueryMenuItem[] = [
+            { label: t.folder_open, onClick: openQuery },
+            { label: t.query_rename, icon: PenLine, onClick: () => setQueryNaming(b.path) },
+            { separator: true },
+            { label: t.query_delete, icon: Trash2, danger: true, onClick: () => deleteQuery(b.path) },
+          ];
           return (
-            <BtnMenuRoot key={b.path}>
-              <div className="group/query relative mx-2">
+            <CtxRoot key={b.path}>
+              <BtnMenuRoot>
+              <CtxTrigger render={<div className="group/query relative mx-2" />}>
                 <button
                   type="button"
-                  onClick={() => {
-                    setView("memos");
-                    openBase({ path: b.path });
-                  }}
+                  onClick={openQuery}
                   aria-current={active ? "page" : undefined}
                   className={`sidebar-nav-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
                     active
@@ -525,21 +567,26 @@ export function Sidebar({
                   }
                 />
                 <BtnMenuPopup>
-                  <BtnMenuItem
-                    icon={PenLine}
-                    label={t.query_rename}
-                    onClick={() => setQueryNaming(b.path)}
-                  />
-                  <BtnMenuSeparator />
-                  <BtnMenuItem
-                    icon={Trash2}
-                    label={t.query_delete}
-                    danger
-                    onClick={() => deleteQuery(b.path)}
-                  />
+                  {menuItems.map((item, i) =>
+                    "separator" in item ? (
+                      <BtnMenuSeparator key={i} />
+                    ) : (
+                      <BtnMenuItem key={item.label} icon={item.icon} label={item.label} danger={item.danger} onClick={item.onClick} />
+                    ),
+                  )}
                 </BtnMenuPopup>
-              </div>
+                <CtxMenu>
+                  {menuItems.map((item, i) =>
+                    "separator" in item ? (
+                      <CtxSeparator key={i} />
+                    ) : (
+                      <CtxItem key={item.label} icon={item.icon} label={item.label} danger={item.danger} onClick={item.onClick} />
+                    ),
+                  )}
+                </CtxMenu>
+              </CtxTrigger>
             </BtnMenuRoot>
+            </CtxRoot>
           );
         })
       )}
@@ -666,13 +713,33 @@ export function Sidebar({
                 <Popover.Title className="recent-popup-title">{t.recents_section}</Popover.Title>
                 {recents.length === 0 && <p className="p-3 text-xs text-text-subtle">{t.workspace_no_recents}</p>}
                 {recents.map((n) => (
-                  <button key={n.id} type="button" className="recent-note" onClick={() => { setRecentsOpen(false); setView("memos"); select(n.id); }}>
-                    <FileText size={16} aria-hidden />
-                    <span className="recent-note-copy">
-                      <span className="recent-note-title">{n.title || t.empty_memo}</span>
-                      <span className="recent-note-meta">{n.folder ? folderDisplayName(n.folder, t, dailyFolder) : t.vault_root} · {relativeTime(n.updated_at, locale)}</span>
-                    </span>
-                  </button>
+                  <CtxRoot key={n.id}>
+                    <CtxTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="recent-note"
+                          onClick={() => { setRecentsOpen(false); setView("memos"); select(n.id); }}
+                        />
+                      }
+                    >
+                      <FileText size={16} aria-hidden />
+                      <span className="recent-note-copy">
+                        <span className="recent-note-title">{n.title || t.empty_memo}</span>
+                        <span className="recent-note-meta">{n.folder ? folderDisplayName(n.folder, t, dailyFolder) : t.vault_root} · {relativeTime(n.updated_at, locale)}</span>
+                      </span>
+                    </CtxTrigger>
+                    {/* 최근 항목도 노트 — 모든 노트 표면이 동일 메뉴(설계 §3.1).
+                        팝오버 안 CtxRoot 중첩은 포털이라 충돌 없음. */}
+                    <NoteCtxMenu
+                      memo={n}
+                      folderEntries={noteActions.folderEntries}
+                      onToggleFavorite={(id, favorite) => { setRecentsOpen(false); noteActions.onToggleFavorite(id, favorite); }}
+                      onMoveFolder={(id, folder) => { setRecentsOpen(false); noteActions.onMoveFolder(id, folder); }}
+                      onCopyBody={(id) => { setRecentsOpen(false); noteActions.onCopyBody(id); }}
+                      onDelete={(id) => { setRecentsOpen(false); noteActions.onDelete(id); }}
+                    />
+                  </CtxRoot>
                 ))}
               </Popover.Popup>
             </Popover.Positioner>
@@ -682,6 +749,14 @@ export function Sidebar({
           <Search size={15} aria-hidden />
         </button>
       </div>
+          <CtxMenu>
+            <CtxItem icon={FileText} label={t.new_note_md} onClick={onRequestAdd} />
+            <CtxItem icon={FolderPlus} label={t.folder_new} onClick={() => createFolderAt("", (foldersQ.data ?? []).map((f) => f.path))} />
+            <CtxSeparator />
+            <CtxItem icon={Plus} label={t.query_new} onClick={createQuery} />
+          </CtxMenu>
+        </CtxTrigger>
+      </CtxRoot>
     </motion.aside>
   );
 }
