@@ -49,12 +49,12 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
   const previewHtml = useMemo(
     () =>
       memo.preview
-        ? renderPreviewMarkdown(previewExcerpt(memo.preview, memo.title, memo.path), 200, {
+        ? renderPreviewMarkdown(previewExcerpt(memo.preview, memo.title, memo.path), 320, {
             thisId: memo.id,
             resultsN: t.query_embed_results_n,
           })
         : "",
-    [memo.preview, memo.title, memo.id, t.query_embed_results_n, queryCountVer],
+    [memo.preview, memo.title, memo.path, memo.id, t.query_embed_results_n, queryCountVer],
   );
   return (
     <CtxRoot>
@@ -126,10 +126,10 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
         type="button"
         aria-label={memo.favorite ? t.action_unfavorite : t.action_favorite}
         title={memo.favorite ? t.action_unfavorite : t.action_favorite}
-        className={`absolute right-2 top-2 z-10 rounded-md p-1.5 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+        className={`absolute right-2 top-2 z-10 rounded-md p-1.5 transition-[color,opacity,background-color] duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
           memo.favorite
-            ? "text-hue-amber hover:bg-surface-muted"
-            : "text-text-subtle hover:bg-surface-muted hover:text-hue-amber"
+            ? "text-hue-amber opacity-100 hover:bg-surface-muted"
+            : "text-text-subtle opacity-0 hover:bg-surface-muted hover:text-hue-amber group-hover:opacity-100 focus-visible:opacity-100"
         }`}
         onClick={(e) => {
           e.stopPropagation();
@@ -142,14 +142,14 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onSelect(memo.id); }}
-          className="block w-full line-clamp-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          className="block w-full line-clamp-2 break-words rounded-sm text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         >
           {memo.title || t.empty_memo}
         </button>
       </h3>
       {memo.preview ? (
         <div
-          className="md-preview mt-1 line-clamp-3 min-h-0 flex-1 text-xs leading-relaxed text-text-muted"
+          className="md-preview note-excerpt mt-1 line-clamp-3 min-h-0 flex-1 text-xs leading-relaxed text-text-muted"
           dangerouslySetInnerHTML={{ __html: previewHtml }}
         />
       ) : (
