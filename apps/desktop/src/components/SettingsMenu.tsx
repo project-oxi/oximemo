@@ -523,6 +523,7 @@ function CopilotSection() {
         agent: copilot?.agent ?? "",
         executable: copilot?.executable ?? "",
         timeout_secs: copilot?.timeout_secs ?? 600,
+        suggest_after_save: copilot?.suggest_after_save ?? false,
         ...p,
       }),
       ["copilot-status"],
@@ -543,6 +544,14 @@ function CopilotSection() {
         checked={copilot?.enabled ?? true}
         onChange={(v) => patch({ enabled: v })}
       />
+      <ToggleRow
+        label={t.copilot_suggest_after_save}
+        checked={copilot?.suggest_after_save ?? false}
+        onChange={(v) => patch({ suggest_after_save: v })}
+      />
+      <p className="rounded-lg bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-text-subtle">
+        {t.copilot_suggest_after_save_desc}
+      </p>
 
       {activeAgent === "" && (
         <p className="rounded-lg bg-surface-sunken px-3 py-2 text-xs leading-relaxed text-text-muted" role="status">

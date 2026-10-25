@@ -764,6 +764,22 @@ pub async fn run_agent_process(
     timeout_secs: u64,
     on_spawn: impl FnOnce(i32),
 ) -> Result<ProcessOutcome, String> {
+    run_agent_process_streaming(exe, args, stdin_data, cwd, timeout_secs, on_spawn, |_| {}).await
+}
+
+/// [`run_agent_process`] plus incremental stdout line events: `on_line`
+/// fires for every complete stdout line as it lands (and once for a
+/// final unterminated tail), enabling live rendering of JSONL event
+/// streams. The full stdout buffer is still returned as usual.
+pub async fn run_agent_process_streaming(
+    exe: &Path,
+    args: &[String],
+    stdin_data: &str,
+    cwd: Option<&Path>,
+    timeout_secs: u64,
+    on_spawn: impl FnOnce(i32),
+    on_line: impl Fn(&str) + Send + 'static,
+) -> Result<ProcessOutcome, String> {
     let mut cmd = agent_command(exe)?;
     cmd.args(args)
         .stdin(std::process::Stdio::piped())
@@ -796,9 +812,29 @@ pub async fn run_agent_process(
     // draining only after wait() deadlocks the turn until the timeout.
     let stdout_task = child.stdout.take().map(|mut p| {
         tokio::spawn(async move {
-            let mut buf = Vec::new();
             use tokio::io::AsyncReadExt;
-            let _ = p.read_to_end(&mut buf).await;
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 8192];
+            let mut scanned = 0usize;
+            loop {
+                match p.read(&mut chunk).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&chunk[..n]);
+                        // Every complete line fires the moment it lands —
+                        // this is what makes JSONL streams renderable live.
+                        while let Some(rel) = buf[scanned..].iter().position(|&b| b == b'\n') {
+                            let end = scanned + rel;
+                            on_line(&String::from_utf8_lossy(&buf[scanned..end]));
+                            scanned = end + 1;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            if scanned < buf.len() {
+                on_line(&String::from_utf8_lossy(&buf[scanned..]));
+            }
             buf
         })
     });
@@ -1216,6 +1252,70 @@ pub fn parse_codex_jsonl(stdout: &str) -> CodexTurn {
 }
 
 // ---- OxiCode (verified 0.76.0) -------------------------------------------
+
+/// Incremental assistant text from ONE stdout line, for live rendering of
+/// the panel while the subprocess runs (goal 2026-10-25). Only the JSONL
+/// dialects have honest incremental payloads:
+/// - omp: each assistant `message_end` carries the message's text parts;
+/// - codex: each `item.completed` with an `agent_message` item carries text.
+///
+/// claude and oxios print ONE payload at exit; oxicode's text lands in its
+/// final event — for these the stream is the parsed final response, so
+/// this returns None and the panel simply waits.
+pub fn extract_stream_text(agent: &str, line: &str) -> Option<String> {
+    let line = line.trim();
+    if !line.starts_with('{') {
+        return None;
+    }
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+        return None;
+    };
+    match agent {
+        "omp" => {
+            if v.get("type").and_then(|t| t.as_str()) != Some("message_end") {
+                return None;
+            }
+            let m = v.get("message");
+            if m.and_then(|m| m.get("role")).and_then(|r| r.as_str()) != Some("assistant") {
+                return None;
+            }
+            let text = m
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                item.get("text").and_then(|t| t.as_str())
+                            } else {
+                                None
+                            }
+                        })
+                        .filter(|t| !t.trim().is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                        .join("\n\n")
+                })
+                .unwrap_or_default();
+            if text.is_empty() { None } else { Some(text) }
+        }
+        "codex" => {
+            if v.get("type").and_then(|t| t.as_str()) != Some("item.completed") {
+                return None;
+            }
+            let item = v.get("item");
+            if item.and_then(|i| i.get("type")).and_then(|t| t.as_str()) != Some("agent_message") {
+                return None;
+            }
+            item.and_then(|i| i.get("text"))
+                .and_then(|t| t.as_str())
+                .filter(|t| !t.trim().is_empty())
+                .map(str::to_string)
+        }
+        _ => None,
+    }
+}
 
 /// Build the oxicode argv for one turn. Verified contract: `--print` is
 /// single-shot non-interactive, `--mode=json` emits NDJSON events,
@@ -1819,6 +1919,54 @@ mod tests {
             }
         }
         assert!(suggest_invocation("unknown", None, "r", root).is_err());
+    }
+
+    #[test]
+    fn stream_text_extracts_jsonl_assistant_payloads() {
+        // omp: assistant message_end text parts.
+        let omp_line = r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"part one"}]}}"#;
+        assert_eq!(
+            extract_stream_text("omp", omp_line).as_deref(),
+            Some("part one")
+        );
+        assert_eq!(
+            extract_stream_text("omp", r#"{"type":"message_start","message":{"role":"assistant","model":"glm-5.2"}}"#),
+            None,
+            "message_start carries no text"
+        );
+        assert_eq!(
+            extract_stream_text("omp", r#"{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}"#),
+            None,
+            "user messages never stream"
+        );
+        // codex: item.completed agent_message text.
+        let codex_line = r#"{"type":"item.completed","item":{"type":"agent_message","text":"중간 답변"}}"#;
+        assert_eq!(extract_stream_text("codex", codex_line).as_deref(), Some("중간 답변"));
+        assert_eq!(
+            extract_stream_text("codex", r#"{"type":"item.completed","item":{"type":"command_execution","text":"ls"}}"#),
+            None
+        );
+        // Single-payload dialects: honest None.
+        assert_eq!(extract_stream_text("claude", r#"{"result":"x"}"#), None);
+        assert_eq!(extract_stream_text("oxios", r#"{"response":"x"}"#), None);
+        assert_eq!(extract_stream_text("omp", "TUI noise"), None);
+        assert_eq!(extract_stream_text("omp", "{not json"), None);
+    }
+
+    #[tokio::test]
+    async fn streaming_callback_receives_stdout_lines() {
+        use std::sync::Mutex;
+        let lines: std::sync::Arc<Mutex<Vec<String>>> = std::sync::Arc::default();
+        let sink = lines.clone();
+        let sh = std::path::Path::new("/bin/sh");
+        let args = vec!["-c".to_string(), "printf 'first\\nsecond\\n'".to_string()];
+        let outcome = run_agent_process_streaming(sh, &args, "", None, 10, |_| {}, move |line| {
+            sink.lock().unwrap().push(line.to_string());
+        })
+        .await
+        .unwrap();
+        assert_eq!(outcome.exit_code, Some(0));
+        assert_eq!(*lines.lock().unwrap(), vec!["first", "second"]);
     }
 
     #[test]

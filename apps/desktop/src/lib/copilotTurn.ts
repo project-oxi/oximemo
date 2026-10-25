@@ -14,6 +14,7 @@ export async function runCopilotTurn(
   useUI.setState({
     copilotBusy: true,
     copilotStartedAt: at,
+    copilotStream: "",
     copilotEntries: [...state.copilotEntries, {
       role: "user", text: message, at,
       attached: {
@@ -33,9 +34,14 @@ export async function runCopilotTurn(
       }));
     }
     // Changes still need refreshing even if the conversation was reset.
+    if (useUI.getState().copilotEpoch === epoch) {
+      // The parsed response replaces the in-flight stream bubble.
+      useUI.getState().resetCopilotStream();
+    }
     return result;
   } catch (error) {
     if (useUI.getState().copilotEpoch === epoch) {
+      useUI.getState().resetCopilotStream();
       useUI.getState().setCopilotEntries((es) => [...es, {
         role: "error", text: String(error).split("\n")[0], at: Date.now(), retry: payload,
       }]);

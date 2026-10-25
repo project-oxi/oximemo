@@ -3142,13 +3142,25 @@ mod commands {
         };
         let started = std::time::Instant::now();
         let outcome = {
-            let out = crate::copilot::run_agent_process(
+            // Live rendering (goal 2026-10-25): forward honest incremental
+            // assistant text to the panel while the subprocess runs. The
+            // final parsed response stays the source of truth; events only
+            // feed the in-flight bubble.
+            let stream_agent = cfg.agent.clone();
+            let stream_app = app.clone();
+            let on_line = move |line: &str| {
+                if let Some(text) = crate::copilot::extract_stream_text(&stream_agent, line) {
+                    let _ = stream_app.emit("copilot-stream", serde_json::json!({ "text": text }));
+                }
+            };
+            let out = crate::copilot::run_agent_process_streaming(
                 &exe,
                 &args,
                 stdin_for_agent,
                 cwd,
                 cfg.timeout_secs,
                 |pgid| turn_guard.spawned(pgid),
+                on_line,
             )
             .await;
             turn_guard.process_finished();

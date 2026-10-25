@@ -257,6 +257,7 @@ export interface Config {
     agent?: string;
     executable?: string;
     timeout_secs?: number;
+    suggest_after_save?: boolean;
   };
   metadata?: {
     enabled?: boolean;

@@ -9,6 +9,8 @@
  */
 import { Sparkles } from "lucide-react";
 import { useI18n, type Dict } from "../lib/i18n";
+import { formatContradiction } from "../lib/brainFormat";
+import type { BrainContradictionItem } from "../lib/api";
 import type { BrainLayer, BrainStatus } from "../lib/types";
 
 const LAYER_LABEL_KEYS: Partial<
@@ -48,6 +50,9 @@ export interface BrainCardProps {
   /** Count of results the brain truncated (`meta.dropped`); null when
    *  nothing was reported. */
   dropped: number | null;
+  /** Contradicted statements from the memory plane; undefined while the
+   *  query is loading/idle or after an error (C1 — render nothing). */
+  contradictions?: BrainContradictionItem[];
   onGather: () => void;
   onRetryStatus: () => void;
   onDistill: () => void;
@@ -59,12 +64,18 @@ export function BrainCard({
   gathering,
   offline,
   dropped,
+  contradictions,
   onGather,
   onRetryStatus,
   onDistill,
 }: BrainCardProps) {
   const { t } = useI18n();
   const online = status?.online === true;
+  // Best-effort rows only; at most 8, count in the header stays the full total.
+  const contradictionRows = (contradictions ?? [])
+    .map((c) => formatContradiction(c))
+    .filter((s) => s !== "")
+    .slice(0, 8);
 
   return (
     <div className="flex max-h-[min(480px,65vh)] w-[360px] flex-col overflow-hidden">
@@ -125,6 +136,24 @@ export function BrainCard({
               <p className="pt-1 text-[10px] text-text-subtle">
                 {t.brain_dropped.replace("{n}", String(dropped))}
               </p>
+            )}
+          </div>
+        )}
+        {online && contradictions && (
+          <div className="mt-2 border-t border-line pt-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+              {t.brain_contradictions} ({contradictions.length})
+            </p>
+            {contradictions.length === 0 ? (
+              <p className="py-1 text-xs text-text-subtle">{t.brain_contradictions_empty}</p>
+            ) : (
+              <ul className="mt-0.5 space-y-0.5">
+                {contradictionRows.map((text, i) => (
+                  <li key={i} className="rounded-md bg-surface-muted/60 px-2 py-1 text-xs leading-relaxed text-text">
+                    {text}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         )}

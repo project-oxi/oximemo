@@ -37,6 +37,7 @@ import { PropertyPanel } from "./PropertyPanel";
 import { HtmlNoteEditor } from "./HtmlNoteEditor";
 import { TagChipRow } from "./TagChipRow";
 import { MemoEditorForm } from "./MemoEditorForm";
+import { SuggestionStrip } from "./SuggestionStrip";
 import { IconTool } from "./IconTool";
 import type { FolderComboboxHandle } from "./FolderCombobox";
 import type { FolderEntry, Memo } from "../lib/types";
@@ -475,6 +476,10 @@ export function MemoDetail() {
   const setCopilotOpen = useUI((s) => s.setCopilotOpen);
   const copilot = useQuery({ queryKey: ["copilot-status"], queryFn: copilotStatus });
   const copilotVisible = (copilot.data?.enabled ?? false) && (copilot.data?.activated ?? false);
+  // Suggestion auto-trigger (goal 2026-10-25): an explicit opt-in toggle
+  // (default false) AND an activated agent — note text leaving for the
+  // provider must never happen silently.
+  const autoSuggest = copilotVisible && configQ.data?.copilot?.suggest_after_save === true;
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
@@ -611,7 +616,23 @@ export function MemoDetail() {
               </div>
             )}
             {memo.data && seededId === memo.data.id && (
-              <div className="memo-sheet-footer">
+              <div className="memo-sheet-footer flex-wrap">
+                {/* AI suggestion strip: markdown notes with a saved memo only
+                    (goal 2026-10-25). `w-full basis-full` keeps it its own row
+                    above the dock in the wrapped footer; applies ride the
+                    editor's own guarded path (editBody → debounced autosave). */}
+                {memo.data.format !== "html" && (
+                  <SuggestionStrip
+                    className="w-full shrink-0 basis-full"
+                    memoId={memo.data.id}
+                    body={body}
+                    dirty={dirty}
+                    saving={saving}
+                    copilotReady={copilotVisible}
+                    autoEnabled={autoSuggest}
+                    onApplyBody={editBody}
+                  />
+                )}
                 <ContextDock
                   noteId={memo.data.id}
                   title={memo.data.title}
