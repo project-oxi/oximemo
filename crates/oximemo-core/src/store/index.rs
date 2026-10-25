@@ -144,14 +144,7 @@ impl RedbIndex {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let db = match redb::Database::create(path) {
-            Ok(db) => db,
-            Err(redb::DatabaseError::UpgradeRequired(version)) => {
-                upgrade_file_format(path, version)?;
-                redb::Database::create(path)?
-            }
-            Err(e) => return Err(e.into()),
-        };
+        let db = open_database_with_retry(path)?;
         // Probe both tables in a read transaction. If both already
         // exist (the steady state for every open after the first), we
         // skip the legacy `begin_write + open_table + commit` creation
@@ -322,6 +315,39 @@ fn upgrade_file_format(path: &std::path::Path, from_version: u8) -> Result<()> {
         )));
     }
     RedbIndex::upgrade_via_redb2(path)
+}
+
+/// redb's read-write open takes a NON-blocking exclusive file lock that
+/// redb holds for the `Database`'s whole lifetime, and oximemo opens the
+/// index transiently on every operation under the §5.7 *shared* advisory
+/// flock — so two processes (desktop app + CLI + mobile sync server) or
+/// two threads of the desktop app can legitimately race the open, and the
+/// loser fails immediately with `DatabaseAlreadyOpen` instead of waiting.
+/// Retry briefly with the same 5 s / 25 ms policy as [`crate::lock`] so an
+/// overlapping open costs a few milliseconds of latency, never a spurious
+/// "redb database error" surfacing in the UI or CLI.
+fn open_database_with_retry(path: &std::path::Path) -> Result<redb::Database> {
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+    const POLL: std::time::Duration = std::time::Duration::from_millis(25);
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    loop {
+        match redb::Database::create(path) {
+            Ok(db) => return Ok(db),
+            // One-shot v2 → v3 format hop, then loop back into the retry
+            // (the pre-retry code's single follow-up create, now
+            // collision-safe against a concurrent opener).
+            Err(redb::DatabaseError::UpgradeRequired(version)) => {
+                upgrade_file_format(path, version)?;
+            }
+            Err(redb::DatabaseError::DatabaseAlreadyOpen) => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(redb::DatabaseError::DatabaseAlreadyOpen.into());
+                }
+                std::thread::sleep(POLL);
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
 }
 
 /// Increment the write generation inside `tx`. Called by every write
@@ -561,6 +587,45 @@ mod tests {
         assert_eq!(idx.get(id).unwrap().unwrap().id, id);
         idx.remove(id).unwrap();
         assert!(idx.get(id).unwrap().is_none());
+    }
+
+    /// Regression: redb's read-write open takes a non-blocking exclusive
+    /// file lock held for the Database's lifetime, and oximemo opens the
+    /// index transiently under the *shared* §5.7 flock — two overlapping
+    /// opens (desktop thread + CLI process) used to fail immediately with
+    /// `DatabaseAlreadyOpen`, the intermittent "redb database error" the
+    /// desktop surfaced as a toast. The open must retry until the other
+    /// holder drops instead.
+    #[test]
+    fn open_retries_while_redb_file_lock_is_held() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("meta.redb");
+        {
+            // Valid v3 schema so the contended open takes the read-first
+            // fast path (the steady state for every open after the first).
+            let db = redb::Database::create(&path).unwrap();
+            let tx = db.begin_write().unwrap();
+            tx.open_table(BY_ID).unwrap();
+            tx.open_table(BY_SORT).unwrap();
+            tx.open_table(BY_PATH).unwrap();
+            tx.commit().unwrap();
+        }
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn({
+            let path = path.clone();
+            move || {
+                let db = redb::Database::create(&path).unwrap();
+                locked_tx.send(()).unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                drop(db);
+            }
+        });
+        // Block until redb's own exclusive open lock is verifiably held,
+        // then open through the retry loop: pre-fix this failed instantly.
+        locked_rx.recv().unwrap();
+        let idx = RedbIndex::open(&path).unwrap();
+        assert_eq!(idx.generation().unwrap(), 0);
+        holder.join().unwrap();
     }
 
     #[test]
