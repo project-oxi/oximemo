@@ -44,7 +44,7 @@ button svg { flex-shrink: 0; }
 .note-list { list-style: none; padding: 0; margin: 0; }
 .note-row { border-bottom: var(--hairline) solid var(--line); }
 .note-row:last-child { border-bottom: 0; }
-.note-link { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 18px 0; border-radius: var(--radius-xs); }
+.note-link { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 18px 0; border-radius: var(--radius-xs); transition: background-color var(--duration-basic); }
 .note-link:active:not(:disabled) { background: var(--muted); }
 .note-heading { display: flex; gap: var(--space-lg); align-items: center; }
 .note-heading strong { min-width: 0; flex: 1; font-size: 17px; font-weight: 610; line-height: 1.4; letter-spacing: -.025em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
@@ -147,7 +147,7 @@ details[open] > summary > svg:last-child { transform: rotate(180deg); }
 .settings-page { max-width: 600px; margin-inline: auto; padding: 8px var(--page-gutter) calc(32px + env(safe-area-inset-bottom)); }
 .settings-section-title { margin: var(--space-xl) 12px var(--space-sm); color: var(--secondary); font-size: 12px; font-weight: 500; }
 .settings-group { border-radius: var(--radius-panel); background: var(--muted); overflow: hidden; }
-.settings-row { width: 100%; min-height: 80px; padding: 16px; display: flex; align-items: center; gap: var(--space-md); text-align: left; background: transparent; border: 0; }
+.settings-row { width: 100%; min-height: 80px; padding: 16px; display: flex; align-items: center; gap: var(--space-md); text-align: left; background: transparent; border: 0; transition: background-color var(--duration-basic); }
 .settings-row:active { background: var(--alpha-10); }
 .settings-row > span { flex: 1; min-width: 0; }
 .settings-row strong { font-size: 16px; font-weight: 500; display: block; }
@@ -190,17 +190,25 @@ details[open] > summary > svg:last-child { transform: rotate(180deg); }
 .offline-note > svg { margin-top: 3px; flex-shrink: 0; }
 .leave-dialog { position: fixed; inset: auto; left: 50%; top: calc(var(--viewport-top, 0px) + var(--viewport-height, 100dvh) / 2); transform: translate(-50%, -50%); margin: 0; width: min(360px, calc(100% - 32px)); max-height: calc(var(--viewport-height, 100dvh) - 40px); padding: 0; border: 1px solid var(--line); border-radius: var(--radius-panel); color: var(--text); background: var(--bg); box-shadow: var(--shadow-2xl); }
 .leave-dialog::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
+.leave-dialog[open] { animation: dialog-in var(--duration-basic) var(--cubic-enter); }
+.leave-dialog[open]::backdrop { animation: backdrop-in var(--duration-basic) ease-out; }
+@keyframes dialog-in { from { opacity: 0; transform: translate(-50%, -50%) scale(.97); } }
+@keyframes backdrop-in { from { opacity: 0; } }
 .dialog-content { position: relative; padding: 30px 24px 16px; display: flex; flex-direction: column; gap: var(--space-sm); }
 .dialog-content h2 { font-size: 21px; font-weight: 620; letter-spacing: -.03em; margin: 0 24px 0 0; }
 .dialog-content p { font-size: 13px; color: var(--secondary); margin: 4px 0 16px; line-height: 1.65; }
 .dialog-close { position: absolute; top: 4px; right: 4px; color: var(--secondary); }
 .discard-button { color: var(--secondary); background: transparent; font-size: 13px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.route-enter { animation: route-in 150ms var(--cubic-enter); }
+.route-enter { animation: route-in var(--duration-basic) var(--cubic-enter); }
+.route-push { animation: route-push-in var(--duration-relaxed) var(--cubic-enter); }
+.route-pop { animation: route-pop-in var(--duration-relaxed) var(--cubic-enter); }
 .spinning { animation: spin 900ms linear infinite; }
 @keyframes route-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes route-push-in { from { opacity: 0; transform: translateX(24px); } }
+@keyframes route-pop-in { from { opacity: 0; transform: translateX(-24px); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (min-width: 600px) { :root { --page-gutter: 32px; } .library-header { min-height: 108px; } .note-link { padding-block: 20px; } .workspace-toolbar { max-width: 600px; margin-inline: auto; } }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .glass-control, .glass-search { background: var(--surface); } }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .glass-control, .glass-search { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--color-border-strong); } }
-@media (prefers-reduced-motion: reduce) { .route-enter, .spinning { animation: none; } .glass-control { transition: none; } .glass-control:active:not(:disabled) { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .route-enter, .route-push, .route-pop, .spinning, .leave-dialog[open], .leave-dialog[open]::backdrop { animation: none; } .glass-control, .note-link, .settings-row { transition: none; } .glass-control:active:not(:disabled) { transform: none; } }

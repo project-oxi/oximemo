@@ -62,6 +62,7 @@ export function TimelineView({
   const { t, locale } = useI18n();
   useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const setDraggingNote = useUI((s) => s.setDraggingNote);
+  const draggingNote = useUI((s) => s.draggingNote);
   const groups = useMemo(() => {
     const m = new Map<string, MemoSummary[]>();
     for (const it of items) {
@@ -105,7 +106,9 @@ export function TimelineView({
                         }}
                         onDragEnd={() => setDraggingNote(null)}
                         onClick={() => onSelect(n.id)}
-                        className="group cursor-pointer rounded-lg border border-transparent px-3 py-2 transition-colors hover:border-line hover:bg-surface-muted"
+                        className={`group cursor-pointer rounded-lg border border-transparent px-3 py-2 transition-colors hover:border-line hover:bg-surface-muted ${
+                          draggingNote?.id === n.id ? "opacity-40" : ""
+                        }`}
                       />
                     }
                   >

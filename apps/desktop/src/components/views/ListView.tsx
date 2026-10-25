@@ -71,6 +71,7 @@ export function ListView({
   const { t, locale } = useI18n();
   useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const setDraggingNote = useUI((s) => s.setDraggingNote);
+  const draggingNote = useUI((s) => s.draggingNote);
   return (
     <ul className="note-list divide-y divide-line">
       {folderCards.map((f) => (
@@ -104,7 +105,9 @@ export function ListView({
                     e.dataTransfer.effectAllowed = "move";
                   }}
                   onDragEnd={() => setDraggingNote(null)}
-                  className="group flex cursor-pointer items-baseline gap-3 px-3 py-2.5 transition-colors hover:bg-surface-muted"
+                  className={`group flex cursor-pointer items-baseline gap-3 px-3 py-2.5 transition-colors hover:bg-surface-muted ${
+                    draggingNote?.id === n.id ? "opacity-40" : ""
+                  }`}
                   onClick={() => onSelect(n.id)}
                 />
               }

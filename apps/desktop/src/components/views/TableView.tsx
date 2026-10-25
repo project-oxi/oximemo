@@ -349,7 +349,7 @@ export function TableView({
                   e.preventDefault();
                   onDrop(idx);
                 }}
-                className={`flex items-center gap-0.5 px-2 py-1.5 text-[11px] font-semibold text-text-subtle ${
+                className={`flex items-center gap-0.5 px-2 py-1.5 text-[11px] font-semibold text-text-subtle transition-shadow duration-150 ${
                   isLast ? "" : "cursor-grab"
                 } ${dropEdge === idx && dragFrom !== null && dragFrom !== idx ? "ring-2 ring-inset ring-hue-blue/40" : ""}`}
               >

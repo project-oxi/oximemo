@@ -28,6 +28,17 @@
 }
 .glass-settings[data-ending-style], .glass-palette[data-ending-style] { transition-duration: var(--dur-exit); transition-timing-function: var(--ease-exit); }
 .note-history-content { animation: workspace-popup-enter var(--dur-fast) var(--ease-enter) both; }
+.viewport-popup {
+  transition: opacity var(--dur-fast) var(--ease-enter), translate var(--dur-fast) var(--ease-enter);
+}
+.viewport-popup[data-ending-style] {
+  opacity: 0;
+  translate: 0 4px;
+  transition-duration: var(--dur-exit);
+  transition-timing-function: var(--ease-exit);
+}
+.view-fade { animation: workspace-popup-enter var(--dur-fast) var(--ease-enter) both; }
+[data-drop-folder] { transition: box-shadow var(--dur-fast) var(--ease-enter); }
 .settings-content { animation: workspace-pane-enter var(--dur-base) var(--ease-enter) both; }
 .glass-sidebar[data-resizing="true"] { overflow: clip; }
 .glass-sidebar > * { min-width: var(--workspace-sidebar-width); }
@@ -47,6 +58,7 @@
 @media (prefers-reduced-motion: reduce) {
   .memo-sheet, .glass-backdrop, .memo-backdrop, .glass-menu, .glass-settings, .glass-palette,
   .space-picker-popup, .note-history-content, .settings-content, .note-card, .folder-card,
+  .viewport-popup, .view-fade, [data-drop-folder],
   .workspace-titlebar *, .workspace-view-tools *, .memo-sheet-header *, .settings-header *, .note-properties > button svg {
     animation: none !important;
     transition: none !important;

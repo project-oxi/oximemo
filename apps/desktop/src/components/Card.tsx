@@ -44,6 +44,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
   const { t, locale } = useI18n();
   const { displayName: displayFolder } = useFolderNames();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
+  const draggingNote = useUI((s) => s.draggingNote);
   const folderColor = colorForFolder(memo.folder, folders);
   const queryCountVer = useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const previewHtml = useMemo(
@@ -72,7 +73,9 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
             }}
             onDragEnd={() => setDraggingNote(null)}
             onClick={() => onSelect(memo.id)}
-            className="note-card group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus-ring"
+            className={`note-card group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus-ring ${
+              draggingNote?.id === memo.id ? "opacity-40" : ""
+            }`}
           />
         }
       >
