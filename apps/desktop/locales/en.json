@@ -398,7 +398,6 @@
   "memo_restored": "Memo restored",
   "trash_section": "Trash",
   "trash_hint": "Retention: {n} days. Restoring returns a memo to its original folder.",
-  "trash_loading": "Loading trash…",
   "trash_empty": "Trash is empty",
   "trash_restore": "Restore",
   "trash_restore_note": "Restore '{title}'",

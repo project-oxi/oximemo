@@ -398,7 +398,6 @@
   "memo_restored": "메모를 복원했어요",
   "trash_section": "휴지통",
   "trash_hint": "보존 기간: {n}일. 복원하면 원래 폴더로 돌아갑니다.",
-  "trash_loading": "휴지통 불러오는 중…",
   "trash_empty": "휴지통이 비어 있어요",
   "trash_restore": "복원",
   "trash_restore_note": "'{title}' 복원",

@@ -10,6 +10,8 @@
 import { useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, SegmentedControl } from "@garden/ui";
+
+import { GridSkeleton, ListSkeleton } from "./Skeletons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import {
@@ -1489,6 +1491,15 @@ export function CardGrid() {
             {t.retry}
           </button>
         </div>
+      );
+    }
+    // First load of a location: skeleton in the view's shape. Without this
+    // the empty-state CTA ("새 노트") flashes before pages arrive.
+    if (listing.isPending) {
+      return noteView === "list" || noteView === "table" || noteView === "timeline" ? (
+        <ListSkeleton />
+      ) : (
+        <GridSkeleton />
       );
     }
     if ((noteView === "grid" || noteView === "list" ? cells.length : items.length) === 0) {
