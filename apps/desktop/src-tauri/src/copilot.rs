@@ -1930,20 +1930,33 @@ mod tests {
             Some("part one")
         );
         assert_eq!(
-            extract_stream_text("omp", r#"{"type":"message_start","message":{"role":"assistant","model":"glm-5.2"}}"#),
+            extract_stream_text(
+                "omp",
+                r#"{"type":"message_start","message":{"role":"assistant","model":"glm-5.2"}}"#
+            ),
             None,
             "message_start carries no text"
         );
         assert_eq!(
-            extract_stream_text("omp", r#"{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}"#),
+            extract_stream_text(
+                "omp",
+                r#"{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}"#
+            ),
             None,
             "user messages never stream"
         );
         // codex: item.completed agent_message text.
-        let codex_line = r#"{"type":"item.completed","item":{"type":"agent_message","text":"중간 답변"}}"#;
-        assert_eq!(extract_stream_text("codex", codex_line).as_deref(), Some("중간 답변"));
+        let codex_line =
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"중간 답변"}}"#;
         assert_eq!(
-            extract_stream_text("codex", r#"{"type":"item.completed","item":{"type":"command_execution","text":"ls"}}"#),
+            extract_stream_text("codex", codex_line).as_deref(),
+            Some("중간 답변")
+        );
+        assert_eq!(
+            extract_stream_text(
+                "codex",
+                r#"{"type":"item.completed","item":{"type":"command_execution","text":"ls"}}"#
+            ),
             None
         );
         // Single-payload dialects: honest None.
@@ -1960,9 +1973,17 @@ mod tests {
         let sink = lines.clone();
         let sh = std::path::Path::new("/bin/sh");
         let args = vec!["-c".to_string(), "printf 'first\\nsecond\\n'".to_string()];
-        let outcome = run_agent_process_streaming(sh, &args, "", None, 10, |_| {}, move |line| {
-            sink.lock().unwrap().push(line.to_string());
-        })
+        let outcome = run_agent_process_streaming(
+            sh,
+            &args,
+            "",
+            None,
+            10,
+            |_| {},
+            move |line| {
+                sink.lock().unwrap().push(line.to_string());
+            },
+        )
         .await
         .unwrap();
         assert_eq!(outcome.exit_code, Some(0));
