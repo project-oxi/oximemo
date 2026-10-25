@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listTrashedMemos, restoreNotes } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { RowsSkeleton } from "./Skeletons";
 import { useUI } from "../stores/ui";
 
 /** Recovery remains available after the deletion toast has expired. */
@@ -34,7 +35,11 @@ export function TrashSection({ retentionDays }: { retentionDays: number }) {
     <section className="mt-5 border-t border-line pt-3" aria-label={t.trash_section}>
       <h3 className="text-xs font-semibold text-text">{t.trash_section}</h3>
       <p className="mt-1 text-[11px] text-text-subtle">{t.trash_hint.replace("{n}", String(retentionDays))}</p>
-      {trash.isPending && <p className="mt-2 text-xs text-text-subtle">{t.trash_loading}</p>}
+      {trash.isPending && (
+        <div className="mt-2">
+          <RowsSkeleton rows={2} />
+        </div>
+      )}
       {(error || trash.isError) && (
         <div role="alert" className="mt-2 text-xs text-status-error">
           <p>{error || String(trash.error).split("\n")[0]}</p>

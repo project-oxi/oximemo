@@ -226,7 +226,7 @@ function OverflowPopover({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[60]">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[80]">
           <Popover.Popup className="viewport-popup w-72 [--popup-max-height:288px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
             <ul role="list" className="flex flex-col gap-0.5">
               {memos.map((m) => {
@@ -282,7 +282,7 @@ function NoDateStrip({
           }
         />
         <Popover.Portal>
-          <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[60]">
+          <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[80]">
             <Popover.Popup className="viewport-popup w-72 [--popup-max-height:288px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
               <ul role="list" className="flex flex-col gap-0.5">
                 {memos.map((m) => {

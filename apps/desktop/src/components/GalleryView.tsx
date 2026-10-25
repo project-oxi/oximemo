@@ -10,6 +10,7 @@
  * Refreshes on `memos:changed` so an image pasted into a memo surfaces here.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Skeleton } from "@garden/ui";
 import { useEffect, useState } from "react";
 import { FileText, Images, Maximize2, Trash2, X } from "lucide-react";
 
@@ -56,7 +57,7 @@ function Thumb({
             className="h-full w-full object-cover transition-transform group-hover/img:scale-[1.03]"
           />
         ) : (
-          <div className="h-full w-full animate-pulse bg-surface-muted" />
+          <Skeleton className="h-full w-full" />
         )}
         <CtxMenu>
           <CtxItem icon={FileText} label={t.gallery_open_note} onClick={() => onOpen(asset)} />
@@ -143,9 +144,9 @@ export function GalleryView() {
 
       <div className="gallery-content flex-1 overflow-y-auto">
         {assets.isLoading ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
+          <div aria-hidden="true" className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
             {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="aspect-square animate-pulse rounded-lg bg-surface-muted" />
+              <Skeleton key={i} className="aspect-square rounded-lg" />
             ))}
           </div>
         ) : items.length === 0 ? (
@@ -174,7 +175,7 @@ function Lightbox({ asset, onClose }: { asset: AssetInfo; onClose: () => void })
   }, [asset.url]);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-surface/70 p-8 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-surface/70 p-8 backdrop-blur-sm"
       onClick={onClose}
     >
       <button

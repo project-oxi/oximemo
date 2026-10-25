@@ -137,6 +137,7 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
       .then((n) => {
         setOpen(null);
         setDraftId(n.id);
+        qc.setQueryData(["memo", n.id], n);
         onNavigateMemo(n.id);
       })
       .catch((e) => setError(String(e).split("\n")[0]));
@@ -164,7 +165,7 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
           }
         />
         <Popover.Portal>
-          <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[60]">
+          <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[80]">
             <Popover.Popup className="viewport-popup animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
               <LinksCard
                 backlinks={backlinks.data ?? []}
@@ -198,7 +199,7 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
             }
           />
           <Popover.Portal>
-            <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[60]">
+            <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[80]">
               <Popover.Popup className="viewport-popup animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
                 <BrainCard
                   status={status.data}

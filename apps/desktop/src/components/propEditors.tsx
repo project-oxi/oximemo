@@ -65,7 +65,7 @@ export function SelectEditor({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[70]">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[80]">
           <Popover.Popup data-table-portal className="viewport-popup min-w-36 [--popup-max-width:320px] [--popup-max-height:240px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
             <ul role="listbox">
               {value && (
@@ -228,7 +228,7 @@ export function ChipsEditor({
           />
         {(matches.length > 0 || draft.trim().length > 0) && (
           <Popover.Portal>
-            <Popover.Positioner anchor={inputRef} side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[70]">
+            <Popover.Positioner anchor={inputRef} side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[80]">
               <Popover.Popup
                 ref={popupRef}
                 initialFocus={false}

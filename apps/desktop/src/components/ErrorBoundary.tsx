@@ -69,7 +69,7 @@ export function ErrorToast() {
 
   if (!error) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[85] flex justify-center px-4">
       <div className="pointer-events-auto flex max-w-md items-center gap-2 rounded-xl border border-status-error bg-status-error-subtle px-3.5 py-2 text-xs text-status-error-on-subtle shadow-lg">
         <TriangleAlert size={14} className="shrink-0" />
         <span className="flex-1">{error}</span>

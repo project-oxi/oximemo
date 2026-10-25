@@ -6,10 +6,13 @@ import { CopilotModelPicker } from "./CopilotModelPicker";
  * denominator across agents). The "changed notes" list claims observation,
  * never causality (§9.4): the vault is shared, other writers exist.
  *
- * Layering: the note editor is a z-50 dialog — this window sits at z-[60]
- * so the copilot stays usable WHILE a note is open, exactly like the
- * selection-context flow it serves (§7 selection block). The entry points
- * are the workspace and note toolbars, plus ⌘⇧C.
+ * Layering (bands documented at the top of liquid-glass.css): the memo
+ * sheet is a z-50 dialog and this window sits at z-[60] — the only surface
+ * the copilot may cover, so it stays usable WHILE a note is open, exactly
+ * like the selection-context flow it serves (§7 selection block). System
+ * modals (settings, command palette, quick add) and their backdrops own
+ * bands 65/70+ and paint above this window. Entry points are the
+ * workspace and note toolbars, plus ⌘⇧C.
  *
  * Revision 2026-08-24 (composer UX): conversation state lives in the ui
  * store (survives close/reopen, in-memory only); the composer

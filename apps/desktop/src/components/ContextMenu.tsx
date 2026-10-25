@@ -38,11 +38,12 @@ export const CtxTrigger = ContextMenu.Trigger;
 const POPUP_CLS =
   "glass-menu viewport-popup min-w-44 [--popup-max-width:320px] [--popup-max-height:448px] rounded-lg p-1 text-sm text-text outline-none";
 
-/** Portal + Positioner (z-70, above Dialog z-50 and Popover z-60) + Popup. */
+/** Portal + Positioner (band 80 — clears dialogs, the copilot window and
+ *  other anchored popovers) + Popup. */
 export function CtxMenu({ children }: { children: ReactNode }) {
   return (
     <ContextMenu.Portal>
-      <ContextMenu.Positioner collisionPadding={12} className="z-[70]">
+      <ContextMenu.Positioner collisionPadding={12} className="z-[80]">
         {/* Menu items portal to <body>, but React synthetic events still
             bubble through the React tree — an item click would reach the
             trigger element's own onClick (e.g. open folder / select note).
@@ -138,7 +139,7 @@ export function CtxSubmenu({
         <span className="text-text-subtle">▸</span>
       </ContextMenu.SubmenuTrigger>
       <ContextMenu.Portal>
-        <ContextMenu.Positioner align="start" sideOffset={4} collisionPadding={12} className="z-[70]">
+        <ContextMenu.Positioner align="start" sideOffset={4} collisionPadding={12} className="z-[80]">
           <ContextMenu.Popup className={POPUP_CLS}>{children}</ContextMenu.Popup>
         </ContextMenu.Positioner>
       </ContextMenu.Portal>
@@ -165,7 +166,7 @@ export const BtnMenuTrigger = Menu.Trigger;
 export function BtnMenuPopup({ children }: { children: ReactNode }) {
   return (
     <Menu.Portal>
-      <Menu.Positioner sideOffset={4} collisionPadding={12} className="z-[70]">
+      <Menu.Positioner sideOffset={4} collisionPadding={12} className="z-[80]">
         {/* Stop propagation at the popup so an item click never reaches the
             trigger's own onClick (e.g. the query row's openBase click). */}
         <Menu.Popup className={POPUP_CLS} onClick={(e) => e.stopPropagation()}>

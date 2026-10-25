@@ -28,7 +28,7 @@ export function Toast() {
 
   if (!toast) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-10 z-50 flex justify-center px-4">
+    <div className="pointer-events-none fixed inset-x-0 bottom-10 z-[85] flex justify-center px-4">
       <div role="status" className="glass-toast pointer-events-auto animate-toast-in flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-text">
         <span>{toast.msg}</span>
         {toast.action && (

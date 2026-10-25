@@ -5,7 +5,7 @@
  * input is lost.
  */
 import { Dialog } from "@base-ui-components/react";
-import { Button, GPage } from "@garden/ui";
+import { Button, GPage, Skeleton } from "@garden/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
@@ -405,6 +405,7 @@ export function MemoDetail() {
       return openDailyNote(shiftISODate(dailyDate, delta));
     })()
       .then(({ memo: m, created }) => {
+        qc.setQueryData(["memo", m.id], m);
         select(m.id);
         if (created) setDraftId(m.id, m.body);
       })
@@ -552,7 +553,22 @@ export function MemoDetail() {
               </div>
             </div>
             {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
-              <div className="flex h-full items-center justify-center text-text-subtle">…</div>
+              // Skeleton in the sheet's shape: title, property chips, body
+              // paragraphs — stands in for PropertyPanel + content.
+              <div aria-hidden="true" className="flex h-full flex-col gap-3 p-6">
+                <Skeleton className="h-5 w-1/3" />
+                <div className="flex gap-2">
+                  <Skeleton className="h-6 w-20 rounded-full" />
+                  <Skeleton className="h-6 w-16 rounded-full" />
+                  <Skeleton className="h-6 w-24 rounded-full" />
+                </div>
+                <div className="mt-2 space-y-2">
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-11/12" />
+                  <Skeleton className="h-3 w-4/5" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+              </div>
             ) : (
               // Single scroll container: properties + content read as one
               // document (user prompt 2026-08-30 — many properties no longer

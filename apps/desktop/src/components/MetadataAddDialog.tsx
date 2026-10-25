@@ -129,7 +129,9 @@ export function MetadataAddDialog({
       // Browser fallback returns null from stamp — the note (with its
       // H1) is still created; only the cache set is skipped.
       const dto = await stampMetadata(memo.id, hit).catch(() => null);
-      if (dto) qc.setQueryData(["memo", memo.id], dto);
+      // Prime the detail cache either way — an unstamped note still beats
+      // the "…" gate (mirrors the wiki-link open path's priming).
+      qc.setQueryData(["memo", memo.id], dto ?? memo);
       select(memo.id);
       void qc.invalidateQueries({ queryKey: ["memos"] });
       void qc.invalidateQueries({ queryKey: ["facets"] });
@@ -143,10 +145,10 @@ export function MetadataAddDialog({
   return (
     <Dialog.Root open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+        <Dialog.Backdrop className="fixed inset-0 z-[65] bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <Dialog.Popup
           autoFocus
-          className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(560px,80vh)] w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface shadow-lg transition-[opacity,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0"
+          className="fixed left-1/2 top-1/2 z-[70] flex max-h-[min(560px,80vh)] w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--dialog-radius)] border border-line bg-surface shadow-lg transition-[opacity,scale] duration-200 ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0"
         >
           {/* Header: collection identity + close */}
           <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-3">

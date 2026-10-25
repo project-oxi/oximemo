@@ -11,6 +11,8 @@ import { previewExcerpt, previewText } from "../lib/markdownPreview";
 import { queryCountVersion, subscribeQueryCounts } from "../lib/queryPreviewCounts";
 import type { BacklinkInfo } from "../lib/types";
 
+import { ListSkeleton } from "./Skeletons";
+
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
 
 export interface LinksCardProps {
@@ -30,7 +32,9 @@ export function LinksCard({ backlinks, isLoading, onNavigate }: LinksCardProps) 
       </div>
       <div className="overflow-y-auto px-1 py-1">
         {isLoading ? (
-          <p className="px-2 py-2 text-xs text-text-subtle">…</p>
+          <div className="px-2 py-1">
+            <ListSkeleton rows={3} />
+          </div>
         ) : backlinks.length === 0 ? (
           <p className="px-2 py-2 text-xs text-text-subtle">{t.backlinks_empty}</p>
         ) : (

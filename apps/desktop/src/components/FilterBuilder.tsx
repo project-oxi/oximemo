@@ -59,7 +59,7 @@ export function FilterBuilder({ baseNode, viewNode, onSave }: Props) {
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="end" sideOffset={4} collisionPadding={12} className="z-[70]">
+        <Popover.Positioner side="bottom" align="end" sideOffset={4} collisionPadding={12} className="z-[80]">
           <Popover.Popup
             data-table-portal
             className="viewport-popup w-[30rem] [--popup-max-height:70dvh] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-3 shadow-lg animate-popover-in"

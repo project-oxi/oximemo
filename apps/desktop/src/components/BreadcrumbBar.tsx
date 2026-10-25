@@ -452,7 +452,7 @@ function SegmentPopover({
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[60]">
+        <Popover.Positioner side="bottom" align="start" sideOffset={2} collisionPadding={12} className="z-[80]">
           <Popover.Popup className="viewport-popup w-72 [--popup-max-height:288px] rounded-[var(--popover-radius)] border border-line bg-surface-raised p-1 shadow-lg animate-popover-in">
             {items.length === 0 ? (
               <div className="px-2 py-1.5 text-[12px] text-text-subtle">{emptyLabel}</div>

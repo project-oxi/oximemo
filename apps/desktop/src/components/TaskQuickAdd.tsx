@@ -112,7 +112,7 @@ export function TaskQuickAdd() {
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-start justify-center bg-black/25 pt-[18vh] backdrop-blur-[1px]"
+      className="fixed inset-0 z-[95] flex items-start justify-center bg-black/25 pt-[18vh] backdrop-blur-[1px]"
       onPointerDown={() => setOpen(false)}
     >
       <div className="w-[560px] max-w-[calc(100vw-2rem)]" onPointerDown={(e) => e.stopPropagation()}>
