@@ -34,6 +34,10 @@ pub struct AppState {
     pub tray: Mutex<Option<tauri::tray::TrayIcon>>,
     /// Owns the copilot turn through preparation, cancellation and cleanup.
     pub copilot_active: copilot::TurnControl,
+    /// Owns one structured-suggestion subprocess (goal 2026-10-25). A
+    /// separate slot so advice never blocks — and is never blocked by — a
+    /// chat turn; two suggest turns still serialize.
+    pub suggest_active: copilot::TurnControl,
     /// Local git versioning layer (oxi-vault-git) — the mechanical
     /// safety net. Constructed once at boot from `[git]` config; a
     /// foreign/corrupt repo degrades to a disabled layer, never blocks
@@ -66,6 +70,7 @@ impl AppState {
             capture_monitor: Mutex::new(None),
             watcher: Mutex::new(None),
             copilot_active: copilot::TurnControl::default(),
+            suggest_active: copilot::TurnControl::default(),
             capture_focused: AtomicBool::new(false),
             menu_locale: Mutex::new(default_locale()),
             tray: Mutex::new(None),
@@ -396,6 +401,7 @@ pub fn run() {
             commands::delete_memo,
             commands::reset_vault,
             commands::search_memos,
+            commands::related_memos,
             commands::export_manifest,
             commands::reindex,
             commands::doctor,
@@ -452,6 +458,7 @@ pub fn run() {
             commands::brain_status,
             commands::brain_gather,
             commands::brain_history,
+            commands::brain_contradictions,
             commands::set_brain_config,
             commands::set_general_config,
             commands::set_capture_config,
@@ -483,6 +490,7 @@ pub fn run() {
             commands::copilot_set_model,
             commands::copilot_send,
             commands::copilot_cancel,
+            commands::copilot_suggest,
             commands::list_tasks,
             commands::resolve_task_line,
             commands::patch_task,
@@ -511,6 +519,7 @@ pub fn run() {
             // running with vault access: kill the whole stored group.
             tauri::RunEvent::ExitRequested { .. } => {
                 handle.state::<AppState>().copilot_active.cancel();
+                handle.state::<AppState>().suggest_active.cancel();
             }
             _ => {}
         });
@@ -1449,6 +1458,22 @@ mod commands {
             .map_err(|e| e.to_string())
     }
 
+    /// Related-note candidates for the See-also card (goal 2026-10-25):
+    /// BM25 over the note's own frequent terms, source note excluded.
+    /// Local index projection only — no model, no network.
+    #[tauri::command(async)]
+    pub fn related_memos(
+        state: State<'_, AppState>,
+        id: String,
+        limit: Option<u32>,
+    ) -> Result<Vec<oximemo_core::MemoSummary>, String> {
+        let id = MemoId::parse(&id).map_err(|e| e.to_string())?;
+        state
+            .vault
+            .related_memos(id, limit.unwrap_or(6).min(20))
+            .map_err(|e| e.to_string())
+    }
+
     #[tauri::command]
     pub fn export_manifest(
         state: State<'_, AppState>,
@@ -2297,6 +2322,30 @@ mod commands {
             .await
             .map_err(|e| format!("brain history failed: {e}"))?;
         serde_json::to_value(&revisions).map_err(|e| e.to_string())
+    }
+
+    /// Contradicted statements in the vault's space (goal 2026-10-25,
+    /// read-only). The client helper routes through `tools/call` and
+    /// returns the envelope's `data` array. Failure → Err so the card
+    /// degrades like `brain_gather` (C1).
+    #[tauri::command]
+    pub async fn brain_contradictions(
+        state: State<'_, AppState>,
+    ) -> Result<serde_json::Value, String> {
+        let (enabled, executable) = state
+            .vault
+            .with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
+        if !enabled {
+            return Err("brain disabled in config".to_string());
+        }
+        let (mut client, _caps) = crate::spawn_brain(&executable)
+            .await
+            .map_err(|f| format!("brain offline: {}", f.as_str()))?;
+        let space = oximemo_core::brain::vault_space_name(&state.vault.paths().vault);
+        client
+            .contradictions(&space)
+            .await
+            .map_err(|e| format!("brain contradictions failed: {e}"))
     }
 
     // -- config sections (TOML ⇄ GUI parity) --------------------------------
@@ -3183,6 +3232,164 @@ mod commands {
     #[tauri::command]
     pub fn copilot_cancel(state: State<'_, AppState>) -> Result<bool, String> {
         Ok(state.copilot_active.cancel())
+    }
+
+    /// One structured suggestion turn (goal 2026-10-25). Stateless and
+    /// text-in/JSON-out: the prompt embeds capped note facts plus vault
+    /// vocabulary (existing tag labels, related-note titles), the agent
+    /// answers one JSON object. Runs on its own slot (`suggest_active`) so
+    /// advice never blocks a chat turn; the timeout is capped — advice
+    /// that needs minutes is worthless. Vault writes the agent makes
+    /// anyway are observed and emitted (§9.4 discipline).
+    #[tauri::command]
+    pub async fn copilot_suggest(
+        app: AppHandle,
+        state: State<'_, AppState>,
+        kind: String,
+        memo_id: Option<String>,
+        text: Option<String>,
+    ) -> Result<crate::copilot::SuggestResult, String> {
+        if !crate::copilot::SUGGEST_KINDS.contains(&kind.as_str()) {
+            return Err(format!("unknown suggest kind '{kind}'"));
+        }
+        let cfg = state.vault.with_config(|c| c.copilot.clone());
+        if !cfg.enabled || cfg.agent.is_empty() || cfg.executable.is_empty() {
+            return Err("copilot agent is not activated".to_string());
+        }
+        let exe = std::path::PathBuf::from(&cfg.executable);
+        if !exe.is_file() {
+            return Err(
+                "activated agent executable is missing — re-activate it in Settings".to_string(),
+            );
+        }
+        // Binary drift (spec §6.4), same rule as copilot_send.
+        if cfg.exe_mtime_secs != 0 {
+            let now = std::fs::metadata(&exe)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            if now != 0 && now != cfg.exe_mtime_secs {
+                return Err(
+                    "agent executable changed since activation — re-activate it in Settings"
+                        .to_string(),
+                );
+            }
+        }
+        let model = crate::copilot::selected_model(None, &cfg.default_model)?;
+        let turn_guard = state.suggest_active.claim()?;
+        let vault_root = state.vault.paths().vault.clone();
+
+        // Note facts + vault vocabulary are disk reads — off the async path.
+        let request = {
+            let vault = state.vault.clone();
+            let kind = kind.clone();
+            let memo_id_for_note = memo_id.clone();
+            let text = text.unwrap_or_default();
+            tokio::task::spawn_blocking(move || -> Result<String, String> {
+                let note_parts = match memo_id_for_note.as_deref() {
+                    Some(id) => {
+                        let mid = MemoId::parse(id).map_err(|e| e.to_string())?;
+                        let summary = vault.get_note_summary(mid).map_err(|e| e.to_string())?;
+                        let memo = vault.get_memo(mid).map_err(|e| e.to_string())?;
+                        Some((
+                            summary.title.clone().unwrap_or_default(),
+                            summary.tags.clone(),
+                            memo.body.clone(),
+                        ))
+                    }
+                    None => None,
+                };
+                let note = note_parts.as_ref().map(|(title, tags, body)| {
+                    crate::copilot::SuggestNote {
+                        id: memo_id_for_note.as_deref().unwrap_or(""),
+                        title,
+                        tags,
+                        body,
+                    }
+                });
+                let vault_tags: Vec<String> = vault
+                    .list_facets()
+                    .map(|f| f.tags.iter().take(30).map(|(t, _)| t.clone()).collect())
+                    .unwrap_or_default();
+                let related_titles: Vec<String> = match memo_id_for_note
+                    .as_deref()
+                    .and_then(|id| MemoId::parse(id).ok())
+                {
+                    Some(mid) => vault
+                        .related_memos(mid, 12)
+                        .map(|sums| sums.iter().filter_map(|s| s.title.clone()).collect())
+                        .unwrap_or_default(),
+                    None => Vec::new(),
+                };
+                crate::copilot::suggest_request(
+                    &kind,
+                    note.as_ref(),
+                    &crate::copilot::SuggestVocab {
+                        vault_tags: &vault_tags,
+                        related_titles: &related_titles,
+                    },
+                    &text,
+                )
+            })
+            .await
+            .map_err(|e| format!("suggest facts join: {e}"))??
+        };
+
+        let (args, cwd, stdin_data) = crate::copilot::suggest_invocation(
+            &cfg.agent,
+            model.as_deref(),
+            &request,
+            &vault_root,
+        )?;
+        let before = {
+            let v = state.vault.clone();
+            tokio::task::spawn_blocking(move || manifest_snapshot(v))
+                .await
+                .map_err(|e| format!("snapshot join: {e}"))?
+                .map_err(|e| format!("snapshot: {e}"))?
+        };
+        let outcome = {
+            let out = crate::copilot::run_agent_process(
+                &exe,
+                &args,
+                &stdin_data,
+                cwd.as_deref(),
+                cfg.timeout_secs.min(crate::copilot::SUGGEST_TIMEOUT_CAP_SECS),
+                |pgid| turn_guard.spawned(pgid),
+            )
+            .await;
+            turn_guard.process_finished();
+            out?
+        };
+        if outcome.timed_out {
+            return Err("suggestion timed out".to_string());
+        }
+        // Same dialect split as copilot_send: extract the agent's TEXT,
+        // then the JSON object inside it.
+        let response_text = match cfg.agent.as_str() {
+            "omp" => crate::copilot::parse_omp_jsonl(&outcome.stdout).response,
+            "claude" => crate::copilot::parse_claude_result(&outcome.stdout).response,
+            "codex" => crate::copilot::parse_codex_jsonl(&outcome.stdout).response,
+            "oxicode" => crate::copilot::parse_oxicode_jsonl(&outcome.stdout),
+            _ => crate::copilot::parse_agent_json(&outcome.stdout).0,
+        };
+        let result = crate::copilot::parse_suggest_json(&response_text)?;
+        // Observation, not causality (§9.4): the advisory turn must not
+        // write, but the agent owns its own policy — surface any change.
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        let after = {
+            let v = state.vault.clone();
+            tokio::task::spawn_blocking(move || manifest_snapshot(v))
+                .await
+                .map_err(|e| format!("snapshot join: {e}"))?
+                .unwrap_or_else(|_| before.clone())
+        };
+        if !crate::copilot::diff_manifests(&before, &after).is_empty() {
+            let _ = app.emit("memos:changed", ());
+        }
+        Ok(result)
     }
 
     // --- Tasks (spec 2026-08-27) --------------------------------------------

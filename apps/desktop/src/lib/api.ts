@@ -129,6 +129,25 @@ export async function brainGather(
   return invoke<BrainRecall>("brain_gather", { query, budget });
 }
 
+/** One contradicted statement from the memory plane (goal 2026-10-25).
+ * The envelope's `data` items are forwarded verbatim; the shape is
+ * defended against at the render site because it crosses a brain
+ * version boundary. */
+export interface BrainContradictionItem {
+  statement?: {
+    subject?: { surface?: string } | string;
+    predicate?: string;
+    object?: { surface?: string } | string;
+  };
+  [key: string]: unknown;
+}
+
+/** Contradicted statements in the vault's space; throws when the daemon
+ * is offline — the card degrades like brainGather (C1). */
+export async function brainContradictions(): Promise<BrainContradictionItem[]> {
+  return invoke<BrainContradictionItem[]>("brain_contradictions");
+}
+
 /** One synced revision of a note from the documents plane (brain 0.10
  *  `document_history`; supersedes the occurrence-chain episodes).
  *  Oldest-first when listed. */
@@ -364,6 +383,7 @@ export function setCopilotConfig(copilot: {
   timeout_secs: number;
   default_model?: string;
   exe_mtime_secs?: number;
+  suggest_after_save?: boolean;
 }): Promise<void> {
   return invoke<void>("set_copilot_config", { copilot });
 }
@@ -395,6 +415,42 @@ export function copilotCancel(): Promise<boolean> {
   return invoke<boolean>("copilot_cancel");
 }
 
+// --- Structured suggestions (goal 2026-10-25) -------------------------------
+
+export type SuggestKind =
+  | "tags"
+  | "tasks"
+  | "all"
+  | "continue"
+  | "query"
+  | "digest";
+
+/** One parsed suggestion payload from `copilot_suggest`. Fields are
+ * optional — the agent decides which sections have content; the backend
+ * clamps counts and lengths. */
+export interface SuggestResult {
+  tags?: string[];
+  links?: string[];
+  tasks?: string[];
+  continuation?: string;
+  base?: string;
+  markdown?: string;
+}
+
+/** One stateless suggestion turn (JSON-only agent answer). Throws when no
+ * copilot agent is activated — callers degrade to hiding the affordance. */
+export function copilotSuggest(
+  kind: SuggestKind,
+  memoId: string | null,
+  text?: string,
+): Promise<SuggestResult> {
+  return invoke<SuggestResult>("copilot_suggest", {
+    kind,
+    memoId,
+    text: text ?? null,
+  });
+}
+
 export async function listFacets() {
   return invoke<Facets>("list_facets");
 }
@@ -413,6 +469,12 @@ export async function resetVault() {
 
 export async function searchMemos(query: string, limit = 20) {
   return invoke<MemoSummary[]>("search_memos", { query, limit });
+}
+
+/** Related-note candidates (See also, goal 2026-10-25): local BM25
+ * projection over the note's own frequent terms; source note excluded. */
+export function relatedMemos(id: string, limit = 6): Promise<MemoSummary[]> {
+  return invoke<MemoSummary[]>("related_memos", { id, limit });
 }
 
 export async function exportManifest(since: string | null) {

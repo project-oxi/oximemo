@@ -46,6 +46,16 @@ pub trait SearchIndex: Send + Sync {
     }
     fn remove(&self, id: MemoId) -> Result<()>;
     fn search(&self, query: &str, limit: u32) -> Result<Vec<MemoId>>;
+    /// Related-note candidate ids for one note: BM25 over the note's own
+    /// most frequent terms (title terms weighted), the source note itself
+    /// excluded. Same index, no new machinery.
+    fn related(
+        &self,
+        id: MemoId,
+        body: &str,
+        title: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<MemoId>>;
     fn clear(&self) -> Result<()>;
 }
 
@@ -221,17 +231,77 @@ impl SearchIndex for TantivySearch {
         let q = parser.parse_query(query)?;
         let hits: Vec<(tantivy::Score, tantivy::DocAddress)> =
             searcher.search(&q, &TopDocs::with_limit(limit as usize))?;
-        let mut out = Vec::with_capacity(hits.len());
-        for (_score, addr) in hits {
-            let d: tantivy::TantivyDocument = searcher.doc(addr)?;
-            if let Some(v) = d.get_first(self.id_field)
-                && let tantivy::schema::OwnedValue::Str(s) = v
-                && let Ok(id) = MemoId::parse(s)
-            {
-                out.push(id);
+        ids_from_hits(&searcher, self.id_field, hits)
+    }
+
+    fn related(
+        &self,
+        id: MemoId,
+        body: &str,
+        title: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<MemoId>> {
+        // Query tokens come from the SAME analyzer the index uses, so they
+        // match indexed tokens byte-for-byte — Korean included.
+        let mut analyzer = self
+            .index
+            .tokenizer_for_field(self.body_field)
+            .map_err(|e| CoreError::other(e.to_string()))?;
+        let mut freqs: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut weigh = |text: &str, weight: usize| {
+            let mut stream = analyzer.token_stream(text);
+            while stream.advance() {
+                let token = &stream.token().text;
+                // Single characters are particles/noise in both Korean and
+                // Latin text; bare numbers never identify a topic.
+                if token.chars().count() <= 1 || token.bytes().all(|b| b.is_ascii_digit()) {
+                    continue;
+                }
+                *freqs.entry(token.to_string()).or_default() += weight;
             }
+        };
+        weigh(body, 1);
+        if let Some(title) = title {
+            weigh(title, 5);
         }
-        Ok(out)
+        let mut terms: Vec<(String, usize)> = freqs.into_iter().collect();
+        // Deterministic order: frequency desc, then lexicographic.
+        terms.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        terms.truncate(RELATED_TERM_CAP);
+        if terms.is_empty() {
+            return Ok(Vec::new());
+        }
+        let union: Vec<(tantivy::query::Occur, Box<dyn tantivy::query::Query>)> = terms
+            .into_iter()
+            .map(|(term, _)| {
+                (
+                    tantivy::query::Occur::Should,
+                    Box::new(tantivy::query::TermQuery::new(
+                        Term::from_field_text(self.body_field, &term),
+                        tantivy::schema::IndexRecordOption::WithFreqs,
+                    )) as Box<dyn tantivy::query::Query>,
+                )
+            })
+            .collect();
+        let exclude_self = tantivy::query::TermQuery::new(
+            self.id_term(id),
+            tantivy::schema::IndexRecordOption::Basic,
+        );
+        let query = tantivy::query::BooleanQuery::new(vec![
+            (
+                tantivy::query::Occur::Must,
+                Box::new(tantivy::query::BooleanQuery::new(union))
+                    as Box<dyn tantivy::query::Query>,
+            ),
+            (
+                tantivy::query::Occur::MustNot,
+                Box::new(exclude_self) as Box<dyn tantivy::query::Query>,
+            ),
+        ]);
+        let searcher = self.reader.searcher();
+        let hits: Vec<(tantivy::Score, tantivy::DocAddress)> =
+            searcher.search(&query, &TopDocs::with_limit(limit as usize))?;
+        ids_from_hits(&searcher, self.id_field, hits)
     }
 
     fn clear(&self) -> Result<()> {
@@ -243,6 +313,29 @@ impl SearchIndex for TantivySearch {
         Ok(())
     }
 }
+
+/// Ranked doc hits → note ids in rank order (shared by `search`/`related`).
+fn ids_from_hits(
+    searcher: &tantivy::Searcher,
+    id_field: Field,
+    hits: Vec<(tantivy::Score, tantivy::DocAddress)>,
+) -> Result<Vec<MemoId>> {
+    let mut out = Vec::with_capacity(hits.len());
+    for (_score, addr) in hits {
+        let d: tantivy::TantivyDocument = searcher.doc(addr)?;
+        if let Some(v) = d.get_first(id_field)
+            && let tantivy::schema::OwnedValue::Str(s) = v
+            && let Ok(id) = MemoId::parse(s)
+        {
+            out.push(id);
+        }
+    }
+    Ok(out)
+}
+
+/// Distinct terms max in a `related` query — beyond this the query is a
+/// keyword soup, not a similarity signal.
+const RELATED_TERM_CAP: usize = 8;
 
 fn build_schema() -> Schema {
     let mut b = Schema::builder();
@@ -336,5 +429,47 @@ mod tests {
             .unwrap();
         s.remove(id).unwrap();
         assert!(s.search("quartz", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn related_ranks_term_sharing_notes_and_skips_self() {
+        let dir = TempDir::new().unwrap();
+        let s = TantivySearch::open(dir.path()).unwrap();
+        let source_body = "경사하강법 학습률 조정 정리. 학습률 스케줄과 경사하강법 변형을 다룬다.";
+        let source = MemoId::now();
+        s.upsert(source, source_body, Some("경사하강법 학습률"), &[], "")
+            .unwrap();
+        let near = MemoId::now();
+        s.upsert(
+            near,
+            "경사하강법 학습률 스케줄 실험 기록. 학습률을 조정하며 관측했다.",
+            Some("학습률 실험"),
+            &[],
+            "",
+        )
+        .unwrap();
+        let far = MemoId::now();
+        s.upsert(
+            far,
+            "오늘 점심 메뉴 후보: 김치찌개, 카레, 비빔밥.",
+            Some("점심 기록"),
+            &[],
+            "",
+        )
+        .unwrap();
+
+        let hits = s
+            .related(source, source_body, Some("경사하강법 학습률"), 5)
+            .unwrap();
+        assert_eq!(hits.first(), Some(&near), "term-sharing note ranks first");
+        assert!(!hits.contains(&source), "source note must be excluded");
+    }
+
+    #[test]
+    fn related_empty_body_returns_empty() {
+        let dir = TempDir::new().unwrap();
+        let s = TantivySearch::open(dir.path()).unwrap();
+        let id = MemoId::now();
+        assert!(s.related(id, "", None, 5).unwrap().is_empty());
     }
 }
