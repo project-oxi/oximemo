@@ -1,12 +1,16 @@
 import { useLayoutEffect, useRef } from "react";
 
 type Entry<T> = { session: string; index: number; route: T };
+export type NavDirection = "push" | "pop";
 
 /** Route history shared by edge gestures, buttons and browser navigation.
  * Only identifiers and list position enter history; draft/source never do. */
 export function useNavigation<T>(read: () => T, apply: (route: T) => void,
   blocked: () => boolean, onBlocked: (proceed: () => void) => void) {
   const callbacks = useRef({ read, apply, blocked, onBlocked });
+  // Set synchronously inside push/popstate, before React renders, so the
+  // entering screen can pick a direction-aware animation during that render.
+  const direction = useRef<NavDirection | undefined>(undefined);
   callbacks.current = { read, apply, blocked, onBlocked };
   const controller = useRef<{
     push: (route: T) => void; replace: (route?: T) => void; back: () => void; forward: () => void;
@@ -48,6 +52,7 @@ export function useNavigation<T>(read: () => T, apply: (route: T) => void,
         return;
       }
       approved = false;
+      direction.current = entry.index < index ? "pop" : "push";
       index = entry.index;
       callbacks.current.apply(entry.route);
     };
@@ -90,6 +95,7 @@ export function useNavigation<T>(read: () => T, apply: (route: T) => void,
       push: route => {
         const proceed = () => {
           replace();
+          direction.current = "push";
           index++; last = index;
           // Never put document content or identifiers in the URL.
           history.pushState({ oximemo: { session, index, route } }, "", `#view-${session}-${index}`);
@@ -113,5 +119,6 @@ export function useNavigation<T>(read: () => T, apply: (route: T) => void,
     replace: (route?: T) => controller.current?.replace(route),
     back: () => controller.current?.back(),
     forward: () => controller.current?.forward(),
+    direction: () => direction.current,
   };
 }

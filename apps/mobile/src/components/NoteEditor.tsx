@@ -4,10 +4,12 @@ import { titleOf, type Document } from "../types";
 import { canPreviewMarkdown } from "../lib/presentation";
 import { continueList, formatBody, preserveInput, type Edit, type Format } from "../lib/editing";
 import { MarkdownPreview } from "./MarkdownPreview";
+import type { NavDirection } from "../lib/useNavigation";
 
 interface Props {
   onLink?: (reference: string) => Promise<void>;
   initialScroll: number;
+  motion?: NavDirection;
   onScroll: (value: number) => void;
   document?: Document;
   isNew: boolean;
@@ -118,7 +120,7 @@ export function NoteEditor(props: Props) {
   }, [props.editing, props.editable]);
   const doc = props.document;
   const hasDetails = props.isNew || !!doc?.entry || !!doc?.source;
-  return <main className={`scroll-region editor-scroll route-enter ${writing ? "is-writing" : ""}`} ref={mainRef} onScroll={event => { if (!writing) props.onScroll(event.currentTarget.scrollTop); }} tabIndex={-1} aria-label={writing ? "메모 편집" : "메모 읽기"}>
+  return <main className={`scroll-region editor-scroll route-enter ${props.motion === "push" ? "route-push" : props.motion === "pop" ? "route-pop" : ""} ${writing ? "is-writing" : ""}`} ref={mainRef} onScroll={event => { if (!writing) props.onScroll(event.currentTarget.scrollTop); }} tabIndex={-1} aria-label={writing ? "메모 편집" : "메모 읽기"}>
     <div className="editor-page">
       {doc?.pending && doc.attempted && <aside className="editor-callout"><LockKeyhole aria-hidden="true" size={17}/><div><p>전송 결과를 확인할 때까지 편집이 잠겨 있어요.</p>{!doc.error && <button className="text-button" onClick={props.onRetry} disabled={props.busy}>전송 결과 확인</button>}</div></aside>}
       {doc?.error && <aside className="editor-callout error-callout" role="alert"><div><p>{doc.error.replace(/^rejected: /, "")}</p>{doc.error.startsWith("rejected:") ? <div className="recovery-actions"><button className="button secondary" onClick={() => props.onResolve(true)} disabled={props.busy}>초안을 새 메모로 보관</button><button className="text-button" onClick={() => props.onResolve(false)} disabled={props.busy}>PC 원문 사용</button></div> : <button className="text-button" onClick={props.onRetry} disabled={props.busy}>전송 결과 다시 확인</button>}</div></aside>}

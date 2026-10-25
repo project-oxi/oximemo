@@ -1461,7 +1461,9 @@ export function CardGrid() {
             {copilotVisible && <IconTool data-copilot-trigger className="workspace-command" label={t.copilot_fab} aria-expanded={copilotOpen} onClick={() => setCopilotOpen(!copilotOpen)}><Bot size={16} aria-hidden /></IconTool>}
             <SettingsMenu />
           </header>
-          <GalleryView />
+          <div key="gallery" className="view-fade min-h-0 flex-1">
+            <GalleryView />
+          </div>
         </div>
         <MemoDetail
           onToggleFavorite={onToggleFavorite}
@@ -1992,8 +1994,13 @@ export function CardGrid() {
             <CtxTrigger className={noteView === "graph" ? "h-full min-h-[280px]" : "min-h-full"}>
             {/* Destination/surface selection lives in renderMainSurface()
                 above: PDC bypasses the note grid/listing machinery
-                entirely. */}
+                entirely. The keyed wrapper re-runs the enter animation on
+                view switches without remounting shell/sidebar/header; h-full
+                keeps graph view's height chain (definite via CtxTrigger)
+                intact and resolves to auto in the scrolling views. */}
+            <div key={noteView} className="view-fade h-full">
             {renderMainSurface()}
+            </div>
               <CtxMenu>
                 <CtxItem
                   icon={FilePlus2}

@@ -65,10 +65,11 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .note-skeleton span:first-child { width: 56%; height: 17px; }
 .note-skeleton span:last-child { width: 26%; height: 10px; }
 .bottom-nav { display: flex; align-items: center; flex-shrink: 0; justify-content: space-around; gap: var(--space-md); padding: 0 var(--page-gutter) max(var(--space-xs), env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--mobile-chrome); color: var(--secondary); }
-.bottom-nav button { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: var(--space-sm); min-height: var(--tap-size); min-width: 64px; width: 30%; padding: 0 var(--space-xs); border: 0; background: transparent; border-radius: var(--mobile-radius-control); color: inherit; font-size: var(--mobile-caption-size); font-weight: 400; }
+.bottom-nav button { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: var(--space-sm); min-height: var(--tap-size); min-width: 64px; width: 30%; padding: 0 var(--space-xs); border: 0; background: transparent; border-radius: var(--mobile-radius-control); color: inherit; font-size: var(--mobile-caption-size); font-weight: 400; transition: color var(--duration-basic) var(--cubic-move); }
 .bottom-nav button[aria-current="page"] { color: var(--text); background: transparent; font-weight: 600; }
 .nav-icon { position: relative; display: grid; place-items: center; }
-.nav-attention { position: absolute; width: 5px; height: 5px; border-radius: var(--radius-full); background: var(--text); right: -6px; top: 0; }
+.nav-attention { position: absolute; width: 5px; height: 5px; border-radius: var(--radius-full); background: var(--text); right: -6px; top: 0; animation: attention-pulse 2s ease-in-out infinite; }
+@keyframes attention-pulse { 50% { opacity: .35; } }
 .notice { padding-inline: var(--page-gutter) var(--space-xs); font-size: var(--mobile-caption-size); }
 .vault-notice { margin-block: var(--space-sm); font-size: var(--mobile-caption-size); }
 .editor-header { position: relative; top: auto; left: auto; right: auto; min-height: 52px; padding: var(--space-xs) var(--page-gutter); border-bottom: 1px solid var(--line); background: var(--mobile-chrome); color: var(--text); pointer-events: auto; }
@@ -164,13 +165,12 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .settings-version { display: flex; justify-content: space-between; margin: var(--space-lg) 0 0; font-size: var(--mobile-caption-size); }
 .leave-dialog { border-radius: var(--mobile-radius-panel); }
 .dialog-content { padding: var(--space-xl); }
-.route-enter { animation: none; }
 @media (hover: hover) and (pointer: fine) {
   .note-link:hover, .settings-row:hover, .bottom-nav button:hover, .sync-overview-info:hover, .connection-scan-row:hover { background: var(--muted); }
   .button:hover:not(:disabled) { filter: brightness(.94); }
   .icon-button:hover:not(:disabled) { background: var(--muted); }
 }
-.bottom-nav button:active, .sync-action:active, .connection-scan-row:active, .sync-overview-info:active { background: var(--alpha-10); }
+.bottom-nav button:active, .note-link:active, .settings-row:active, .sync-action:active, .connection-scan-row:active, .sync-overview-info:active { background: var(--alpha-10); }
 @media (min-width: 40rem) {
   .app { border-inline: 1px solid var(--line); }
   .app-header { padding-block: var(--space-xs); }
@@ -179,4 +179,4 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
   .connection-page, .settings-page { padding-top: var(--space-sm); }
   .editor-page, .is-editing.has-editor-notice .editor-page { padding-block: var(--space-lg); }
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } .spinning { animation: none; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } .spinning, .nav-attention, .route-enter, .route-push, .route-pop, .leave-dialog[open], .leave-dialog[open]::backdrop { animation: none; } .bottom-nav button, .note-link, .settings-row { transition: none; } }

@@ -489,7 +489,7 @@ export function Sidebar({
           className={`sidebar-nav-item mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
             location.kind === "base" && "path" in location.source && location.source.path === TASKS_BASE_PATH
               ? "bg-surface-muted font-semibold text-text"
-              : "text-text-muted hover:bg-surface-muted"
+              : "text-text-muted hover:bg-surface-muted transition-colors duration-150"
           }`}
         >
           <ListChecks size={14} className="shrink-0" />
@@ -528,7 +528,7 @@ export function Sidebar({
                   className={`sidebar-nav-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
                     active
                       ? "bg-surface-muted font-semibold text-text"
-                      : "text-text-muted hover:bg-surface-muted"
+                      : "text-text-muted hover:bg-surface-muted transition-colors duration-150"
                   }`}
                 >
                   <Database size={14} className="shrink-0" />
@@ -883,7 +883,7 @@ function SidebarFolderRow({
             className={`group mx-2 flex items-center gap-1 rounded-md pr-1 text-[13px] ${
               selected
                 ? "bg-surface-muted font-semibold text-text"
-                : "hover:bg-surface-muted text-text-muted"
+                : "hover:bg-surface-muted text-text-muted transition-colors duration-150"
             } ${dropCls ?? ""} ${
               pinSource && pinHalf === "before"
                 ? "shadow-[inset_0_2px_0_0_var(--color-focus-ring)]"
@@ -960,7 +960,7 @@ function SidebarFolderRow({
           onClick={() => onUnpin(path)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          className={`grid size-5 place-items-center rounded-sm text-text-subtle hover:bg-surface-muted hover:text-text ${
+          className={`grid size-5 place-items-center rounded-sm text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text ${
             showMore ? "opacity-100" : "opacity-0"
           }`}
         >
@@ -1031,7 +1031,7 @@ function NavCell({
       className={`sidebar-nav-item flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs focus-visible:outline-2 focus-visible:outline-focus-ring ${
         selected
           ? "bg-surface-muted text-text"
-          : "text-text-muted hover:bg-surface-muted hover:text-text"
+          : "text-text-muted hover:bg-surface-muted hover:text-text transition-colors duration-150"
       }`}
     >
       {icon}
@@ -1076,7 +1076,7 @@ function LocationCell({
         className={`sidebar-nav-item flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs focus-visible:outline-2 focus-visible:outline-focus-ring ${
           selected
             ? "bg-surface-muted text-text"
-            : "text-text-muted hover:bg-surface-muted hover:text-text"
+            : "text-text-muted hover:bg-surface-muted hover:text-text transition-colors duration-150"
         }`}
       >
         {icon}
@@ -1180,7 +1180,7 @@ function CollectionCell({
               className={`sidebar-nav-item flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs focus-visible:outline-2 focus-visible:outline-focus-ring ${
                 selected
                   ? "bg-surface-muted text-text"
-                  : "text-text-muted hover:bg-surface-muted hover:text-text"
+                  : "text-text-muted hover:bg-surface-muted hover:text-text transition-colors duration-150"
               }`}
             >
               {icon ?? (
