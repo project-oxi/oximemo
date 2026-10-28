@@ -63,11 +63,33 @@ pub(crate) fn display_name(id: &str) -> &str {
         .unwrap_or(id)
 }
 
+#[cfg(unix)]
 fn is_executable(p: &std::path::Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     match std::fs::metadata(p) {
         Ok(m) => m.is_file() && m.permissions().mode() & 0o111 != 0,
         Err(_) => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn is_executable(p: &std::path::Path) -> bool {
+    p.is_file()
+}
+
+/// 자식을 자기 프로세스 그룹에 띄운다 — unix 는 process_group(0), Windows 는 CREATE_NEW_PROCESS_GROUP.
+trait OwnGroup {
+    fn own_group(&mut self) -> &mut Self;
+}
+
+impl OwnGroup for Command {
+    #[cfg(unix)]
+    fn own_group(&mut self) -> &mut Self {
+        self.own_group()
+    }
+    #[cfg(windows)]
+    fn own_group(&mut self) -> &mut Self {
+        self.creation_flags(0x0000_0200)
     }
 }
 
@@ -82,7 +104,7 @@ fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf>
     if let Some(path) = path_var {
         dirs.extend(std::env::split_paths(&path));
     }
-    if let Some(home) = std::env::var_os("HOME") {
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
         let home = PathBuf::from(home);
         for rel in [
             ".oxi/oxios/bin",
@@ -102,8 +124,13 @@ fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf>
     for abs in ["/opt/homebrew/bin", "/usr/local/bin"] {
         dirs.push(PathBuf::from(abs));
     }
+    let names: Vec<String> = if cfg!(windows) {
+        vec![format!("{name}.exe"), format!("{name}.cmd"), name.to_string()]
+    } else {
+        vec![name.to_string()]
+    };
     dirs.into_iter()
-        .map(|d| d.join(name))
+        .flat_map(|d| names.iter().map(move |n| d.join(n)).collect::<Vec<_>>())
         .find(|p| is_executable(p))
 }
 
@@ -124,7 +151,7 @@ pub async fn probe_version(exe: &Path) -> Option<String> {
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .process_group(0)
+            .own_group()
             .kill_on_drop(true)
             .output()
             .await
@@ -645,8 +672,15 @@ pub struct ProcessOutcome {
 /// Kill every process in the turn's group. ESRCH (already gone) is fine.
 pub fn kill_turn(pgid: i32) {
     if pgid > 0 {
+        #[cfg(unix)]
         unsafe {
             libc::kill(-pgid, libc::SIGKILL);
+        }
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &pgid.to_string()])
+                .output();
         }
     }
 }
@@ -669,7 +703,7 @@ pub async fn run_agent_process(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
-        .process_group(0);
+        .own_group();
     // Agents whose tools operate on the working tree (omp) get the vault
     // as cwd; oxios delegates to its daemon and keeps the app cwd.
     if let Some(dir) = cwd {
@@ -1177,7 +1211,7 @@ async fn capture_stdout(exe: &Path, args: &[&str], budget_secs: u64) -> Result<S
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .process_group(0)
+            .own_group()
             .kill_on_drop(true)
             .output()
             .await

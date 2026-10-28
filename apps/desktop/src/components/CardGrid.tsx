@@ -100,6 +100,7 @@ import { BreadcrumbBar } from "./BreadcrumbBar";
 import { MetadataAddDialog } from "./MetadataAddDialog";
 import { isComposingKey } from "../lib/editorKeys";
 import { ReviewQueue } from "./ReviewQueue";
+import { keyLabel } from "../lib/platform";
 const PAGE_SIZE = 50;
 const MIN_COL_W = 240;
 const CARD_H = 176;
@@ -1425,7 +1426,7 @@ export function CardGrid() {
           >
             {sidebarToggle}
             <span className="min-w-0 flex-1 text-[13px] font-medium text-text-muted">{t.gallery}</span>
-            <IconTool className="workspace-command" label={t.command_palette_title} hint="⌘K" onClick={() => setCmdPaletteOpen(true)}><Command size={16} aria-hidden /></IconTool>
+            <IconTool className="workspace-command" label={t.command_palette_title} hint={keyLabel("⌘K")} onClick={() => setCmdPaletteOpen(true)}><Command size={16} aria-hidden /></IconTool>
             {copilotVisible && <IconTool data-copilot-trigger className="workspace-command" label={t.copilot_fab} aria-expanded={copilotOpen} onClick={() => setCopilotOpen(!copilotOpen)}><Bot size={16} aria-hidden /></IconTool>}
             <SettingsMenu />
           </header>
@@ -1763,7 +1764,7 @@ export function CardGrid() {
               </BtnMenuRoot>
             )}
           </div>
-          <IconTool className="workspace-command" label={t.command_palette_title} hint="⌘K" onClick={() => setCmdPaletteOpen(true)}><Command size={16} aria-hidden /></IconTool>
+          <IconTool className="workspace-command" label={t.command_palette_title} hint={keyLabel("⌘K")} onClick={() => setCmdPaletteOpen(true)}><Command size={16} aria-hidden /></IconTool>
           {copilotVisible && <IconTool data-copilot-trigger className="workspace-command" label={t.copilot_fab} aria-expanded={copilotOpen} onClick={() => setCopilotOpen(!copilotOpen)}><Bot size={16} aria-hidden /></IconTool>}
           <SettingsMenu />
         </header>

@@ -30,6 +30,7 @@ import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
 import { TextCtxMenu } from "./TextCtxMenu";
 import { useUI, type TagState } from "../stores/ui";
 import type { FolderDef } from "../lib/types";
+import { keyLabel } from "../lib/platform";
 /** Static preset-id → icon table (drives 위치 collection rows). */
 const PRESET_ICON: Record<string, (typeof COLLECTION_CATALOG)[number]["icon"]> =
   Object.fromEntries(COLLECTION_CATALOG.map((c) => [c.id, c.icon]));
@@ -678,7 +679,7 @@ export function Sidebar({
             </Popover.Positioner>
           </Popover.Portal>
         </Popover.Root>
-        <button type="button" className="sidebar-command-trigger" aria-label={t.command_palette_title} title={`${t.command_palette_title} · ⌘K`} onClick={() => useUI.getState().setCmdPaletteOpen(true)}>
+        <button type="button" className="sidebar-command-trigger" aria-label={t.command_palette_title} title={`${t.command_palette_title} · ${keyLabel("⌘K")}`} onClick={() => useUI.getState().setCmdPaletteOpen(true)}>
           <Search size={15} aria-hidden />
         </button>
       </div>

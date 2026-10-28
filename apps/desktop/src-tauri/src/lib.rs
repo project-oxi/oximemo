@@ -94,6 +94,12 @@ pub fn run() {
     init_tracing();
 
     tauri::Builder::default()
+        // Must be the first plugin: a second launch (Start menu, taskbar)
+        // forwards here and exits before it registers a duplicate global
+        // shortcut, watcher and tray icon.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -135,9 +141,11 @@ pub fn run() {
                 .iter()
                 .find(|window| window.label == "main")
                 .ok_or_else(|| anyhow::anyhow!("missing main window configuration"))?;
-            let main_window = tauri::WebviewWindowBuilder::from_config(app, main_config)?
-                .traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0))
-                .build()?;
+            let main_builder = tauri::WebviewWindowBuilder::from_config(app, main_config)?;
+            #[cfg(target_os = "macos")]
+            let main_builder =
+                main_builder.traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0));
+            let main_window = main_builder.build()?;
             tracing::debug!(
                 configured_width = main_config.width,
                 configured_height = main_config.height,
@@ -251,7 +259,7 @@ pub fn run() {
                 }
             });
             let wstate = app.state::<AppState>();
-            spawn_watcher(&wstate, app.handle());
+            spawn_watcher(&wstate, app.handle(), spec.clone());
             wstate.request_brain_index();
             // Unified home: deliver the documents-root registration an
             // offline open recorded. Fire-and-forget on the async
@@ -307,11 +315,16 @@ pub fn run() {
             // so it adapts to light/dark. Held in AppState for the app lifetime.
             let tray_handle = app.handle().clone();
             let tray_menu = build_tray_menu(&tray_handle)?;
+            #[cfg(target_os = "macos")]
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/tray-template.png"))?;
+            // The monochrome template is black-on-transparent: invisible on
+            // the dark Windows taskbar, which never tints it like macOS does.
+            #[cfg(not(target_os = "macos"))]
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
             let tray = TrayIconBuilder::with_id("main-tray")
-                .icon(Image::from_bytes(include_bytes!(
-                    "../icons/tray-template.png"
-                ))?)
+                .icon(tray_icon)
                 .icon_as_template(true)
+                .tooltip("oximemo")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -337,6 +350,8 @@ pub fn run() {
                     tauri::ActivationPolicy::Accessory
                 })
                 .ok();
+            #[cfg(windows)]
+            let _ = main_window.set_skip_taskbar(!dock);
 
             Ok(())
         })
@@ -548,8 +563,10 @@ fn default_shortcut() -> Shortcut {
 /// refresh its query cache, and queues a git auto-commit (non-blocking —
 /// the commit itself runs on the consumer thread, never here). The handle
 /// lives in `AppState` for the app lifetime — dropping it would stop watching.
-fn spawn_watcher(state: &AppState, handle: &AppHandle) {
-    let vault_path = state.vault.paths().vault.clone();
+fn spawn_watcher(state: &AppState, handle: &AppHandle, spec: oximemo_core::spaces::VaultSpec) {
+    // Reopen with the boot spec, not the bare path: `Vault::open(Some(path))`
+    // maps a space vault to the top-level index, so watcher reindexes landed
+    // in an index the app never reads and external edits stayed invisible.
     let debounce =
         Duration::from_millis(state.vault.with_config(|c| c.index.watcher_debounce_ms) as u64);
     let emit_handle = handle.clone();
@@ -565,13 +582,13 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
         // .query is a natural miss on the next run_base), so the
         // event, not this call, is what refreshes the UI.
         if path.extension().is_some_and(|e| e == "query") {
-            if let Ok(v) = oximemo_core::Vault::open(Some(&vault_path)) {
+            if let Ok(v) = oximemo_core::Vault::open_spec(&spec) {
                 v.invalidate_base_caches();
             }
             let _ = emit_handle.emit("bases:changed", ());
             return;
         }
-        if let Ok(v) = oximemo_core::Vault::open(Some(&vault_path)) {
+        if let Ok(v) = oximemo_core::Vault::open_spec(&spec) {
             v.reindex_path(&path);
         }
         let _ = emit_handle.emit("memos:changed", ());
@@ -2533,7 +2550,11 @@ mod commands {
             },
         )
         .map_err(|e| e.to_string())?;
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(windows)]
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.set_skip_taskbar(!state.vault.with_config(|c| c.appearance.show_dock_icon));
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
         let _ = app;
         Ok(())
     }
@@ -2636,7 +2657,7 @@ mod commands {
         // The externalBin sidecar lands in Contents/MacOS/ next to the main
         // binary, under its base name — Tauri strips the `-<triple>` suffix
         // during bundling (input `oximemo-<triple>` → bundled `oximemo`).
-        Some(dir.join("oximemo"))
+        Some(dir.join(if cfg!(windows) { "oximemo.exe" } else { "oximemo" }))
     }
     fn user_cli_link() -> Option<PathBuf> {
         std::env::var_os("HOME").map(|home| {
@@ -2685,6 +2706,16 @@ mod commands {
 
     #[tauri::command]
     pub fn cli_status() -> Result<CliState, String> {
+        // No ~/.local/bin or /usr/local/bin links on Windows: the CLI counts
+        // as installed when PATH resolves it (e.g. ~/.cargo/bin).
+        #[cfg(windows)]
+        {
+            let on_path = std::env::var_os("PATH").is_some_and(|p| {
+                std::env::split_paths(&p).any(|d| d.join("oximemo.exe").is_file())
+            });
+            return Ok(if on_path { CliState::Installed } else { CliState::NotInstalled });
+        }
+        #[allow(unreachable_code)]
         let Some(bundled) = bundled_cli_path() else {
             return Ok(CliState::NotInstalled);
         };

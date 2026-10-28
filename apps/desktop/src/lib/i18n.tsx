@@ -5,10 +5,11 @@
  * plural/gender forms yet — the surface is tiny. Adding more locales is a
  * matter of dropping a new module into the union below.
  */
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { dict as ko } from "./locales/ko";
 import { dict as en } from "./locales/en";
+import { platformDict } from "./platform";
 import { invoke } from "./tauri";
 
 type KoDict = typeof ko;
@@ -46,7 +47,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     void invoke("set_menu_locale", { locale }).catch(() => {});
   }, [locale]);
 
-  const t = ALL[locale] as unknown as Dict;
+  const t = useMemo(() => platformDict(ALL[locale], locale), [locale]) as unknown as Dict;
   return (
     <I18nContext.Provider value={{ locale, setLocale, t }}>{children}</I18nContext.Provider>
   );

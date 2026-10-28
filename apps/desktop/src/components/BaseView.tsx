@@ -27,6 +27,7 @@ import { BaseCardsAdapter, BaseListAdapter } from "./views/BaseAdapters";
 import { TasksView } from "./views/TasksView";
 import { listFolders } from "../lib/api";
 import { FilterBuilder } from "./FilterBuilder";
+import { keyLabel } from "../lib/platform";
 
 const PAGE = 100;
 const KNOWN_TYPES: Record<string, true | undefined> = { table: true, board: true, cards: true, list: true, tasks: true };
@@ -492,7 +493,7 @@ function BaseCodeEditor({
     <div>
       <div className="mb-1 flex items-center justify-between">
         <span className="text-[11px] text-text-subtle">{dirty ? t.query_code_dirty : t.query_code_saved}</span>
-        <span className="text-[11px] text-text-subtle">⌘S</span>
+        <span className="text-[11px] text-text-subtle">{keyLabel("⌘S")}</span>
       </div>
       <div
         ref={hostRef}

@@ -8852,6 +8852,16 @@ watcher_retry_interval_ms = 200
     }
 
     #[test]
+    fn create_capture_keeps_one_line_body_without_heading() {
+        let (_t, v) = tmp_vault();
+        v.migrate().unwrap();
+        // A single plain line is the common quick capture; it must not be
+        // mistaken for a blank body and swapped for the inbox template.
+        let n = v.create_capture("call back at 3".into()).unwrap();
+        assert!(n.body.contains("call back at 3"), "got {:?}", n.body);
+    }
+
+    #[test]
     fn create_capture_targets_idea_preset_renamed_path() {
         let (_t, v) = tmp_vault();
         v.migrate().unwrap();

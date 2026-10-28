@@ -411,6 +411,10 @@ fn is_canonical_uuid(value: &str) -> bool {
 }
 
 fn sync_dir(path: &Path) -> Result<(), SessionError> {
+    // Windows cannot open a directory as a File (ERROR_ACCESS_DENIED).
+    if cfg!(windows) {
+        return Ok(());
+    }
     File::open(path)
         .and_then(|directory| directory.sync_all())
         .map_err(|_| SessionError::storage())

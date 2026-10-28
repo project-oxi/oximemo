@@ -282,8 +282,16 @@ fn strip_frontmatter(text: &str) -> String {
 /// Check whether a body is "empty" (untitled + no real content) and thus
 /// should get a template applied. Title derivation is format-aware.
 pub fn is_blank_body(fmt: crate::memo::NoteFormat, body: &str) -> bool {
-    body.trim().is_empty()
-        || crate::memo::note_title(fmt, body).is_none() && body.lines().count() <= 1
+    // Only an empty body or a bare heading marker (`# `) is blank. A
+    // one-line capture without an H1 ("call back at 3") is real text —
+    // treating it as blank swapped it for the template body and lost it.
+    let trimmed = body.trim();
+    trimmed.is_empty()
+        || crate::memo::note_title(fmt, body).is_none()
+            && match fmt {
+                crate::memo::NoteFormat::Markdown => trimmed.chars().all(|c| c == '#'),
+                crate::memo::NoteFormat::Html => crate::html::html_to_text(body).trim().is_empty(),
+            }
 }
 
 #[cfg(test)]

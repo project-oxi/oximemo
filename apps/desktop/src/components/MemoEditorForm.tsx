@@ -33,6 +33,7 @@ import { todayLocalISO } from "../lib/dates";
 import { outerScrollExtension } from "../lib/cm6OuterScroll";
 import { markdownTypingExtension } from "../lib/editorTyping";
 import { useUI } from "../stores/ui";
+import { keyLabel } from "../lib/platform";
 const cx = (...xs: (string | false | null | undefined)[]) =>
   xs.filter(Boolean).join(" ");
 
@@ -395,7 +396,7 @@ export function MemoEditorForm({
         type="button"
         onClick={() => fileInputRef.current?.click()}
         aria-label={t.insert_image}
-        title={`${t.insert_image} (⌘I) · PNG, JPEG, GIF, WebP`}
+        title={`${t.insert_image} (${keyLabel("⌘I")}) · PNG, JPEG, GIF, WebP`}
         className="memo-editor-image inline-flex h-8 w-8 items-center justify-center rounded-[var(--button-radius)] text-text-subtle shadow-[var(--input-shadow)] transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
       >
         <ImageIcon size={15} />

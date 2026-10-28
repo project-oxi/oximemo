@@ -439,6 +439,11 @@ fn unique_temp(target: &Path) -> PathBuf {
 /// fsync a directory so a recent rename/create is durable across
 /// power loss.
 fn fsync_dir(dir: &Path) -> std::io::Result<()> {
+    // Windows cannot open a directory as a File (ERROR_ACCESS_DENIED);
+    // NTFS journals the rename itself.
+    if cfg!(windows) {
+        return Ok(());
+    }
     let f = fs::File::open(dir)?;
     f.sync_all()?;
     Ok(())

@@ -164,7 +164,8 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         .unwrap_or(0);
     tmp.push(format!(".{filename}.{pid}.{nanos}.tmp"));
     std::fs::write(&tmp, bytes)?;
-    let f = std::fs::File::open(&tmp)?;
+    // Windows refuses FlushFileBuffers on a read-only handle (ERROR_ACCESS_DENIED).
+    let f = std::fs::OpenOptions::new().write(true).open(&tmp)?;
     f.sync_all()?;
     std::fs::rename(&tmp, path)?;
     if let Some(d) = path.parent() {

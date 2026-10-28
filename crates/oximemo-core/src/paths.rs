@@ -409,7 +409,12 @@ pub fn oxi_home() -> PathBuf {
     if let Some(path) = std::env::var_os("OXI_HOME") {
         return PathBuf::from(path);
     }
-    let home = std::env::var_os("HOME").unwrap_or_else(|| ".".into());
+    // Windows GUI launches carry no `HOME`; falling back to "." put a fresh
+    // empty vault under the launch folder instead of the user's profile.
+    let home = std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .unwrap_or_else(|| ".".into());
     PathBuf::from(home).join(".oxi")
 }
 
@@ -421,6 +426,7 @@ pub fn oxi_home() -> PathBuf {
 pub fn user_home() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE").filter(|h| !h.is_empty()))
         .map(PathBuf::from)
 }
 
