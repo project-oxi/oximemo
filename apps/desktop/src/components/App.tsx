@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tan
 import { useEffect, useRef, useState } from "react";
 import { useTodayKey } from "../lib/relativeDay";
 import { Terminal, X } from "lucide-react";
-import { isRouteCapture } from "../lib/window";
+import { isNativeWindow, isRouteCapture } from "../lib/window";
+import { IS_WINDOWS } from "../lib/platform";
 import { listFolders, getConfig, setFolderPinned } from "../lib/api";
 import { useSchemaInfo } from "../lib/folders";
 import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
@@ -12,6 +13,7 @@ import { COLLECTION_CATALOG } from "../lib/collectionCatalog";
 import { CardGrid } from "./CardGrid";
 import { CopilotPanel } from "./CopilotPanel";
 import { CaptureOverlay } from "./CaptureOverlay";
+import { WindowControls } from "./WindowControls";
 import { ErrorToast } from "./ErrorBoundary";
 import { TaskQuickAdd } from "./TaskQuickAdd";
 import { Toast } from "./Toast";
@@ -92,6 +94,7 @@ function Shell() {
       <ErrorToast />
       <TaskQuickAdd />
       <Toast />
+      {IS_WINDOWS && isNativeWindow() && <WindowControls />}
     </>
   );
 }

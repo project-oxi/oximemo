@@ -189,6 +189,12 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             let main_builder =
                 main_builder.traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0));
+            // Windows has no overlay title bar: drop the native frame so the
+            // app's own title band runs edge to edge; the renderer draws the
+            // caption buttons (WindowControls.tsx). The shadow keeps the Win11
+            // rounded corners and the drag-resize edges of an undecorated window.
+            #[cfg(windows)]
+            let main_builder = main_builder.decorations(false).shadow(true);
             let main_window = main_builder.build()?;
             tracing::debug!(
                 configured_width = main_config.width,

@@ -161,6 +161,7 @@ button:focus-visible, select:focus-visible, a:focus-visible {
 }
 .workspace-view-switcher select {
   max-width: 100px;
+  flex-shrink: 0;
   height: 28px;
   border: 0;
   background: transparent;
@@ -462,7 +463,7 @@ button:focus-visible, select:focus-visible, a:focus-visible {
   .workspace-heading h1 { font-size: var(--text-display); }
   .workspace-view-tools { width: 100%; justify-content: space-between; }
   .workspace-view-switcher { min-width: 0; max-width: 100%; flex-wrap: wrap; }
-  .workspace-view-switcher select { max-width: 96px; }
+  .workspace-view-switcher select { max-width: 100px; }
   .workspace-content { padding: 0 var(--space-4) var(--space-4); }
   .workspace-schema-tools { margin-left: var(--space-4); margin-right: var(--space-4); }
   .workspace-create { height: 30px; }
@@ -495,6 +496,89 @@ button:focus-visible, select:focus-visible, a:focus-visible {
 }
 @media (max-width: 700px), (max-height: 560px) {
   html[data-native-window="true"] .settings-header { padding-left: 80px; }
+}
+/* Window chrome · Windows. The main window is undecorated there (lib.rs) and
+ * WindowControls draws the caption buttons at the top-right, so the left-side
+ * traffic-light reservations above give way and every header that can sit
+ * under the buttons reserves their width instead. Buttons span the 52px title
+ * band edge to edge so their glyphs share its center line, and the close
+ * button keeps the screen corner (Fitts) when maximized. */
+html[data-platform="windows"] { --window-controls-width: 138px; --window-controls-height: 52px; }
+.window-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  height: var(--window-controls-height);
+}
+.window-controls > button {
+  display: grid;
+  width: 46px;
+  height: 100%;
+  place-items: center;
+  color: var(--color-text-muted);
+  background: transparent;
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+.window-controls > button:hover { color: var(--color-text); background: var(--color-control-hover); }
+.window-controls > button:active { background: var(--color-control-active, var(--color-control-hover)); }
+/* Windows' own close red (Fluent caption button), not the app's danger tone. */
+.window-controls > .window-control-close:hover { color: #fff; background: #c42b1c; }
+.window-controls > .window-control-close:active { color: #fff; background: #b22a1b; }
+.window-controls svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1; overflow: visible; }
+html[data-platform="windows"] .workspace-titlebar { padding-right: calc(var(--window-controls-width) + var(--space-2)); }
+html[data-platform="windows"] .workspace-shell[data-sidebar="collapsed"] .workspace-titlebar { padding-left: var(--space-4); }
+html[data-platform="windows"] .workspace-sidebar-toggle { margin-left: 0; }
+/* Compact toolbar wraps search onto a second row. Reserving the buttons with
+ * padding would shorten that row too, so only the first row's last control
+ * steps aside, and the row is pushed down to the buttons' center line. */
+@media (max-width: 700px) {
+  html[data-platform="windows"] .workspace-titlebar,
+  html[data-platform="windows"] .workspace-shell[data-sidebar] .workspace-titlebar {
+    padding-top: calc((var(--window-controls-height) - 30px) / 2);
+    padding-right: var(--space-2);
+  }
+  html[data-platform="windows"] .workspace-titlebar > :last-child { margin-right: calc(var(--window-controls-width) - var(--space-2)); }
+}
+/* Windows paints classic scrollbars with arrow buttons and a gray track. The
+ * standard thin scrollbar still keeps small arrows, so the standard properties
+ * are reset to let the WebKit pseudo-elements draw a slim pill like macOS's
+ * overlay bars. */
+html[data-platform="windows"] * { scrollbar-width: auto; scrollbar-color: auto; }
+html[data-platform="windows"] ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+html[data-platform="windows"] ::-webkit-scrollbar-button, html[data-platform="windows"] ::-webkit-scrollbar-corner { display: none; background: transparent; }
+html[data-platform="windows"] ::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--color-line-strong) padding-box;
+}
+html[data-platform="windows"] ::-webkit-scrollbar-thumb:hover { background-color: var(--color-text-subtle); }
+/* No traffic lights to clear: the space picker rises into the title band and
+ * centers on the same line as the toolbar (8 + 36/2 = 26 = 52/2). The strip
+ * left above it stays a drag handle. */
+@media (min-width: 701px) {
+  html[data-platform="windows"] .sidebar-window-handle { height: var(--space-2); }
+}
+/* The floating sheet starts below the title band instead of under the
+ * buttons: overlapping it put the caption glyphs (center 26px) beside the
+ * sheet's own header row (center 38px), two rows that never line up. */
+html[data-platform="windows"] .memo-sheet[data-layout="sheet"] { top: calc(var(--window-controls-height) + var(--space-2)); }
+html[data-platform="windows"] .memo-sheet[data-layout="sheet"] .memo-sheet-header { padding-left: var(--space-5); }
+@media (max-width: 700px) {
+  html[data-platform="windows"] .memo-sheet[data-layout="sheet"] .memo-sheet-header { padding-left: var(--space-4); }
+}
+/* Full-window layout: the sheet header *is* the title band, so the buttons
+ * close its row like the workspace toolbar's. */
+html[data-platform="windows"] .memo-sheet[data-layout="immersive"] .memo-sheet-header {
+  padding-left: var(--space-5);
+  padding-right: calc(var(--window-controls-width) + var(--space-2));
+}
+/* Same for the centered settings dialog: in short windows it would grow into
+ * the band, so its height leaves the band (plus a gap) clear on both sides. */
+html[data-platform="windows"] .settings-header { padding-left: var(--space-5); }
+html[data-platform="windows"] .glass-settings {
+  height: min(680px, calc(100dvh - 2 * (var(--window-controls-height) + var(--space-2))));
 }
 /* Both layouts share one mounted editor, so expanding keeps its draft,
  * selection, undo history and save guards. The opaque surface fills the

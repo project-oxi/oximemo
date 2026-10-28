@@ -9,6 +9,17 @@ export const IS_MAC: boolean =
   typeof navigator !== "undefined" &&
   /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent);
 
+/**
+ * Windows draws its own caption buttons (main window is undecorated there —
+ * see `WindowControls`); macOS keeps native traffic lights over the overlay
+ * title bar. Linux keeps its native decorated frame.
+ */
+export const IS_WINDOWS: boolean =
+  !IS_MAC && typeof navigator !== "undefined" && /Win/i.test(navigator.platform || navigator.userAgent);
+
+/** Window-chrome family, mirrored on `<html data-platform>` for CSS. */
+export const PLATFORM: "mac" | "windows" | "other" = IS_MAC ? "mac" : IS_WINDOWS ? "windows" : "other";
+
 /** macOS-only phrases with no off-mac equivalent (Option double-tap capture). */
 const PHRASES: [RegExp, string][] = [
   [/Option 키를 두 번 누르거나 /g, ""],

@@ -5,6 +5,7 @@ import { TooltipProvider } from "@garden/ui";
 
 import { App } from "./components/App";
 import { isRouteCapture } from "./lib/window";
+import { PLATFORM } from "./lib/platform";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { I18nProvider } from "./lib/i18n";
 import { applyTheme, loadTheme } from "./lib/theme";
@@ -19,6 +20,9 @@ applyTheme(loadTheme());
 document.documentElement.dataset.nativeWindow = String(
   "__TAURI_INTERNALS__" in window && !isRouteCapture(),
 );
+// Chrome family for CSS: macOS reserves traffic-light space, Windows reserves
+// the custom caption buttons (liquid-glass.css «Window chrome»).
+document.documentElement.dataset.platform = PLATFORM;
 // The capture window is `transparent: true` (tauri.conf.json), but the shared
 // <body class="bg-surface text-text"> paints an opaque rectangle over the full
 // 560×200 window — leaving a solid block above the bottom-anchored input card.
