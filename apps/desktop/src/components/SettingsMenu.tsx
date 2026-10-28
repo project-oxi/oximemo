@@ -99,6 +99,7 @@ import { useSchemaInfo } from "../lib/folders";
 import { applyTheme, type Theme } from "../lib/theme";
 import type { FolderEntry, TaskStatusWireDef, TasksWireConfig } from "../lib/types";
 import { validSpaceName } from "../lib/spaceName";
+import { keyLabel } from "../lib/platform";
 const APP_VERSION = __APP_VERSION__;
 
 /** Base UI's modal stops document key events used by Radix RadioGroup.
@@ -2004,7 +2005,7 @@ export function SettingsMenu() {
                   <CaptureSection />
                   <div className="mt-2 flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2">
                     <span className="text-xs text-text-muted">{t.capture_shortcut}</span>
-                    <kbd className="font-mono text-xs text-text-subtle">⌘⇧N</kbd>
+                    <kbd className="font-mono text-xs text-text-subtle">{keyLabel("⌘⇧N")}</kbd>
                   </div>
                 </section>
               )}
@@ -2150,10 +2151,10 @@ export function SettingsMenu() {
                   <div className="mt-1.5 space-y-1.5">
                     {(
                       [
-                        [t.shortcut_palette, "⌘K"],
-                        [t.shortcut_new_note, "⌘N"],
-                        [t.capture_shortcut, "⌘⇧N"],
-                        [t.shortcut_goto_root, "⌘↑"],
+                        [t.shortcut_palette, keyLabel("⌘K")],
+                        [t.shortcut_new_note, keyLabel("⌘N")],
+                        [t.capture_shortcut, keyLabel("⌘⇧N")],
+                        [t.shortcut_goto_root, keyLabel("⌘↑")],
                       ] as const
                     ).map(([label, keys]) => (
                       <div

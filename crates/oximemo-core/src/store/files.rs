@@ -457,6 +457,11 @@ impl FileStore {
 
 /// fsync a directory so a recent rename/create is durable across power loss.
 pub(crate) fn fsync_dir(dir: &Path) -> Result<()> {
+    // Windows cannot open a directory as a File (ERROR_ACCESS_DENIED);
+    // NTFS journals the rename itself.
+    if cfg!(windows) {
+        return Ok(());
+    }
     let f = std::fs::File::open(dir)?;
     f.sync_all()?;
     Ok(())

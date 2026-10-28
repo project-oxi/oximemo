@@ -17,6 +17,7 @@ import type { DictKey } from "./collectionCatalog";
 import type { Theme } from "./theme";
 import { folderDisplayName } from "./folders";
 import type { FolderEntry, ViewMode } from "./types";
+import { keyLabel } from "./platform";
 
 /** Icon name — resolved to a lucide component by CommandPalette.tsx. */
 export type PaletteIcon =
@@ -248,7 +249,7 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
   }
 
   const md = pair(locale, "new_note_md");
-  add("action.new_md", "note-md", md.title, md.alias, "action", () => callbacks.newNote("markdown"), { hint: "⌘N" });
+  add("action.new_md", "note-md", md.title, md.alias, "action", () => callbacks.newNote("markdown"), { hint: keyLabel("⌘N") });
   const html = pair(locale, "new_note_html");
   add("action.new_html", "note-html", html.title, html.alias, "action", () => callbacks.newNote("html"));
   // Rollover (spec §7): yesterday's not-done daily tasks → today.
@@ -271,7 +272,7 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
     add("action.space_new", "folder-plus", sn.title, sn.alias, "action", callbacks.createSpace);
   }
   const qc = pair(locale, "palette_quick_capture");
-  add("action.capture", "zap", qc.title, qc.alias, "action", callbacks.quickCapture, { hint: "⌘⇧N" });
+  add("action.capture", "zap", qc.title, qc.alias, "action", callbacks.quickCapture, { hint: keyLabel("⌘⇧N") });
   // Theme trio excludes the active theme; title "테마: 다크" style.
   for (const t of ["system", "light", "dark"] as Theme[]) {
     if (t === theme) continue;

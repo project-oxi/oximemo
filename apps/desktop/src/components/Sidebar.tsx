@@ -31,6 +31,7 @@ import { TextCtxMenu } from "./TextCtxMenu";
 import type { LucideIcon } from "lucide-react";
 import { useUI, type TagState } from "../stores/ui";
 import type { FolderDef, FolderEntry } from "../lib/types";
+import { keyLabel } from "../lib/platform";
 import { NoteCtxMenu } from "./NoteCtxMenu";
 import { useFolderCreate } from "../lib/useFolderCreate";
 /** 쿼리 행 메뉴 항목 — ⋯ 팝오버와 우클릭이 공유(설계 원칙 2). */
@@ -745,7 +746,7 @@ export function Sidebar({
             </Popover.Positioner>
           </Popover.Portal>
         </Popover.Root>
-        <button type="button" className="sidebar-command-trigger" aria-label={t.command_palette_title} title={`${t.command_palette_title} · ⌘K`} onClick={() => useUI.getState().setCmdPaletteOpen(true)}>
+        <button type="button" className="sidebar-command-trigger" aria-label={t.command_palette_title} title={`${t.command_palette_title} · ${keyLabel("⌘K")}`} onClick={() => useUI.getState().setCmdPaletteOpen(true)}>
           <Search size={15} aria-hidden />
         </button>
       </div>

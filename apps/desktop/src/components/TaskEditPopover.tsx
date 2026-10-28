@@ -33,6 +33,7 @@ import { shiftISODate, todayLocalISO } from "../lib/dates";
 import { relativeDayLabel } from "../lib/relativeDay";
 import { effectiveStatuses } from "../lib/taskToggle";
 import { isComposingKey } from "../lib/editorKeys";
+import { keyLabel } from "../lib/platform";
 /** Position-only anchor (floating-ui's VirtualElement shape): a rect
  *  provider with no DOM box — the editor path's caret-line anchor. */
 export interface VirtualAnchor {
@@ -299,7 +300,7 @@ export function TaskEditPopover({
                 />
               </Row>
               <div className="mt-1 flex items-center justify-between text-[11px] text-text-subtle">
-                <span>⌘⏎ {t.task_edit}</span>
+                <span>{keyLabel("⌘⏎")} {t.task_edit}</span>
                 <span>Esc</span>
               </div>
             </div>

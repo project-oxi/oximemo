@@ -63,11 +63,33 @@ pub(crate) fn display_name(id: &str) -> &str {
         .unwrap_or(id)
 }
 
+#[cfg(unix)]
 fn is_executable(p: &std::path::Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     match std::fs::metadata(p) {
         Ok(m) => m.is_file() && m.permissions().mode() & 0o111 != 0,
         Err(_) => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn is_executable(p: &std::path::Path) -> bool {
+    p.is_file()
+}
+
+/// 자식을 자기 프로세스 그룹에 띄운다 — unix 는 process_group(0), Windows 는 CREATE_NEW_PROCESS_GROUP.
+trait OwnGroup {
+    fn own_group(&mut self) -> &mut Self;
+}
+
+impl OwnGroup for Command {
+    #[cfg(unix)]
+    fn own_group(&mut self) -> &mut Self {
+        self.process_group(0)
+    }
+    #[cfg(windows)]
+    fn own_group(&mut self) -> &mut Self {
+        self.creation_flags(0x0000_0200)
     }
 }
 
@@ -114,10 +136,23 @@ fn agent_search_dirs(
     unique
 }
 
+/// Windows GUI launches carry no `HOME`; fall back to `USERPROFILE`.
+fn home_var() -> Option<std::ffi::OsString> {
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE"))
+}
+
 fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf> {
-    agent_search_dirs(path_var, std::env::var_os("HOME"))
+    // Windows CLIs install as `name.exe` or npm/bun `name.cmd` shims.
+    let names: Vec<String> = if cfg!(windows) {
+        vec![format!("{name}.exe"), format!("{name}.cmd"), name.to_string()]
+    } else {
+        vec![name.to_string()]
+    };
+    agent_search_dirs(path_var, home_var())
         .into_iter()
-        .map(|d| d.join(name))
+        .flat_map(|d| names.iter().map(move |n| d.join(n)).collect::<Vec<_>>())
         .find(|p| is_executable(p))
 }
 
@@ -141,7 +176,7 @@ fn agent_command_in(
 }
 
 fn agent_command(exe: &Path) -> Result<Command, String> {
-    agent_command_in(exe, std::env::var_os("PATH"), std::env::var_os("HOME"))
+    agent_command_in(exe, std::env::var_os("PATH"), home_var())
 }
 
 /// Probe an agent's version: `<exe> --version`, 3 s budget, first stdout
@@ -746,8 +781,15 @@ pub struct ProcessOutcome {
 /// Kill every process in the turn's group. ESRCH (already gone) is fine.
 pub fn kill_turn(pgid: i32) {
     if pgid > 0 {
+        #[cfg(unix)]
         unsafe {
             libc::kill(-pgid, libc::SIGKILL);
+        }
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &pgid.to_string()])
+                .output();
         }
     }
 }
@@ -786,7 +828,7 @@ pub async fn run_agent_process_streaming(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
-        .process_group(0);
+        .own_group();
     // Agents whose tools operate on the working tree (omp) get the vault
     // as cwd; oxios delegates to its daemon and keeps the app cwd.
     if let Some(dir) = cwd {
@@ -1629,7 +1671,7 @@ async fn capture_stdout(exe: &Path, args: &[&str], budget_secs: u64) -> Result<S
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .process_group(0)
+            .own_group()
             .kill_on_drop(true)
             .output()
             .await
