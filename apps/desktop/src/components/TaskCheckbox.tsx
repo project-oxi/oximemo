@@ -7,6 +7,7 @@
 import { Check, Minus } from "lucide-react";
 
 import type { StatusType } from "../lib/taskLine";
+import { useChangedSinceMount } from "../lib/workspaceMotion";
 
 /** Which inner mark a status type draws; `null` = empty box. */
 export function statusMark(statusType: StatusType): "check" | "minus" | "half" | null {
@@ -40,6 +41,8 @@ export function TaskCheckbox({
   disabled?: boolean;
 }) {
   const mark = statusMark(statusType);
+  // 표시가 바뀔 때마다 조건부 요소가 새로 붙으므로, 클래스만 달면 바뀐 순간에 한 번 튄다.
+  const pop = useChangedSinceMount(mark) ? " motion-pop" : "";
   return (
     <button
       type="button"
@@ -50,10 +53,10 @@ export function TaskCheckbox({
       onClick={onToggle}
       className="relative inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-line-strong bg-transparent transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-30"
     >
-      {mark === "check" && <Check size={12} strokeWidth={3} aria-hidden className="text-status-success" />}
-      {mark === "minus" && <Minus size={12} strokeWidth={3} aria-hidden className="text-text-muted" />}
+      {mark === "check" && <Check size={12} strokeWidth={3} aria-hidden className={`text-status-success${pop}`} />}
+      {mark === "minus" && <Minus size={12} strokeWidth={3} aria-hidden className={`text-text-muted${pop}`} />}
       {mark === "half" && (
-        <span aria-hidden className="absolute inset-y-[2px] left-[2px] w-[5px] rounded-[2px] bg-status-info" />
+        <span aria-hidden className={`absolute inset-y-[2px] left-[2px] w-[5px] rounded-[2px] bg-status-info${pop}`} />
       )}
     </button>
   );

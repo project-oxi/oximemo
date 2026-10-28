@@ -1823,7 +1823,7 @@ export function CardGrid() {
             </Button>
             {!schema && (
               <BtnMenuRoot>
-                <BtnMenuTrigger render={<button type="button" aria-label={t.workspace_new_format} title={t.workspace_new_format}><ChevronDown size={12} aria-hidden /></button>} />
+                <BtnMenuTrigger render={<button type="button" className="workspace-new-format" aria-label={t.workspace_new_format} title={t.workspace_new_format}><ChevronDown size={12} aria-hidden /></button>} />
                 <BtnMenuPopup>
                   <BtnMenuItem icon={FilePlus2} label={t.new_note_md} onClick={onNewNote} />
                   <BtnMenuItem icon={CodeXml} label={t.new_note_html} onClick={onNewHtmlNote} />

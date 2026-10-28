@@ -192,7 +192,9 @@ button:focus-visible, select:focus-visible, a:focus-visible {
   white-space: nowrap;
   color: var(--color-interactive-primary-foreground);
 }
-.workspace-create button:last-child:not(:first-child) {
+/* 2026.10.28 : :last-child → 클래스. 메뉴가 열리면 base-ui 가 포커스 가드 <span> 을 트리거 옆에 끼워 넣어
+ * :last-child 가 풀리고, 그 사이 버튼이 본문 패딩으로 넓어졌다 닫히면 좁아졌다. */
+.workspace-create .workspace-new-format {
   border-left: var(--rule-width) solid var(--color-primary-edge);
   padding: 0 var(--space-1);
   font-size: 10px;
@@ -200,6 +202,13 @@ button:focus-visible, select:focus-visible, a:focus-visible {
 .workspace-create button:hover { background: var(--color-control-hover); }
 .workspace-create button:focus-visible { outline-offset: -3px; outline-color: var(--color-interactive-primary-foreground); }
 .workspace-create button:active { opacity: 0.8; }
+.workspace-new-format svg { transition: rotate var(--dur-fast) var(--ease-enter); }
+.workspace-new-format[data-popup-open] svg { rotate: 180deg; }
+/* Windows Chromium 은 select 의 배경이 투명하면 펼친 목록을 흰 바탕으로 그리고 글자색은 물려받아,
+ * 다크 모드에서 흰 바탕에 흰 글자가 된다. 목록 항목에 불투명한 바탕과 글자색을 직접 준다. */
+select option, select optgroup { background-color: var(--color-surface-raised); color: var(--color-text); }
+/* 카드 높이가 고정이라 미리보기 마지막 줄이 꼬리 줄에 잘려 보인다 — 자르는 대신 흐리게 사라지게 한다. */
+.note-card .note-excerpt { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), transparent); }
 .workspace-content {
   flex: 1;
   min-height: 0;

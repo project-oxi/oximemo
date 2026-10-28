@@ -120,6 +120,10 @@ interface UIState {
    * equals this (or is blank). `null` pairs with a stale draftId. */
   draftPristine: string | null;
   setDraftId: (id: string | null, pristine?: string) => void;
+  /** Note just kept from a draft — its card/row plays a one-shot landing
+   * highlight so the eye finds where the new note went. Self-clears. */
+  freshId: string | null;
+  markFresh: (id: string) => void;
   /** Note currently being HTML5-dragged (T14). Set by the drag source's
    * dragstart, cleared on dragend; drop targets read it for M16
    * own-folder suppression and the grid's edge auto-scroll gates on it. */
@@ -422,6 +426,12 @@ export const useUI = create<UIState>((set, get) => ({
   draftPristine: null,
   setDraftId: (id, pristine) =>
     set({ draftId: id, draftPristine: id === null ? null : pristine ?? "" }),
+  freshId: null,
+  // 가상 스크롤 밖에 있어 강조를 못 본 카드가 나중에 스크롤로 들어올 때 뒤늦게 빛나지 않도록 시간으로 지운다.
+  markFresh: (id) => {
+    set({ freshId: id });
+    window.setTimeout(() => set((s) => (s.freshId === id ? { freshId: null } : s)), 1600);
+  },
   copilotEntries: [],
   copilotEpoch: 0,
   copilotDraft: "",

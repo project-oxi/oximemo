@@ -1,16 +1,17 @@
 /* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
  * Garden motion recipes adapted to Base UI's lifecycle attributes.
  * Document surfaces never scale: frame geometry moves without stretching text. */
+/* 시트는 오른쪽에 붙어 있으니 그쪽에서 밀려 들어온다. 크기는 바꾸지 않고 자리만 옮겨 글자가 늘어나지 않는다. */
 .memo-sheet {
-  transition: opacity var(--dur-fast) var(--ease-enter);
+  transition: opacity var(--dur-fast) var(--ease-enter), translate var(--dur-base) var(--ease-enter);
 }
 .memo-sheet[data-frame-motion="true"] {
-  transition-property: opacity, width, top, right, bottom, border-radius, box-shadow;
+  transition-property: opacity, translate, width, top, right, bottom, border-radius, box-shadow;
   transition-duration: var(--dur-base);
   transition-timing-function: var(--ease-move);
 }
 .memo-sheet[data-layout="immersive"] { width: 100vw; left: auto; }
-.memo-sheet[data-starting-style], .memo-sheet[data-ending-style] { opacity: 0; }
+.memo-sheet[data-starting-style], .memo-sheet[data-ending-style] { opacity: 0; translate: 24px 0; }
 .memo-sheet[data-ending-style] { transition-duration: var(--dur-exit); }
 .glass-backdrop, .memo-backdrop {
   transition: opacity var(--dur-fast) var(--ease-enter);
@@ -53,6 +54,16 @@
 @media (hover: hover) {
   .note-card:hover, .folder-card:hover { translate: 0 -1px; }
 }
+/* 새로 저장한 메모가 그리드·목록 어디에 들어갔는지 눈이 찾도록 한 번만 테를 밝혔다 끈다. */
+.note-card[data-fresh], .note-list-row[data-fresh] { animation: note-fresh 1.2s var(--ease-enter) both; }
+/* 상태가 바뀐 순간의 표식(할 일 체크 · 즐겨찾기 별)만 한 번 튄다 — 붙일지는 useChangedSinceMount 가 가린다. */
+.motion-pop { animation: motion-pop var(--dur-base) var(--ease-enter) both; }
+@keyframes note-fresh {
+  0% { box-shadow: 0 0 0 0 transparent; }
+  20% { box-shadow: 0 0 0 2px var(--color-focus-ring); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes motion-pop { 0% { scale: 0.4; opacity: 0; } 60% { scale: 1.15; opacity: 1; } 100% { scale: 1; } }
 @keyframes workspace-popup-enter { from { opacity: 0; translate: 0 4px; } to { opacity: 1; translate: 0 0; } }
 @keyframes workspace-pane-enter { from { opacity: 0; translate: 0 4px; } to { opacity: 1; translate: 0 0; } }
 .capture-panel { position: relative; flex: none; overflow: clip; }
@@ -69,7 +80,7 @@
 @media (prefers-reduced-motion: reduce) {
   .memo-sheet, .glass-backdrop, .memo-backdrop, .glass-menu, .glass-settings, .glass-palette,
   .space-picker-popup, .note-history-content, .settings-content, .note-card, .folder-card,
-  .viewport-popup, .view-fade, [data-drop-folder],
+  .viewport-popup, .view-fade, [data-drop-folder], .note-list-row, .motion-pop,
   .workspace-titlebar *, .workspace-view-tools *, .memo-sheet-header *, .settings-header *, .note-properties > button svg {
     animation: none !important;
     transition: none !important;

@@ -354,7 +354,10 @@ export function MemoDetail({
       reportSaveError(e);
       return; // Keep unsaved text open on conflict or I/O failure.
     }
-    if (selectedId === draftId) setDraftId(null);
+    if (selectedId && selectedId === draftId) {
+      setDraftId(null);
+      useUI.getState().markFresh(selectedId);
+    }
     select(null);
   };
 

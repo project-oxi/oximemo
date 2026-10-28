@@ -72,6 +72,7 @@ export function ListView({
   useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const draggingNote = useUI((s) => s.draggingNote);
+  const freshId = useUI((s) => s.freshId);
   return (
     <ul className="note-list divide-y divide-line">
       {folderCards.map((f) => (
@@ -105,6 +106,7 @@ export function ListView({
                     e.dataTransfer.effectAllowed = "move";
                   }}
                   onDragEnd={() => setDraggingNote(null)}
+                  data-fresh={freshId === n.id || undefined}
                   className={`note-list-row group ${
                     draggingNote?.id === n.id ? "opacity-40" : ""
                   }`}

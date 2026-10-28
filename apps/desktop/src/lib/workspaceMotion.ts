@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo, useRef, useSyncExternalStore } from "react";
 
 const reducedMotion = typeof window === "undefined" ? null : window.matchMedia("(prefers-reduced-motion: reduce)");
 const subscribe = (notify: () => void) => {
@@ -6,6 +6,17 @@ const subscribe = (notify: () => void) => {
   return () => reducedMotion?.removeEventListener("change", notify);
 };
 const snapshot = () => reducedMotion?.matches ?? false;
+
+/** True once `value` has differed from its first render. Gates one-shot
+ * feedback motion (check pop, star pop) to real user changes: virtualized
+ * rows remount on scroll, and a mount-time animation would replay on every
+ * row that scrolls into view. */
+export function useChangedSinceMount<T>(value: T): boolean {
+  const first = useRef(value);
+  const changed = useRef(false);
+  if (value !== first.current) changed.current = true;
+  return changed.current;
+}
 
 /** CSS is the single timing source for both native transitions and Motion. */
 export function useWorkspaceMotion() {

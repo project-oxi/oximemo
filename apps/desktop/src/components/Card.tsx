@@ -15,6 +15,7 @@ import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
 import { relativeTime } from "../lib/time";
 import { renderPreviewMarkdown, previewExcerpt } from "../lib/markdownPreview";
 import { queryCountVersion, subscribeQueryCounts } from "../lib/queryPreviewCounts";
+import { useChangedSinceMount } from "../lib/workspaceMotion";
 import { useUI } from "../stores/ui";
 import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { NoteCtxMenu } from "./NoteCtxMenu";
@@ -45,6 +46,8 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
   const { displayName: displayFolder } = useFolderNames();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const draggingNote = useUI((s) => s.draggingNote);
+  const fresh = useUI((s) => s.freshId === memo.id);
+  const favPop = useChangedSinceMount(memo.favorite) ? "motion-pop" : "";
   const folderColor = colorForFolder(memo.folder, folders);
   const queryCountVer = useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const previewHtml = useMemo(
@@ -73,6 +76,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
             }}
             onDragEnd={() => setDraggingNote(null)}
             onClick={() => onSelect(memo.id)}
+            data-fresh={fresh || undefined}
             className={`note-card group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus-ring ${
               draggingNote?.id === memo.id ? "opacity-40" : ""
             }`}
@@ -80,7 +84,8 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
         }
       >
       <div className="flex min-w-0 items-center gap-2 pr-8 text-text-subtle">
-        {memo.folder && (
+        {/* 꼬리 줄에 폴더 칩이 있으면 머리 줄에서는 빼 같은 폴더 이름이 두 번 보이지 않게 한다. */}
+        {memo.folder && !showFolderChip && (
           <>
             {folderColor && (
               <span
@@ -139,7 +144,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
           onToggleFavorite(memo.id, memo.favorite);
         }}
       >
-        <Star size={14} className={memo.favorite ? "fill-hue-amber" : undefined} />
+        <Star key={String(memo.favorite)} size={14} className={`${memo.favorite ? "fill-hue-amber" : ""} ${favPop}`} />
       </button>
       <h3 className="mt-2 text-sm font-semibold leading-snug text-text">
         <button
@@ -160,23 +165,10 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
           {t.empty_memo}
         </p>
       )}
+      {/* 폴더 칩과 태그를 한 줄에 모은다. 두 줄로 쌓으면 고정 높이 카드에서 미리보기를 40px 가까이
+          밀어내 본문이 꼬리 줄에 가려 보였다. 넘치는 태그는 줄을 늘리지 않고 잘라 낸다. */}
       {(memo.tags.length > 0 || (showFolderChip && memo.folder)) && (
-        <div className="mt-auto pt-2">
-          {memo.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {memo.tags.slice(0, 3).map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-[var(--tag-radius)] bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-text-muted"
-                >
-                  {tag}
-                </span>
-              ))}
-              {memo.tags.length > 3 && (
-                <span className="text-[10px] text-text-subtle">+{memo.tags.length - 3}</span>
-              )}
-            </div>
-          )}
+        <div className="mt-auto flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap pt-2">
           {showFolderChip && memo.folder && (
             <button
               type="button"
@@ -184,11 +176,22 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
                 e.stopPropagation();
                 onOpenFolder?.(memo.folder);
               }}
-              className="mt-1 flex items-center gap-1 text-[10px] text-text-subtle transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              className="mr-0.5 flex min-w-0 max-w-[50%] shrink items-center gap-1 text-[10px] text-text-subtle transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
             >
               <i className="size-1.5 shrink-0 rounded-[2px]" style={{ backgroundColor: folderColor }} />
               <span className="truncate">{displayFolder(memo.folder)}</span>
             </button>
+          )}
+          {memo.tags.slice(0, 3).map((tag) => (
+            <span
+              key={tag}
+              className="shrink-0 rounded-[var(--tag-radius)] bg-surface-muted px-1.5 py-px text-[10px] font-medium text-text-muted"
+            >
+              {tag}
+            </span>
+          ))}
+          {memo.tags.length > 3 && (
+            <span className="shrink-0 text-[10px] text-text-subtle">+{memo.tags.length - 3}</span>
           )}
         </div>
       )}
