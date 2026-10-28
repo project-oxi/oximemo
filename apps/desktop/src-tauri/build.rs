@@ -27,6 +27,9 @@ fn main() {
         );
     }
     println!("cargo:rerun-if-changed={}", path.display());
+    // Any explicit rerun-if-changed replaces Cargo's default "rerun on any
+    // package change", so an edited icon.ico was never re-embedded in the exe.
+    println!("cargo:rerun-if-changed=icons");
 
     tauri_build::build();
 }

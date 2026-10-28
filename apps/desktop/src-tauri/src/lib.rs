@@ -364,7 +364,7 @@ pub fn run() {
             // The monochrome template is black-on-transparent: invisible on
             // the dark Windows taskbar, which never tints it like macOS does.
             #[cfg(not(target_os = "macos"))]
-            let tray_icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/tray-windows.png"))?;
             let tray = TrayIconBuilder::with_id("main-tray")
                 .icon(tray_icon)
                 .icon_as_template(true)
