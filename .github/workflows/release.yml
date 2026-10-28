@@ -1,10 +1,13 @@
 name: Release
 
-# Builds the `oximemo` CLI binary and macOS desktop app artifacts for
-# aarch64-apple-darwin, then publishes a GitHub Release.
+# Builds the `oximemo` CLI binary and desktop app artifacts for
+# aarch64-apple-darwin (macOS) and x86_64-pc-windows-msvc (Windows), then
+# publishes a GitHub Release with one updater manifest covering both.
 #
-# Official releases require Developer ID signing, notarization, and updater
-# signing. Forks may still build unsigned artifacts.
+# Official macOS releases require Developer ID signing, notarization, and
+# updater signing. Windows builds are not Authenticode-signed yet; their
+# NSIS installer still carries the Tauri updater signature. Forks may build
+# unsigned artifacts.
 #
 #   git tag v0.19.0 && git push origin v0.19.0
 
@@ -282,51 +285,103 @@ jobs:
           (cd staging && for f in *.dmg *.app.tar.gz; do
             [ -e "$f" ] && shasum -a 256 "$f" | awk '{print $1}' > "$f.sha256"
           done) || true
-      # Assemble the updater manifest the app polls at
-      # releases/latest/download/latest.json. Only when a signed `.app.tar.gz`
-      # exists — forks without the signing key still ship the .dmg + CLI.
-      - name: Generate updater manifest (latest.json)
-        env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
-          REPO: ${{ github.repository }}
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-assets-macos
+          path: staging/*
+
+  build-windows:
+    name: Build (x86_64-pc-windows-msvc)
+    runs-on: windows-2022
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ env.TARGET }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: apps/desktop
+        run: bun run build
+
+      - name: Build CLI binary
+        run: cargo build --locked --release -p oximemo-cli --target ${{ env.TARGET }}
+
+      - name: Package CLI binary
         run: |
-          SIG_FILE="$(ls staging/*.app.tar.gz.sig 2>/dev/null | head -1 || true)"
-          if [ -z "$SIG_FILE" ]; then
-            echo "No .sig found — skipping latest.json (updater disabled)"
-            exit 0
+          set -euo pipefail
+          mkdir -p staging
+          7z a -tzip "staging/oximemo-${{ env.TARGET }}.zip" "./target/${{ env.TARGET }}/release/oximemo.exe"
+          sha256sum "staging/oximemo-${{ env.TARGET }}.zip" \
+            | awk '{print $1}' > "staging/oximemo-${{ env.TARGET }}.zip.sha256"
+
+      # Same sidecar contract as macOS: Tauri strips the `-<triple>` suffix
+      # and installs `oximemo.exe` next to the app executable.
+      - name: Stage CLI sidecar for app bundle
+        run: |
+          mkdir -p apps/desktop/src-tauri/binaries
+          cp "target/${{ env.TARGET }}/release/oximemo.exe" \
+             "apps/desktop/src-tauri/binaries/oximemo-${{ env.TARGET }}.exe"
+
+      # tauri.conf.json lists the macOS bundle targets; NSIS is selected
+      # here. The updater artifact is the signed `*-setup.exe` itself.
+      - name: Build desktop app (NSIS installer)
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            if [ "$GITHUB_REPOSITORY" = "project-oxi/oximemo" ]; then
+              echo "::error::Missing required secret: TAURI_SIGNING_PRIVATE_KEY"
+              exit 1
+            fi
+            unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           fi
-          APP_TAR="$(ls staging/*.app.tar.gz | head -1)"
-          export ASSET="$(basename "$APP_TAR")"
-          export VERSION="$(grep -m1 '"version"' apps/desktop/src-tauri/tauri.conf.json | sed 's/.*: *"\(.*\)".*/\1/')"
-          export SIG_FILE
-          node -e '
-            const fs = require("fs");
-            const sig = fs.readFileSync(process.env.SIG_FILE, "utf8").trim();
-            const m = {
-              version: process.env.VERSION,
-              notes: "oximemo " + process.env.TAG,
-              pub_date: new Date().toISOString(),
-              platforms: {
-                "darwin-aarch64": {
-                  signature: sig,
-                  url: "https://github.com/" + process.env.REPO + "/releases/download/" + process.env.TAG + "/" + process.env.ASSET,
-                },
-              },
-            };
-            fs.writeFileSync("staging/latest.json", JSON.stringify(m, null, 2) + "\n");
-          '
-          echo "::group::latest.json"
-          cat staging/latest.json
-          echo "::endgroup::"
+          bun run tauri build --target ${{ env.TARGET }} --bundles nsis -- --locked
+
+      - name: Collect desktop bundle
+        run: |
+          set -euo pipefail
+          BUNDLE="target/${{ env.TARGET }}/release/bundle/nsis"
+          SETUP="$(find "$BUNDLE" -maxdepth 1 -name '*-setup.exe' -print -quit)"
+          if [ -z "$SETUP" ]; then
+            echo "::error::NSIS installer is missing"
+            exit 1
+          fi
+          cp "$SETUP" staging/
+          if [ -e "$SETUP.sig" ]; then cp "$SETUP.sig" staging/; fi
+          NAME="$(basename "$SETUP")"
+          (cd staging && sha256sum "$NAME" | awk '{print $1}' > "$NAME.sha256")
 
       - uses: actions/upload-artifact@v5
         with:
-          name: release-assets
+          name: release-assets-windows
           path: staging/*
 
   release:
     name: Publish release
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -335,8 +390,9 @@ jobs:
 
       - uses: actions/download-artifact@v5
         with:
-          name: release-assets
+          pattern: release-assets-*
           path: staging
+          merge-multiple: true
 
       - name: Resolve tag
         id: tag
@@ -346,6 +402,46 @@ jobs:
           else
             echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
+
+      # Assemble the updater manifest the app polls at
+      # releases/latest/download/latest.json. A platform is listed only when
+      # its signed updater artifact exists — forks without the signing key
+      # still ship the installers + CLI.
+      - name: Generate updater manifest (latest.json)
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+          REPO: ${{ github.repository }}
+        run: |
+          export VERSION="$(jq -r '.version' apps/desktop/src-tauri/tauri.conf.json)"
+          node -e '
+            const fs = require("fs");
+            const files = fs.readdirSync("staging");
+            const base = "https://github.com/" + process.env.REPO + "/releases/download/" + process.env.TAG + "/";
+            const platforms = {};
+            for (const [key, re] of [
+              ["darwin-aarch64", /\.app\.tar\.gz$/],
+              ["windows-x86_64", /-setup\.exe$/],
+            ]) {
+              const asset = files.find((f) => re.test(f) && files.includes(f + ".sig"));
+              if (!asset) continue;
+              platforms[key] = {
+                signature: fs.readFileSync("staging/" + asset + ".sig", "utf8").trim(),
+                url: base + encodeURIComponent(asset),
+              };
+            }
+            if (Object.keys(platforms).length === 0) {
+              console.log("No .sig found — skipping latest.json (updater disabled)");
+              process.exit(0);
+            }
+            const m = {
+              version: process.env.VERSION,
+              notes: "oximemo " + process.env.TAG,
+              pub_date: new Date().toISOString(),
+              platforms,
+            };
+            fs.writeFileSync("staging/latest.json", JSON.stringify(m, null, 2) + "\n");
+            console.log(JSON.stringify(m, null, 2));
+          '
 
       - name: Create or update GitHub release
         env:
