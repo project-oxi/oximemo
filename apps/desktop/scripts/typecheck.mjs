@@ -13,7 +13,9 @@ const vendorRoot = resolve(root, "vendor", "garden") + sep;
 // only that vendor diagnostic, never vendor type errors or app diagnostics.
 const diagnostics = [config.error, ...parsed.errors, ...ts.getPreEmitDiagnostics(program)]
   .filter(Boolean)
-  .filter((diagnostic) => !(diagnostic.code === 6133 && diagnostic.file?.fileName.startsWith(vendorRoot)));
+  // TypeScript reports `/`-separated names even on Windows; resolve() maps
+  // them onto `sep` so the prefix test matches there too.
+  .filter((diagnostic) => !(diagnostic.code === 6133 && diagnostic.file && resolve(diagnostic.file.fileName).startsWith(vendorRoot)));
 
 if (diagnostics.length) {
   process.stderr.write(ts.formatDiagnosticsWithColorAndContext(diagnostics, {
