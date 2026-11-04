@@ -323,6 +323,11 @@ jobs:
         shell: pwsh
         run: bun install --frozen-lockfile
 
+      - name: Repair Windows workspace links
+        working-directory: apps/desktop
+        shell: pwsh
+        run: node scripts/fix-windows-workspace-links.mjs
+
       - name: Build frontend
         working-directory: apps/desktop
         shell: pwsh
