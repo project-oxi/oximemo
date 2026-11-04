@@ -212,6 +212,16 @@ export function MemoDetail({
   const [saveProblem, setSaveProblem] = useState<string | null>(null);
   const [editorRevision, setEditorRevision] = useState(0);
   const [editorAutoFocus, setEditorAutoFocus] = useState(true);
+  // Base UI's default initial focus is the first tabbable element — the
+  // header's folder button. Its rAF landed one frame after the editor's own
+  // autofocus, so ⌘N/CtrlN opened a note with the caret parked on that
+  // button. Aim at the body editor when it is already mounted; otherwise
+  // the sheet itself, and the editor's later autofocus wins (2026.11.04).
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  const initialFocus = useCallback(
+    () => popupRef.current?.querySelector<HTMLElement>("[data-memo-scroll] .cm-content") ?? popupRef.current,
+    [],
+  );
   const reportSaveError = (error: unknown) => {
     setSaveBlocked(true);
     const message = String(error);
@@ -562,6 +572,8 @@ export function MemoDetail({
       <Dialog.Portal>
         <Dialog.Backdrop className="memo-backdrop fixed inset-0 z-40 transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <Dialog.Popup
+          ref={popupRef}
+          initialFocus={initialFocus}
           data-copilot={copilotOpen}
           data-layout={memoLayout}
           data-frame-motion={frameMotion}
