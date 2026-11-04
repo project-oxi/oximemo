@@ -9,7 +9,7 @@ import { Button, GPage, Skeleton } from "@garden/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
-import { Bot, ChevronLeft, ChevronRight, Folder, Maximize2, Minimize2, Star } from "lucide-react";
+import { BookOpenText, Bot, ChevronLeft, ChevronRight, Folder, Maximize2, Minimize2, PenLine, Star } from "lucide-react";
 
 import {
   deleteMemo,
@@ -18,6 +18,7 @@ import {
   getConfig,
   moveNote,
   openDailyNote,
+  removeMemoMetadataTags,
   updateMemo,
   listFolders,
 } from "../lib/api";
@@ -42,6 +43,8 @@ import { DigestButton } from "./DigestButton";
 import { NoteCtxMenu } from "./NoteCtxMenu";
 import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { IconTool } from "./IconTool";
+import { WordLookupPanel, WritingPanel } from "./WritingPanel";
+import { isWritingTag, preservesPublishedChapters, readManuscript, reviewManuscript, writingProfile } from "../lib/writing";
 import type { FolderComboboxHandle } from "./FolderCombobox";
 import type { FolderEntry, Memo, MemoSummary } from "../lib/types";
 
@@ -100,6 +103,30 @@ export function MemoDetail({
   const [pendingFragment, setPendingFragment] = useState<{ id: string; value: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [editorToolsTarget, setEditorToolsTarget] = useState<HTMLDivElement | null>(null);
+  const writingEnabled = useUI((s) => s.writingTools);
+  const [inspector, setInspector] = useState<{ id: string; kind: "words" | "writing"; word?: string } | null>(null);
+  const writingButtonRef = useRef<HTMLButtonElement>(null);
+  const wordsButtonRef = useRef<HTMLButtonElement>(null);
+  const [reviewSource, setReviewSource] = useState<{ id: string; body: string } | null>(null);
+  const currentNote = open && memo.data?.id === selectedId && seededId === selectedId ? memo.data : null;
+  const reviewId = writingEnabled && currentNote?.format === "markdown" ? currentNote.id : null;
+  useEffect(() => {
+    if (!reviewId) return;
+    const timer = window.setTimeout(() => setReviewSource({ id: reviewId, body }), 650);
+    return () => window.clearTimeout(timer);
+  }, [reviewId, body]);
+  useEffect(() => {
+    setInspector(null);
+    setReviewSource(null);
+  }, [selectedId]);
+  const reviewBody = reviewId && reviewSource?.id === reviewId ? reviewSource.body : null;
+  const profile = useMemo(() => reviewBody === null || !currentNote
+    ? null : writingProfile(reviewBody, currentNote.source_sha256 ? currentNote.tags : []), [reviewBody, currentNote]);
+  const manuscript = useMemo(() => profile && reviewBody !== null ? readManuscript(reviewBody) : null, [profile, reviewBody]);
+  const issues = useMemo(() => profile && manuscript ? reviewManuscript(manuscript, profile) : [], [profile, manuscript]);
+  const activeInspector = currentNote && inspector?.id === currentNote.id &&
+    (inspector.kind === "words" || profile) ? inspector : null;
+  const reviewUpdating = reviewBody !== body;
 
   useEffect(() => {
     if (!open) {
@@ -567,6 +594,113 @@ export function MemoDetail({
   // provider must never happen silently.
   const autoSuggest = copilotVisible && configQ.data?.copilot?.suggest_after_save === true;
 
+  const closeInspector = () => {
+    const trigger = activeInspector?.kind === "words" ? wordsButtonRef : writingButtonRef;
+    setInspector(null);
+    trigger.current?.focus();
+  };
+  const toggleInspector = (kind: "words" | "writing") => {
+    if (!currentNote) return;
+    if (activeInspector?.kind === kind) {
+      closeInspector();
+      return;
+    }
+    const selection = editorView
+      ? editorView.state.sliceDoc(editorView.state.selection.main.from, editorView.state.selection.main.to)
+      : window.getSelection()?.toString() ?? "";
+    setInspector({ id: currentNote.id, kind, word: selection.trim().length <= 40 ? selection.trim().replace(/\s+/gu, " ") : "" });
+  };
+  const jumpToWritingLine = (line: number) => {
+    if (!editorView || !currentNote || editorView.state.doc.toString() !== reviewBody?.replace(/\r\n?/g, "\n")) {
+      setError(t.writing_stale);
+      return;
+    }
+    const pos = editorView.state.doc.line(Math.min(line, editorView.state.doc.lines)).from;
+    editorView.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+    editorView.focus();
+  };
+  const insertPlanning = (action: { kind: "scenario" } | { kind: "character"; name: string }): boolean => {
+    if (!editorView || !currentNote) return false;
+    const doc = editorView.state.doc;
+    const current = readManuscript(doc.toString());
+    if (current.unclosedComment) {
+      setError(t.writing_unclosed_comment);
+      return false;
+    }
+    const planning = current.planning;
+    const isCharacter = action.kind === "character";
+    const section = isCharacter ? current.characterSection : current.scenario;
+    if (!isCharacter && section) return false;
+    const insertionLine = (isCharacter ? current.characterSection?.endLine : undefined) ?? planning?.endLine;
+    const from = insertionLine ? doc.line(insertionLine).from : doc.length;
+    const heading = [
+      !planning && `## ${t.writing_notes_heading}`,
+      !section && `### ${isCharacter ? t.writing_characters : t.writing_scenario}`,
+    ].filter(Boolean);
+    if (isCharacter) heading.push(`#### ${action.name.replace(/[\\`*_{}\[\]()#+!<>|%]/g, "\\$&")}`);
+    const fields = isCharacter ? t.writing_character_fields : t.writing_scenario_fields;
+    const previous = doc.sliceString(Math.max(0, from - 2), from);
+    const prefix = !from || previous.endsWith("\n\n") ? "" : previous.endsWith("\n") ? "\n" : "\n\n";
+    const block = prefix + heading.join("\n\n") + "\n\n";
+    const caret = from + block.length + fields.indexOf("\n");
+    const insert = block + fields + (from < doc.length ? "\n\n" : "\n");
+    const candidate = readManuscript(doc.sliceString(0, from) + insert + doc.sliceString(from));
+    const recognized = isCharacter ? candidate.characters.length === current.characters.length + 1 : !!candidate.scenario;
+    if (!recognized || !preservesPublishedChapters(current, candidate)) {
+      setError(t.writing_planning_blocked);
+      return false;
+    }
+    editorView.dispatch({
+      changes: { from, insert },
+      selection: { anchor: caret },
+      effects: EditorView.scrollIntoView(caret, { y: "center" }),
+    });
+    editorView.focus();
+    return true;
+  };
+
+  const clearStoredWritingTags = async () => {
+    const source = sourceSnapshotRef.current;
+    const digest = source?.source_sha256;
+    if (!source || !digest || source.id !== selectedId || dirtyRef.current || saveInFlight.current) return;
+    const indices = source.tags.flatMap((tag, index) => isWritingTag(tag) ? [index] : []);
+    if (!indices.length) return;
+    setSaving(true);
+    const pending = (async () => {
+      const removal = indices.length === source.tags.length ? "All" : { Indices: indices } as const;
+      const receipt = await removeMemoMetadataTags(source.path, digest, removal);
+      const updated = await getMemo(source.id);
+      if (updated.source_sha256 !== receipt.sha256) throw new Error("external_change_conflict");
+      qc.setQueryData(["memo", source.id], updated);
+      if (selectedIdRef.current === source.id) sourceSnapshotRef.current = updated;
+      void qc.invalidateQueries({ queryKey: ["memos"] });
+      void qc.invalidateQueries({ queryKey: ["facets"] });
+    })();
+    saveInFlight.current = pending;
+    try { await pending; }
+    catch (error) { setError(String(error).includes("external_change_conflict") ? t.save_conflict : String(error).split("\n")[0]); }
+    finally { saveInFlight.current = null; setSaving(false); }
+  };
+  const prepareWritingCopilot = (task: "review" | "scenario") => {
+    const agent = copilot.data?.agent;
+    const noteId = currentNote?.id;
+    if (!agent || !noteId) return;
+    guardedNavigation(async () => {
+      if (selectedIdRef.current !== noteId) return;
+      const store = useUI.getState();
+      if (store.copilotAgent !== agent) {
+        store.resetCopilotChat();
+        useUI.setState({ copilotAgent: agent });
+      }
+      const draft = useUI.getState().copilotDraft;
+      const prompt = task === "review" ? t.writing_copilot_review_prompt : t.writing_copilot_scenario_prompt;
+      store.setCopilotDraft(draft ? draft + "\n\n" + prompt : prompt);
+      store.setCopilotDetachedMemoId(null);
+      setInspector(null);
+      setCopilotOpen(true);
+    });
+  };
+
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
       <Dialog.Portal>
@@ -580,7 +714,7 @@ export function MemoDetail({
           data-native-window={typeof window !== "undefined" && "__TAURI_INTERNALS__" in window}
           className="memo-sheet z-50 overflow-hidden transition-opacity duration-200 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0"
         >
-          <div className="flex h-full flex-col">
+          <div className="memo-sheet-inner flex h-full flex-col">
             <Dialog.Title className="sr-only">{memo.data?.title || t.empty_memo}</Dialog.Title>
             <CtxRoot>
               <CtxTrigger
@@ -626,6 +760,29 @@ export function MemoDetail({
                 </div>
               )}
               <div className="memo-sheet-actions">
+                {currentNote && (
+                  <IconTool
+                    ref={wordsButtonRef}
+                    onClick={() => toggleInspector("words")}
+                    label={t.word_lookup}
+                    aria-expanded={activeInspector?.kind === "words"}
+                    aria-controls={activeInspector?.kind === "words" ? "memo-writing-inspector" : undefined}
+                    className="memo-header-tool text-text-subtle hover:bg-surface-muted"
+                  ><BookOpenText size={15} aria-hidden /></IconTool>
+                )}
+                {profile && (
+                  <IconTool
+                    ref={writingButtonRef}
+                    onClick={() => toggleInspector("writing")}
+                    label={issues.length ? `${t.writing_tools} · ${t.writing_issue_count.replace("{n}", String(issues.length))}` : t.writing_tools}
+                    aria-expanded={activeInspector?.kind === "writing"}
+                    aria-controls={activeInspector?.kind === "writing" ? "memo-writing-inspector" : undefined}
+                    className="memo-header-tool relative text-text-subtle hover:bg-surface-muted"
+                  >
+                    <PenLine size={15} aria-hidden />
+                    {issues.length > 0 && <span aria-hidden="true" className="absolute right-1 top-1 size-1.5 rounded-full bg-text-subtle" />}
+                  </IconTool>
+                )}
                 <IconTool
                   onClick={() => edit(setFavorite)(!favorite)}
                   label={favorite ? t.action_unfavorite : t.action_favorite}
@@ -669,80 +826,122 @@ export function MemoDetail({
                 )}
               </CtxTrigger>
             </CtxRoot>
-            {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
-              // Skeleton in the sheet's shape: title, property chips, body
-              // paragraphs — stands in for PropertyPanel + content.
-              <div aria-hidden="true" className="flex h-full flex-col gap-3 p-6">
-                <Skeleton className="h-5 w-1/3" />
-                <div className="flex gap-2">
-                  <Skeleton className="h-6 w-20 rounded-full" />
-                  <Skeleton className="h-6 w-16 rounded-full" />
-                  <Skeleton className="h-6 w-24 rounded-full" />
-                </div>
-                <div className="mt-2 space-y-2">
-                  <Skeleton className="h-3 w-full" />
-                  <Skeleton className="h-3 w-11/12" />
-                  <Skeleton className="h-3 w-4/5" />
-                  <Skeleton className="h-3 w-2/3" />
-                </div>
-              </div>
-            ) : (
-              // Single scroll container: properties + content read as one
-              // document (user prompt 2026-08-30 — many properties no longer
-              // cap the content viewport). Chrome (header, dock, history)
-              // stays fixed outside.
-              <div
-                ref={scrollRef}
-                data-memo-scroll
-                data-format={memo.data.format}
-                className="memo-sheet-scroll flex min-h-0 flex-1 flex-col overflow-y-auto"
-              >
-                {saveProblem && (
-                  <div role="alert" className="mb-2 rounded-md border border-line bg-surface-muted p-3 text-xs text-text-muted">
-                    <p>{saveProblem}</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button type="button" onClick={() => { void navigator.clipboard.writeText(bodyRef.current).catch(reportSaveError); }} className="rounded-md border border-line px-2 py-1 text-text hover:bg-surface focus-visible:outline-2 focus-visible:outline-focus-ring">{t.save_copy_draft}</button>
-                      <button type="button" onClick={() => { void reloadAfterCopy(); }} className="rounded-md border border-line px-2 py-1 text-text hover:bg-surface focus-visible:outline-2 focus-visible:outline-focus-ring">{t.save_copy_reload}</button>
-                    </div>
+            <div className="memo-writing-workspace min-h-0 flex-1" data-inspector={activeInspector !== null}>
+              {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
+                // Skeleton in the sheet's shape: title, property chips, body
+                // paragraphs — stands in for PropertyPanel + content.
+                <div aria-hidden="true" className="flex h-full flex-col gap-3 p-6">
+                  <Skeleton className="h-5 w-1/3" />
+                  <div className="flex gap-2">
+                    <Skeleton className="h-6 w-20 rounded-full" />
+                    <Skeleton className="h-6 w-16 rounded-full" />
+                    <Skeleton className="h-6 w-24 rounded-full" />
                   </div>
-                )}
-                <PropertyPanel memo={memo.data} folder={folder || memo.data.folder} />
-                {memo.data.format === "html" ? (
-                  // IDE-style split panes keep their internal scrollers; pin
-                  // the workspace to the scroller height so only the
-                  // property block flows above it.
-                  <GPage width="full" className="memo-sheet-body flex h-full min-h-0 shrink-0 flex-col gap-2.5">
-                    <HtmlNoteEditor
-                      key={`${memo.data.id}:${editorRevision}`}
-                      documentId={memo.data.id}
-                      body={body}
-                      onChange={editBody}
+                  <div className="mt-2 space-y-2">
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-11/12" />
+                    <Skeleton className="h-3 w-4/5" />
+                    <Skeleton className="h-3 w-2/3" />
+                  </div>
+                </div>
+              ) : (
+                // Single scroll container: properties + content read as one
+                // document (user prompt 2026-08-30 — many properties no longer
+                // cap the content viewport). Chrome (header, dock, history)
+                // stays fixed outside.
+                <div
+                  ref={scrollRef}
+                  data-memo-scroll
+                  data-format={memo.data.format}
+                  className="memo-sheet-scroll flex min-h-0 flex-1 flex-col overflow-y-auto"
+                >
+                  {saveProblem && (
+                    <div role="alert" className="mb-2 rounded-md border border-line bg-surface-muted p-3 text-xs text-text-muted">
+                      <p>{saveProblem}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button type="button" onClick={() => { void navigator.clipboard.writeText(bodyRef.current).catch(reportSaveError); }} className="rounded-md border border-line px-2 py-1 text-text hover:bg-surface focus-visible:outline-2 focus-visible:outline-focus-ring">{t.save_copy_draft}</button>
+                        <button type="button" onClick={() => { void reloadAfterCopy(); }} className="rounded-md border border-line px-2 py-1 text-text hover:bg-surface focus-visible:outline-2 focus-visible:outline-focus-ring">{t.save_copy_reload}</button>
+                      </div>
+                    </div>
+                  )}
+                  <PropertyPanel memo={memo.data} folder={folder || memo.data.folder} />
+                  {memo.data.format === "html" ? (
+                    // IDE-style split panes keep their internal scrollers; pin
+                    // the workspace to the scroller height so only the
+                    // property block flows above it.
+                    <GPage width="full" className="memo-sheet-body flex h-full min-h-0 shrink-0 flex-col gap-2.5">
+                      <HtmlNoteEditor
+                        key={`${memo.data.id}:${editorRevision}`}
+                        documentId={memo.data.id}
+                        body={body}
+                        onChange={editBody}
+                      />
+                      <TagChipRow body={body} />
+                    </GPage>
+                  ) : (
+                    <GPage width={memoLayout === "immersive" ? "reading" : "full"} className="memo-sheet-body">
+                      <MemoEditorForm
+                        autoFocus={editorAutoFocus}
+                        toolbarTarget={editorToolsTarget}
+                        key={`${memo.data.id}:${editorRevision}`}
+                        documentId={memo.data.id}
+                        folder={folder}
+                        onFolderChange={applyFolder}
+                        folders={folders}
+                        body={body}
+                        onBodyChange={editBody}
+                        onSaveAndClose={finishFromEditor}
+                        onWikiLinkOpen={onWikiLinkOpen}
+                        onDocumentLinkOpen={onDocumentLinkOpen}
+                        onNavigateMemo={onNavigateMemo}
+                        folderPickerRef={folderPickerRef}
+                        onEditorView={setEditorView}
+                      />
+                    </GPage>
+                  )}
+                </div>
+              )}
+              {activeInspector && (
+                <div
+                  id="memo-writing-inspector"
+                  className="memo-writing-panel min-h-0 min-w-0"
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeInspector();
+                  }}
+                >
+                  {activeInspector.kind === "words" ? (
+                    <WordLookupPanel
+                      key={activeInspector.id}
+                      initialWord={activeInspector.word ?? ""}
+                      onClose={closeInspector}
+                      glossary={currentNote?.folder ? {
+                        noteId: activeInspector.id, folder: currentNote.folder, open: onNavigateMemo,
+                      } : undefined}
                     />
-                    <TagChipRow body={body} />
-                  </GPage>
-                ) : (
-                  <GPage width={memoLayout === "immersive" ? "reading" : "full"} className="memo-sheet-body">
-                    <MemoEditorForm
-                      autoFocus={editorAutoFocus}
-                      toolbarTarget={editorToolsTarget}
-                      key={`${memo.data.id}:${editorRevision}`}
-                      documentId={memo.data.id}
-                      folder={folder}
-                      onFolderChange={applyFolder}
-                      folders={folders}
-                      body={body}
-                      onBodyChange={editBody}
-                      onSaveAndClose={finishFromEditor}
-                      onWikiLinkOpen={onWikiLinkOpen}
-                      onDocumentLinkOpen={onDocumentLinkOpen}
-                      onNavigateMemo={onNavigateMemo}
-                      folderPickerRef={folderPickerRef}
-                      onEditorView={setEditorView}
+                  ) : profile && manuscript && (
+                    <WritingPanel
+                      key={`${activeInspector.id}:${profile}`}
+                      profile={profile}
+                      manuscript={manuscript}
+                      issues={issues}
+                      updating={reviewUpdating}
+                      title={currentNote?.title || t.empty_memo}
+                      noteId={activeInspector.id}
+                      folder={currentNote?.folder ?? ""}
+                      storedTags={currentNote?.source_sha256 ? currentNote.tags.filter(isWritingTag) : []}
+                      onClearStoredTags={dirty || saving ? undefined : clearStoredWritingTags}
+                      onClose={closeInspector}
+                      onJump={jumpToWritingLine}
+                      onInsert={insertPlanning}
+                      onCopilot={copilotVisible ? prepareWritingCopilot : undefined}
                     />
-                  </GPage>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
             {memo.data && seededId === memo.data.id && (
               <div className="memo-sheet-footer flex-wrap">
                 {/* AI suggestion strip: markdown notes with a saved memo only

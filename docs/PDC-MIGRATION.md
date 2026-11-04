@@ -92,6 +92,8 @@ There is no execution or authorization semantics in this repository.
 | deletion timestamp | `deleted`, `deleted_at` | `deleted: true` plus normalized `deleted_at`; present exactly together. |
 | other properties | top-level user properties | Preserve scalars/lists/nested values verbatim; no reserved `x_` namespace in v2. |
 
+The writing panel also recognizes inline genre tags in the current draft. These affect the panel without synchronizing to the PDC envelope. Removing saved genre tags is a separate, source-digest-guarded metadata edit.
+
 ## Implementation stages
 
 ### Stage 0 — shared contract gate (complete)

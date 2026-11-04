@@ -108,6 +108,16 @@ export async function updateMemo(
   return invoke<Memo>("update_memo", { id, body, favorite, props: props ?? null, expectedSha256: expectedSha256 ?? null });
 }
 
+export function removeMemoMetadataTags(path: string, expectedSha256: string, removeTags: "All" | { Indices: number[] }) {
+  return invoke<{ sha256: string }>("pdc_update_document", {
+    path,
+    expectedSha256,
+    title: null,
+    body: null,
+    removeTags,
+  });
+}
+
 export async function brainStatus(): Promise<BrainStatus> {
   return invoke<BrainStatus>("brain_status");
 }

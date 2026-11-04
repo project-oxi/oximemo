@@ -146,7 +146,11 @@ fn home_var() -> Option<std::ffi::OsString> {
 fn which_in(name: &str, path_var: Option<std::ffi::OsString>) -> Option<PathBuf> {
     // Windows CLIs install as `name.exe` or npm/bun `name.cmd` shims.
     let names: Vec<String> = if cfg!(windows) {
-        vec![format!("{name}.exe"), format!("{name}.cmd"), name.to_string()]
+        vec![
+            format!("{name}.exe"),
+            format!("{name}.cmd"),
+            name.to_string(),
+        ]
     } else {
         vec![name.to_string()]
     };

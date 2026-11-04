@@ -5,10 +5,22 @@ All notable changes to oximemo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.21.0] — 2026-10-25
+## [0.21.0] — 2026-11-04
 
 ### Added
 
+- **Writing tools.** Enable the writing panel in Settings and tag a Markdown
+  note with `#writing`, `#novel`, `#screenplay`, `#essay`, or `#column`.
+  The panel checks Korean prose and character details locally, offers
+  character cards and scenario notes, and estimates manuscript length.
+- **EPUB export.** Select and order chapter notes from the same folder, then
+  preview and export them as one book. The export excludes writing notes.
+- **Korean word lookup.** Choose a downloadable offline dictionary with
+  20,056, 60,000, or 200,000 entries. Add a folder glossary for names and
+  terms specific to a project. Word lookup is also available from the command
+  palette.
+- **Windows x64 desktop builds.** The release includes an NSIS installer and
+  a standalone CLI archive for Windows.
 - **Custom context menus across surfaces.** Notes, tasks, properties, editor
   text, view tabs, chips, and the copilot panel get right-click menus with
   keyboard navigation and localized labels: open/copy/remove property values,

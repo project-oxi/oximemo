@@ -17,6 +17,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 // the fetch_* bodies in metadata.rs for the follow-up notes.
 mod capture;
 mod copilot;
+mod writing_lexicon;
 
 pub struct AppState {
     pub vault: Arc<oximemo_core::Vault>,
@@ -541,6 +542,11 @@ pub fn run() {
             commands::space_list,
             commands::space_create,
             commands::space_switch,
+            commands::save_writing_epub,
+            writing_lexicon::writing_lexicon_installed,
+            writing_lexicon::install_writing_lexicon,
+            writing_lexicon::remove_writing_lexicon,
+            writing_lexicon::lookup_writing_lexicon,
             commands::save_image_bytes,
             commands::list_assets,
             commands::gc_assets,
@@ -1667,7 +1673,38 @@ mod commands {
         Ok(receipt)
     }
 
-    /// Save a PDC 2 title/body edit only if the source digest still matches.
+    #[derive(serde::Deserialize)]
+    pub enum MetadataTagRemoval {
+        All,
+        Indices(Vec<usize>),
+    }
+
+    impl MetadataTagRemoval {
+        pub(crate) fn into_edits(self) -> Vec<oximemo_core::pdc_documents::PdcMetadataEdit> {
+            use oximemo_core::pdc_documents::PdcMetadataEdit;
+            match self {
+                // The optional key can be removed even for an unindented YAML sequence.
+                Self::All => vec![PdcMetadataEdit {
+                    path: "/tags".into(),
+                    value: None,
+                }],
+                Self::Indices(mut indices) => {
+                    indices.sort_unstable();
+                    indices.dedup();
+                    indices
+                        .into_iter()
+                        .rev()
+                        .map(|index| PdcMetadataEdit {
+                            path: format!("/tags/{index}"),
+                            value: None,
+                        })
+                        .collect()
+                }
+            }
+        }
+    }
+
+    /// Save a PDC 2 edit only if the source digest still matches.
     #[tauri::command(async)]
     pub fn pdc_update_document(
         state: State<'_, AppState>,
@@ -1676,14 +1713,31 @@ mod commands {
         expected_sha256: String,
         title: Option<String>,
         body: Option<String>,
+        remove_tags: Option<MetadataTagRemoval>,
     ) -> Result<oximemo_core::pdc_inventory::PdcSource, String> {
-        let source = oximemo_core::pdc_documents::update_document(
-            state.vault.paths(),
-            &path,
-            &expected_sha256,
-            title.as_deref(),
-            body.as_deref(),
-        )
+        use oximemo_core::pdc_documents::{update_document, update_document_with_edits};
+        let edits = remove_tags
+            .map(MetadataTagRemoval::into_edits)
+            .unwrap_or_default();
+        let paths = state.vault.paths();
+        let source = if edits.is_empty() {
+            update_document(
+                paths,
+                &path,
+                &expected_sha256,
+                title.as_deref(),
+                body.as_deref(),
+            )
+        } else {
+            update_document_with_edits(
+                paths,
+                &path,
+                &expected_sha256,
+                title.as_deref(),
+                body.as_deref(),
+                &edits,
+            )
+        }
         .map_err(|error| error.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(source)
@@ -2727,6 +2781,74 @@ mod commands {
         Ok(())
     }
 
+    /// Saves a generated ebook to the location confirmed in the native dialog.
+    #[tauri::command(async)]
+    pub fn save_writing_epub(
+        window: tauri::WebviewWindow,
+        file_name: String,
+        base64_data: String,
+    ) -> Result<bool, String> {
+        use base64::Engine;
+        use std::io::Write;
+        use tauri_plugin_dialog::DialogExt;
+
+        if window.label() != "main" {
+            return Err("EPUB export requires the main window".into());
+        }
+        // Only a suggested basename crosses IPC. The OS dialog owns the path.
+        if file_name.len() > 255
+            || file_name.starts_with('.')
+            || !file_name.ends_with(".epub")
+            || file_name.chars().any(|ch| {
+                ch.is_control()
+                    || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+            })
+        {
+            return Err("Invalid EPUB filename".into());
+        }
+        const MAX_EPUB_BYTES: usize = 64 * 1024 * 1024;
+        if base64_data.len() > MAX_EPUB_BYTES.div_ceil(3) * 4 {
+            return Err("EPUB exceeds the 64 MiB export limit".into());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(base64_data)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() > MAX_EPUB_BYTES {
+            return Err("EPUB exceeds the 64 MiB export limit".into());
+        }
+        // Check the mandatory first ZIP member before opening the save dialog.
+        if !bytes.starts_with(b"PK\x03\x04")
+            || bytes.get(8..10) != Some(&[0, 0])
+            || bytes.get(26..30) != Some(&[8, 0, 0, 0])
+            || bytes.get(30..58) != Some(b"mimetypeapplication/epub+zip")
+        {
+            return Err("Invalid EPUB container".into());
+        }
+        let Some(path) = window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name(file_name)
+            .add_filter("EPUB", &["epub"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        if !path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("epub"))
+        {
+            return Err("The destination must have an .epub extension".into());
+        }
+        let parent = path.parent().ok_or("Invalid EPUB destination")?;
+        let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+        temp.write_all(&bytes).map_err(|e| e.to_string())?;
+        temp.as_file().sync_all().map_err(|e| e.to_string())?;
+        temp.persist(path).map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
     // -- image assets ----------------------------------------------------
 
     #[tauri::command(async)]
@@ -2796,7 +2918,11 @@ mod commands {
         // The externalBin sidecar lands in Contents/MacOS/ next to the main
         // binary, under its base name — Tauri strips the `-<triple>` suffix
         // during bundling (input `oximemo-<triple>` → bundled `oximemo`).
-        Some(dir.join(if cfg!(windows) { "oximemo.exe" } else { "oximemo" }))
+        Some(dir.join(if cfg!(windows) {
+            "oximemo.exe"
+        } else {
+            "oximemo"
+        }))
     }
     fn user_cli_link() -> Option<PathBuf> {
         std::env::var_os("HOME").map(|home| {
@@ -2852,7 +2978,11 @@ mod commands {
             let on_path = std::env::var_os("PATH").is_some_and(|p| {
                 std::env::split_paths(&p).any(|d| d.join("oximemo.exe").is_file())
             });
-            return Ok(if on_path { CliState::Installed } else { CliState::NotInstalled });
+            return Ok(if on_path {
+                CliState::Installed
+            } else {
+                CliState::NotInstalled
+            });
         }
         #[allow(unreachable_code)]
         let Some(bundled) = bundled_cli_path() else {
@@ -4449,6 +4579,67 @@ mod tests {
         assert_eq!(systemtime_to_ms(ms_to_systemtime(ms)), ms);
         // Pre-epoch clamp: SystemTime before UNIX_EPOCH maps to 0, never panics.
         assert_eq!(systemtime_to_ms(std::time::UNIX_EPOCH), 0);
+    }
+
+    #[test]
+    fn stored_writing_tag_removal_preserves_source_and_rejects_a_stale_digest() {
+        use super::commands::MetadataTagRemoval;
+        use oximemo_core::pdc_documents::{
+            PdcBodyProfile, PdcCreateRequest, create_document, update_document_with_edits,
+        };
+        use oximemo_core::pdc_inventory::read_source;
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = oximemo_core::Paths {
+            vault: dir.path().join("vault"),
+            index_dir: dir.path().join("index"),
+        };
+        std::fs::create_dir_all(&paths.vault).unwrap();
+        let note = create_document(
+            &paths,
+            PdcCreateRequest {
+                folder: String::new(),
+                title: "Chapter".into(),
+                body: "Original body.\n".into(),
+                body_profile: PdcBodyProfile::Markdown,
+                tags: vec!["writing".into(), "keep".into(), "novel".into()],
+                properties: vec![],
+            },
+        )
+        .unwrap();
+        let path = paths.vault.join(&note.path);
+        let source = std::fs::read_to_string(&path).unwrap().replace(
+            "tags:\n- writing\n- keep\n- novel",
+            "tags:\n- writing\n- 'keep' # preserve this comment\n- novel",
+        );
+        std::fs::write(&path, &source).unwrap();
+        let before = read_source(&paths, &note.path).unwrap();
+        let removal: MetadataTagRemoval = serde_json::from_str(r#"{"Indices":[0,2]}"#).unwrap();
+        let edits = removal.into_edits();
+        let after =
+            update_document_with_edits(&paths, &note.path, &before.sha256, None, None, &edits)
+                .unwrap();
+        assert!(
+            after
+                .content
+                .contains("tags:\n- 'keep' # preserve this comment\n")
+        );
+        assert!(!after.content.contains("- writing"));
+        assert!(!after.content.contains("- novel"));
+        assert_eq!(after.editable_body, before.editable_body);
+
+        let removal: MetadataTagRemoval = serde_json::from_str(r#""All""#).unwrap();
+        let clear = removal.into_edits();
+        let conflict =
+            update_document_with_edits(&paths, &note.path, &before.sha256, None, None, &clear)
+                .unwrap_err();
+        assert!(conflict.to_string().contains("external_change_conflict"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), after.content);
+        let cleared =
+            update_document_with_edits(&paths, &note.path, &after.sha256, None, None, &clear)
+                .unwrap();
+        assert!(!cleared.content.contains("\ntags:"));
+        assert_eq!(cleared.editable_body, before.editable_body);
     }
 
     /// The git auto-commit consumer: a settled path under the vault must
