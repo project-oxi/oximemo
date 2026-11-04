@@ -299,6 +299,9 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Preserve repository line endings
+        shell: pwsh
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
@@ -317,12 +320,12 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: apps/desktop
-        run: |
-          bun install --frozen-lockfile
-          node scripts/link-garden-workspace.mjs
+        shell: pwsh
+        run: bun install --frozen-lockfile
 
       - name: Build frontend
         working-directory: apps/desktop
+        shell: pwsh
         run: bun run build
 
       - name: Build CLI binary
