@@ -108,23 +108,30 @@ jobs:
       - run: bun test src/lib src/stores
       - if: runner.os == 'macOS'
         run: bun run garden:doctor
-      - run: bun run build
+      - if: runner.os == 'macOS'
+        run: bun run build
+      - if: runner.os == 'Windows'
+        run: bun --bun run build
       - name: Inspect Windows workspace module resolution
         if: failure() && runner.os == 'Windows'
         run: |
           @'
           import ts from "typescript";
           import { resolve } from "node:path";
-          import { existsSync, realpathSync } from "node:fs";
+          import { existsSync, readlinkSync, realpathSync, statSync } from "node:fs";
           const root = process.cwd();
           const workspace = "vendor/garden/packages/ui";
           const config = ts.readConfigFile("tsconfig.json", ts.sys.readFile);
           const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
           const program = ts.createProgram(parsed.fileNames, parsed.options);
           const moduleName = "@radix-ui/react-dialog";
-          for (const directory of [workspace, "node_modules/@garden/ui", "node_modules/.bun/node_modules"]) {
-            const file = resolve(directory, "node_modules", moduleName, "package.json");
-            console.log(file, existsSync(file) ? realpathSync(file) : "missing");
+          for (const directory of [workspace + "/node_modules", "node_modules/@garden/ui/node_modules", "node_modules/.bun/node_modules"]) {
+            const link = resolve(directory, moduleName);
+            const file = resolve(link, "package.json");
+            console.log(file, existsSync(file));
+            for (const [name, probe] of [["stat", () => statSync(link).isDirectory()], ["readlink", () => readlinkSync(link)], ["native", () => realpathSync.native(link)]]) {
+              try { console.log(name, probe()); } catch (error) { console.log(name, error.code); }
+            }
           }
           for (const source of program.getSourceFiles().filter((file) => file.fileName.endsWith("/GCommandPalette.tsx"))) {
             console.log("source", source.fileName, source.originalFileName, source.path);
