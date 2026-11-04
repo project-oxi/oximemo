@@ -87,11 +87,7 @@ jobs:
     name: Frontend (typecheck + build)
     strategy:
       matrix:
-        include:
-          - os: macos-14
-            linker: isolated
-          - os: windows-2022
-            linker: hoisted
+        os: [macos-14, windows-2022]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -103,7 +99,9 @@ jobs:
         with:
           bun-version: "1.4.2"
 
-      - run: bun install --frozen-lockfile --linker=${{ matrix.linker }}
+      - run: bun install --frozen-lockfile
+      - if: runner.os == 'Windows'
+        run: node scripts/link-garden-workspace.mjs
       - run: bun test src/lib src/stores
       - run: bun run garden:doctor
       - run: bun run build

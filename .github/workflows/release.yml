@@ -317,8 +317,9 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: apps/desktop
-        # The Windows isolated install omits Garden's workspace dependencies.
-        run: bun install --frozen-lockfile --linker=hoisted
+        run: |
+          bun install --frozen-lockfile
+          node scripts/link-garden-workspace.mjs
 
       - name: Build frontend
         working-directory: apps/desktop
