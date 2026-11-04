@@ -109,3 +109,25 @@ jobs:
       - if: runner.os == 'macOS'
         run: bun run garden:doctor
       - run: bun run build
+      - name: Inspect Windows workspace module resolution
+        if: failure() && runner.os == 'Windows'
+        run: |
+          @'
+          import ts from "typescript";
+          import { resolve } from "node:path";
+          import { existsSync, realpathSync } from "node:fs";
+          const root = process.cwd();
+          const workspace = "vendor/garden/packages/ui";
+          const config = ts.readConfigFile("tsconfig.json", ts.sys.readFile);
+          const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
+          const program = ts.createProgram(parsed.fileNames, parsed.options);
+          const moduleName = "@radix-ui/react-dialog";
+          for (const directory of [workspace, "node_modules/@garden/ui", "node_modules/.bun/node_modules"]) {
+            const file = resolve(directory, "node_modules", moduleName, "package.json");
+            console.log(file, existsSync(file) ? realpathSync(file) : "missing");
+          }
+          for (const source of program.getSourceFiles().filter((file) => file.fileName.endsWith("/GCommandPalette.tsx"))) {
+            console.log("source", source.fileName, source.originalFileName, source.path);
+            ts.resolveModuleName(moduleName, source.fileName, { ...parsed.options, traceResolution: true }, { ...ts.sys, trace: console.log });
+          }
+          '@ | node --input-type=module
