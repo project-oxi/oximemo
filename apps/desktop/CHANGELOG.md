@@ -1,5 +1,11 @@
 # Desktop UI changes
 
+## 2026-11-07
+
+- Render inline `#tags` in the Markdown editor with the existing tag surface
+  tokens, preserving source text and normal caret editing. Code, escaped hashes,
+  link destinations and raw HTML markup retain their literal presentation.
+
 ## 2026-10-12
 
 - Integrate Garden Button, Tooltip, SegmentedControl, Switch, Input, GPage and

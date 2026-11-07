@@ -26,6 +26,7 @@ import type { EditorView } from "@codemirror/view";
 import { resolveImageUrl, widthOfUrl } from "../lib/assets";
 import { imageInsertionExtension, type ImageViewHandle } from "../lib/cm6Images";
 import { imageReferenceAt, resizedImageReference } from "../lib/imageReferences";
+import { inlineTagsExtension } from "../lib/cm6Tags";
 import { TextCtxMenu } from "./TextCtxMenu";
 import { PointMenu, PointItem } from "./PointMenu";
 import { useI18n } from "../lib/i18n";
@@ -161,7 +162,7 @@ export function MarkdownEditor({
             onMarkdownChange={onChange}
             editorHandleRef={handleRef}
             onLinkClick={onLinkClick ?? defaultOpenLink}
-            extensions={[imageInsertionExtension(viewRef, onImageError), ...(extensions ?? [])]}
+            extensions={[imageInsertionExtension(viewRef, onImageError), inlineTagsExtension, ...(extensions ?? [])]}
           />
           {imgMenu && (
             <PointMenu x={imgMenu.x} y={imgMenu.y} onClose={() => setImgMenu(null)}>
