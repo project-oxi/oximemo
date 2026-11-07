@@ -40,12 +40,16 @@ Two core scenarios, one vault:
 - **Copilot panel.** A floating window (`⌘⇧C` / bottom-right FAB) that delegates vault work — write a note, tidy up, suggest tags — to a terminal-agent CLI you explicitly activate (adapters: `oxios`, `omp`, `claude`, `codex`, `oxicode`). oximemo contains no model, no prompt, no embedding: it hands the agent a declarative context block and the bundled `oximemo` CLI + `SKILL.md` contract, one subprocess per turn. The composer supports `@` note references (attached as context chips), `/` commands (summarize, suggest tags, organize, search, and create notes), and IME-safe input; responses render as markdown with copy actions. Approvals, sandboxing, and providers stay with the agent; the panel header always discloses the active agent and provider, and vault changes observed during a turn are linked without claiming causality. Hidden entirely when no agent is activated. On top of the panel, optional AI assists ride the same delegation: apply-able tag/link/task suggestions in the note sheet (automatic post-save suggestions off by default), a sentence-continuation button in the editor, a daily-note digest, honest streaming for the JSONL adapters, related-note "see also" from the local BM25 index (no model), oxibrain contradiction listings in the brain card, and a command-palette ask-filter that turns plain language into an inline `.query` view.
 - **Writing review.** Enable Writing tools in Settings and add `#writing`,
   `#novel`, `#essay`, `#column`, or `#screenplay` to a Markdown note. The review
-  tab prepares a contextual request for your activated Copilot agent; check
-  and send it explicitly. It asks the agent to read the complete note and
-  writing notes, cite passages, distinguish errors from stylistic suggestions,
-  and propose minimal revisions without editing files. There is no embedded
-  model or hardcoded sentence checker; availability and data handling follow
-  your chosen agent. Outline, project glossary, and EPUB tools remain separate.
+  tab sends the current editor draft to your activated Copilot agent and shows
+  each proposed revision with its original passage, rewritten text, and reason.
+  Choose Apply or Ignore to advance through the queue. Apply makes one exact,
+  uniquely matched edit through the editor's guarded save path; changed source
+  blocks stale proposals. Reviews disclose when only the first 16,000 characters
+  were sent. Continuation requests use the latest editor text up to the cursor,
+  including unsaved prior suggestions. Navigation and inspector widths are
+  adjustable and remembered. There is no embedded model or hardcoded sentence
+  checker; availability and data handling follow your chosen agent. Outline,
+  project glossary, and EPUB tools remain separate.
 - **Assistant session recorder, separate from quick capture.** Imports explicit `*.cassette-session.json` exports and optionally auto-imports from registered folders. Optional Codex `SessionEnd` capture stores lifecycle metadata only and never reads transcripts; the opt-in Git scanner stores commit metadata and changed paths, never diffs or file contents, from explicitly registered repositories. Codex/Git activity stays local and is not sent to providers. Generated session summaries are PDC 2 Markdown documents in `sessions/`, with review acceptance and per-run consent for remote HTTPS processing. See the [session recorder guide](docs/SESSION-RECORDER.md).
 
 - **PDC document inventory and guarded editor.** Discovers canonical and legacy Markdown/HTML, readable legacy Djot, and `.base` files when `pdc-query/1` is declared; surfaces unsupported documents and broken links or assets. Reads do not rewrite source; edits preserve unknown metadata and reject stale source changes.

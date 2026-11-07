@@ -3524,6 +3524,12 @@ mod commands {
         if !crate::copilot::SUGGEST_KINDS.contains(&kind.as_str()) {
             return Err(format!("unknown suggest kind '{kind}'"));
         }
+        // Review reads the LIVE editor snapshot: a MISSING text argument is
+        // a caller bug, but an explicitly empty editor is a real (empty)
+        // source — never a silent fallback to the on-disk body.
+        if kind == "review" && text.is_none() {
+            return Err("review suggestion requires the request text".to_string());
+        }
         let cfg = state.vault.with_config(|c| c.copilot.clone());
         if !cfg.enabled || cfg.agent.is_empty() || cfg.executable.is_empty() {
             return Err("copilot agent is not activated".to_string());
@@ -3554,14 +3560,32 @@ mod commands {
         let vault_root = state.vault.paths().vault.clone();
 
         // Note facts + vault vocabulary are disk reads — off the async path.
-        let request = {
+        // Review and continuation honor the LIVE editor snapshot instead of
+        // the on-disk body (an explicitly empty snapshot is still the truth)
+        // and skip the vault vocabulary their prompts never consume.
+        let is_review = kind == "review";
+        let is_live = is_review || kind == "continue";
+        let (request, review_truncated) = {
             let vault = state.vault.clone();
             let kind = kind.clone();
             let memo_id_for_note = memo_id.clone();
-            let text = text.unwrap_or_default();
-            tokio::task::spawn_blocking(move || -> Result<String, String> {
+            let snapshot = text;
+            tokio::task::spawn_blocking(move || -> Result<(String, bool), String> {
+                // Continuation joins the fresh end of the document, so a
+                // supplied snapshot contributes its TAIL, not its head.
+                let live_body = if kind == "continue" {
+                    snapshot.as_deref().map(crate::copilot::snapshot_tail)
+                } else {
+                    None
+                };
                 let note_parts = match memo_id_for_note.as_deref() {
-                    Some(id) => {
+                    // Review needs no note facts — the snapshot is the source.
+                    Some(id) if kind == "continue" && snapshot.is_some() => {
+                        let mid = MemoId::parse(id).map_err(|e| e.to_string())?;
+                        let summary = vault.get_note_summary(mid).map_err(|e| e.to_string())?;
+                        Some((summary.title.unwrap_or_default(), summary.tags, String::new()))
+                    }
+                    Some(id) if !is_review => {
                         let mid = MemoId::parse(id).map_err(|e| e.to_string())?;
                         let summary = vault.get_note_summary(mid).map_err(|e| e.to_string())?;
                         let memo = vault.get_memo(mid).map_err(|e| e.to_string())?;
@@ -3571,40 +3595,54 @@ mod commands {
                             memo.body.clone(),
                         ))
                     }
-                    None => None,
+                    _ => None,
                 };
-                let note =
-                    note_parts
-                        .as_ref()
-                        .map(|(title, tags, body)| crate::copilot::SuggestNote {
-                            id: memo_id_for_note.as_deref().unwrap_or(""),
-                            title,
-                            tags,
-                            body,
-                        });
-                let vault_tags: Vec<String> = vault
-                    .list_facets()
-                    .map(|f| f.tags.iter().take(30).map(|(t, _)| t.clone()).collect())
-                    .unwrap_or_default();
-                let related_titles: Vec<String> = match memo_id_for_note
+                let has_note = note_parts.is_some();
+                let (title, tags, disk_body) = note_parts.unwrap_or_default();
+                let note_body = live_body.unwrap_or(disk_body);
+                let note = (!is_review && has_note).then(|| {
+                    crate::copilot::SuggestNote {
+                        id: memo_id_for_note.as_deref().unwrap_or(""),
+                        title: &title,
+                        tags: &tags,
+                        body: &note_body,
+                    }
+                });
+                let (vault_tags, related_titles) = if is_live {
+                    (Vec::new(), Vec::new())
+                } else {
+                    let vault_tags: Vec<String> = vault
+                        .list_facets()
+                        .map(|f| f.tags.iter().take(30).map(|(t, _)| t.clone()).collect())
+                        .unwrap_or_default();
+                    let related_titles: Vec<String> = match memo_id_for_note
+                        .as_deref()
+                        .and_then(|id| MemoId::parse(id).ok())
+                    {
+                        Some(mid) => vault
+                            .related_memos(mid, 12)
+                            .map(|sums| sums.iter().filter_map(|s| s.title.clone()).collect())
+                            .unwrap_or_default(),
+                        None => Vec::new(),
+                    };
+                    (vault_tags, related_titles)
+                };
+                // review_truncated is computed from the source actually
+                // sent — the same cap the prompt's disclosed cut uses —
+                // never from the model's answer.
+                let over_cap = snapshot
                     .as_deref()
-                    .and_then(|id| MemoId::parse(id).ok())
-                {
-                    Some(mid) => vault
-                        .related_memos(mid, 12)
-                        .map(|sums| sums.iter().filter_map(|s| s.title.clone()).collect())
-                        .unwrap_or_default(),
-                    None => Vec::new(),
-                };
-                crate::copilot::suggest_request(
+                    .is_some_and(|t| t.chars().count() > crate::copilot::SUGGEST_BODY_MAX_CHARS);
+                let request = crate::copilot::suggest_request(
                     &kind,
                     note.as_ref(),
                     &crate::copilot::SuggestVocab {
                         vault_tags: &vault_tags,
                         related_titles: &related_titles,
                     },
-                    &text,
-                )
+                    snapshot.as_deref().unwrap_or_default(),
+                )?;
+                Ok((request, is_review && over_cap))
             })
             .await
             .map_err(|e| format!("suggest facts join: {e}"))??
@@ -3649,7 +3687,13 @@ mod commands {
             "oxicode" => crate::copilot::parse_oxicode_jsonl(&outcome.stdout),
             _ => crate::copilot::parse_agent_json(&outcome.stdout).0,
         };
-        let result = crate::copilot::parse_suggest_json(&response_text)?;
+        let mut result = crate::copilot::parse_suggest_json_kind(&response_text, &kind)?;
+        // Truncation truth comes from the source we actually sent, never
+        // from the model — and a truncated review is never silently
+        // collapsed into a full-clear verdict.
+        if is_review {
+            result.review_truncated = Some(review_truncated);
+        }
         // Observation, not causality (§9.4): the advisory turn must not
         // write, but the agent owns its own policy — surface any change.
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;

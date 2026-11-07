@@ -9,14 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Contextual writing review.** Writing tools now prepare a Copilot review
-  of the complete note and its writing notes instead of judging prose with
-  hardcoded phrase lists, sentence-length thresholds, or character-fact rules.
-  The request asks for source quotes, contextual reasons, and minimal revisions
-  that preserve the author's voice. Review starts only after the user sends
-  the request through their activated agent; it does not request file edits.
-  Removed heuristic live advice and its setting. Outline, word lookup, and
-  EPUB export remain available.
+- **Actionable writing review.** AI review returns original passages, proposed
+  rewrites, and contextual reasons. Apply or Ignore advances to the next
+  suggestion; resolved decisions remain visible while switching writing tabs.
+  Applying a revision requires an unchanged source snapshot and a unique exact
+  match, and uses the editor's guarded save path. Review requests use the live
+  draft and disclose the 16,000-character prefix limit. Removed the sentence
+  guide and the old phrase/length/character-fact checker.
+- **Repeated continuation requests.** Each request now includes the current
+  editor prefix, including unsaved prior suggestions. Responses cannot insert
+  into an edited or replaced document, and the button recovers after each
+  completed request, including under React StrictMode.
+- **Resizable sidebars.** Navigation and writing/word-lookup inspector widths
+  can be adjusted and are remembered between sessions. Narrow layouts keep
+  their existing overlay/stacked arrangement.
 
 ## [0.21.2] — 2026-11-04
 

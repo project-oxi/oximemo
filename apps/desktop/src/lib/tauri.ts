@@ -605,6 +605,10 @@ async function browserFallback(
       if (kind === "continue") {
         return { continuation: "(브라우저 미리보기용 예시 문장입니다.)" };
       }
+      if (kind === "review") {
+        // No model runs in browser preview; do not fabricate an all-clear.
+        throw new Error("AI review requires the desktop app and an activated Copilot agent.");
+      }
       if (kind === "digest") {
         return { markdown: "## 요약\n\n(브라우저 미리보기용 예시 요약입니다.)" };
       }

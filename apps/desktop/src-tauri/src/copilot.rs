@@ -1432,7 +1432,8 @@ pub const SUGGEST_BODY_MAX_CHARS: usize = 16_000;
 pub const SUGGEST_TIMEOUT_CAP_SECS: u64 = 90;
 
 /// Valid suggest kinds — `copilot_suggest` validates against this list.
-pub const SUGGEST_KINDS: &[&str] = &["tags", "tasks", "all", "continue", "query", "digest"];
+pub const SUGGEST_KINDS: &[&str] =
+    &["tags", "tasks", "all", "continue", "query", "review", "digest"];
 
 /// The note facts a suggest prompt embeds.
 pub struct SuggestNote<'a> {
@@ -1474,6 +1475,31 @@ fn vocab_line(list: &[String]) -> String {
     } else {
         list.join(", ")
     }
+}
+
+/// Raw editor Markdown for a review turn: head-cut at the excerpt cap with
+/// the same disclosure discipline as `suggest_body_block`. The command
+/// layer computes `review_truncated` from the same cap, so the disclosed
+/// cut and the flag can never disagree.
+fn review_source_block(text: &str) -> String {
+    if text.chars().count() <= SUGGEST_BODY_MAX_CHARS {
+        return text.to_string();
+    }
+    let mut src: String = text.chars().take(SUGGEST_BODY_MAX_CHARS).collect();
+    src.push_str("\n…(원문 일부만 포함)");
+    src
+}
+
+/// Tail of a live editor snapshot for continuation turns: the continuation
+/// must join the fresh end of the document, so keep the LAST excerpt-worth
+/// of characters (the head cut would anchor the model to the opening).
+/// Under the cap the snapshot passes through byte-identical.
+pub fn snapshot_tail(text: &str) -> String {
+    let count = text.chars().count();
+    if count <= SUGGEST_BODY_MAX_CHARS {
+        return text.to_string();
+    }
+    text.chars().skip(count - SUGGEST_BODY_MAX_CHARS).collect()
 }
 
 /// The user-request text for one suggest kind. Korean instruction prose
@@ -1526,6 +1552,16 @@ pub fn suggest_request(
                 text.trim(),
             ))
         }
+        "review" => {
+            // The snapshot argument IS the reviewed source. An explicitly
+            // empty editor stays empty here (the missing-argument check
+            // lives in the command layer); a full-clear verdict is still
+            // the model's `{"revisions":[]}`, never a silent fallback.
+            Ok(format!(
+                "아래 원문은 편집기의 원시 마크다운이다. 원문에서 다시 쓰면 좋은 부분을 찾아 최소한의 제안을 만들어라. 각 제안은 원문의 문맥에 근거하고 의미와 어조를 보존해야 한다. original은 원문에 정확히 한 번 나타나는 연속된 부분 문자열을 공백과 줄바꿈까지 그대로 옮긴 것이어야 하며 절대 고쳐 쓰지 않는다. 마크다운 문법·메타데이터·링크·코드는 꼭 필요할 때만 고친다. 원문에 근거 없는 지적을 만들지 말고 사실이 불확실한 문장은 고치지 않는다. 파일을 수정하지 마라. 고칠 것이 없으면 빈 배열을 담아라. 설명 없이 JSON 한 개만 출력한다.\n출력 형식: {{\"revisions\":[{{\"original\":\"원문 그대로\",\"replacement\":\"고친 결과\",\"reason\":\"이유\"}}]}}\n\n원문:\n{}",
+                review_source_block(text),
+            ))
+        }
         "digest" => {
             let note = note.ok_or("digest requires the active note")?;
             Ok(format!(
@@ -1535,6 +1571,16 @@ pub fn suggest_request(
         }
         other => Err(format!("unknown suggest kind '{other}'")),
     }
+}
+
+/// One proposed rewrite inside a `review` suggestion. `original` is an
+/// exact contiguous span of the reviewed source: the backend never trims
+/// or truncates these strings, because the editor matches them literally.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WritingRevision {
+    pub original: String,
+    pub replacement: String,
+    pub reason: String,
 }
 
 /// A parsed suggestion payload. Every field is optional and clamped — a
@@ -1553,6 +1599,12 @@ pub struct SuggestResult {
     pub base: Option<String>,
     #[serde(default)]
     pub markdown: Option<String>,
+    #[serde(default)]
+    pub revisions: Vec<WritingRevision>,
+    /// Fact about the source WE sent (prefix cut at the excerpt cap),
+    /// computed by the command layer — never model-asserted.
+    #[serde(default)]
+    pub review_truncated: Option<bool>,
 }
 
 const SUGGEST_LIST_CAP: usize = 10;
@@ -1561,6 +1613,11 @@ const SUGGEST_ITEM_MAX_CHARS: usize = 200;
 const SUGGEST_BASE_MAX_CHARS: usize = 4000;
 /// A digest summary is real prose — a page, not a line.
 const SUGGEST_DIGEST_MAX_CHARS: usize = 20_000;
+/// Review rewrites are literal match spans — oversized or unusable ones
+/// are dropped whole, never trimmed into a match that cannot succeed.
+const SUGGEST_REVISION_CAP: usize = 10;
+const SUGGEST_REVISION_TEXT_MAX_CHARS: usize = 4000;
+const SUGGEST_REVISION_REASON_MAX_CHARS: usize = 1000;
 
 fn clamp_scalar(raw: &str, cap: usize) -> Option<String> {
     let s = raw.trim();
@@ -1589,9 +1646,35 @@ fn clamp_list(raw: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+/// Reject malformed edits instead of turning invalid model output into an
+/// empty-review verdict. Literal source and replacement bytes stay untouched.
+fn validate_revisions(mut raw: Vec<WritingRevision>) -> Result<Vec<WritingRevision>, String> {
+    raw.truncate(SUGGEST_REVISION_CAP);
+    if raw.iter().any(|r| {
+        r.original.is_empty()
+            || r.original == r.replacement
+            || r.reason.trim().is_empty()
+            || r.original.chars().count() > SUGGEST_REVISION_TEXT_MAX_CHARS
+            || r.replacement.chars().count() > SUGGEST_REVISION_TEXT_MAX_CHARS
+            || r.reason.chars().count() > SUGGEST_REVISION_REASON_MAX_CHARS
+    }) {
+        return Err("review contains an invalid or oversized revision".to_string());
+    }
+    Ok(raw)
+}
+
 /// Extract the JSON suggestion object from a model response. Fences and
 /// prose are tolerated; the outermost `{...}` span is the candidate.
 pub fn parse_suggest_json(response: &str) -> Result<SuggestResult, String> {
+    parse_suggest_json_kind(response, "")
+}
+
+/// Kind-aware parse. For `review` a missing `revisions` array is an
+/// error: a legitimate full-clear verdict is exactly `{"revisions":[]}`,
+/// and silently reading a contract-violating answer as "no findings"
+/// would fake a review. A `revisions` key of the wrong shape is garbage
+/// for every kind — the whole response is rejected, never faked.
+pub fn parse_suggest_json_kind(response: &str, kind: &str) -> Result<SuggestResult, String> {
     let trimmed = response.trim();
     let start = trimmed
         .find('{')
@@ -1600,7 +1683,16 @@ pub fn parse_suggest_json(response: &str) -> Result<SuggestResult, String> {
         .rfind('}')
         .filter(|&e| e > start)
         .ok_or_else(|| "suggestion response has no JSON object".to_string())?;
-    let mut result: SuggestResult = serde_json::from_str(&trimmed[start..=end])
+    let value: serde_json::Value = serde_json::from_str(&trimmed[start..=end])
+        .map_err(|e| format!("invalid suggestion JSON: {e}"))?;
+    if let Some(rev) = value.get("revisions") {
+        if !rev.is_array() {
+            return Err("revisions must be an array of rewrite objects".to_string());
+        }
+    } else if kind == "review" {
+        return Err("review response is missing the revisions array".to_string());
+    }
+    let mut result: SuggestResult = serde_json::from_value(value)
         .map_err(|e| format!("invalid suggestion JSON: {e}"))?;
     result.tags = clamp_list(result.tags);
     result.links = clamp_list(result.links);
@@ -1617,6 +1709,10 @@ pub fn parse_suggest_json(response: &str) -> Result<SuggestResult, String> {
         .markdown
         .as_deref()
         .and_then(|m| clamp_scalar(m, SUGGEST_DIGEST_MAX_CHARS));
+    result.revisions = validate_revisions(result.revisions)?;
+    // Truncation is a fact about the source the caller sent, computed at
+    // the command boundary — a model-asserted flag is never authoritative.
+    result.review_truncated = None;
     Ok(result)
 }
 
@@ -1890,28 +1986,106 @@ mod tests {
         assert!(suggest_request("continue", Some(&note), &vocab, "").is_ok());
         assert!(suggest_request("query", None, &vocab, "이번 주 마감 태스크").is_ok());
         assert!(suggest_request("query", None, &vocab, "   ").is_err());
+        // Review needs no note facts — the snapshot argument is the source,
+        // and an explicitly empty editor is still a real (empty) source.
+        assert!(suggest_request("review", None, &vocab, "본문 스냅샷").is_ok());
+        assert!(suggest_request("review", None, &vocab, "").is_ok());
         assert!(suggest_request("digest", Some(&note), &vocab, "").is_ok());
         assert!(suggest_request("digest", None, &vocab, "").is_err());
         assert!(suggest_request("bogus", Some(&note), &vocab, "").is_err());
-        assert!(SUGGEST_KINDS.contains(&"all"));
     }
 
+
     #[test]
-    fn suggest_request_truncates_long_body_with_marker() {
-        let long_body = "가".repeat(SUGGEST_BODY_MAX_CHARS + 100);
-        let note = SuggestNote {
-            id: "m1",
-            title: "",
-            tags: &[],
-            body: &long_body,
-        };
+    fn review_request_limits_source_scope_without_changing_short_input() {
         let vocab = SuggestVocab {
             vault_tags: &[],
             related_titles: &[],
         };
-        let req = suggest_request("continue", Some(&note), &vocab, "").unwrap();
-        assert!(req.contains("(본문 일부만 포함)"));
-        assert!(req.chars().count() < SUGGEST_BODY_MAX_CHARS + 500);
+        let src = format!("{}ZZTAILZZ", "가".repeat(SUGGEST_BODY_MAX_CHARS));
+        let req = suggest_request("review", None, &vocab, &src).unwrap();
+        // Beyond the cap the tail is never sent, and the cut is disclosed.
+        assert!(!req.contains("ZZTAILZZ"));
+        // Under the cap the snapshot rides the prompt verbatim.
+        assert!(suggest_request("review", None, &vocab, "AAUNDERAA")
+            .unwrap()
+            .contains("AAUNDERAA"));
+    }
+
+    #[test]
+    fn snapshot_tail_keeps_fresh_end_verbatim_under_cap() {
+        let head = "AAHEADAA".repeat(50);
+        let src = format!("{head}{}", "가".repeat(SUGGEST_BODY_MAX_CHARS));
+        let tail = snapshot_tail(&src);
+        assert!(!tail.contains("AAHEADAA"));
+        assert_eq!(tail, "가".repeat(SUGGEST_BODY_MAX_CHARS));
+        // Under the cap: byte-identical — continuation joins the real end.
+        let short = "짧은 본문\n- [ ] 할 일";
+        assert_eq!(snapshot_tail(short), short);
+    }
+
+    #[test]
+    fn review_revisions_preserve_literal_bytes_and_reject_invalid_entries() {
+        // A model-asserted truncation flag never survives the parse.
+        let r = parse_suggest_json(
+            r#"{"revisions":[{"original":"알파","replacement":"알파벳","reason":"오탈자"}],"review_truncated":true}"#,
+        )
+        .unwrap();
+        assert_eq!(r.revisions[0].original, "알파");
+        assert_eq!(r.review_truncated, None);
+
+        let r = parse_suggest_json(
+            r#"{"revisions":[
+                {"original":"지움","replacement":"","reason":"삭제 제안"},
+                {"original":"  여백  ","replacement":" 여백 ","reason":"이유"}]}"#,
+        ).unwrap();
+        assert_eq!(r.revisions[0].replacement, "");
+        assert_eq!(r.revisions[1].original, "  여백  ");
+        assert_eq!(r.revisions[1].replacement, " 여백 ");
+        for entry in [
+            r#"{"original":"같음","replacement":"같음","reason":"무변경"}"#,
+            r#"{"original":"","replacement":"x","reason":"빈 원문"}"#,
+            r#"{"original":"이유없음","replacement":"바뀜","reason":"  "}"#,
+        ] {
+            assert!(parse_suggest_json_kind(&format!(r#"{{"revisions":[{entry}]}}"#), "review").is_err());
+        }
+    }
+
+    #[test]
+    fn review_revisions_reject_oversized_literals_and_cap_count() {
+        let big = "가".repeat(SUGGEST_REVISION_TEXT_MAX_CHARS + 1);
+        let long_reason = "이".repeat(SUGGEST_REVISION_REASON_MAX_CHARS + 1);
+        let payload = format!(
+            r#"{{"revisions":[
+                {{"original":"{big}","replacement":"x","reason":"원문 초과"}},
+                {{"original":"y","replacement":"{big}","reason":"대체문 초과"}},
+                {{"original":"z","replacement":"w","reason":"{long_reason}"}}]}}"#,
+        );
+        assert!(parse_suggest_json_kind(&payload, "review").is_err());
+
+        let mut many = Vec::new();
+        for i in 0..(SUGGEST_REVISION_CAP + 5) {
+            many.push(format!(r#"{{"original":"o{i}","replacement":"r{i}","reason":"이유"}}"#));
+        }
+        let payload = format!("{{\"revisions\":[{}]}}", many.join(", "));
+        let r = parse_suggest_json(&payload).unwrap();
+        assert_eq!(r.revisions.len(), SUGGEST_REVISION_CAP);
+        assert_eq!(r.revisions[0].original, "o0");
+    }
+
+    #[test]
+    fn review_empty_array_is_a_verdict_but_missing_array_is_not() {
+        // Legitimate full-clear verdict: parses to an empty list.
+        let r = parse_suggest_json_kind(r#"{"revisions":[]}"#, "review").unwrap();
+        assert!(r.revisions.is_empty());
+        // Contract-violating answers must error, not read as "all clear".
+        assert!(parse_suggest_json_kind("{}", "review").is_err());
+        assert!(parse_suggest_json_kind(r#"{"revisions":"없음"}"#, "review").is_err());
+        // A shape-broken entry fails the whole parse for any kind.
+        assert!(
+            parse_suggest_json(r#"{"revisions":[{"original":"a","replacement":"b"}]}"#).is_err()
+        );
+        assert!(parse_suggest_json(r#"{"revisions":[{"original":1,"replacement":"b","reason":"r"}]}"#).is_err());
     }
 
     #[test]
@@ -1965,6 +2139,57 @@ mod tests {
             }
         }
         assert!(suggest_invocation("unknown", None, "r", root).is_err());
+    }
+
+    /// REAL review turn through the exact suggest path (suggest_request →
+    /// suggest_invocation → run_agent_process → parse_suggest_json_kind).
+    /// One synthetic manuscript with a planted contradiction, one stateless
+    /// read-only turn (tempdir cwd; the prompt itself forbids file edits).
+    /// Asserts a meaningful revision — an `original` occurring exactly once
+    /// in the source, a different `replacement`, a nonempty reason — without
+    /// pinning exact wording. Run explicitly:
+    /// `cargo test --lib real_review_revision_smoke -- --ignored`.
+    #[tokio::test]
+    #[ignore = "spends a real model turn"]
+    async fn real_review_revision_smoke() {
+        let exe = which("omp").expect("real review smoke requires an installed omp executable");
+        // Synthetic prose with deliberately tangled syntax exercises contextual
+        // rewriting without pinning the model to one replacement sentence.
+        let manuscript = "# 합성 원고 (스모크용)\n\n\
+오늘은 3월 15일 아침이었다. 창밖에는 눈보라가 몰아치고 있었고, 그래서 나는 반팔 티셔츠 하나만 입고 밖으로 나갔다.\n\n\
+- [ ] 서류 제출 완료\n\n\
+이 문장은 어색하게가 조사를 쓰고 있어 읽기가 힘들다가 그렇다가.\n";
+        let vocab = SuggestVocab {
+            vault_tags: &[],
+            related_titles: &[],
+        };
+        let request = suggest_request("review", None, &vocab, manuscript).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (args, cwd, stdin) = suggest_invocation("omp", None, &request, dir.path()).unwrap();
+        assert_eq!(stdin, "");
+        let out = run_agent_process(&exe, &args, &stdin, cwd.as_deref(), SUGGEST_TIMEOUT_CAP_SECS, |_| {})
+            .await
+            .unwrap();
+        assert!(!out.timed_out, "stderr: {}", out.stderr);
+        assert_eq!(out.exit_code, Some(0), "stderr: {}", out.stderr);
+        let response = parse_omp_jsonl(&out.stdout).response;
+        let result = parse_suggest_json_kind(&response, "review")
+            .unwrap_or_else(|e| panic!("review JSON rejected: {e}\nraw: {response}"));
+        // A planted contradiction makes a full-clear verdict a miss, not a
+        // pass — the smoke needs at least one real, matchable finding.
+        assert!(
+            !result.revisions.is_empty(),
+            "expected at least one revision; response: {response}"
+        );
+        let rev = &result.revisions[0];
+        assert_ne!(rev.original, rev.replacement);
+        assert!(!rev.reason.trim().is_empty());
+        assert_eq!(
+            manuscript.matches(&rev.original).count(),
+            1,
+            "original must be a unique contiguous span of the source: {:?}",
+            rev.original
+        );
     }
 
     #[test]

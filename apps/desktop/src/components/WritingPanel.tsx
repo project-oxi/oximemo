@@ -10,6 +10,8 @@ import type { Manuscript, WritingProfile } from "../lib/writing";
 import { assembleBook, listBookNotes, readBookNotes } from "../lib/writingBook";
 import { useUI } from "../stores/ui";
 import { createWritingGlossary, findWritingGlossary, writingGlossaryEntries, writingGlossaryHeading, writingGlossaryKey } from "../lib/writingGlossary";
+import type { WritingRevision } from "../lib/api";
+import { WritingReview } from "./WritingReview";
 
 type GlossaryContext = {
   noteId: string | null;
@@ -193,22 +195,25 @@ export function WordLookupDialog({ open, onClose, glossary }: {
 type Tab = "review" | "outline" | "book";
 type PlanningAction = { kind: "character"; name: string } | { kind: "scenario" };
 
+
 interface WritingPanelProps {
   profile: WritingProfile;
   manuscript: Manuscript;
   updating: boolean;
   title: string;
   noteId: string;
+  body: string;
+  onApplyRevision: (revision: WritingRevision, expectedSource: string) => boolean;
   folder: string;
   storedTags: string[];
   onClearStoredTags?: () => void;
   onClose: () => void;
   onJump: (line: number) => void;
   onInsert: (action: PlanningAction) => boolean;
-  onCopilot?: (task: "review" | "scenario") => void;
+  onCopilot?: (task: "scenario") => void;
 }
 
-export function WritingPanel({ profile, manuscript, updating, title, noteId, folder, storedTags, onClearStoredTags, onClose, onJump, onInsert, onCopilot }: WritingPanelProps) {
+export function WritingPanel({ profile, manuscript, updating, title, noteId, body, onApplyRevision, folder, storedTags, onClearStoredTags, onClose, onJump, onInsert, onCopilot }: WritingPanelProps) {
   const { t, locale } = useI18n();
   const [tab, setTab] = useState<Tab>("review");
   const [name, setName] = useState("");
@@ -305,9 +310,7 @@ export function WritingPanel({ profile, manuscript, updating, title, noteId, fol
             { value: "book", label: t.writing_book },
           ]}
         />
-        {tab === "review" && (
-          <div className="space-y-3">
-            <p className="text-text-muted">{t[`writing_guide_${profile}`]}</p>
+          <div hidden={tab !== "review"} className="space-y-3">
             {storedTags.length > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-1 border-b border-line pb-2">
                 <span className="break-words text-text-subtle">{storedTags.map((tag) => `#${tag}`).join(" ")}</span>
@@ -315,24 +318,8 @@ export function WritingPanel({ profile, manuscript, updating, title, noteId, fol
               </div>
             )}
             {manuscript.unclosedComment && <p className="text-text-muted">{t.writing_unclosed_comment}</p>}
-            {onCopilot ? (
-              <div className="space-y-1">
-                <p className="leading-relaxed text-text-muted">{t.writing_review_ai_hint}</p>
-                <Button size="sm" variant="secondary" onClick={() => onCopilot("review")}>{t.writing_copilot_review}</Button>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <p className="leading-relaxed text-text-muted">{t.writing_review_setup}</p>
-                <Button size="sm" variant="secondary" onClick={() => {
-                  onClose();
-                  const ui = useUI.getState();
-                  ui.setSettingsTab("copilot");
-                  ui.setSettingsOpen(true);
-                }}>{t.settings}</Button>
-              </div>
-            )}
+            <WritingReview noteId={noteId} body={body} ready={!!onCopilot} onApply={onApplyRevision} />
           </div>
-        )}
         {tab === "outline" && (
           <>
             <section className="space-y-2">

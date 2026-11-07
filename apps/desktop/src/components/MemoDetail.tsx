@@ -7,8 +7,9 @@
 import { Dialog } from "@base-ui-components/react";
 import { Button, GPage, Skeleton } from "@garden/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { EditorView } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 import { BookOpenText, Bot, ChevronLeft, ChevronRight, Folder, Maximize2, Minimize2, PenLine, Star } from "lucide-react";
 
 import {
@@ -43,11 +44,21 @@ import { NoteCtxMenu } from "./NoteCtxMenu";
 import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { IconTool } from "./IconTool";
 import { WordLookupPanel, WritingPanel } from "./WritingPanel";
+import { PanelResizeHandle, readPanelWidth, writePanelWidth, WRITING_PANEL_WIDTH_KEY } from "./PanelResize";
 import { isWritingTag, preservesPublishedChapters, readManuscript, writingProfile } from "../lib/writing";
+import { writingRevisionUpdate } from "../lib/writingReview";
+import type { WritingRevision } from "../lib/api";
 import type { FolderComboboxHandle } from "./FolderCombobox";
 import type { FolderEntry, Memo, MemoSummary } from "../lib/types";
 
 const AUTOSAVE_IDLE_MS = 1200;
+
+/** Writing inspector width bounds (px). EDITOR_RESERVE keeps the editor
+ * column usable: the container-imposed ceiling tightens in narrow sheets. */
+const WRITING_PANEL_MIN = 260;
+const WRITING_PANEL_MAX = 520;
+const WRITING_PANEL_DEFAULT = 300;
+const EDITOR_RESERVE = 320;
 
 /** Note-menu callbacks owned by the CardGrid scope (undo-toast delete,
  *  shared favorite/move/copy handlers). All optional: MemoDetail falls
@@ -95,6 +106,7 @@ export function MemoDetail({
   const [saving, setSaving] = useState(false);
   const [seededId, setSeededId] = useState<string | null>(null);
   const sourceSnapshotRef = useRef<Memo | null>(null);
+  const pendingWritingSource = useRef<{ id: string; editorSource: string; source: string } | null>(null);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const folderPickerRef = useRef<FolderComboboxHandle>(null);
@@ -125,6 +137,32 @@ export function MemoDetail({
   const activeInspector = currentNote && inspector?.id === currentNote.id &&
     (inspector.kind === "words" || profile) ? inspector : null;
   const reviewUpdating = reviewBody !== body;
+  // Persisted side-by-side inspector width (260..520, container-clamped).
+  // Only the ≥700px container layout has a width column — below it the
+  // stacked panel ignores the variable, so the value just waits.
+  const [writingPanelWidth, setWritingPanelWidth] = useState(() =>
+    readPanelWidth(WRITING_PANEL_WIDTH_KEY, WRITING_PANEL_MIN, WRITING_PANEL_MAX, WRITING_PANEL_DEFAULT),
+  );
+  const [writingPanelMax, setWritingPanelMax] = useState(WRITING_PANEL_MAX);
+  const visibleWritingPanelWidth = Math.min(writingPanelWidth, writingPanelMax);
+  const writingWorkspaceRef = useRef<HTMLDivElement>(null);
+  /** Container-imposed ceiling: the editor column keeps ≥ EDITOR_RESERVE px. */
+  const measurePanelMax = useCallback(() => {
+    const workspace = writingWorkspaceRef.current;
+    const width = workspace ? workspace.clientWidth : window.innerWidth;
+    return Math.min(WRITING_PANEL_MAX, Math.max(WRITING_PANEL_MIN, width - EDITOR_RESERVE));
+  }, []);
+  // Keep a saved width from squeezing the editor on narrow sheets/windows
+  // (visual clamp only — the stored preference survives re-widening).
+  useLayoutEffect(() => {
+    const workspace = writingWorkspaceRef.current;
+    if (!workspace) return;
+    const updateLimit = () => setWritingPanelMax(measurePanelMax());
+    updateLimit();
+    const observer = new ResizeObserver(updateLimit);
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, [measurePanelMax, open, activeInspector?.id]);
 
   useEffect(() => {
     if (!open) {
@@ -525,6 +563,9 @@ export function MemoDetail({
   const editBody = (value: string) => {
     // CodeMirror already contains the new text. Keep the save snapshot
     // synchronous, then let React render tags and surrounding panels later.
+    const pending = pendingWritingSource.current;
+    pendingWritingSource.current = null;
+    if (pending?.id === selectedIdRef.current && value === pending.editorSource) value = pending.source;
     bodyRef.current = value;
     editVersion.current += 1;
     lastEditAt.current = Date.now();
@@ -679,7 +720,32 @@ export function MemoDetail({
     catch (error) { setError(String(error).includes("external_change_conflict") ? t.save_conflict : String(error).split("\n")[0]); }
     finally { saveInFlight.current = null; setSaving(false); }
   };
-  const prepareWritingCopilot = (task: "review" | "scenario") => {
+  const applyWritingRevision = (revision: WritingRevision, expectedSource: string): boolean => {
+    const view = editorView;
+    if (!view || !currentNote || selectedIdRef.current !== currentNote.id
+      || bodyRef.current !== expectedSource) return false;
+    const update = writingRevisionUpdate(expectedSource, revision);
+    if (!update || view.state.doc.toString() !== update.editorSource) return false;
+    const { change } = update;
+    // Atomic's update listener calls editBody synchronously with LF text.
+    // Carry the exact source patch through that callback, without rewriting
+    // untouched line endings or bypassing the guarded autosave path.
+    pendingWritingSource.current = {
+      id: currentNote.id, editorSource: update.nextEditorSource, source: update.nextSource,
+    };
+    try {
+      view.dispatch({
+        changes: change,
+        selection: { anchor: change.from + change.insert.length },
+        annotations: isolateHistory.of("full"),
+        effects: EditorView.scrollIntoView(change.from, { y: "center" }),
+      });
+    } finally {
+      pendingWritingSource.current = null;
+    }
+    return true;
+  };
+  const prepareWritingCopilot = (_task: "scenario") => {
     const agent = copilot.data?.agent;
     const noteId = currentNote?.id;
     if (!agent || !noteId) return;
@@ -691,10 +757,9 @@ export function MemoDetail({
         useUI.setState({ copilotAgent: agent });
       }
       const draft = useUI.getState().copilotDraft;
-      const prompt = task === "review" ? t.writing_copilot_review_prompt : t.writing_copilot_scenario_prompt;
+      const prompt = t.writing_copilot_scenario_prompt;
       store.setCopilotDraft(draft ? draft + "\n\n" + prompt : prompt);
       store.setCopilotDetachedMemoId(null);
-      if (task === "review") store.setCopilotSelection(null);
       setInspector(null);
       setCopilotOpen(true);
     });
@@ -824,7 +889,12 @@ export function MemoDetail({
                 )}
               </CtxTrigger>
             </CtxRoot>
-            <div className="memo-writing-workspace min-h-0 flex-1" data-inspector={activeInspector !== null}>
+            <div
+              ref={writingWorkspaceRef}
+              className="memo-writing-workspace min-h-0 flex-1"
+              data-inspector={activeInspector !== null}
+              style={activeInspector ? ({ "--g-layout-panel-width": `${visibleWritingPanelWidth}px` } as CSSProperties) : undefined}
+            >
               {memo.isLoading || !memo.data || seededId !== memo.data.id ? (
                 // Skeleton in the sheet's shape: title, property chips, body
                 // paragraphs — stands in for PropertyPanel + content.
@@ -901,7 +971,7 @@ export function MemoDetail({
               {activeInspector && (
                 <div
                   id="memo-writing-inspector"
-                  className="memo-writing-panel min-h-0 min-w-0"
+                  className="memo-writing-panel relative min-h-0 min-w-0"
                   onKeyDown={(event) => {
                     if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
                     event.preventDefault();
@@ -909,6 +979,19 @@ export function MemoDetail({
                     closeInspector();
                   }}
                 >
+                  {/* Width handle for the side-by-side (≥700px container)
+                      layout — drag or Arrow/Shift+Arrow/Home/End. */}
+                  <PanelResizeHandle
+                    side="end"
+                    value={visibleWritingPanelWidth}
+                    min={WRITING_PANEL_MIN}
+                    max={WRITING_PANEL_MAX}
+                    measureMax={measurePanelMax}
+                    onResize={setWritingPanelWidth}
+                    onResizeCommit={(w) => writePanelWidth(WRITING_PANEL_WIDTH_KEY, w)}
+                    label={t.writing_panel_resize}
+                    controls="memo-writing-inspector"
+                  />
                   {activeInspector.kind === "words" ? (
                     <WordLookupPanel
                       key={activeInspector.id}
@@ -926,6 +1009,8 @@ export function MemoDetail({
                       updating={reviewUpdating}
                       title={currentNote?.title || t.empty_memo}
                       noteId={activeInspector.id}
+                      body={body}
+                      onApplyRevision={applyWritingRevision}
                       folder={currentNote?.folder ?? ""}
                       storedTags={currentNote?.source_sha256 ? currentNote.tags.filter(isWritingTag) : []}
                       onClearStoredTags={dirty || saving ? undefined : clearStoredWritingTags}

@@ -11,8 +11,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowUpDown, BookMarked, CalendarDays, ChevronRight, Clock3, Database, FileText, Folder, FolderPlus, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Search, Star, Trash2, TriangleAlert, X } from "lucide-react";
 import { Popover } from "@base-ui-components/react";
 import { Button } from "@garden/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { motion, useIsPresent } from "motion/react";
+import { PanelResizeHandle, readPanelWidth, writePanelWidth, SIDEBAR_WIDTH_KEY } from "./PanelResize";
 import { useWorkspaceMotion } from "../lib/workspaceMotion";
 import { SpacePicker } from "./SpacePicker";
 import { listFacets, memoStats, listMemos, getConfig, setFolderPinned, renameFolder, deleteFolder, setPinOrder, folderChildren, renameTag, listBases, renameBase, trashBase, restoreBase, listFolders } from "../lib/api";
@@ -49,6 +50,13 @@ const STATE_CLASS: Record<TagState, string> = {
   out: "border border-status-error/30 bg-status-error-subtle text-status-error-on-subtle line-through",
 };
 
+/** Resizable sidebar bounds (px). MAIN_RESERVE keeps the main content area
+ * usable: the viewport-imposed ceiling tightens on narrow windows. */
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 380;
+const SIDEBAR_DEFAULT = 220;
+const MAIN_RESERVE = 560;
+
 export function Sidebar({
   onMoveNote,
   onMoveFolderTree,
@@ -74,6 +82,38 @@ export function Sidebar({
   const timing = useWorkspaceMotion();
   const sidebarRef = useRef<HTMLElement>(null);
   const [resizing, setResizing] = useState(false);
+  // Persisted width (SIDEBAR_MIN..SIDEBAR_MAX, viewport-clamped). The compact
+  // ≤700px overlay keeps its CSS width — the `--workspace-sidebar-width`
+  // variable is unset there so the media rules still own the layout.
+  const [width, setWidth] = useState(() => readPanelWidth(SIDEBAR_WIDTH_KEY, SIDEBAR_MIN, SIDEBAR_MAX, SIDEBAR_DEFAULT));
+  const [viewportMax, setViewportMax] = useState(SIDEBAR_MAX);
+  const visibleWidth = Math.min(width, viewportMax);
+  const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 700px)").matches);
+  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  const setDrag = (v: boolean) => {
+    draggingRef.current = v;
+    setDragging(v);
+  };
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 700px)");
+    const onChange = () => setCompact(query.matches);
+    onChange();
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  // Keep a saved width from squeezing the main content on narrow windows
+  // (visual clamp only — the stored preference survives re-widening).
+  useEffect(() => {
+    const clampToViewport = () =>
+      setViewportMax(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, window.innerWidth - MAIN_RESERVE)));
+    clampToViewport();
+    window.addEventListener("resize", clampToViewport);
+    return () => window.removeEventListener("resize", clampToViewport);
+  }, []);
+  /** Viewport-imposed ceiling: the main content keeps ≥ MAIN_RESERVE px. */
+  const measureSidebarMax = () =>
+    Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, window.innerWidth - MAIN_RESERVE));
   useLayoutEffect(() => {
     if (!present && sidebarRef.current?.contains(document.activeElement)) {
       document.querySelector<HTMLElement>("[data-sidebar-toggle]")?.focus({ preventScroll: true });
@@ -316,12 +356,13 @@ export function Sidebar({
       className="glass-sidebar"
       aria-label={t.nav_notes}
       inert={!present}
-      data-resizing={resizing}
+      data-resizing={resizing || dragging}
+      style={{ "--workspace-sidebar-width": compact ? undefined : `${visibleWidth}px` } as CSSProperties}
       initial={{ width: 0, opacity: 0 }}
-      animate={{ width: "var(--workspace-sidebar-width)", opacity: 1, transition: timing.move }}
+      animate={{ width: compact ? SIDEBAR_DEFAULT : visibleWidth, opacity: 1, transition: dragging ? { duration: 0 } : timing.move }}
       exit={{ width: 0, opacity: 0, transition: timing.move }}
-      onAnimationStart={() => setResizing(true)}
-      onAnimationComplete={() => setResizing(false)}
+      onAnimationStart={() => { if (!draggingRef.current) setResizing(true); }}
+      onAnimationComplete={() => { if (!draggingRef.current) setResizing(false); }}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || event.defaultPrevented || !window.matchMedia("(max-width: 700px)").matches) return;
         const target = event.target as HTMLElement;
@@ -758,6 +799,23 @@ export function Sidebar({
           </CtxMenu>
         </CtxTrigger>
       </CtxRoot>
+      {/* Width handle — drag or Arrow/Shift+Arrow/Home/End (panel-resize.css
+          hides it on the compact ≤700px overlay, which keeps its CSS width). */}
+      {!compact && (
+        <PanelResizeHandle
+          side="start"
+          value={visibleWidth}
+          min={SIDEBAR_MIN}
+          max={SIDEBAR_MAX}
+          measureMax={measureSidebarMax}
+          onResize={setWidth}
+          onResizeCommit={(w) => writePanelWidth(SIDEBAR_WIDTH_KEY, w)}
+          onDragStart={() => setDrag(true)}
+          onDragEnd={() => setDrag(false)}
+          label={t.sidebar_resize}
+          controls="workspace-sidebar"
+        />
+      )}
     </motion.aside>
   );
 }

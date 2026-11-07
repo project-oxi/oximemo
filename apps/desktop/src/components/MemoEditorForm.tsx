@@ -12,6 +12,7 @@ import { EditorView } from "@codemirror/view";
 import type { Text } from "@codemirror/state";
 
 import { copilotStatus, copilotSuggest, createFolder, folderTemplate, getConfig, transformTaskDraft } from "../lib/api";
+import { continuationCheck, continuationPrefix, continuationSource } from "../lib/continuation";
 import { useI18n } from "../lib/i18n";
 import { FolderCombobox, type FolderComboboxHandle } from "./FolderCombobox";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -162,11 +163,17 @@ export function MemoEditorForm({
   const [contBusy, setContBusy] = useState(false);
   const [contError, setContError] = useState<string | null>(null);
   const contBusyRef = useRef(false);
-  const contAliveRef = useRef(true);
   const contErrorRef = useRef<string | null>(null);
-  contAliveRef.current = true;
-  useEffect(() => () => {
-    contAliveRef.current = false;
+  // Mounted flag flips in effects, never in render: StrictMode's
+  // mount → cleanup → re-mount cycle would otherwise leave the cleanup's
+  // `false` permanently overridden by a later render, suppressing the
+  // busy/error recovery for a component that is actually mounted.
+  const contMountedRef = useRef(true);
+  useEffect(() => {
+    contMountedRef.current = true;
+    return () => {
+      contMountedRef.current = false;
+    };
   }, []);
   // The transient error line clears on the next doc change; the
   // extension array must not depend on the error state, so the clear
@@ -188,42 +195,55 @@ export function MemoEditorForm({
   const runContinuation = useCallback(async () => {
     const view = viewHandleRef.current?.view;
     if (!view || contBusyRef.current) return;
+    // Snapshot the request source before the call: the answer must land
+    // at exactly this view instance (a note switch remounts the editor)
+    // and this doc instance (any edit, incl. undo, swaps it) — or it is
+    // stale and must never land at whatever cursor shows now.
+    const source = continuationSource(view);
     contBusyRef.current = true;
     setContError(null);
     contErrorRef.current = null;
     setContBusy(true);
     try {
-      const out = await copilotSuggest("continue", documentId);
+      // CURRENT editor prefix up to the cursor on EVERY request, so
+      // unsaved prior continuations participate; an empty prefix is sent
+      // explicitly (the backend distinguishes "" from no snapshot).
+      const out = await copilotSuggest("continue", documentId, continuationPrefix(source));
       const continuation = out.continuation ?? "";
-      // Re-read the view after the await: the note may have been edited
-      // (or the editor swapped) while the agent was running.
-      const live = viewHandleRef.current?.view;
-      if (!continuation || !live) {
-        if (contAliveRef.current) {
-          const msg = continuation ? t.suggest_failed : t.suggest_empty;
-          contErrorRef.current = msg;
-          setContError(msg);
-        }
+      if (!contMountedRef.current) return;
+      if (!continuation) {
+        const msg = t.suggest_empty;
+        contErrorRef.current = msg;
+        setContError(msg);
         return;
       }
-      const { state } = live;
-      const pos = state.selection.main.head;
-      const before = pos > 0 ? state.sliceDoc(pos - 1, pos) : "";
+      const live = viewHandleRef.current?.view;
+      if (!live || continuationCheck(source, live) === "stale") {
+        const msg = t.writing_review_stale;
+        contErrorRef.current = msg;
+        setContError(msg);
+        return;
+      }
+      const pos = source.pos;
+      const before = pos > 0 ? live.state.sliceDoc(pos - 1, pos) : "";
       const joiner = before === "" || /\s/.test(before) ? "" : " ";
+      // Plain dispatch — one undoable transaction, history preserved.
       live.dispatch({
         changes: { from: pos, insert: joiner + continuation },
         selection: { anchor: pos + joiner.length + continuation.length },
         scrollIntoView: true,
       });
     } catch (e) {
-      if (contAliveRef.current) {
+      if (contMountedRef.current) {
         const msg = e instanceof Error && e.message ? e.message.split("\n")[0] : t.suggest_failed;
         contErrorRef.current = msg;
         setContError(msg);
       }
     } finally {
+      // The busy slot always releases (even for stale/unmounted replies),
+      // so an explicit next request is possible after success/empty/error.
       contBusyRef.current = false;
-      if (contAliveRef.current) setContBusy(false);
+      if (contMountedRef.current) setContBusy(false);
     }
   }, [documentId, t]);
   const reportImageErrors = useCallback((files: string[]) => {
