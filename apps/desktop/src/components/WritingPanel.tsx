@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useI18n } from "../lib/i18n";
 import { lookupKoreanWord, writingLexiconQuery, type RelatedWords } from "../lib/koreanLexicon";
 import { renderPreviewMarkdown } from "../lib/markdownPreview";
-import type { Manuscript, WritingIssue, WritingProfile } from "../lib/writing";
+import type { Manuscript, WritingProfile } from "../lib/writing";
 import { assembleBook, listBookNotes, readBookNotes } from "../lib/writingBook";
 import { useUI } from "../stores/ui";
 import { createWritingGlossary, findWritingGlossary, writingGlossaryEntries, writingGlossaryHeading, writingGlossaryKey } from "../lib/writingGlossary";
@@ -196,7 +196,6 @@ type PlanningAction = { kind: "character"; name: string } | { kind: "scenario" }
 interface WritingPanelProps {
   profile: WritingProfile;
   manuscript: Manuscript;
-  issues: WritingIssue[];
   updating: boolean;
   title: string;
   noteId: string;
@@ -209,13 +208,12 @@ interface WritingPanelProps {
   onCopilot?: (task: "review" | "scenario") => void;
 }
 
-export function WritingPanel({ profile, manuscript, issues, updating, title, noteId, folder, storedTags, onClearStoredTags, onClose, onJump, onInsert, onCopilot }: WritingPanelProps) {
+export function WritingPanel({ profile, manuscript, updating, title, noteId, folder, storedTags, onClearStoredTags, onClose, onJump, onInsert, onCopilot }: WritingPanelProps) {
   const { t, locale } = useI18n();
   const [tab, setTab] = useState<Tab>("review");
   const [name, setName] = useState("");
   const [preview, setPreview] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
-  const [issueLimit, setIssueLimit] = useState(30);
   const [noteOrder, setNoteOrder] = useState([noteId]);
   const [customTitle, setCustomTitle] = useState<string | null>(null);
   const [exportState, setExportState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -249,11 +247,6 @@ export function WritingPanel({ profile, manuscript, issues, updating, title, not
   const pageMin = Math.ceil(count / 600);
   const pageMax = Math.ceil(count / 400);
   const pages = pageMin === pageMax ? number.format(pageMax) : `${number.format(pageMin)}–${number.format(pageMax)}`;
-  const issueGroups: [WritingIssue[], WritingIssue[]] = [[], []];
-  for (const issue of issues) {
-    const { kind } = issue;
-    issueGroups[kind === "age" || kind === "birthYear" || kind === "handedness" ? 0 : 1].push(issue);
-  }
   const canEditBook = exportState !== "saving";
   const candidatesById = new Map(candidates.data?.map((note) => [note.id, note]));
   const noteLabel = (id: string) => {
@@ -322,40 +315,22 @@ export function WritingPanel({ profile, manuscript, issues, updating, title, not
               </div>
             )}
             {manuscript.unclosedComment && <p className="text-text-muted">{t.writing_unclosed_comment}</p>}
-            <p className="font-medium">{issues.length ? t.writing_issue_count.replace("{n}", number.format(issues.length))
-              : manuscript.charactersWithSpaces ? t.writing_clear : t.writing_idle}</p>
-            {issueGroups.map((group, groupIndex) => {
-              const limit = groupIndex === 0 ? issueLimit : issueLimit - issueGroups[0].length;
-              if (limit <= 0 || !group.length) return null;
-              return (
-                <section key={groupIndex} className="space-y-1">
-                  <h3 className="font-medium">{groupIndex === 0 ? t.writing_character_issues : t.writing_text_issues}</h3>
-                  <ol className="divide-y divide-line border-y border-line">
-                    {group.slice(0, limit).map((issue, index) => (
-                      <li key={`${issue.line}-${issue.kind}-${index}`} className="space-y-1 py-2">
-                        <Button
-                          variant="ghost"
-                          className="h-auto w-full justify-between gap-2 px-0 text-left text-xs"
-                          disabled={updating}
-                          onClick={() => onJump(issue.line)}
-                        >
-                          <span>{t[`writing_issue_${issue.kind}`]}</span>
-                          <span className="shrink-0 text-[11px] text-text-subtle">{t.writing_line.replace("{n}", String(issue.line))}</span>
-                        </Button>
-                        <blockquote className="break-words font-medium text-text">“{issue.excerpt}”{issue.detail && <span className="ml-1 text-text-subtle">({issue.detail})</span>}</blockquote>
-                        <p className="leading-relaxed text-text-muted">{t[`writing_issue_${issue.kind}_tip`]}</p>
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              );
-            })}
-            {issues.length > issueLimit && (
-              <Button size="sm" variant="secondary" onClick={() => setIssueLimit(issueLimit + 30)}>
-                {t.writing_more_issues.replace("{n}", number.format(issues.length - issueLimit))}
-              </Button>
+            {onCopilot ? (
+              <div className="space-y-1">
+                <p className="leading-relaxed text-text-muted">{t.writing_review_ai_hint}</p>
+                <Button size="sm" variant="secondary" onClick={() => onCopilot("review")}>{t.writing_copilot_review}</Button>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <p className="leading-relaxed text-text-muted">{t.writing_review_setup}</p>
+                <Button size="sm" variant="secondary" onClick={() => {
+                  onClose();
+                  const ui = useUI.getState();
+                  ui.setSettingsTab("copilot");
+                  ui.setSettingsOpen(true);
+                }}>{t.settings}</Button>
+              </div>
             )}
-            {onCopilot && <Button size="sm" variant="secondary" onClick={() => onCopilot("review")}>{t.writing_copilot_review}</Button>}
           </div>
         )}
         {tab === "outline" && (

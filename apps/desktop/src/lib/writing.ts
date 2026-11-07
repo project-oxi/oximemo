@@ -79,11 +79,7 @@ type CharacterCard = {
   name: string;
   line: number;
   details: string;
-  age?: number;
-  birthYear?: number;
-  handedness?: string;
 };
-type Passage = { line: number; text: string; raw: string };
 
 export interface Manuscript {
   title: string;
@@ -92,7 +88,6 @@ export interface Manuscript {
   planning: PlanningSection | null;
   scenario: SourceSection | null;
   characterSection: PlanningSection | null;
-  passages: Passage[];
   charactersWithSpaces: number;
   unclosedComment: boolean;
 }
@@ -124,7 +119,6 @@ export function readManuscript(body: string): Manuscript {
   let readingCards = false;
   const characters: CharacterCard[] = [];
   const chapters: WritingChapter[] = [];
-  const passages: Passage[] = [];
   const counts: string[] = [];
   const finishChapter = () => {
     if (chapter.title || chapter.markdown.trim()) {
@@ -193,12 +187,6 @@ export function readManuscript(body: string): Manuscript {
     if (inPlanning) {
       if (card && text) {
         card.details = [card.details, text].filter(Boolean).join("\n");
-        const age = /^(?:나이|age)\s*[:：]\s*(\d{1,3})\s*(?:세|살)?\s*$/imu.exec(text);
-        if (age) card.age = Number(age[1]);
-        const birthYear = /^(?:출생\s*연도|birth year)\s*[:：]\s*(\d{3,4})\s*년?\s*$/imu.exec(text);
-        if (birthYear) card.birthYear = Number(birthYear[1]);
-        const hand = /^(?:주로 쓰는 손|handedness)\s*[:：]\s*(왼손|오른손|양손)(?:잡이)?\s*$/imu.exec(text);
-        if (hand) card.handedness = hand[1];
       }
       continue;
     }
@@ -209,13 +197,12 @@ export function readManuscript(body: string): Manuscript {
     }
     if (text) {
       counts.push(text);
-      if (token.type === "paragraph") passages.push({ line: blockLine, text, raw: token.raw });
     }
   }
   if (!inPlanning && cursor < source.length) chapter.markdown += source.slice(cursor);
   finishChapter();
   const charactersWithSpaces = [...counts.join(" ").replace(/\s+/gu, " ")].length;
-  return { title, chapters, characters, planning, scenario, characterSection, passages, charactersWithSpaces, unclosedComment };
+  return { title, chapters, characters, planning, scenario, characterSection, charactersWithSpaces, unclosedComment };
 }
 
 export function preservesPublishedChapters(before: Manuscript, after: Manuscript): boolean {
@@ -223,97 +210,4 @@ export function preservesPublishedChapters(before: Manuscript, after: Manuscript
     && before.chapters.length === after.chapters.length
     && before.chapters.every((chapter, index) => chapter.title === after.chapters[index].title
       && chapter.markdown === after.chapters[index].markdown);
-}
-
-const STYLE_RULES = [
-  ["passive", /되어지(?:다|고|는|며|니|면)|되어졌|보여지(?:다|고|는|며|니|면)|보여졌|쓰여지(?:다|고|는|며|니|면)|쓰여졌/gu],
-  ["translation", /에 있어서|에 다름 아니|에 의해(?:서)?|를 가지고 있(?:다|었|는|고)|을 가지고 있(?:다|었|는|고)/gu],
-  ["redundant", /미리 예(?:상|측)|사전에 미리|과반수 이상|서로 상호|다시 재검토/gu],
-] as const;
-
-export type WritingIssueKind = typeof STYLE_RULES[number][0] | "long" | "repetition" | "register" | "age" | "birthYear" | "handedness" | "source" | "scene" | "generalization";
-export interface WritingIssue {
-  kind: WritingIssueKind;
-  line: number;
-  excerpt: string;
-  detail?: string;
-}
-
-const QUOTES = /“[^”]*”|‘[^’]*’|"[^"\n]*"|「[^」]*」|『[^』]*』/gu;
-const SENTENCES = /(?<!\d)[.!?。！？]+\s+|\n+/u;
-const escapeRegex = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-const CHARACTER_FACTS = [
-  ["age", "(?:올해(?:로)?\\s+)?(\\d{1,3})\\s*(?:살|세)(?![0-9])"],
-  ["birthYear", "(\\d{3,4})\\s*년생"],
-  ["handedness", "(왼손|오른손|양손)잡이"],
-] as const;
-
-// Require an affirmative predicate so a negative statement or a bare age
-// in a flashback cannot seed a character fact.
-const AFFIRMATIVE_FACT = "(?:이었다|였다|이다|입니다|이었어요|였어요|이에요|예요)(?=$|[^\\p{L}\\p{N}])";
-
-export function reviewManuscript(manuscript: Manuscript, profile: WritingProfile): WritingIssue[] {
-  const findings: WritingIssue[] = [];
-  const formal: Passage[] = [];
-  const plain: Passage[] = [];
-  const trackCharacters = profile === "fiction" || profile === "screenplay";
-  const hasSceneHeading = manuscript.chapters.some((chapter) => chapter.title) || manuscript.passages.some(({ text }) =>
-    /^(?:INT[./]|EXT[./]|S#\s*\d|장면\s*\d|씬\s*\d)/imu.test(text),
-  );
-  if (profile === "screenplay" && manuscript.charactersWithSpaces >= 450 && !hasSceneHeading && manuscript.passages[0]) {
-    findings.push({ kind: "scene", line: manuscript.passages[0].line, excerpt: manuscript.passages[0].text.slice(0, 65) });
-  }
-  const facts = trackCharacters ? manuscript.characters.flatMap((card) => CHARACTER_FACTS.map(([kind, pattern]) => ({
-    kind,
-    name: card.name,
-    expected: card[kind]?.toString(),
-    pattern: new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(card.name)}(?:은|는|이|가)?\\s+${pattern}${AFFIRMATIVE_FACT}`, "gu"),
-  }))) : [];
-  for (const passage of manuscript.passages) {
-    const narration = passage.text.replace(QUOTES, (quote) => quote.replace(/[^\n]/gu, " "));
-    for (const fact of facts) {
-      for (const hit of narration.matchAll(fact.pattern)) {
-        const actual = fact.kind === "handedness" ? hit[1] : String(Number(hit[1]));
-        if (fact.expected === undefined) {
-          fact.expected = actual;
-        } else if (fact.expected !== actual) {
-          findings.push({ kind: fact.kind, line: passage.line, excerpt: hit[0], detail: `${fact.name} · ${fact.expected}` });
-        }
-      }
-    }
-    if (profile === "screenplay") continue;
-    if (profile === "column") {
-      const sourceCue = /(?:통계|연구|보고서)에 따르면|조사 결과에 따르면/u.exec(narration);
-      if (sourceCue && !/https?:\/\/|\[\[|\[\^/u.test(passage.raw)) {
-        findings.push({ kind: "source", line: passage.line, excerpt: sourceCue[0] });
-      }
-    }
-    if (profile === "essay") {
-      const generalization = /(?:^|\s)(누구나 다|요즘 사람들은|사람이라면 누구나)(?:\s|$)/u.exec(narration);
-      if (generalization) findings.push({ kind: "generalization", line: passage.line, excerpt: generalization[1] });
-    }
-    for (const [kind, pattern] of STYLE_RULES) {
-      const match = narration.match(pattern)?.[0];
-      if (match) findings.push({ kind, line: passage.line, excerpt: match });
-    }
-    const sentences = narration.split(SENTENCES).map((sentence) => sentence.trim()).filter(Boolean);
-    const long = sentences.find((sentence) => sentence.length >= (profile === "fiction" ? 120 : 100));
-    if (long) findings.push({ kind: "long", line: passage.line, excerpt: long.slice(0, 65) + "…" });
-    const repeated = sentences.map((sentence) => /^(그리고|그러나|하지만|그래서|그런데)\s/u.exec(sentence)?.[1]);
-    const same = repeated.find((word, index) => word && index > 0 && word === repeated[index - 1]);
-    if (same) findings.push({ kind: "repetition", line: passage.line, excerpt: same });
-    for (const sentence of sentences) {
-      if (/(?:습니다|ㅂ니다|입니다|합니다|됩니다|겠어요|했어요|이에요|예요)[.!?]?$/u.test(sentence)) {
-        formal.push({ ...passage, text: sentence });
-      } else if (/(?:했다|었다|았다|였다|이다|한다|된다|있다|없다)[.!?]?$/u.test(sentence)) {
-        plain.push({ ...passage, text: sentence });
-      }
-    }
-  }
-  if (profile !== "screenplay" && plain.length && formal.length && Math.max(plain.length, formal.length) >= 3) {
-    const outlier = plain.length < formal.length ? plain[0] : formal[0];
-    findings.push({ kind: "register", line: outlier.line, excerpt: outlier.text.slice(0, 70) });
-  }
-  return findings.sort((a, b) => a.line - b.line);
 }

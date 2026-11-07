@@ -43,7 +43,7 @@ import { NoteCtxMenu } from "./NoteCtxMenu";
 import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { IconTool } from "./IconTool";
 import { WordLookupPanel, WritingPanel } from "./WritingPanel";
-import { isWritingTag, preservesPublishedChapters, readManuscript, reviewManuscript, writingProfile } from "../lib/writing";
+import { isWritingTag, preservesPublishedChapters, readManuscript, writingProfile } from "../lib/writing";
 import type { FolderComboboxHandle } from "./FolderCombobox";
 import type { FolderEntry, Memo, MemoSummary } from "../lib/types";
 
@@ -122,7 +122,6 @@ export function MemoDetail({
   const profile = useMemo(() => reviewBody === null || !currentNote
     ? null : writingProfile(reviewBody, currentNote.source_sha256 ? currentNote.tags : []), [reviewBody, currentNote]);
   const manuscript = useMemo(() => profile && reviewBody !== null ? readManuscript(reviewBody) : null, [profile, reviewBody]);
-  const issues = useMemo(() => profile && manuscript ? reviewManuscript(manuscript, profile) : [], [profile, manuscript]);
   const activeInspector = currentNote && inspector?.id === currentNote.id &&
     (inspector.kind === "words" || profile) ? inspector : null;
   const reviewUpdating = reviewBody !== body;
@@ -695,6 +694,7 @@ export function MemoDetail({
       const prompt = task === "review" ? t.writing_copilot_review_prompt : t.writing_copilot_scenario_prompt;
       store.setCopilotDraft(draft ? draft + "\n\n" + prompt : prompt);
       store.setCopilotDetachedMemoId(null);
+      if (task === "review") store.setCopilotSelection(null);
       setInspector(null);
       setCopilotOpen(true);
     });
@@ -773,13 +773,12 @@ export function MemoDetail({
                   <IconTool
                     ref={writingButtonRef}
                     onClick={() => toggleInspector("writing")}
-                    label={issues.length ? `${t.writing_tools} · ${t.writing_issue_count.replace("{n}", String(issues.length))}` : t.writing_tools}
+                    label={t.writing_tools}
                     aria-expanded={activeInspector?.kind === "writing"}
                     aria-controls={activeInspector?.kind === "writing" ? "memo-writing-inspector" : undefined}
                     className="memo-header-tool relative text-text-subtle hover:bg-surface-muted"
                   >
                     <PenLine size={15} aria-hidden />
-                    {issues.length > 0 && <span aria-hidden="true" className="absolute right-1 top-1 size-1.5 rounded-full bg-text-subtle" />}
                   </IconTool>
                 )}
                 <IconTool
@@ -924,7 +923,6 @@ export function MemoDetail({
                       key={`${activeInspector.id}:${profile}`}
                       profile={profile}
                       manuscript={manuscript}
-                      issues={issues}
                       updating={reviewUpdating}
                       title={currentNote?.title || t.empty_memo}
                       noteId={activeInspector.id}

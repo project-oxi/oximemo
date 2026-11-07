@@ -5,6 +5,19 @@ All notable changes to oximemo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Contextual writing review.** Writing tools now prepare a Copilot review
+  of the complete note and its writing notes instead of judging prose with
+  hardcoded phrase lists, sentence-length thresholds, or character-fact rules.
+  The request asks for source quotes, contextual reasons, and minimal revisions
+  that preserve the author's voice. Review starts only after the user sends
+  the request through their activated agent; it does not request file edits.
+  Removed heuristic live advice and its setting. Outline, word lookup, and
+  EPUB export remain available.
+
 ## [0.21.2] — 2026-11-04
 
 ### Added

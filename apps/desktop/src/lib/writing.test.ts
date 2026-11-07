@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { writingLexiconTiers } from "./koreanLexicon";
 import { writingGlossaryEntries, writingGlossaryHeading } from "./writingGlossary";
 import { assembleBook } from "./writingBook";
-import { preservesPublishedChapters, readManuscript, reviewManuscript, writingProfile } from "./writing";
+import { preservesPublishedChapters, readManuscript, writingProfile } from "./writing";
 
 test("uses live writing tags, with a specific genre taking precedence", () => {
   expect(writingProfile("#writing #에세이", ["writing"])).toBe("essay");
@@ -44,7 +44,7 @@ test("projects physical chapter positions and excludes planning from the manuscr
   expect(book.chapters[0].markdown).not.toContain("#writing");
   expect(book.chapters[1].markdown).toBe("둘째 문단.");
   expect(book.characterSection?.endLine).toBe(18);
-  expect(book.characters[0]).toMatchObject({ name: "유진", line: 14, age: 28 });
+  expect(book.characters[0]).toMatchObject({ name: "유진", line: 14 });
   expect(book.scenario?.line).toBe(18);
 });
 
@@ -56,45 +56,6 @@ test("keeps source comments and their headings out of a book, preserving literal
   expect(book.chapters.map(({ title, line }) => [title, line])).toEqual([["강변", 3], ["역", 8]]);
   expect(book.chapters.map(({ markdown }) => markdown).join("\n")).not.toContain("비공개");
   expect(book.chapters[1].markdown).toContain("`%%코드 예제%%`");
-});
-
-test("reports narration and age cues without policing dialogue or fenced samples", () => {
-  const body = [
-    "## 장면",
-    "유진은 32살이었다. 불빛이 보여졌다.",
-    "",
-    "“그럼 29살에 보여졌다고 말했어요?”",
-    "",
-    "```md",
-    "유진은 25살이었다.",
-    "```",
-    "",
-    "## 집필 노트",
-    "### 등장인물",
-    "#### 유진",
-    "- 나이: 28",
-  ].join("\n");
-  const book = readManuscript(body);
-  expect(reviewManuscript(book, "fiction")).toEqual([
-    { kind: "age", line: 2, excerpt: "유진은 32살이었다", detail: "유진 · 28" },
-    { kind: "passive", line: 2, excerpt: "보여졌" },
-  ]);
-  expect(reviewManuscript(book, "essay").map((issue) => issue.kind)).toEqual(["passive"]);
-  expect(reviewManuscript(book, "screenplay").map((issue) => issue.kind)).toEqual(["age"]);
-});
-
-test("does not learn or report character facts from negation or past ages in narration", () => {
-  const body = [
-    "## 장면", "",
-    "은주는 오른손잡이가 아니었다. 은주는 1999년생은 아니었다.",
-    "은주는 17살 때 마을을 떠났다. 은주는 왼손잡이였다.",
-    "은주는 18살이었다.", "",
-    "## 집필 노트", "### 등장인물", "#### 은주",
-    "- 주로 쓰는 손: 왼손", "- 출생 연도: 1994", "- 나이: 32",
-  ].join("\n");
-  expect(reviewManuscript(readManuscript(body), "fiction")).toEqual([
-    { kind: "age", line: 3, excerpt: "은주는 18살이었다", detail: "은주 · 32" },
-  ]);
 });
 
 test("recognizes planning only when it leaves public chapters intact", () => {
@@ -132,30 +93,6 @@ test("detects writing notes inserted into an open fence by an earlier editor", (
   expect(book(body + "\n~~~").fencedWritingNotes).toBe(false);
 });
 
-test("checks explicit character facts across chapters and responds to genre", () => {
-  const prose = [
-    "## 강변",
-    "유진은 왼손잡이였다.",
-    "",
-    "## 역",
-    "유진은 오른손잡이였다. 유진은 1996년생이었다.",
-    "",
-    "## 집필 노트",
-    "### 등장인물",
-    "#### 유진",
-    "- 출생 연도: 1994",
-  ].join("\n");
-  expect(reviewManuscript(readManuscript(prose), "fiction").map(({ kind, detail }) => [kind, detail])).toEqual([
-    ["birthYear", "유진 · 1994"],
-    ["handedness", "유진 · 왼손"],
-  ]);
-  const column = readManuscript("통계에 따르면 지난달 독서 시간이 늘었다.");
-  expect(reviewManuscript(column, "column").map((issue) => issue.kind)).toEqual(["source"]);
-  expect(reviewManuscript(column, "fiction")).toHaveLength(0);
-  const sourced = readManuscript("통계에 따르면 [독서 시간이 늘었다](https://example.test).");
-  expect(reviewManuscript(sourced, "column")).toHaveLength(0);
-});
-
 test("renders literal title text and keeps every planning section out of export", () => {
   const book = readManuscript([
     "# A & B", "", "## Don't stop", "불빛이 보였다.", "", "## 집필 노트", "계획 1",
@@ -164,7 +101,6 @@ test("renders literal title text and keeps every planning section out of export"
   expect(book.title).toBe("A & B");
   expect(book.chapters.map(({ title }) => title)).toEqual(["Don't stop", "새벽"]);
   expect(book.chapters.map(({ markdown }) => markdown).join("\n")).not.toContain("계획");
-  expect(reviewManuscript(readManuscript('"불빛이 보여졌어요?"'), "fiction")).toHaveLength(0);
   expect(readManuscript("첫 문장. %%아직 작성 중").unclosedComment).toBe(true);
   expect(readManuscript("첫 문장. \\<!-- 그대로 보인다.").unclosedComment).toBe(false);
 });
