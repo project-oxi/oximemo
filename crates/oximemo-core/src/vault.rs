@@ -1740,6 +1740,7 @@ impl Vault {
                 crate_fmt,
                 mutation.clone(),
                 expected_sha256.or(note.source_sha256.as_deref()),
+                true,
             )?;
             let destination = if needs_rename {
                 let folder = old_rel.rfind('/').map(|i| &old_rel[..i]).unwrap_or("");
@@ -2581,6 +2582,7 @@ impl Vault {
                     ..Default::default()
                 },
                 note.source_sha256.as_deref(),
+                false,
             )?;
             if let Some(parent) = trash.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -2661,6 +2663,7 @@ impl Vault {
                     ..Default::default()
                 },
                 note.source_sha256.as_deref(),
+                false,
             )?;
             self.files.restore_from_trash(&rel)?;
             let saved = self
@@ -6968,6 +6971,60 @@ watcher_retry_interval_ms = 200
                 .find(|(t, _)| t == "urgent")
                 .map(|(_, c)| *c),
             Some(1)
+        );
+    }
+
+    /// A canonical body edit lands the new body and the additively synced
+    /// envelope tags in one guarded file replacement; the reopened memo and
+    /// the index then see the persisted union. Disappearing body tags never
+    /// delete stored metadata tags.
+    #[test]
+    fn canonical_body_edit_persists_additive_tags_to_file_and_index() {
+        let (_t, v) = tmp_vault();
+        let note = v.create_note_auto("", "# Title\n\nBody".into()).unwrap();
+        let path = v.note_file_path(&note).unwrap();
+        // Manual metadata enters through the canonical source bytes.
+        let source = std::fs::read_to_string(&path).unwrap().replace(
+            "oximemo_editor: source",
+            "tags: ['owner-defined']\noximemo_editor: source",
+        );
+        std::fs::write(&path, &source).unwrap();
+        assert_eq!(v.get_memo(note.id).unwrap().tags, vec!["owner-defined"]);
+
+        let updated = v
+            .update_note(
+                note.id,
+                Some("# Title\n\nChanged #inline-only".into()),
+                None,
+            )
+            .unwrap();
+        assert_eq!(updated.tags, vec!["owner-defined", "inline-only"]);
+
+        // The derived tag disappearing from the body keeps its stored label.
+        let kept = v
+            .update_note(note.id, Some("# Title\n\nCalm".into()), None)
+            .unwrap();
+        assert_eq!(kept.tags, vec!["owner-defined", "inline-only"]);
+
+        // Reopened memo and index-backed listing agree with the file.
+        assert_eq!(
+            v.get_memo(note.id).unwrap().tags,
+            vec!["owner-defined", "inline-only"]
+        );
+        let inc = v
+            .list_memos(
+                None,
+                10,
+                MemoFilter {
+                    include_tags: vec!["inline-only".into()],
+                    match_all: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            inc.items.iter().map(|item| item.id).collect::<Vec<_>>(),
+            vec![note.id]
         );
     }
 

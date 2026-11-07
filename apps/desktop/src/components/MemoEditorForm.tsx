@@ -1,6 +1,6 @@
 /**
  * MemoDetail 전용 편집 폼. 본문은 atomic-editor 기반 `MarkdownEditor`,
- * 추출된 `#태그`와 폴더·이미지 보조 제어만 제공한다.
+ * 폴더·이미지 보조 제어만 제공한다 (`#태그` 행은 PropertyPanel이 담당).
  */
 import { Image as ImageIcon, Undo2, Redo2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -15,7 +15,6 @@ import { copilotStatus, copilotSuggest, createFolder, folderTemplate, getConfig,
 import { useI18n } from "../lib/i18n";
 import { FolderCombobox, type FolderComboboxHandle } from "./FolderCombobox";
 import { MarkdownEditor } from "./MarkdownEditor";
-import { TagChipRow } from "./TagChipRow";
 import { TaskEditPopover, type TaskEditInitial, type VirtualAnchor } from "./TaskEditPopover";
 import { imagePickerKeymap, insertImagesAt, type ImageViewHandle } from "../lib/cm6Images";
 import { wikiLinks, type AtomicCodeMirrorEditorHandle } from "@atomic-editor/editor";
@@ -545,7 +544,6 @@ export function MemoEditorForm({
           {t.image_upload_failed.replace("{files}", imageError.join(", "))}
         </p>
       )}
-      <TagChipRow body={body} />
       {toolbarTarget ? createPortal(toolbar, toolbarTarget) : toolbar}
       {taskCfg && taskEdit && taskAnchor && (
         <TaskEditPopover

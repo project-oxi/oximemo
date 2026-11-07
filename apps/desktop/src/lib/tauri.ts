@@ -8,7 +8,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit as tauriEmit, listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { FolderCard, FolderEntry, FolderSchema, Memo, MemoSummary } from "./types";
-import { extractTags } from "./tags";
+import { bodyTags, extractTags, mergeTags } from "./tags";
 import { normalizeSummaries } from "./summaryFolder";
 import {
   editFromJson,
@@ -779,7 +779,7 @@ async function browserFallback(
         path: `${folder ? `${folder}/` : ""}${base}${ext}`,
         format,
         title,
-        tags: extractTags(body),
+        tags: bodyTags(body, format),
         body,
         props: {},
         deleted_at: null,
@@ -834,10 +834,10 @@ async function browserFallback(
       const store = loadStore();
       const n = store[id];
       if (!n) throw new Error(`memo not found: ${id}`);
-      if (typeof args?.body === "string") {
+      if (typeof args?.body === "string" && args.body !== n.body) {
         n.body = args.body;
         n.title = deriveTitle(n.body, n.format);
-        n.tags = extractTags(n.body);
+        n.tags = mergeTags(n.tags, bodyTags(n.body, n.format));
       }
       if (typeof args?.favorite === "boolean") n.favorite = args.favorite;
       // Property diff (design §5.1). Browser fallback skips schema

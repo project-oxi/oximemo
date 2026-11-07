@@ -100,7 +100,7 @@ fn array_index(text: &str, len: usize, append: bool) -> Result<usize> {
     Ok(index)
 }
 
-pub(super) fn apply(envelope: &str, edits: &[PdcMetadataEdit]) -> Result<String> {
+pub(crate) fn apply(envelope: &str, edits: &[PdcMetadataEdit]) -> Result<String> {
     let mut source = envelope.to_string();
     for edit in edits {
         validate_path(&edit.path)?;

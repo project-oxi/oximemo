@@ -5,6 +5,11 @@
 - Render inline `#tags` in the Markdown editor with the existing tag surface
   tokens, preserving source text and normal caret editing. Code, escaped hashes,
   link destinations and raw HTML markup retain their literal presentation.
+- Move note tags from the body footer to the always-visible property area,
+  including stored metadata tags and tags in the current draft.
+- Append body-derived tags to the canonical `tags` property on an actual body
+  save, atomically with the source-digest guard; retain existing tags when body
+  tags are removed.
 
 ## 2026-10-12
 

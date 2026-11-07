@@ -87,12 +87,12 @@ There is no execution or authorization semantics in this repository.
 | memo UUID | `id` | Preserve the UUID value and canonical spelling. |
 | `created` / `updated` | same names | Normalize to UTC millisecond precision. |
 | derived H1/title | `title` | Store the reviewed title; empty keeps dynamic fallback. |
-| inline derived tags | `tags` | Snapshot extracted tags at import; envelope is authoritative. |
+| inline derived tags | `tags` | Snapshot at creation; an actual note-editor body save appends missing derived tags. Stored envelope tags remain authoritative and are never removed by body edits. |
 | `favorite` | `favorite` | Direct Boolean mapping. |
 | deletion timestamp | `deleted`, `deleted_at` | `deleted: true` plus normalized `deleted_at`; present exactly together. |
 | other properties | top-level user properties | Preserve scalars/lists/nested values verbatim; no reserved `x_` namespace in v2. |
 
-The writing panel also recognizes inline genre tags in the current draft. These affect the panel without synchronizing to the PDC envelope. Removing saved genre tags is a separate, source-digest-guarded metadata edit.
+The note editor shows stored and current-draft tags above the body, in the property area. An actual body change saved through the note editor appends missing inline tags to the canonical envelope in the same atomic, source-digest-guarded write. Existing tag spelling, order, comments, and sequence presentation survive; derived tags follow the existing NFC/lowercase extractor and are compared to stored tags using case-sensitive NFC equality. Removing a body tag does not remove a stored tag. Reads, indexing, automatic link rewrites, no-op saves, and metadata-only edits never infer or synchronize tags. The source-only PDC editor remains explicit. The writing panel recognizes both inline and stored genre tags; removing saved genre tags remains a separate guarded metadata edit.
 
 ## Implementation stages
 

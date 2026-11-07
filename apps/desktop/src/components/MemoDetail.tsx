@@ -36,7 +36,6 @@ import { ContextDock } from "./ContextDock";
 import { HistoryPanel } from "./HistoryPanel";
 import { PropertyPanel } from "./PropertyPanel";
 import { HtmlNoteEditor } from "./HtmlNoteEditor";
-import { TagChipRow } from "./TagChipRow";
 import { MemoEditorForm } from "./MemoEditorForm";
 import { SuggestionStrip } from "./SuggestionStrip";
 import { DigestButton } from "./DigestButton";
@@ -864,7 +863,7 @@ export function MemoDetail({
                       </div>
                     </div>
                   )}
-                  <PropertyPanel memo={memo.data} folder={folder || memo.data.folder} />
+                  <PropertyPanel memo={memo.data} folder={folder || memo.data.folder} body={body} />
                   {memo.data.format === "html" ? (
                     // IDE-style split panes keep their internal scrollers; pin
                     // the workspace to the scroller height so only the
@@ -876,7 +875,6 @@ export function MemoDetail({
                         body={body}
                         onChange={editBody}
                       />
-                      <TagChipRow body={body} />
                     </GPage>
                   ) : (
                     <GPage width={memoLayout === "immersive" ? "reading" : "full"} className="memo-sheet-body">

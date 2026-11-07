@@ -168,6 +168,7 @@ pub(crate) fn update(
     fmt: NoteFormat,
     mutation: Mutation,
     expected: Option<&str>,
+    sync_body_tags: bool,
 ) -> Result<WriteOutcome> {
     let meta = std::fs::symlink_metadata(path)?;
     if meta.file_type().is_symlink() || !meta.is_file() {
@@ -217,8 +218,12 @@ pub(crate) fn update(
     }
     let old_body = &source[doc.body_range.clone()];
     let body_changed = body != old_body;
-    // Envelope tags are authoritative. A body edit cannot replace them with
-    // inferred hashtags; tag metadata requires its own explicit mutation.
+    // Only explicit note saves infer tags; background link rewrites opt out.
+    let tag_edits = if body_changed && sync_body_tags {
+        derived_tag_edits(&original, fmt, body)
+    } else {
+        Vec::new()
+    };
     changes.retain(|(key, next)| original.get(YamlValue::String(key.clone())) != next.as_ref());
     if !body_changed && changes.is_empty() {
         return Ok(WriteOutcome::NoOp);
@@ -232,6 +237,9 @@ pub(crate) fn update(
     let mut envelope = source[start..end].to_string();
     for (key, next) in changes {
         envelope = patch_field(&envelope, &key, next)?;
+    }
+    if !tag_edits.is_empty() {
+        envelope = crate::pdc_documents::patch::apply(&envelope, &tag_edits)?;
     }
     let mut candidate = source.as_bytes()[..start].to_vec();
     candidate.extend_from_slice(envelope.as_bytes());
@@ -247,6 +255,51 @@ pub(crate) fn update(
         .map_err(|e| CoreError::other(e.to_string()))?;
     oxi_frontmatter::atomic_write(path, &candidate)?;
     Ok(WriteOutcome::Written)
+}
+
+/// Append only missing labels through YAML source ranges, retaining stored
+/// spelling, order, comments, quoting and sequence presentation.
+fn derived_tag_edits(
+    original: &Mapping,
+    fmt: NoteFormat,
+    body: &str,
+) -> Vec<crate::pdc_documents::PdcMetadataEdit> {
+    use crate::pdc_documents::PdcMetadataEdit;
+    use serde_json::Value as JsonValue;
+    use unicode_normalization::UnicodeNormalization;
+    let fmt = match fmt {
+        NoteFormat::Markdown => crate::memo::NoteFormat::Markdown,
+        NoteFormat::Html => crate::memo::NoteFormat::Html,
+    };
+    let derived = crate::memo::tags_of(fmt, body);
+    if derived.is_empty() {
+        return Vec::new();
+    }
+    let Some(stored) = original.get("tags") else {
+        return vec![PdcMetadataEdit {
+            path: "/tags".into(),
+            value: Some(JsonValue::Array(
+                derived.into_iter().map(JsonValue::String).collect(),
+            )),
+        }];
+    };
+    let Some(stored) = stored.as_sequence() else {
+        return Vec::new();
+    };
+    let mut edits = Vec::new();
+    for tag in derived {
+        if !stored.iter().any(|value| {
+            value
+                .as_str()
+                .is_some_and(|label| label.nfc().eq(tag.chars()))
+        }) {
+            edits.push(PdcMetadataEdit {
+                path: "/tags/-".into(),
+                value: Some(JsonValue::String(tag)),
+            });
+        }
+    }
+    edits
 }
 
 fn envelope_range(source: &str, fmt: NoteFormat) -> Option<(usize, usize)> {
@@ -327,7 +380,7 @@ pub(crate) fn write_document(
         .ok()
         .is_some_and(|source| crate::pdc_inventory::is_pdc_document(&source))
     {
-        return update(path, body, fmt, mutation, None).map_err(|e| {
+        return update(path, body, fmt, mutation, None, false).map_err(|e| {
             FrontmatterError::Unemittable {
                 reason: e.to_string(),
             }
@@ -384,7 +437,7 @@ mod tests {
             std::fs::write(&path, &source).unwrap();
             let sha = digest(source.as_bytes());
             assert_eq!(
-                update(&path, body, fmt, Mutation::default(), Some(&sha)).unwrap(),
+                update(&path, body, fmt, Mutation::default(), Some(&sha), true).unwrap(),
                 WriteOutcome::NoOp
             );
             assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
@@ -397,6 +450,7 @@ mod tests {
                     ..Default::default()
                 },
                 Some(&sha),
+                true,
             )
             .unwrap();
             let saved = std::fs::read_to_string(&path).unwrap();
@@ -413,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn body_edits_preserve_authoritative_tags_and_untouched_envelope_bytes() {
+    fn body_edits_additively_sync_tags_and_keep_other_envelope_bytes() {
         let vault = tempfile::tempdir().unwrap();
         for (name, fmt, body, replacement) in [
             (
@@ -433,7 +487,7 @@ mod tests {
             create(vault.path(), &path, body, fmt, &Default::default()).unwrap();
             let source = std::fs::read_to_string(&path).unwrap().replace(
                 "oximemo_editor: source",
-                "tags: ['owner-defined'] # Preserve spelling\ncustom: 'keep: this'\noximemo_editor: source",
+                "tags: ['owner-defined']\ncustom: 'keep: this'\noximemo_editor: source",
             );
             std::fs::write(&path, &source).unwrap();
             update(
@@ -442,6 +496,7 @@ mod tests {
                 fmt,
                 Mutation::default(),
                 Some(&digest(source.as_bytes())),
+                true,
             )
             .unwrap();
             let saved = std::fs::read_to_string(&path).unwrap();
@@ -449,11 +504,25 @@ mod tests {
                 panic!("body edit must remain canonical")
             };
             assert_eq!(&saved[doc.body_range], replacement);
+            // Stored spelling and order stay; the derived tag appends.
+            assert_eq!(
+                doc.envelope.get("tags"),
+                Some(&Yaml::Seq(vec![
+                    Yaml::Str("owner-defined".into()),
+                    Yaml::Str("inline-only".into())
+                ]))
+            );
+            assert!(saved.contains("custom: 'keep: this'"));
+            // Untouched envelope bytes survive byte-for-byte.
             let (before_start, before_end) = envelope_range(&source, fmt).unwrap();
             let (after_start, after_end) = envelope_range(&saved, fmt).unwrap();
             let unchanged = |text: &str| {
                 text.lines()
-                    .filter(|line| !line.starts_with("updated:"))
+                    .filter(|line| {
+                        !line.starts_with("updated:")
+                            && !line.starts_with("tags:")
+                            && !line.starts_with("- ")
+                    })
                     .map(str::to_owned)
                     .collect::<Vec<_>>()
             };
@@ -462,6 +531,211 @@ mod tests {
                 unchanged(&saved[after_start..after_end]),
             );
         }
+    }
+
+    #[test]
+    fn tag_union_folds_stored_labels_but_stays_case_sensitive() {
+        let vault = tempfile::tempdir().unwrap();
+        let path = vault.path().join("note.md");
+        create(
+            vault.path(),
+            &path,
+            "# Title\n\nBody",
+            NoteFormat::Markdown,
+            &Default::default(),
+        )
+        .unwrap();
+        // `Work` must not absorb the derived `work`; the non-NFC Hangul jamo
+        // label must fold to match the derived NFC `가`.
+        let nfd_old = "\u{1100}\u{1161}";
+        let source = std::fs::read_to_string(&path).unwrap().replace(
+            "oximemo_editor: source",
+            &format!("tags: ['Work', '{nfd_old}']\noximemo_editor: source"),
+        );
+        std::fs::write(&path, &source).unwrap();
+        update(
+            &path,
+            "# Title\n\nChanged #work #가 #fresh",
+            NoteFormat::Markdown,
+            Mutation::default(),
+            Some(&digest(source.as_bytes())),
+            true,
+        )
+        .unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        // The reopened projection surfaces the persisted union.
+        let (table, _) = projection(&saved, NoteFormat::Markdown).unwrap();
+        assert_eq!(
+            table.get("tags"),
+            Some(&Value::Array(vec![
+                "Work".into(),
+                nfd_old.into(),
+                "work".into(),
+                "fresh".into(),
+            ])),
+        );
+    }
+
+    #[test]
+    fn deleting_body_tags_never_deletes_stored_metadata_tags() {
+        let vault = tempfile::tempdir().unwrap();
+        let path = vault.path().join("note.md");
+        create(
+            vault.path(),
+            &path,
+            "# Title\n\nBody #alpha #beta",
+            NoteFormat::Markdown,
+            &Default::default(),
+        )
+        .unwrap();
+        let source = std::fs::read_to_string(&path).unwrap();
+        update(
+            &path,
+            "# Title\n\nCalm body without tags",
+            NoteFormat::Markdown,
+            Mutation::default(),
+            Some(&digest(source.as_bytes())),
+            true,
+        )
+        .unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let Classification::Valid(doc) = classify(DocumentExt::Markdown, saved.as_bytes()) else {
+            panic!("body edit must remain canonical")
+        };
+        assert_eq!(&saved[doc.body_range], "# Title\n\nCalm body without tags");
+        assert_eq!(
+            doc.envelope.get("tags"),
+            Some(&Yaml::Seq(vec![
+                Yaml::Str("alpha".into()),
+                Yaml::Str("beta".into())
+            ]))
+        );
+    }
+
+    #[test]
+    fn noop_and_metadata_only_saves_never_resync_tags() {
+        let vault = tempfile::tempdir().unwrap();
+        let path = vault.path().join("note.md");
+        create(
+            vault.path(),
+            &path,
+            "# Title\n\nBody",
+            NoteFormat::Markdown,
+            &Default::default(),
+        )
+        .unwrap();
+        // The body carries a tag the envelope does not know about; only a
+        // real body edit may sync it.
+        let source = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace(
+                "oximemo_editor: source",
+                "tags: ['kept']\noximemo_editor: source",
+            )
+            .replace("# Title\n\nBody", "# Title\n\nBody #outsider");
+        std::fs::write(&path, &source).unwrap();
+        let external_body = "# Title\n\nBody #outsider";
+
+        // Favorite-only save: tags stay untouched.
+        update(
+            &path,
+            external_body,
+            NoteFormat::Markdown,
+            Mutation {
+                favorite: Some(true),
+                ..Default::default()
+            },
+            Some(&digest(source.as_bytes())),
+            true,
+        )
+        .unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("tags: ['kept']"), "got: {saved}");
+        assert!(!saved.contains("- outsider"));
+
+        // Same-value save: semantic NoOp, file untouched.
+        assert_eq!(
+            update(
+                &path,
+                external_body,
+                NoteFormat::Markdown,
+                Mutation::default(),
+                Some(&digest(saved.as_bytes())),
+                true,
+            )
+            .unwrap(),
+            WriteOutcome::NoOp
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+    }
+
+    #[test]
+    fn stale_digest_refuses_a_would_be_tag_sync_without_writing() {
+        let vault = tempfile::tempdir().unwrap();
+        let path = vault.path().join("note.md");
+        create(
+            vault.path(),
+            &path,
+            "# Title\n\nBody",
+            NoteFormat::Markdown,
+            &Default::default(),
+        )
+        .unwrap();
+        let source = std::fs::read_to_string(&path).unwrap();
+        let external = source.replace("# Title\n\nBody", "# Title\n\nBody #external");
+        std::fs::write(&path, &external).unwrap();
+        let error = update(
+            &path,
+            "# Title\n\nLocal edit #local-only",
+            NoteFormat::Markdown,
+            Mutation::default(),
+            Some(&digest(source.as_bytes())),
+            true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("external_change_conflict"));
+        // Neither the body edit nor the derived tag landed.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), external);
+    }
+
+    #[test]
+    fn crlf_body_edits_sync_tags_and_preserve_source_bytes() {
+        let vault = tempfile::tempdir().unwrap();
+        let path = vault.path().join("note.md");
+        create(
+            vault.path(),
+            &path,
+            "# Title\n\nBody",
+            NoteFormat::Markdown,
+            &Default::default(),
+        )
+        .unwrap();
+        let source = std::fs::read_to_string(&path).unwrap().replace(
+            "oximemo_editor: source",
+            "# Keep this comment\ncustom: 'a: b'\noximemo_editor: source",
+        );
+        std::fs::write(&path, &source).unwrap();
+        let crlf_body = "# Title\r\n\r\nChanged #inline-only\r\n";
+        update(
+            &path,
+            crlf_body,
+            NoteFormat::Markdown,
+            Mutation::default(),
+            Some(&digest(source.as_bytes())),
+            true,
+        )
+        .unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let Classification::Valid(doc) = classify(DocumentExt::Markdown, saved.as_bytes()) else {
+            panic!("CRLF body edit must remain canonical")
+        };
+        // The saved body is stored byte-for-byte, CRLF endings included.
+        assert_eq!(&saved[doc.body_range], crlf_body);
+        assert_eq!(
+            doc.envelope.get("tags"),
+            Some(&Yaml::Seq(vec![Yaml::Str("inline-only".into())]))
+        );
+        assert!(saved.contains("# Keep this comment\ncustom: 'a: b'\noximemo_editor: source"));
     }
 
     #[test]
@@ -485,6 +759,7 @@ mod tests {
             NoteFormat::Markdown,
             Mutation::default(),
             Some(&digest(&source)),
+            true,
         )
         .unwrap_err();
         assert!(error.to_string().contains("external_change_conflict"));
@@ -514,5 +789,117 @@ mod tests {
         ));
         assert!(projection(&source, NoteFormat::Markdown).is_none());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+    }
+
+    #[test]
+    fn background_link_rewrite_preserves_tag_metadata() {
+        let vault = tempfile::tempdir().unwrap();
+        let path = vault.path().join("note.md");
+        create(
+            vault.path(),
+            &path,
+            "# Title\nBody",
+            NoteFormat::Markdown,
+            &Default::default(),
+        )
+        .unwrap();
+        let source = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace(
+                "oximemo_editor: source",
+                "tags: ['owner'] # keep\noximemo_editor: source",
+            )
+            .replace("# Title\nBody", "# Title\n[[Old]] #outside");
+        std::fs::write(&path, &source).unwrap();
+        let body = "# Title\n[[New]] #outside";
+        write_document(
+            &path,
+            body,
+            NoteFormat::Markdown,
+            Mutation::default(),
+            Synthesize::No,
+            OffsetDateTime::now_utc(),
+        )
+        .unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("tags: ['owner'] # keep\n"));
+        let Classification::Valid(doc) = classify(DocumentExt::Markdown, saved.as_bytes()) else {
+            panic!("background rewrite must remain canonical")
+        };
+        assert_eq!(&saved[doc.body_range], body);
+        assert_eq!(
+            doc.envelope.get("tags"),
+            Some(&Yaml::Seq(vec![Yaml::Str("owner".into())]))
+        );
+    }
+
+    #[test]
+    fn tag_sync_preserves_comments_and_existing_sequence_source() {
+        let vault = tempfile::tempdir().unwrap();
+        for (index, (tags, expected)) in [
+            (
+                "tags: # header\n  - 'kept' # item\n  # middle\n  - second\n",
+                vec!["kept", "second", "fresh"],
+            ),
+            (
+                "tags: ['kept', # middle\n  second] # header\n",
+                vec!["kept", "second", "fresh"],
+            ),
+            ("tags: [] # header\n", vec!["fresh"]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let path = vault.path().join(format!("note-{index}.md"));
+            create(
+                vault.path(),
+                &path,
+                "# Title\nBody",
+                NoteFormat::Markdown,
+                &Default::default(),
+            )
+            .unwrap();
+            let source = std::fs::read_to_string(&path).unwrap().replace(
+                "oximemo_editor: source",
+                &format!("{tags}custom: 'keep: this'\noximemo_editor: source"),
+            );
+            std::fs::write(&path, &source).unwrap();
+            let body = "# Title\nChanged #fresh";
+            update(
+                &path,
+                body,
+                NoteFormat::Markdown,
+                Mutation::default(),
+                Some(&digest(source.as_bytes())),
+                true,
+            )
+            .unwrap();
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert!(saved.contains("# header\n"));
+            if tags.contains("# middle") {
+                assert!(saved.contains("# middle\n"));
+            }
+            if tags.contains("'kept'") {
+                assert!(saved.contains("'kept'"));
+            }
+            if tags.contains("# item") {
+                assert!(saved.contains("# item\n"));
+            }
+            assert!(saved.contains("custom: 'keep: this'\n"));
+            let Classification::Valid(doc) = classify(DocumentExt::Markdown, saved.as_bytes())
+            else {
+                panic!("commented tags must remain canonical")
+            };
+            assert_eq!(&saved[doc.body_range], body);
+            assert_eq!(
+                doc.envelope.get("tags"),
+                Some(&Yaml::Seq(
+                    expected
+                        .into_iter()
+                        .map(|tag| Yaml::Str(tag.into()))
+                        .collect()
+                ))
+            );
+        }
     }
 }
