@@ -34,6 +34,7 @@ import type { LucideIcon } from "lucide-react";
 import { useUI, type TagState } from "../stores/ui";
 import type { FolderDef, FolderEntry } from "../lib/types";
 import { keyLabel } from "../lib/platform";
+import { useTodayKey } from "../lib/relativeDay";
 import { NoteCtxMenu } from "./NoteCtxMenu";
 import { useFolderCreate } from "../lib/useFolderCreate";
 import "./TriTag.css";
@@ -58,6 +59,7 @@ export function Sidebar({
   onMoveFolderTree,
   noteActions,
   onRequestAdd,
+  onOpenToday,
 }: {
   onMoveNote: (id: string, folder: string) => void;
   /** Move a dragged folder subtree into a pinned/seeded row's folder. */
@@ -72,6 +74,8 @@ export function Sidebar({
   };
   /** 배경 메뉴의 새 노트 — CardGrid의 requestAdd 위임(스키마 추가 게이트 포함). */
   onRequestAdd: () => void;
+  /** 오늘의 데일리 노트를 연다(없으면 만든다) — CardGrid 의 openToday. */
+  onOpenToday?: () => void;
 }) {
   const { t, locale } = useI18n();
   const present = useIsPresent();
@@ -450,6 +454,7 @@ export function Sidebar({
             onClick={() => openFolder(dailyFolder)}
             onMoveNote={onMoveNote}
             onMoveFolderTree={onMoveFolderTree}
+            trailing={onOpenToday && <TodayButton onOpen={onOpenToday} />}
           />
         )}
         {/* The knowledge folder is a shipped system folder (migrate
@@ -1119,6 +1124,7 @@ function LocationCell({
   onClick,
   onMoveNote,
   onMoveFolderTree,
+  trailing,
 }: {
   path: string;
   icon: React.ReactNode;
@@ -1127,6 +1133,8 @@ function LocationCell({
   onClick: () => void;
   onMoveNote: (id: string, folder: string) => void;
   onMoveFolderTree?: (p: string, dest: string) => void;
+  /** 줄 끝에 붙는 별도 동작(데일리의 「오늘」). 줄 버튼 안에 넣으면 버튼 중첩이 되므로 형제로 둔다. */
+  trailing?: React.ReactNode;
 }) {
   const { dropCls, ...dropProps } = useFolderDrop(
     path,
@@ -1134,13 +1142,13 @@ function LocationCell({
     onMoveFolderTree ? (p) => onMoveFolderTree(p, path) : undefined,
   );
   return (
-    <div {...dropProps} className={dropCls ?? ""}>
+    <div {...dropProps} className={`${trailing ? "flex items-center gap-1 " : ""}${dropCls ?? ""}`}>
       <button
         type="button"
         onClick={onClick}
         title={label}
         aria-current={selected ? "page" : undefined}
-        className={`sidebar-nav-item flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs focus-visible:outline-2 focus-visible:outline-focus-ring ${
+        className={`sidebar-nav-item flex w-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-xs focus-visible:outline-2 focus-visible:outline-focus-ring ${
           selected
             ? "bg-surface-muted text-text"
             : "text-text-muted hover:bg-surface-muted hover:text-text transition-colors duration-150"
@@ -1149,7 +1157,34 @@ function LocationCell({
         {icon}
         <span className="truncate">{label}</span>
       </button>
+      {trailing}
     </div>
+  );
+}
+
+/**
+ * 데일리 줄 끝의 「오늘」 단추 (2026-11-11). 데일리 폴더를 열고 오늘 노트를 찾아 누르는 세 걸음을 한 걸음으로 줄인다.
+ * 줄 자체는 다른 폴더 줄처럼 폴더를 열고(관습 유지), 오늘 노트는 늘 보이는 이 단추가 맡는다 —
+ * 마우스를 올려야 보이면 「바로 가는 길」이 아니다. 글자는 오늘 날짜라 단추가 무엇을 여는지 스스로 말한다.
+ */
+function TodayButton({ onOpen }: { onOpen: () => void }) {
+  const { t, locale } = useI18n();
+  // 자정을 넘기면 글자와 여는 날이 함께 바뀌어야 한다 — 시간 지층과 같은 「오늘」 키를 쓴다.
+  const todayKey = useTodayKey();
+  const [, mm, dd] = todayKey.split("-").map(Number);
+  // Intl 의 한국어 꼴(「11. 11.」)은 좁은 단추에서 점과 빈칸이 글자보다 많아 보여 직접 짓는다.
+  const label = locale === "ko" ? `${mm}.${dd}` : `${mm}/${dd}`;
+  const hint = `${t.today_note} (${keyLabel("⌘⇧D")})`;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={hint}
+      aria-label={hint}
+      className="shrink-0 rounded-md border border-line px-1.5 py-0.5 text-[11px] tabular-nums text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-2 focus-visible:outline-focus-ring"
+    >
+      {label}
+    </button>
   );
 }
 

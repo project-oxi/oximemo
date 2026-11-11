@@ -32,6 +32,7 @@ import { useWorkspaceMotion } from "../lib/workspaceMotion";
 import { NO_MARGINS, marginLayout, sameMarginLayout, type MarginLayout } from "../lib/marginLayout";
 import { aliasList } from "../lib/backlinkContext";
 import { useI18n } from "../lib/i18n";
+import { keyLabel } from "../lib/platform";
 import { useFolderNames } from "../lib/folders";
 import { daysBetween, shiftISODate, todayLocalISO } from "../lib/dates";
 import { useUI } from "../stores/ui";
@@ -549,6 +550,36 @@ export function MemoDetail({
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   };
+  // 오늘의 노트로 (2026-11-11): 어느 메모를 보고 있든 저장을 마친 뒤 오늘 데일리로 넘어간다.
+  // 날짜 화살표와 같은 길(먼저 flush → openDailyNote → select)이라 쓰던 글이 사라지지 않는다.
+  const dailyEnabled = configQ.data?.daily?.enabled !== false;
+  const goToday = () => {
+    if (!dailyEnabled || dailyDate === today) return;
+    void (async () => {
+      while (dirtyRef.current || saveInFlight.current) await savePending();
+      return openDailyNote(today);
+    })()
+      .then(({ memo: m, created }) => {
+        qc.setQueryData(["memo", m.id], m);
+        select(m.id);
+        if (created) setDraftId(m.id, m.body);
+      })
+      .catch((e) => setError(String(e).split("\n")[0]));
+  };
+  const goTodayRef = useRef(goToday);
+  goTodayRef.current = goToday;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        goTodayRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
   const relLabel = (() => {
     if (!dailyDate) return null;
     const diff = daysBetween(today, dailyDate);
@@ -854,9 +885,23 @@ export function MemoDetail({
                   >
                     <ChevronLeft size={13} />
                   </IconTool>
-                  <span className="min-w-9 text-center text-[11px] text-text-subtle" data-daily-rel>
-                    {relLabel}
-                  </span>
+                  {dailyDate === today ? (
+                    <span className="min-w-9 text-center text-[11px] text-text-subtle" data-daily-rel>
+                      {relLabel}
+                    </span>
+                  ) : (
+                    // 지난 날을 보고 있으면 「3일 전」 글자 자체가 오늘로 가는 단추다 — 따로 「오늘」 단추를 더하지 않는다.
+                    <button
+                      type="button"
+                      onClick={goToday}
+                      data-daily-rel
+                      title={`${t.today_note} (${keyLabel("⌘⇧D")})`}
+                      aria-label={`${relLabel} · ${t.today_note}`}
+                      className="min-w-9 rounded-[var(--button-radius)] px-1 text-center text-[11px] text-text-muted underline decoration-dotted underline-offset-2 transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                    >
+                      {relLabel}
+                    </button>
+                  )}
                   <IconTool
                     onClick={() => goDaily(1)}
                     disabled={shiftISODate(dailyDate, 1) > today}

@@ -1055,6 +1055,16 @@ export function CardGrid() {
         setQuickAddOpen(!useUI.getState().quickAddOpen);
         return;
       }
+      // ⌘⇧D — 오늘의 데일리 노트 (2026-11-11). ⌘⇧T 와 같은 가드: 팔레트 · 설정 아래에서는 듣지 않는다.
+      // 메모 시트가 열려 있으면 시트가 저장을 마친 뒤 넘어가도록 MemoDetail 이 같은 키를 맡는다.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && key === "d") {
+        if (useUI.getState().selectedId) return;
+        if (cmdOpen) return;
+        if (useUI.getState().settingsOpen) return;
+        e.preventDefault();
+        openTodayRef.current();
+        return;
+      }
       // ⌘↑ / Ctrl↑ — navigate up one folder (no-op in query mode or at
       // root; inert under the palette modal). Mirrors the ⌘K branch: a
       // memo dialog open (selectedId) wins; without this guard the
@@ -1123,6 +1133,10 @@ export function CardGrid() {
       })
       .catch((e) => setError(String(e).split("\n")[0]));
   }, [configQ.data, setView, select, setDraftId, setError, qc]);
+
+  // 단축키 effect 는 openToday 보다 먼저 선언돼 있어 최신 콜백을 ref 로 읽는다.
+  const openTodayRef = useRef(openToday);
+  openTodayRef.current = openToday;
 
   // Bridge row: graduate the palette's transient query into the
   // persistent header search, in global query mode.
@@ -1479,6 +1493,7 @@ export function CardGrid() {
           {!sidebarCollapsed && (
             <Sidebar
               key="sidebar"
+              onOpenToday={openToday}
               onMoveNote={onMoveFolder}
               onMoveFolderTree={moveFolderTree}
               noteActions={{
@@ -1794,6 +1809,7 @@ export function CardGrid() {
         {!sidebarCollapsed && (
         <Sidebar
           key="sidebar"
+          onOpenToday={openToday}
           onMoveNote={onMoveFolder}
           onMoveFolderTree={moveFolderTree}
           noteActions={{

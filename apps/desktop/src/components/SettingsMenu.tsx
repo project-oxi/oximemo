@@ -2237,6 +2237,7 @@ export function SettingsMenu() {
                         [t.shortcut_palette, keyLabel("⌘K")],
                         [t.shortcut_new_note, keyLabel("⌘N")],
                         [t.capture_shortcut, keyLabel("⌘⇧N")],
+                        [t.today_note, keyLabel("⌘⇧D")],
                         [t.shortcut_goto_root, keyLabel("⌘↑")],
                       ] as const
                     ).map(([label, keys]) => (
