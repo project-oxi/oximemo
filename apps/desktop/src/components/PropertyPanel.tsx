@@ -44,6 +44,7 @@ import { inferredType } from "../lib/tableModel";
 import { isComposingKey } from "../lib/editorKeys";
 import { PropCellEditor } from "./propEditors";
 import { AnimatedDisclosure } from "./AnimatedDisclosure";
+import { TagChipRow } from "./TagChipRow";
 import { CtxItem, CtxMenu, CtxRoot, CtxSeparator, CtxTrigger } from "./ContextMenu";
 
 function members(v: PropValue | undefined): string[] {
@@ -494,7 +495,7 @@ function MetadataFill({
   );
 }
 
-export const PropertyPanel = reactMemo(function PropertyPanel({ memo, folder }: { memo: Memo; folder: string }) {
+export const PropertyPanel = reactMemo(function PropertyPanel({ memo, folder, body }: { memo: Memo; folder: string; body: string }) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const draftId = useUI((s) => s.draftId);
@@ -594,6 +595,10 @@ export const PropertyPanel = reactMemo(function PropertyPanel({ memo, folder }: 
 
   return (
     <div className="note-properties flex shrink-0 flex-col gap-1.5 border-b border-line pb-2.5">
+      {/* Tag chips stay outside the disclosure so they remain visible while
+          properties are collapsed. They read the live draft body — no saves
+          here, the backend unions derived tags into the envelope on save. */}
+      <TagChipRow body={body} storedTags={memo.tags} format={memo.format} />
       <button
         type="button"
         aria-expanded={expanded}

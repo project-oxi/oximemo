@@ -1,0 +1,50 @@
+/* Shared panel resize handle (workspace sidebar + memo writing inspector).
+ * One mechanism: the handle lives fully inside its panel's inner edge — the
+ * hit area is the visible strip itself, never a pointer-eating overlay
+ * outside it. Hover/focus/drag light the 3px indicator line. */
+.panel-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 30;
+}
+.panel-resize-handle[data-side="start"] { right: 0; }
+.panel-resize-handle[data-side="end"] { left: 0; }
+.panel-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: transparent;
+  transition: background var(--dur-fast);
+}
+.panel-resize-handle[data-side="start"]::after { right: 3px; }
+.panel-resize-handle[data-side="end"]::after { left: 3px; }
+.panel-resize-handle:hover::after,
+.panel-resize-handle:focus-visible::after,
+.panel-resize-handle[data-dragging="true"]::after {
+  background: var(--color-selection);
+}
+.panel-resize-handle:focus-visible {
+  outline: var(--rule-width) solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+/* While a drag runs, keep the column cursor and stop text selection. */
+html[data-panel-resizing],
+html[data-panel-resizing] * { cursor: col-resize; }
+html[data-panel-resizing] { user-select: none; -webkit-user-select: none; }
+
+/* Consumer visibility: the compact ≤700px overlay sidebar keeps its fixed
+ * CSS width, and the stacked writing inspector (container < 700px) has no
+ * width column to drag. */
+@media (max-width: 700px) {
+  .glass-sidebar > .panel-resize-handle { display: none; }
+}
+@container memo-writing (max-width: 699px) {
+  .memo-writing-panel .panel-resize-handle { display: none; }
+}

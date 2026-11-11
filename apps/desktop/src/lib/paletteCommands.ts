@@ -24,7 +24,7 @@ export type PaletteIcon =
   | "layers" | "star" | "images" | "archive" | "calendar" | "folder"
   | "hash" | "grid" | "list" | "timeline" | "graph" | "sidebar"
   | "note-md" | "note-html" | "folder-plus" | "zap" | "settings"
-  | "sun" | "moon" | "monitor" | "library" | "table" | "sparkles";
+  | "sun" | "moon" | "monitor" | "library" | "table" | "sparkles" | "word-lookup";
 
 export interface PaletteCommand {
   /** Stable identity for the recency log (e.g. "folder:work/2026"). */
@@ -62,6 +62,7 @@ export interface CommandCallbacks {
   /** Request folder creation in the main area (CardGrid effect). */
   newFolder: () => void;
   quickCapture: () => void;
+  openWordLookup?: () => void;
   /** Open the review queue in a `[review]`-declared folder (§7.3). Absent
    *  when no folder declares one — the catalog is state-driven. */
   openReviewQueue?: (folder: string) => void;
@@ -261,6 +262,10 @@ export function buildCommands(deps: CommandDeps): PaletteCommand[] {
   }
   const nf = pair(locale, "folder_new");
   add("action.new_folder", "folder-plus", nf.title, nf.alias, "action", callbacks.newFolder);
+  if (callbacks.openWordLookup) {
+    const dictionary = pair(locale, "word_lookup");
+    add("action.word_lookup", "word-lookup", dictionary.title, dictionary.alias, "action", callbacks.openWordLookup);
+  }
   const st = pair(locale, "settings");
   add("action.settings", "settings", st.title, st.alias, "action", callbacks.openSettings);
   if (callbacks.openSpacePicker) {

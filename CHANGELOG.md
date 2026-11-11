@@ -5,10 +5,41 @@ All notable changes to oximemo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.21.0] — 2026-10-25
+## [Unreleased]
+
+### Changed
+
+- **Actionable writing review.** AI review returns original passages, proposed
+  rewrites, and contextual reasons. Apply or Ignore advances to the next
+  suggestion; resolved decisions remain visible while switching writing tabs.
+  Applying a revision requires an unchanged source snapshot and a unique exact
+  match, and uses the editor's guarded save path. Review requests use the live
+  draft and disclose the 16,000-character prefix limit. Removed the sentence
+  guide and the old phrase/length/character-fact checker.
+- **Repeated continuation requests.** Each request now includes the current
+  editor prefix, including unsaved prior suggestions. Responses cannot insert
+  into an edited or replaced document, and the button recovers after each
+  completed request, including under React StrictMode.
+- **Resizable sidebars.** Navigation and writing/word-lookup inspector widths
+  can be adjusted and are remembered between sessions. Narrow layouts keep
+  their existing overlay/stacked arrangement.
+
+## [0.21.2] — 2026-11-04
 
 ### Added
 
+- **Writing tools.** Enable the writing panel in Settings and tag a Markdown
+  note with `#writing`, `#novel`, `#screenplay`, `#essay`, or `#column`.
+  The panel checks Korean prose and character details locally, offers
+  character cards and scenario notes, and estimates manuscript length.
+- **EPUB export.** Select and order chapter notes from the same folder, then
+  preview and export them as one book. The export excludes writing notes.
+- **Korean word lookup.** Choose a downloadable offline dictionary with
+  20,056, 60,000, or 200,000 entries. Add a folder glossary for names and
+  terms specific to a project. Word lookup is also available from the command
+  palette.
+- **Windows x64 desktop builds.** The release includes an NSIS installer and
+  a standalone CLI archive for Windows.
 - **Custom context menus across surfaces.** Notes, tasks, properties, editor
   text, view tabs, chips, and the copilot panel get right-click menus with
   keyboard navigation and localized labels: open/copy/remove property values,

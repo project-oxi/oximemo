@@ -299,6 +299,9 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Preserve repository line endings
+        shell: pwsh
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
@@ -317,10 +320,17 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: apps/desktop
+        shell: pwsh
         run: bun install --frozen-lockfile
+
+      - name: Repair Windows workspace links
+        working-directory: apps/desktop
+        shell: pwsh
+        run: node scripts/fix-windows-workspace-links.mjs
 
       - name: Build frontend
         working-directory: apps/desktop
+        shell: pwsh
         run: bun run build
 
       - name: Build CLI binary
@@ -387,6 +397,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: actions/download-artifact@v5
         with:
@@ -416,6 +428,9 @@ jobs:
           node -e '
             const fs = require("fs");
             const files = fs.readdirSync("staging");
+            if (process.env.TAG !== "v" + process.env.VERSION) {
+              throw new Error("Updater manifest version does not match the release tag");
+            }
             const base = "https://github.com/" + process.env.REPO + "/releases/download/" + process.env.TAG + "/";
             const platforms = {};
             for (const [key, re] of [
@@ -424,10 +439,15 @@ jobs:
             ]) {
               const asset = files.find((f) => re.test(f) && files.includes(f + ".sig"));
               if (!asset) continue;
+              const signature = fs.readFileSync("staging/" + asset + ".sig", "utf8").trim();
+              if (!signature) continue;
               platforms[key] = {
-                signature: fs.readFileSync("staging/" + asset + ".sig", "utf8").trim(),
+                signature,
                 url: base + encodeURIComponent(asset),
               };
+            }
+            if (process.env.REPO === "project-oxi/oximemo" && Object.keys(platforms).length !== 2) {
+              throw new Error("Official releases require signed macOS and Windows updater assets");
             }
             if (Object.keys(platforms).length === 0) {
               console.log("No .sig found — skipping latest.json (updater disabled)");
@@ -473,5 +493,7 @@ jobs:
   publish-crates:
     name: Publish to crates.io
     needs: release
+    # These desktop releases ship the CLI binary with local-only registry dependencies.
+    if: "!contains(fromJSON('[\"v0.21.1\",\"v0.21.2\"]'), github.event.inputs.tag || github.ref_name)"
     uses: ./.github/workflows/publish-crates.yml
     secrets: inherit

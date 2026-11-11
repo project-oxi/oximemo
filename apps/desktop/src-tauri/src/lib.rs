@@ -17,6 +17,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 // the fetch_* bodies in metadata.rs for the follow-up notes.
 mod capture;
 mod copilot;
+mod writing_lexicon;
 
 pub struct AppState {
     pub vault: Arc<oximemo_core::Vault>,
@@ -541,6 +542,11 @@ pub fn run() {
             commands::space_list,
             commands::space_create,
             commands::space_switch,
+            commands::save_writing_epub,
+            writing_lexicon::writing_lexicon_installed,
+            writing_lexicon::install_writing_lexicon,
+            writing_lexicon::remove_writing_lexicon,
+            writing_lexicon::lookup_writing_lexicon,
             commands::save_image_bytes,
             commands::list_assets,
             commands::gc_assets,
@@ -1668,7 +1674,38 @@ mod commands {
         Ok(receipt)
     }
 
-    /// Save a PDC 2 title/body edit only if the source digest still matches.
+    #[derive(serde::Deserialize)]
+    pub enum MetadataTagRemoval {
+        All,
+        Indices(Vec<usize>),
+    }
+
+    impl MetadataTagRemoval {
+        pub(crate) fn into_edits(self) -> Vec<oximemo_core::pdc_documents::PdcMetadataEdit> {
+            use oximemo_core::pdc_documents::PdcMetadataEdit;
+            match self {
+                // The optional key can be removed even for an unindented YAML sequence.
+                Self::All => vec![PdcMetadataEdit {
+                    path: "/tags".into(),
+                    value: None,
+                }],
+                Self::Indices(mut indices) => {
+                    indices.sort_unstable();
+                    indices.dedup();
+                    indices
+                        .into_iter()
+                        .rev()
+                        .map(|index| PdcMetadataEdit {
+                            path: format!("/tags/{index}"),
+                            value: None,
+                        })
+                        .collect()
+                }
+            }
+        }
+    }
+
+    /// Save a PDC 2 edit only if the source digest still matches.
     #[tauri::command(async)]
     pub fn pdc_update_document(
         state: State<'_, AppState>,
@@ -1677,14 +1714,31 @@ mod commands {
         expected_sha256: String,
         title: Option<String>,
         body: Option<String>,
+        remove_tags: Option<MetadataTagRemoval>,
     ) -> Result<oximemo_core::pdc_inventory::PdcSource, String> {
-        let source = oximemo_core::pdc_documents::update_document(
-            state.vault.paths(),
-            &path,
-            &expected_sha256,
-            title.as_deref(),
-            body.as_deref(),
-        )
+        use oximemo_core::pdc_documents::{update_document, update_document_with_edits};
+        let edits = remove_tags
+            .map(MetadataTagRemoval::into_edits)
+            .unwrap_or_default();
+        let paths = state.vault.paths();
+        let source = if edits.is_empty() {
+            update_document(
+                paths,
+                &path,
+                &expected_sha256,
+                title.as_deref(),
+                body.as_deref(),
+            )
+        } else {
+            update_document_with_edits(
+                paths,
+                &path,
+                &expected_sha256,
+                title.as_deref(),
+                body.as_deref(),
+                &edits,
+            )
+        }
         .map_err(|error| error.to_string())?;
         let _ = app.emit("memos:changed", ());
         Ok(source)
@@ -2728,6 +2782,74 @@ mod commands {
         Ok(())
     }
 
+    /// Saves a generated ebook to the location confirmed in the native dialog.
+    #[tauri::command(async)]
+    pub fn save_writing_epub(
+        window: tauri::WebviewWindow,
+        file_name: String,
+        base64_data: String,
+    ) -> Result<bool, String> {
+        use base64::Engine;
+        use std::io::Write;
+        use tauri_plugin_dialog::DialogExt;
+
+        if window.label() != "main" {
+            return Err("EPUB export requires the main window".into());
+        }
+        // Only a suggested basename crosses IPC. The OS dialog owns the path.
+        if file_name.len() > 255
+            || file_name.starts_with('.')
+            || !file_name.ends_with(".epub")
+            || file_name.chars().any(|ch| {
+                ch.is_control()
+                    || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+            })
+        {
+            return Err("Invalid EPUB filename".into());
+        }
+        const MAX_EPUB_BYTES: usize = 64 * 1024 * 1024;
+        if base64_data.len() > MAX_EPUB_BYTES.div_ceil(3) * 4 {
+            return Err("EPUB exceeds the 64 MiB export limit".into());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(base64_data)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() > MAX_EPUB_BYTES {
+            return Err("EPUB exceeds the 64 MiB export limit".into());
+        }
+        // Check the mandatory first ZIP member before opening the save dialog.
+        if !bytes.starts_with(b"PK\x03\x04")
+            || bytes.get(8..10) != Some(&[0, 0])
+            || bytes.get(26..30) != Some(&[8, 0, 0, 0])
+            || bytes.get(30..58) != Some(b"mimetypeapplication/epub+zip")
+        {
+            return Err("Invalid EPUB container".into());
+        }
+        let Some(path) = window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name(file_name)
+            .add_filter("EPUB", &["epub"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        if !path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("epub"))
+        {
+            return Err("The destination must have an .epub extension".into());
+        }
+        let parent = path.parent().ok_or("Invalid EPUB destination")?;
+        let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+        temp.write_all(&bytes).map_err(|e| e.to_string())?;
+        temp.as_file().sync_all().map_err(|e| e.to_string())?;
+        temp.persist(path).map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
     // -- image assets ----------------------------------------------------
 
     #[tauri::command(async)]
@@ -2803,7 +2925,11 @@ mod commands {
         // The externalBin sidecar lands in Contents/MacOS/ next to the main
         // binary, under its base name — Tauri strips the `-<triple>` suffix
         // during bundling (input `oximemo-<triple>` → bundled `oximemo`).
-        Some(dir.join(if cfg!(windows) { "oximemo.exe" } else { "oximemo" }))
+        Some(dir.join(if cfg!(windows) {
+            "oximemo.exe"
+        } else {
+            "oximemo"
+        }))
     }
     fn user_cli_link() -> Option<PathBuf> {
         std::env::var_os("HOME").map(|home| {
@@ -2859,7 +2985,11 @@ mod commands {
             let on_path = std::env::var_os("PATH").is_some_and(|p| {
                 std::env::split_paths(&p).any(|d| d.join("oximemo.exe").is_file())
             });
-            return Ok(if on_path { CliState::Installed } else { CliState::NotInstalled });
+            return Ok(if on_path {
+                CliState::Installed
+            } else {
+                CliState::NotInstalled
+            });
         }
         #[allow(unreachable_code)]
         let Some(bundled) = bundled_cli_path() else {
@@ -3401,6 +3531,12 @@ mod commands {
         if !crate::copilot::SUGGEST_KINDS.contains(&kind.as_str()) {
             return Err(format!("unknown suggest kind '{kind}'"));
         }
+        // Review reads the LIVE editor snapshot: a MISSING text argument is
+        // a caller bug, but an explicitly empty editor is a real (empty)
+        // source — never a silent fallback to the on-disk body.
+        if kind == "review" && text.is_none() {
+            return Err("review suggestion requires the request text".to_string());
+        }
         let cfg = state.vault.with_config(|c| c.copilot.clone());
         if !cfg.enabled || cfg.agent.is_empty() || cfg.executable.is_empty() {
             return Err("copilot agent is not activated".to_string());
@@ -3431,14 +3567,32 @@ mod commands {
         let vault_root = state.vault.paths().vault.clone();
 
         // Note facts + vault vocabulary are disk reads — off the async path.
-        let request = {
+        // Review and continuation honor the LIVE editor snapshot instead of
+        // the on-disk body (an explicitly empty snapshot is still the truth)
+        // and skip the vault vocabulary their prompts never consume.
+        let is_review = kind == "review";
+        let is_live = is_review || kind == "continue";
+        let (request, review_truncated) = {
             let vault = state.vault.clone();
             let kind = kind.clone();
             let memo_id_for_note = memo_id.clone();
-            let text = text.unwrap_or_default();
-            tokio::task::spawn_blocking(move || -> Result<String, String> {
+            let snapshot = text;
+            tokio::task::spawn_blocking(move || -> Result<(String, bool), String> {
+                // Continuation joins the fresh end of the document, so a
+                // supplied snapshot contributes its TAIL, not its head.
+                let live_body = if kind == "continue" {
+                    snapshot.as_deref().map(crate::copilot::snapshot_tail)
+                } else {
+                    None
+                };
                 let note_parts = match memo_id_for_note.as_deref() {
-                    Some(id) => {
+                    // Review needs no note facts — the snapshot is the source.
+                    Some(id) if kind == "continue" && snapshot.is_some() => {
+                        let mid = MemoId::parse(id).map_err(|e| e.to_string())?;
+                        let summary = vault.get_note_summary(mid).map_err(|e| e.to_string())?;
+                        Some((summary.title.unwrap_or_default(), summary.tags, String::new()))
+                    }
+                    Some(id) if !is_review => {
                         let mid = MemoId::parse(id).map_err(|e| e.to_string())?;
                         let summary = vault.get_note_summary(mid).map_err(|e| e.to_string())?;
                         let memo = vault.get_memo(mid).map_err(|e| e.to_string())?;
@@ -3448,40 +3602,54 @@ mod commands {
                             memo.body.clone(),
                         ))
                     }
-                    None => None,
+                    _ => None,
                 };
-                let note =
-                    note_parts
-                        .as_ref()
-                        .map(|(title, tags, body)| crate::copilot::SuggestNote {
-                            id: memo_id_for_note.as_deref().unwrap_or(""),
-                            title,
-                            tags,
-                            body,
-                        });
-                let vault_tags: Vec<String> = vault
-                    .list_facets()
-                    .map(|f| f.tags.iter().take(30).map(|(t, _)| t.clone()).collect())
-                    .unwrap_or_default();
-                let related_titles: Vec<String> = match memo_id_for_note
+                let has_note = note_parts.is_some();
+                let (title, tags, disk_body) = note_parts.unwrap_or_default();
+                let note_body = live_body.unwrap_or(disk_body);
+                let note = (!is_review && has_note).then(|| {
+                    crate::copilot::SuggestNote {
+                        id: memo_id_for_note.as_deref().unwrap_or(""),
+                        title: &title,
+                        tags: &tags,
+                        body: &note_body,
+                    }
+                });
+                let (vault_tags, related_titles) = if is_live {
+                    (Vec::new(), Vec::new())
+                } else {
+                    let vault_tags: Vec<String> = vault
+                        .list_facets()
+                        .map(|f| f.tags.iter().take(30).map(|(t, _)| t.clone()).collect())
+                        .unwrap_or_default();
+                    let related_titles: Vec<String> = match memo_id_for_note
+                        .as_deref()
+                        .and_then(|id| MemoId::parse(id).ok())
+                    {
+                        Some(mid) => vault
+                            .related_memos(mid, 12)
+                            .map(|sums| sums.iter().filter_map(|s| s.title.clone()).collect())
+                            .unwrap_or_default(),
+                        None => Vec::new(),
+                    };
+                    (vault_tags, related_titles)
+                };
+                // review_truncated is computed from the source actually
+                // sent — the same cap the prompt's disclosed cut uses —
+                // never from the model's answer.
+                let over_cap = snapshot
                     .as_deref()
-                    .and_then(|id| MemoId::parse(id).ok())
-                {
-                    Some(mid) => vault
-                        .related_memos(mid, 12)
-                        .map(|sums| sums.iter().filter_map(|s| s.title.clone()).collect())
-                        .unwrap_or_default(),
-                    None => Vec::new(),
-                };
-                crate::copilot::suggest_request(
+                    .is_some_and(|t| t.chars().count() > crate::copilot::SUGGEST_BODY_MAX_CHARS);
+                let request = crate::copilot::suggest_request(
                     &kind,
                     note.as_ref(),
                     &crate::copilot::SuggestVocab {
                         vault_tags: &vault_tags,
                         related_titles: &related_titles,
                     },
-                    &text,
-                )
+                    snapshot.as_deref().unwrap_or_default(),
+                )?;
+                Ok((request, is_review && over_cap))
             })
             .await
             .map_err(|e| format!("suggest facts join: {e}"))??
@@ -3526,7 +3694,13 @@ mod commands {
             "oxicode" => crate::copilot::parse_oxicode_jsonl(&outcome.stdout),
             _ => crate::copilot::parse_agent_json(&outcome.stdout).0,
         };
-        let result = crate::copilot::parse_suggest_json(&response_text)?;
+        let mut result = crate::copilot::parse_suggest_json_kind(&response_text, &kind)?;
+        // Truncation truth comes from the source we actually sent, never
+        // from the model — and a truncated review is never silently
+        // collapsed into a full-clear verdict.
+        if is_review {
+            result.review_truncated = Some(review_truncated);
+        }
         // Observation, not causality (§9.4): the advisory turn must not
         // write, but the agent owns its own policy — surface any change.
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
@@ -4456,6 +4630,67 @@ mod tests {
         assert_eq!(systemtime_to_ms(ms_to_systemtime(ms)), ms);
         // Pre-epoch clamp: SystemTime before UNIX_EPOCH maps to 0, never panics.
         assert_eq!(systemtime_to_ms(std::time::UNIX_EPOCH), 0);
+    }
+
+    #[test]
+    fn stored_writing_tag_removal_preserves_source_and_rejects_a_stale_digest() {
+        use super::commands::MetadataTagRemoval;
+        use oximemo_core::pdc_documents::{
+            PdcBodyProfile, PdcCreateRequest, create_document, update_document_with_edits,
+        };
+        use oximemo_core::pdc_inventory::read_source;
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = oximemo_core::Paths {
+            vault: dir.path().join("vault"),
+            index_dir: dir.path().join("index"),
+        };
+        std::fs::create_dir_all(&paths.vault).unwrap();
+        let note = create_document(
+            &paths,
+            PdcCreateRequest {
+                folder: String::new(),
+                title: "Chapter".into(),
+                body: "Original body.\n".into(),
+                body_profile: PdcBodyProfile::Markdown,
+                tags: vec!["writing".into(), "keep".into(), "novel".into()],
+                properties: vec![],
+            },
+        )
+        .unwrap();
+        let path = paths.vault.join(&note.path);
+        let source = std::fs::read_to_string(&path).unwrap().replace(
+            "tags:\n- writing\n- keep\n- novel",
+            "tags:\n- writing\n- 'keep' # preserve this comment\n- novel",
+        );
+        std::fs::write(&path, &source).unwrap();
+        let before = read_source(&paths, &note.path).unwrap();
+        let removal: MetadataTagRemoval = serde_json::from_str(r#"{"Indices":[0,2]}"#).unwrap();
+        let edits = removal.into_edits();
+        let after =
+            update_document_with_edits(&paths, &note.path, &before.sha256, None, None, &edits)
+                .unwrap();
+        assert!(
+            after
+                .content
+                .contains("tags:\n- 'keep' # preserve this comment\n")
+        );
+        assert!(!after.content.contains("- writing"));
+        assert!(!after.content.contains("- novel"));
+        assert_eq!(after.editable_body, before.editable_body);
+
+        let removal: MetadataTagRemoval = serde_json::from_str(r#""All""#).unwrap();
+        let clear = removal.into_edits();
+        let conflict =
+            update_document_with_edits(&paths, &note.path, &before.sha256, None, None, &clear)
+                .unwrap_err();
+        assert!(conflict.to_string().contains("external_change_conflict"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), after.content);
+        let cleared =
+            update_document_with_edits(&paths, &note.path, &after.sha256, None, None, &clear)
+                .unwrap();
+        assert!(!cleared.content.contains("\ntags:"));
+        assert_eq!(cleared.editable_body, before.editable_body);
     }
 
     /// The git auto-commit consumer: a settled path under the vault must

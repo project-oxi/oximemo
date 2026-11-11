@@ -108,6 +108,16 @@ export async function updateMemo(
   return invoke<Memo>("update_memo", { id, body, favorite, props: props ?? null, expectedSha256: expectedSha256 ?? null });
 }
 
+export function removeMemoMetadataTags(path: string, expectedSha256: string, removeTags: "All" | { Indices: number[] }) {
+  return invoke<{ sha256: string }>("pdc_update_document", {
+    path,
+    expectedSha256,
+    title: null,
+    body: null,
+    removeTags,
+  });
+}
+
 export async function brainStatus(): Promise<BrainStatus> {
   return invoke<BrainStatus>("brain_status");
 }
@@ -423,7 +433,17 @@ export type SuggestKind =
   | "all"
   | "continue"
   | "query"
+  | "review"
   | "digest";
+
+/** One proposed rewrite from a review turn. `original` is an exact,
+ * unique contiguous substring of the reviewed source — the backend never
+ * trims or truncates it, so the editor can match it literally. */
+export interface WritingRevision {
+  original: string;
+  replacement: string;
+  reason: string;
+}
 
 /** One parsed suggestion payload from `copilot_suggest`. Fields are
  * optional — the agent decides which sections have content; the backend
@@ -435,6 +455,13 @@ export interface SuggestResult {
   continuation?: string;
   base?: string;
   markdown?: string;
+  /** Proposed rewrites (kind "review"); an empty array is a legitimate
+   * full-clear verdict, validated backend-side. */
+  revisions?: WritingRevision[];
+  /** True when the reviewed source was cut to the excerpt cap — findings
+   * cover a prefix of the document; computed backend-side, never by the
+   * model. */
+  review_truncated?: boolean;
 }
 
 /** One stateless suggestion turn (JSON-only agent answer). Throws when no

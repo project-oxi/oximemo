@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::pdc_inventory::{PdcSource, read_source};
 use crate::{CoreError, Paths, Result};
 
-mod patch;
+pub(crate) mod patch;
 
 /// One guarded metadata edit. Paths use RFC 6901 JSON Pointer syntax.
 /// `Some(null)` sets null; `None` removes the selected property or array item.

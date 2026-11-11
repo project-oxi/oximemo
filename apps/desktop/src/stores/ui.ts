@@ -69,6 +69,8 @@ interface UIState {
   selectedId: string | null;
   select: (id: string | null) => void;
   /** Note window layout, remembered independently of document data. */
+  writingTools: boolean;
+  setWritingTools: (enabled: boolean) => void;
   memoLayout: MemoLayout;
   setMemoLayout: (layout: MemoLayout) => void;
   /** tag -> filter state (3-state cycle). Absent = "off". */
@@ -229,6 +231,7 @@ interface UIState {
 }
 
 const COLLAPSED_KEY = "oximemo.sidebarCollapsed";
+const WRITING_TOOLS_KEY = "oximemo.writingTools";
 const MEMO_LAYOUT_KEY = "oximemo.memoLayout";
 const QUERY_VIEW_KEY = "oximemo.queryView";
 const CALENDAR_FIELD_KEY = "oximemo.calendarField";
@@ -236,6 +239,14 @@ const CALENDAR_FIELD_KEY = "oximemo.calendarField";
 function loadCollapsed(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(COLLAPSED_KEY) === "1";
+}
+
+function loadWritingTools(): boolean {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(WRITING_TOOLS_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 function loadMemoLayout(): MemoLayout {
@@ -341,6 +352,15 @@ export const useUI = create<UIState>((set, get) => ({
   setTheme: (t) => set({ theme: t }),
   selectedId: null,
   select: (id) => set({ selectedId: id }),
+  writingTools: loadWritingTools(),
+  setWritingTools: (enabled) => {
+    set({ writingTools: enabled });
+    try {
+      window.localStorage.setItem(WRITING_TOOLS_KEY, enabled ? "1" : "0");
+    } catch {
+      // Keep the preference usable for this session.
+    }
+  },
   memoLayout: loadMemoLayout(),
   setMemoLayout: (layout) => {
     set({ memoLayout: layout });

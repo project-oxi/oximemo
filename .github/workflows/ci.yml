@@ -85,11 +85,19 @@ jobs:
 
   frontend:
     name: Frontend (typecheck + build)
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: apps/desktop
     steps:
+      - name: Preserve PDC fixture bytes on Windows
+        if: runner.os == 'Windows'
+        working-directory: .
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v5
 
       - uses: oven-sh/setup-bun@v2
@@ -97,6 +105,9 @@ jobs:
           bun-version: "1.4.2"
 
       - run: bun install --frozen-lockfile
+      - if: runner.os == 'Windows'
+        run: node scripts/fix-windows-workspace-links.mjs
       - run: bun test src/lib src/stores
-      - run: bun run garden:doctor
+      - if: runner.os == 'macOS'
+        run: bun run garden:doctor
       - run: bun run build

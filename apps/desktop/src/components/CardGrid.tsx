@@ -81,6 +81,7 @@ import {
 import type { BaseRow, FolderCard, MemoSummary, NoteFormat, ViewMode } from "../lib/types";
 
 import { MemoDetail } from "./MemoDetail";
+import { WordLookupDialog } from "./WritingPanel";
 import { IconTool } from "./IconTool";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, BtnMenuRoot, BtnMenuTrigger, BtnMenuPopup, BtnMenuItem } from "./ContextMenu";
 import { TextCtxMenu } from "./TextCtxMenu";
@@ -144,6 +145,7 @@ export function CardGrid() {
   const setNoteView = useUI((s) => s.setNoteView);
   const [queryCalendarField, setQueryCalendarField] = useState(loadCalendarFieldQuery);
   const cycleTag = useUI((s) => s.cycleTag);
+  const [wordLookupOpen, setWordLookupOpen] = useState(false);
   const cmdPaletteOpen = useUI((s) => s.cmdPaletteOpen);
   const setCmdPaletteOpen = useUI((s) => s.setCmdPaletteOpen);
   const setQuickAddOpen = useUI((s) => s.setQuickAddOpen);
@@ -1227,6 +1229,7 @@ export function CardGrid() {
         : {}),
       // SettingsMenu mounts only in the memos header — from gallery the
       // drawer would ghost-open with nothing consuming settingsOpen.
+      openWordLookup: () => setWordLookupOpen(true),
       openSettings: () => {
         useUI.getState().setView("memos");
         useUI.getState().setSettingsOpen(true);
@@ -1413,14 +1416,30 @@ export function CardGrid() {
   // Mounted once and included in BOTH view trees (gallery early-returns
   // its own JSX) — ⌘K works everywhere except over the memo dialog.
   const commandPalette = (
-    <CommandPalette
-      open={cmdPaletteOpen}
-      onClose={() => setCmdPaletteOpen(false)}
-      folders={folderEntries}
-      folderDefs={folders}
-      callbacks={paletteCallbacks}
-      onSearchAll={onSearchAll}
-    />
+    <>
+      <CommandPalette
+        open={cmdPaletteOpen}
+        onClose={() => setCmdPaletteOpen(false)}
+        folders={folderEntries}
+        folderDefs={folders}
+        callbacks={paletteCallbacks}
+        onSearchAll={onSearchAll}
+      />
+      <WordLookupDialog
+        open={wordLookupOpen}
+        onClose={() => setWordLookupOpen(false)}
+        glossary={view === "memos" && location.kind === "folder" && location.path ? {
+          folder: location.path,
+          noteId: null,
+          open: (id) => {
+            const ui = useUI.getState();
+            if (ui.selectedId !== null || ui.location.kind !== "folder" || ui.location.path !== location.path) return;
+            setWordLookupOpen(false);
+            select(id);
+          },
+        } : undefined}
+      />
+    </>
   );
 
   const sidebarScrim = !sidebarCollapsed && (

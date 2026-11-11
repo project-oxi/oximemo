@@ -1,0 +1,26 @@
+Oximemo Korean word vectors (20,056 / 60,000 / 200,000 entries, 300 dimensions)
+Derived from fastText cc.ko.300.vec.gz, © Facebook, Inc.
+https://fasttext.cc/docs/en/crawl-vectors.html
+https://dl.fbaipublicfiles.com/fasttext/vectors-crawl/cc.ko.300.vec.gz
+
+Edouard Grave, Piotr Bojanowski, Prakhar Gupta, Armand Joulin, and Tomas
+Mikolov. Learning Word Vectors for 157 Languages. LREC 2018.
+https://aclanthology.org/L18-1550/
+
+Source and derived data: Creative Commons Attribution-ShareAlike 3.0 Unported.
+https://creativecommons.org/licenses/by-sa/3.0/legalcode
+
+Oximemo normalizes spelling to NFC and quantizes each row to signed 8-bit.
+The small vocabulary includes 20,000 frequent Hangul entries and 56
+additional writing terms. The medium and large editions append writing
+terms found in deeper prefixes, then fill out their remaining capacity
+in frequency order. Each manifest contains one UTF-8 entry per line.
+The app downloads a verified source prefix and stores only the derived
+vectors in app-local data. Searches run locally by cosine similarity.
+
+Compressed source prefix SHA-256 values:
+100,000,000 bytes d75849f2799035a6c8ac2cc03b57e44380ba2774555fc148c0067fee47995bef
+140,000,000 bytes f59decda361ffe42fe68f22230d8c80817471dc9d2f38470688b501dfcd71e80
+335,000,000 bytes 95257449b4fa54f0108bbd9d4e6235511265f5269e994c6522b0a12992cf1e39
+
+Rebuild all editions with scripts/build-ko-lexicon.py INPUT.vec.gz OUTPUT_DIR --tiers.

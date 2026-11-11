@@ -16,6 +16,7 @@ import { Dialog } from "@base-ui-components/react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   Archive,
+  BookOpenText,
   CalendarDays,
   Clock,
   CodeXml,
@@ -90,6 +91,7 @@ const ICONS: Record<PaletteIcon, typeof Layers> = {
   moon: Moon,
   monitor: Monitor,
   library: Library,
+  "word-lookup": BookOpenText,
 };
 
 interface Props {

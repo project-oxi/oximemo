@@ -676,3 +676,51 @@ html[data-platform="windows"] .glass-settings {
   .note-list-folder { display: block; max-width: 100%; margin-top: var(--space-1); }
   .note-list-time { max-width: 9ch; text-align: right; }
 }
+
+.memo-sheet-inner { container: memo-writing / inline-size; }
+.memo-writing-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.memo-writing-workspace[data-inspector="true"] {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 42%);
+}
+.memo-writing-panel { border-top: var(--rule-width) solid var(--color-line); }
+.memo-header-tool[aria-expanded="true"] { color: var(--color-selection-ink); background: var(--color-selection); }
+.writing-inspector .g-panel__body { overscroll-behavior: contain; }
+.writing-book-preview {
+  padding: var(--space-4);
+  border: var(--rule-width) solid var(--color-line);
+  background: var(--color-paper-2);
+  font-family: ui-serif, Georgia, serif;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.writing-book-preview > h3 { margin-bottom: var(--space-3); font-size: 1.2em; font-weight: 600; }
+.writing-book-preview p + p { margin-top: 0.8em; }
+.writing-book-preview pre, .writing-book-preview table { max-width: 100%; overflow: auto; }
+@container memo-writing (min-width: 700px) {
+  .memo-writing-workspace[data-inspector="true"] {
+    grid-template-columns: minmax(0, 1fr) var(--g-layout-panel-width, 300px);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .memo-writing-panel {
+    border-top: 0;
+    border-left: var(--rule-width) solid var(--color-line);
+  }
+}
+
+.word-lookup-dialog {
+  position: fixed;
+  z-index: 51;
+  inset: 16vh 0 auto;
+  width: min(420px, calc(100% - var(--space-8)));
+  max-height: 70dvh;
+  margin-inline: auto;
+  overflow: hidden;
+  border: var(--rule-width) solid var(--color-line);
+  border-radius: var(--popover-radius);
+  box-shadow: var(--glass-shadow-float);
+}
+.word-lookup-dialog .g-panel { max-height: inherit; }

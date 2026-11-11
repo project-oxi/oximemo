@@ -10,7 +10,9 @@ import { CopilotModelPicker } from "./CopilotModelPicker";
  */
 import { Dialog } from "@base-ui-components/react";
 import { Button, GSettingsGroup, GSettingsRow, Input, SegmentedControl, Switch, type SegmentedControlProps } from "@garden/ui";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isTauri } from "@tauri-apps/api/core";
+import { changeWritingLexicon, writingLexiconQuery, writingLexiconTiers, type WritingLexiconTier } from "../lib/koreanLexicon";
 import {
   type ReactNode,
   useEffect,
@@ -33,6 +35,7 @@ import {
   ListChecks,
   HardDrive,
   MessagesSquare,
+  PenLine,
   Pin,
   PinOff,
   RefreshCw,
@@ -1737,6 +1740,79 @@ function UpdaterSection() {
     </div>
   );
 }
+const WRITING_LEXICON_MUTATION = ["change-writing-lexicon"] as const;
+
+function WritingSection() {
+  const { t, locale } = useI18n();
+  const qc = useQueryClient();
+  const writingTools = useUI((s) => s.writingTools);
+  const setWritingTools = useUI((s) => s.setWritingTools);
+  const lexicon = useQuery(writingLexiconQuery);
+  const [choice, setChoice] = useState<WritingLexiconTier | null>(null);
+  const pending = useMutationState({
+    filters: { mutationKey: WRITING_LEXICON_MUTATION, status: "pending" },
+    select: ({ state }) => state.variables as WritingLexiconTier | null,
+  });
+  const busy = pending.length > 0;
+  const pendingTier = pending.at(-1);
+  const mutation = useMutation({
+    mutationKey: WRITING_LEXICON_MUTATION,
+    mutationFn: changeWritingLexicon,
+    onSuccess: (_data, tier) => { qc.setQueryData(writingLexiconQuery.queryKey, tier); },
+  });
+  const installed = lexicon.data ?? null;
+  const selected = pendingTier ?? choice ?? installed ?? "small";
+  const selectedInfo = writingLexiconTiers[selected];
+  const canDowngrade = installed && writingLexiconTiers[installed].words > selectedInfo.words;
+  const desktop = isTauri();
+  const number = new Intl.NumberFormat(locale);
+  return (
+    <>
+      <ToggleRow label={t.writing_tools} checked={writingTools} onChange={setWritingTools} />
+      <p className="mb-4 px-3 text-[11px] text-text-subtle">{t.writing_settings_hint}</p>
+      <GSettingsGroup title={t.word_lookup}>
+        <fieldset aria-label={t.word_lookup_size} disabled={busy} className="min-w-0 divide-y divide-line">
+          {(Object.entries(writingLexiconTiers) as [WritingLexiconTier, typeof selectedInfo][]).map(([tier, info]) => (
+            <label key={tier} className="flex min-h-10 cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-xs hover:bg-surface-muted">
+              <input className="size-3 shrink-0 accent-text" type="radio" name="korean-dictionary-size" value={tier} checked={selected === tier} onChange={() => setChoice(tier)} />
+              <span className="font-medium">{t[`word_lookup_size_${tier}`]}</span>
+              {tier === installed && <span className="text-[11px] text-text-subtle">{t.word_lookup_installed}</span>}
+              <span className="ml-auto tabular-nums text-text-muted">{t.word_lookup_size_detail.replace("{words}", number.format(info.words)).replace("{mb}", String(info.storageMb))}</span>
+            </label>
+          ))}
+        </fieldset>
+        <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2.5">
+          <p className="min-w-32 flex-1 text-xs text-text-subtle">
+            {selected === installed ? t.word_lookup_ready
+              : canDowngrade ? t.word_lookup_downgrade
+              : t.word_lookup_transfer.replace("{mb}", String(selectedInfo.downloadMb))}
+          </p>
+          {(installed || lexicon.isError) && (
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => mutation.mutate(null)}>
+              {pendingTier === null ? t.word_lookup_removing : t.word_lookup_remove}
+            </Button>
+          )}
+          {selected !== installed && (
+            <Button size="sm" disabled={!desktop || busy || lexicon.isPending} onClick={() => mutation.mutate(selected)}>
+              {pendingTier ? (canDowngrade ? t.word_lookup_switching : t.word_lookup_installing)
+                : canDowngrade ? t.word_lookup_switch : t.word_lookup_download}
+            </Button>
+          )}
+        </div>
+        {!desktop && <p className="px-3 pb-2 text-[11px] text-text-subtle">{t.word_lookup_native}</p>}
+        {mutation.isError && <p role="alert" className="px-3 py-1 text-xs text-status-error">
+          {mutation.variables === null ? t.word_lookup_remove_error : t.word_lookup_install_error}
+        </p>}
+        {lexicon.isError && <p role="alert" className="px-3 py-1 text-xs text-status-error">{t.word_lookup_error}</p>}
+        <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-line px-3 py-2 text-xs">
+          <a className="text-text-muted underline underline-offset-2" href="https://huggingface.co/facebook/fasttext-ko-vectors" target="_blank" rel="noreferrer">Hugging Face</a>
+          <a className="text-text-muted underline underline-offset-2" href="https://fasttext.cc/docs/en/crawl-vectors.html" target="_blank" rel="noreferrer">fastText · CC BY-SA 3.0</a>
+        </div>
+      </GSettingsGroup>
+    </>
+  );
+}
+
 export function SettingsMenu() {
   const { t, locale, setLocale } = useI18n();
   const theme = useUI((s) => s.theme);
@@ -1865,6 +1941,7 @@ export function SettingsMenu() {
         { id: "brain", label: t.section_brain, icon: <Brain size={13} /> },
         { id: "sessions", label: t.section_sessions, icon: <MessagesSquare size={13} /> },
         { id: "copilot", label: t.section_copilot, icon: <Bot size={13} /> },
+        { id: "writing", label: t.writing_tools, icon: <PenLine size={13} /> },
       ],
     },
     {
@@ -2027,6 +2104,12 @@ export function SettingsMenu() {
                 <section>
                   <PaneHeader title={t.section_copilot} />
                   <CopilotSection />
+                </section>
+              )}
+              {activeTab === "writing" && (
+                <section>
+                  <PaneHeader title={t.writing_tools} />
+                  <WritingSection />
                 </section>
               )}
               {activeTab === "folders" && (
