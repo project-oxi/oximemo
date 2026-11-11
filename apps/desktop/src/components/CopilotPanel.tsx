@@ -42,8 +42,11 @@ import {
   copilotStatus,
   copilotDisclosure,
   getMemo,
+  listTrashedMemos,
   type TurnResult,
 } from "../lib/api";
+import { ChangeReceipt } from "./ChangeReceipt";
+import type { ChangeKind } from "./shapes";
 
 /** "42.3s" under a minute, "2m 13s" above. */
 function fmtDuration(ms: number): string {
@@ -553,18 +556,17 @@ function AgentMessage({ result, agentName }: { result: TurnResult; agentName: st
     return hit?.title || hit?.path || id.slice(0, 8);
   };
 
-  const kindLabel = (k: string) =>
-    k === "created"
-      ? t.copilot_changed_created
-      : k === "deleted"
-        ? t.copilot_changed_deleted
-        : t.copilot_changed_changed;
-  const kindDot = (k: string) =>
-    k === "created"
-      ? "bg-status-success"
-      : k === "deleted"
-        ? "bg-status-error"
-        : "bg-status-info";
+  const KIND_LABEL: Record<ChangeKind, string> = {
+    created: t.copilot_changed_created,
+    modified: t.copilot_changed_changed,
+    deleted: t.copilot_changed_deleted,
+    moved: t.copilot_changed_moved,
+  };
+  const kindLabel = (k: ChangeKind) => KIND_LABEL[k];
+  // 삭제 항목을 휴지통으로 이을지 정하려고 휴지통 목록을 본다. 삭제가 없는 턴에는 부르지 않는다.
+  const hasDeleted = result.changed.some((c) => c.kind === "deleted");
+  const trash = useQuery({ queryKey: ["trash"], queryFn: listTrashedMemos, enabled: hasDeleted });
+  const trashedIds = new Set((trash.data ?? []).map((m) => m.id));
 
   const copyResponse = async () => {
     await clipboardWriteText(result.response);
@@ -644,30 +646,32 @@ function AgentMessage({ result, agentName }: { result: TurnResult; agentName: st
       )}
 
       {result.changed.length > 0 && (
-        <div>
-          <p className="text-[10px] font-medium text-text-subtle">{t.copilot_changed_notes}</p>
-          <ul className="mt-0.5 space-y-0.5">
-            {result.changed.map((c) => (
-              <li key={c.id} className="flex items-center gap-1.5">
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${kindDot(c.kind)}`} />
-                <button
-                  type="button"
-                  onClick={() => {
-                    // Mirror PropertyPanel's close semantics: only clear
-                    // the draft marker when the clicked note IS the open
-                    // pristine draft — clearing it for other notes would
-                    // make that blank draft permanently non-discardable.
-                    setDraftId(useUI.getState().draftId === c.id ? null : useUI.getState().draftId);
-                    useUI.setState({ selectedId: c.id });
-                  }}
-                  className="min-w-0 truncate text-left text-[10px] text-text-muted underline decoration-line underline-offset-2 hover:text-text"
-                >
-                  {titleFor(c.id)} · {kindLabel(c.kind)}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ChangeReceipt
+          items={result.changed}
+          titleFor={(id) => {
+            // 삭제된 노트는 색인에서 빠져 있다 — 휴지통에 있으면 거기 남은 제목을 쓴다.
+            const gone = trash.data?.find((m) => m.id === id);
+            return gone?.title || gone?.path || titleFor(id);
+          }}
+          kindLabel={kindLabel}
+          listLabel={t.copilot_changed_notes}
+          caption={t.copilot_changed_caption}
+          trashLabel={t.copilot_changed_open_trash}
+          isTrashed={(id) => trashedIds.has(id)}
+          onOpen={(id) => {
+            // Mirror PropertyPanel's close semantics: only clear
+            // the draft marker when the clicked note IS the open
+            // pristine draft — clearing it for other notes would
+            // make that blank draft permanently non-discardable.
+            setDraftId(useUI.getState().draftId === id ? null : useUI.getState().draftId);
+            useUI.setState({ selectedId: id });
+          }}
+          onOpenTrash={() => {
+            // 휴지통은 설정 「저장소」 판 안에 있다(TrashSection). 항목 하나로 바로 갈 길은 없어 그 판을 연다.
+            useUI.getState().setSettingsTab("storage");
+            useUI.getState().setSettingsOpen(true);
+          }}
+        />
       )}
 
       {(result.stderr.trim() !== "" || result.exit_code === null) && (

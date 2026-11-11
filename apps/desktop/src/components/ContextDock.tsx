@@ -4,26 +4,36 @@
  * the brain status/gather/distill state, and which context card (if any)
  * is open — only one card open at a time, per the interaction contract (§3.4).
  * Replaces the former BacklinksPanel + BrainPanel accordion stack.
+ *
+ * 2026-11-11 «MarginLinks»: immersive 시트가 넓으면 MemoDetail 이 본문 양옆에 빈
+ * 여백 상자(marginLeft · marginRight)를 깔고, 이 독이 그 안으로 백링크 · 함께 보기 ·
+ * Brain 요약을 portal 한다. 여백이 실어 나르는 버튼은 꼬리 줄에서 뺀다(같은 것이 두 번
+ * 보이지 않게). Brain 팝오버는 그대로 하나 — 여백 줄이 그 팝오버를 연다.
+ * 저장 상태 글자는 시트 머리의 SaveRing 으로 옮겼다.
  */
 import { Popover } from "@base-ui-components/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo as reactMemo, useEffect, useState } from "react";
+import { memo as reactMemo, useEffect, useState, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import { Brain, Link2 } from "lucide-react";
 
-import { brainContradictions, brainGather, brainStatus, createMemo, getBacklinks, getConfig, relatedMemos } from "../lib/api";
+import { brainContradictions, brainGather, brainStatus, createMemo, getConfig } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { useUI } from "../stores/ui";
 import type { BrainLayer } from "../lib/types";
 import { BrainCard, layerLabel } from "./BrainCard";
-import { LinksCard } from "./LinksCard";
+import { LinksCard, useNoteLinks } from "./LinksCard";
+import { MarginBacklinks, MarginRelated } from "./MarginLinks";
 
 export interface ContextDockProps {
   noteId: string;
   title: string | null;
   tags: string[];
-  dirty: boolean;
-  saving?: boolean;
-  saveBlocked?: boolean;
+  /** Note aliases — extra link targets when picking a backlink's context line. */
+  aliases?: string[];
+  /** Immersive margin boxes from MemoDetail; null when the sheet is too narrow. */
+  marginLeft?: HTMLElement | null;
+  marginRight?: HTMLElement | null;
   onNavigateMemo: (id: string) => void;
 }
 
@@ -63,7 +73,7 @@ function droppedCount(value: unknown): number | null {
   return null;
 }
 
-export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags, dirty, saving, saveBlocked, onNavigateMemo }: ContextDockProps) {
+export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags, aliases, marginLeft, marginRight, onNavigateMemo }: ContextDockProps) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const setDraftId = useUI((s) => s.setDraftId);
@@ -77,19 +87,7 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
   const config = useQuery({ queryKey: ["config"], queryFn: getConfig });
   const brainEnabled = config.data?.brain?.enabled !== false;
 
-  const backlinks = useQuery({
-    queryKey: ["backlinks", noteId],
-    queryFn: () => getBacklinks(noteId),
-    enabled: !!noteId,
-  });
-
-  const related = useQuery({
-    queryKey: ["related", noteId],
-    queryFn: () => relatedMemos(noteId),
-    enabled: !!noteId,
-    staleTime: 30_000,
-    retry: false,
-  });
+  const { backlinks, related } = useNoteLinks(noteId);
 
   const status = useQuery({
     queryKey: ["brain-status"],
@@ -98,15 +96,21 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
     enabled: brainEnabled,
   });
 
+  // 여백이 무엇을 실어 나르는지. 왼쪽만 보일 때 함께 보기가 갈 곳이 없으면 백링크
+  // 버튼(카드 안에 함께 보기가 있다)을 꼬리 줄에 남긴다 — 접힌 여백 때문에 잃는 것이 없게.
+  const brainInMargin = brainEnabled && !!marginRight;
+  const linksInMargin = !!marginLeft && (!!marginRight || !related.data?.length);
+
   // See-also section (§3.2): undefined while loading → LinksCard hides it.
-  // Contradictions fetch only while the brain card is open and online;
-  // an error leaves data undefined and the card renders nothing (C1).
+  // Contradictions fetch only while the brain card is open (or the right
+  // margin shows its count) and online; an error leaves data undefined and
+  // the card renders nothing (C1).
   const contradictions = useQuery({
     queryKey: ["brain-contradictions"],
     queryFn: brainContradictions,
     retry: false,
     staleTime: 60_000,
-    enabled: open === "brain" && status.data?.online === true,
+    enabled: (open === "brain" || brainInMargin) && status.data?.online === true,
   });
 
   // The dialog swaps `noteId` in place when navigating (backlink click, wiki
@@ -167,8 +171,44 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
     onNavigateMemo(id);
   };
 
+  // 한 줄 Brain 요약 — 꼬리 줄 버튼의 색 점 대신 글자로 상태를 말한다(무채색 앱).
+  const contradictionCount = contradictions.data?.length ?? 0;
+  const brainSummary = !status.data
+    ? t.brain_title
+    : !status.data.online
+      ? t.brain_offline
+      : contradictionCount > 0
+        ? `${t.brain_title} · ${t.brain_contradictions} ${contradictionCount}`
+        : t.brain_title;
+
+  /** The one Brain popover, anchored to whichever trigger carries it
+   *  (footer button, or the right-margin summary line). */
+  const brainPopover = (trigger: ReactElement<Record<string, unknown>>, side: "top" | "left") => (
+    <Popover.Root open={open === "brain"} onOpenChange={(o) => setOpen(o ? "brain" : null)}>
+      <Popover.Trigger render={trigger} />
+      <Popover.Portal>
+        <Popover.Positioner side={side} align="start" sideOffset={side === "left" ? 8 : 4} collisionPadding={12} className="z-[80]">
+          <Popover.Popup className="viewport-popup animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
+            <BrainCard
+              status={status.data}
+              layers={layers}
+              gathering={gathering}
+              offline={offline}
+              dropped={dropped}
+              contradictions={contradictions.data}
+              onGather={gather}
+              onRetryStatus={() => void status.refetch()}
+              onDistill={distill}
+            />
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+
   return (
     <div className="context-dock flex items-center gap-1 border-t border-line px-1 py-1 text-xs text-text-subtle">
+      {!linksInMargin && (
       <Popover.Root open={open === "links"} onOpenChange={(o) => setOpen(o ? "links" : null)}>
         <Popover.Trigger
           render={
@@ -196,49 +236,50 @@ export const ContextDock = reactMemo(function ContextDock({ noteId, title, tags,
           </Popover.Positioner>
         </Popover.Portal>
       </Popover.Root>
-
-      {brainEnabled && (
-        <Popover.Root open={open === "brain"} onOpenChange={(o) => setOpen(o ? "brain" : null)}>
-          <Popover.Trigger
-            render={
-              <button
-                type="button"
-                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 transition-colors duration-150 ${
-                  open === "brain" ? "bg-surface-muted text-text" : "hover:bg-surface-muted hover:text-text"
-                }`}
-              >
-                <Brain size={12} />
-                {t.brain_title}
-                <span
-                  aria-label={status.data?.online ? "online" : "offline"}
-                  className={`inline-block h-1.5 w-1.5 rounded-full ${
-                    status.data?.online ? "bg-status-success" : "bg-text-subtle/40"
-                  }`}
-                />
-              </button>
-            }
-          />
-          <Popover.Portal>
-            <Popover.Positioner side="top" align="start" sideOffset={4} collisionPadding={12} className="z-[80]">
-              <Popover.Popup className="viewport-popup animate-popover-in rounded-[var(--popover-radius)] border border-line bg-surface-raised shadow-lg">
-                <BrainCard
-                  status={status.data}
-                  layers={layers}
-                  gathering={gathering}
-                  offline={offline}
-                  dropped={dropped}
-                  contradictions={contradictions.data}
-                  onGather={gather}
-                  onRetryStatus={() => void status.refetch()}
-                  onDistill={distill}
-                />
-              </Popover.Popup>
-            </Popover.Positioner>
-          </Popover.Portal>
-        </Popover.Root>
       )}
 
-      <span className="ml-auto">{saveBlocked ? t.dock_unsaved : saving ? t.dock_saving : dirty ? t.dock_pending : t.dock_saved}</span>
+      {brainEnabled && !brainInMargin && brainPopover(
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 transition-colors duration-150 ${
+            open === "brain" ? "bg-surface-muted text-text" : "hover:bg-surface-muted hover:text-text"
+          }`}
+        >
+          <Brain size={12} />
+          {t.brain_title}
+          <span
+            aria-label={status.data?.online ? "online" : "offline"}
+            className={`inline-block h-1.5 w-1.5 rounded-full ${
+              status.data?.online ? "bg-status-success" : "bg-text-subtle/40"
+            }`}
+          />
+        </button>,
+        "top",
+      )}
+
+      {marginLeft &&
+        createPortal(
+          <MarginBacklinks
+            backlinks={backlinks.data ?? []}
+            targets={[title ?? "", ...(aliases ?? [])]}
+            onNavigate={navigateToBacklink}
+          />,
+          marginLeft,
+        )}
+      {marginRight &&
+        createPortal(
+          <MarginRelated
+            items={related.data}
+            onNavigate={navigateToBacklink}
+            brain={brainInMargin ? brainPopover(
+              <button type="button" className="memo-margin-item">
+                <span className="memo-margin-title">{brainSummary}</span>
+              </button>,
+              "left",
+            ) : undefined}
+          />,
+          marginRight,
+        )}
     </div>
   );
 });

@@ -1,0 +1,87 @@
+/* 조건 문장 (FilterSentence, 2026-11-11). 결과 바로 위에 걸린 조건을 한 문장으로 읽힌다.
+   좁아지면 줄을 바꿀 뿐 숨기지 않는다 — 결과와 조건을 견주는 것이 이 줄의 일이다. */
+
+.filter-sentence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.375rem;
+  row-gap: 0.125rem;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-text-muted);
+}
+
+/* 한 조건 안에서는 되도록 붙여 두고, 그래도 넘치면 조건 안에서도 꺾는다. */
+.filter-sentence-clause {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.filter-sentence-sep {
+  color: var(--color-text-subtle);
+}
+
+/* 값 = 누를 수 있는 곳. 무채색 앱이라 색 대신 점선 밑줄이 「고칠 수 있다」를 말한다. */
+.filter-sentence-value {
+  color: var(--color-text);
+  font-weight: 500;
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: var(--color-text-subtle);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+button.filter-sentence-value {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  border-radius: 2px;
+  transition: text-decoration-color 150ms ease;
+}
+button.filter-sentence-value:hover,
+button.filter-sentence-value[data-popup-open] {
+  text-decoration-style: solid;
+  text-decoration-color: var(--color-text);
+}
+/* 읽기 전용(AI 인라인 쿼리)은 밑줄 없이 글자만 — 누를 수 없는 것을 누를 수 있어 보이게 두지 않는다. */
+span.filter-sentence-value {
+  text-decoration-line: none;
+}
+
+.filter-sentence-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.375rem;
+  border: 1px dashed var(--color-line-strong);
+  border-radius: var(--tag-radius);
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-text-subtle);
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.filter-sentence-action:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-subtle);
+}
+/* 고급 조건은 문장으로 풀지 않은 덩어리 — 점선 대신 실선 테두리로 「문장 밖」임을 가른다. */
+.filter-sentence-action[data-kind="advanced"] {
+  border-style: solid;
+  border-color: var(--color-line);
+}
+span.filter-sentence-action {
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.filter-sentence-value,
+  .filter-sentence-action {
+    transition: none;
+  }
+}

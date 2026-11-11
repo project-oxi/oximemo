@@ -3,38 +3,42 @@
  * `할 일` base view. Runs the installed `queries/할 일.query` against the
  * same `["base", sourceKey, idx, mtime]` cache key BaseView uses, so a
  * toggle here re-renders the main view's row (and vice-versa) without
- * a duplicate fetch. Two views feed the panel: 오늘 (index 0, overdue +
- * due/scheduled-today) and 날짜 없음 (resolved BY NAME from the def —
- * seed v2 appends it; quick-added tasks carry neither date, so this is
- * the only sidebar surface where they appear). DONE/CANCELLED drop
- * client-side, rows group into the three buckets, and height caps keep
- * a long backlog from pushing the rest of the sidebar off screen. The
+ * a duplicate fetch. Three views feed the panel: 오늘 (index 0, overdue +
+ * due/scheduled-today), 예정 (resolved BY NAME — supplies tomorrow) and
+ * 날짜 없음 (resolved BY NAME from the def — seed v2 appends it;
+ * quick-added tasks carry neither date, so this is the only sidebar
+ * surface where they appear). DONE/CANCELLED drop client-side and the
+ * rows lay out as the NowLane slice (2026-11-11 · 할 일 화면과 같은 모양을
+ * 지금 ±2일만 잘라 쓴다): 지난 것은 개수와 가장 늦은 것 몇 개, 지금 선
+ * 아래 오늘 · 내일, 날짜 없음은 접힌 한 줄. The height cap keeps a long
+ * backlog from pushing the rest of the sidebar off screen. The
  * section header carries a `+` quick-add button (opens the shared
  * ⌘⇧T overlay via `useUI.quickAddOpen`) and a chevron that opens the
  * full tasks view in the main area.
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Plus, SquareCheck } from "lucide-react";
 import YAML from "yaml";
 
 import { loadBase, runBase } from "../lib/api";
-import { dayTone, relativeDayLabel, useTodayKey } from "../lib/relativeDay";
-import { noDateViewIndex, partitionPanelRows, TASKS_BASE_PATH } from "../lib/tasksPanel";
+import { panelSlice, type LaneEntry } from "../lib/nowLane";
+import { relativeDayLabel, useTodayKey } from "../lib/relativeDay";
+import { noDateViewIndex, TASKS_BASE_PATH, upcomingViewIndex } from "../lib/tasksPanel";
 import { useTaskToggle } from "../lib/taskToggle";
 import { useOpenTask } from "../lib/taskNav";
 import type { BaseDef, BasePage, BaseRow, RunBaseReq } from "../lib/types";
 import { useUI } from "../stores/ui";
 import { TaskCheckbox } from "./TaskCheckbox";
-import { TaskFieldChip } from "./TaskFieldChip";
 import { TaskRowCtxMenu } from "./TaskRowCtxMenu";
 import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { useI18n } from "../lib/i18n";
+import { LaneNowRule, LatenessBar, UndatedFold, laneDayLabel } from "./NowLane";
 
 /** View index 0 of the installed base = "오늘" (overdue + today). The
  *  base's own filter narrows to `due <= today || scheduled <= today`.
- *  The 날짜 없음 view is NOT a fixed index — it is resolved by name
- *  from the def below (seed v2 appends it after any user views). */
+ *  The 예정 and 날짜 없음 views are NOT fixed indices — they are
+ *  resolved by name from the def below. */
 const VIEW_INDEX = 0;
 
 /** Hard row cap for the sidebar (the main view uses BaseView's pagination).
@@ -42,6 +46,20 @@ const VIEW_INDEX = 0;
  *  the user clicks the chevron to open the full view. */
 const ROW_CAP = 50;
 
+/** One `run_base` request body; only the view index differs per query. */
+function panelReq(viewIndex: number, limit: number): RunBaseReq {
+  return {
+    viewIndex,
+    offset: 0,
+    limit,
+    group: null,
+    nowMs: null,
+    localOffsetSeconds: null,
+    includeGroupCounts: false,
+    includeSummaries: true,
+    thisId: null,
+  };
+}
 
 export function TasksPanel() {
   const { t, locale } = useI18n();
@@ -49,20 +67,21 @@ export function TasksPanel() {
   const setQuickAddOpen = useUI((s) => s.setQuickAddOpen);
   const setToast = useUI((s) => s.setToast);
   const todayISO = useTodayKey();
-  // The installed base's def — resolves the 날짜 없음 view by name.
-  // A pre-v2 base (or a user rename) resolves to -1 and simply hides
-  // the undated bucket. Shares BaseView's ["bases", "def", …] family
-  // so a query edit refreshes both surfaces.
+  // The installed base's def — resolves the 예정 / 날짜 없음 views by
+  // name. A pre-v2 base (or a user rename) resolves to -1 and simply
+  // hides that part of the slice. Shares BaseView's ["bases", "def", …]
+  // family so a query edit refreshes both surfaces.
   const defQ = useQuery({
     queryKey: ["bases", "def", TASKS_BASE_PATH],
     queryFn: () => loadBase(TASKS_BASE_PATH),
   });
-  const noDateIdx = useMemo(() => {
-    if (!defQ.data) return -1;
+  const { noDateIdx, upcomingIdx } = useMemo(() => {
+    if (!defQ.data) return { noDateIdx: -1, upcomingIdx: -1 };
     try {
-      return noDateViewIndex(YAML.parse(defQ.data.yaml) as BaseDef | null);
+      const def = YAML.parse(defQ.data.yaml) as BaseDef | null;
+      return { noDateIdx: noDateViewIndex(def), upcomingIdx: upcomingViewIndex(def) };
     } catch {
-      return -1;
+      return { noDateIdx: -1, upcomingIdx: -1 };
     }
   }, [defQ.data]);
 
@@ -70,63 +89,50 @@ export function TasksPanel() {
   // single invalidate. The sidebar never reads the def, so we use a
   // fixed "sidebar" mtime marker — when BaseView invalidates ["base"]
   // on a patch_task or save_base, both surfaces refresh together.
+  // Over-fetch: the base returns ALL rows matching the date filter,
+  // so we still leave ROW_CAP visible after dropping DONE/CANCELLED.
   const runQ = useQuery<BasePage>({
     queryKey: ["base", TASKS_BASE_PATH, VIEW_INDEX, "sidebar"],
-    queryFn: () => {
-      const req: RunBaseReq = {
-        viewIndex: VIEW_INDEX,
-        offset: 0,
-        // Over-fetch: the base returns ALL rows matching the date filter,
-        // so we still leave ROW_CAP visible after dropping DONE/CANCELLED.
-        limit: ROW_CAP * 2,
-        group: null,
-        nowMs: null,
-        localOffsetSeconds: null,
-        includeGroupCounts: false,
-        includeSummaries: true,
-        thisId: null,
-      };
-      return runBase({ Path: TASKS_BASE_PATH }, req);
-    },
+    queryFn: () => runBase({ Path: TASKS_BASE_PATH }, panelReq(VIEW_INDEX, ROW_CAP * 2)),
     enabled: true,
+  });
+  // 예정 (future window): only tomorrow survives the slice. The view's
+  // own order is not by date, so a very long future backlog past the
+  // fetch limit can hide a tomorrow row — the chevron's full view
+  // still has it.
+  const upcomingQ = useQuery<BasePage>({
+    queryKey: ["base", TASKS_BASE_PATH, upcomingIdx, "sidebar-upcoming"],
+    queryFn: () => runBase({ Path: TASKS_BASE_PATH }, panelReq(upcomingIdx, ROW_CAP * 4)),
+    enabled: upcomingIdx >= 0,
   });
   // 날짜 없음 (undated backlog): engine-filtered by the seed-v2 view
   // resolved above; disabled while the def is loading or lacks it.
   const undatedQ = useQuery<BasePage>({
     queryKey: ["base", TASKS_BASE_PATH, noDateIdx, "sidebar-no-date"],
-    queryFn: () => {
-      const req: RunBaseReq = {
-        viewIndex: noDateIdx,
-        offset: 0,
-        limit: ROW_CAP * 2,
-        group: null,
-        nowMs: null,
-        localOffsetSeconds: null,
-        includeGroupCounts: false,
-        includeSummaries: true,
-        thisId: null,
-      };
-      return runBase({ Path: TASKS_BASE_PATH }, req);
-    },
+    queryFn: () => runBase({ Path: TASKS_BASE_PATH }, panelReq(noDateIdx, ROW_CAP * 2)),
     enabled: noDateIdx >= 0,
   });
 
-  // Open rows grouped into overdue / today / 날짜 없음. Each view's
-  // filter pre-narrows its rows; partitionPanelRows drops terminal
-  // statuses and defensively skips any row that lands in the wrong
-  // input, capping each bucket at ROW_CAP.
-  const { overdue, today, noDate } = useMemo(
+  // One NowLane slice over all three views. panelSlice drops terminal
+  // statuses, de-duplicates rows two views share (due tomorrow +
+  // scheduled today sits in both 오늘 and 예정) and places every row by
+  // its own date, so a view-filter drift can never mis-place a row.
+  const slice = useMemo(
     () =>
-      partitionPanelRows(
-        runQ.data?.rows ?? [],
-        undatedQ.data?.rows ?? [],
+      panelSlice(
+        [...(runQ.data?.rows ?? []), ...(upcomingQ.data?.rows ?? []), ...(undatedQ.data?.rows ?? [])],
         todayISO,
-        ROW_CAP,
       ),
-    [runQ.data, undatedQ.data, todayISO],
+    [runQ.data, upcomingQ.data, undatedQ.data, todayISO],
   );
+  // 지난 것은 몇 개만 보이고 나머지는 한 번 눌러 그 자리에 편다 — 사이드바 높이를 지난 일이 다 먹지 않게.
+  const [overdueAll, setOverdueAll] = useState(false);
 
-  const total = overdue.length + today.length + noDate.length;
+  const overdueCount = slice.overdueTop.length + slice.overdueRest.length;
+  const undated = slice.undated.slice(0, ROW_CAP);
+  const total = overdueCount + slice.upcoming.length + slice.undated.length;
+  const onStale = () => setToast(t.task_conflict_reload);
+  const overdueShown = overdueAll ? [...slice.overdueTop, ...slice.overdueRest] : slice.overdueTop;
 
   return (
     <section className="mt-3">
@@ -169,36 +175,44 @@ export function TasksPanel() {
           </div>
         ) : (
           <>
-            {overdue.length > 0 && (
-              <BucketGroup
-                label={t.task_group_overdue}
-                tone="overdue"
-                rows={overdue}
-                locale={locale}
-                todayISO={todayISO}
-                onStale={() => setToast(t.task_conflict_reload)}
-              />
+            {overdueCount > 0 && (
+              <div className="flex items-baseline gap-2 px-2 pt-1 pb-0.5 text-[10px] text-text-subtle">
+                <span className="font-semibold uppercase tracking-wide">{t.task_group_overdue}</span>
+                <span className="tabular-nums">{overdueCount}</span>
+              </div>
             )}
-            {today.length > 0 && (
-              <BucketGroup
-                label={t.task_group_today}
-                tone="today"
-                rows={today}
-                locale={locale}
-                todayISO={todayISO}
-                onStale={() => setToast(t.task_conflict_reload)}
-              />
+            {overdueShown.map((entry) => (
+              <PanelTaskRow key={entry.row.row_id} entry={entry} locale={locale} todayISO={todayISO} onStale={onStale} />
+            ))}
+            {!overdueAll && slice.overdueRest.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setOverdueAll(true)}
+                className="w-full rounded-md px-2 py-0.5 text-left text-[11px] text-text-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              >
+                {t.task_lane_more_overdue.replace("{n}", String(slice.overdueRest.length))}
+              </button>
             )}
-            {noDate.length > 0 && (
-              <BucketGroup
-                label={t.task_group_no_date}
-                tone="neutral"
-                rows={noDate}
-                locale={locale}
-                todayISO={todayISO}
-                onStale={() => setToast(t.task_conflict_reload)}
-              />
-            )}
+            <div className="px-2">
+              <LaneNowRule todayISO={todayISO} locale={locale} t={t} />
+            </div>
+            {slice.upcoming.map((entry) => (
+              <PanelTaskRow key={entry.row.row_id} entry={entry} locale={locale} todayISO={todayISO} onStale={onStale} />
+            ))}
+            <div className="mt-1">
+              <UndatedFold count={slice.undated.length} t={t} compact>
+                {undated.map((row) => (
+                  <PanelTaskRow
+                    key={row.row_id}
+                    entry={{ row, diff: 0, gap: 0, steps: 0, sameDayAsPrev: false }}
+                    undated
+                    locale={locale}
+                    todayISO={todayISO}
+                    onStale={onStale}
+                  />
+                ))}
+              </UndatedFold>
+            </div>
           </>
         )}
       </div>
@@ -206,71 +220,37 @@ export function TasksPanel() {
   );
 }
 
-function BucketGroup({
-  label,
-  tone,
-  rows,
-  locale,
-  todayISO,
-  onStale,
-}: {
-  label: string;
-  tone: "overdue" | "today" | "neutral";
-  rows: BaseRow[];
-  locale: "ko" | "en";
-  todayISO: string;
-  onStale: () => void;
-}) {
-  return (
-    <div className="pt-1">
-      <div className="flex items-baseline gap-2 px-2 pb-0.5">
-        <h3
-          className={`text-[10px] font-semibold uppercase tracking-wide ${
-            tone === "overdue" ? "text-status-error" : "text-text-subtle"
-          }`}
-        >
-          {label}
-        </h3>
-        <span className="text-[10px] text-text-subtle/70">{rows.length}</span>
-      </div>
-      {rows.map((row) => (
-        <PanelTaskRow
-          key={row.row_id}
-          row={row}
-          locale={locale}
-          todayISO={todayISO}
-          onStale={onStale}
-        />
-      ))}
-    </div>
-  );
-}
-
 function PanelTaskRow({
-  row,
+  entry,
+  undated,
   locale,
   todayISO,
   onStale,
 }: {
-  row: BaseRow;
+  entry: LaneEntry<BaseRow>;
+  undated?: boolean;
   locale: "ko" | "en";
   todayISO: string;
   onStale: () => void;
 }) {
+  const { row, diff, gap, steps, sameDayAsPrev } = entry;
   const onToggle = useTaskToggle(row);
   const open = useOpenTask({ onStale });
   const task = row.task;
   if (!task) return null;
-  // Prefer `due` for the chip label — it carries the day the work is owed,
-  // matching the overdue/today grouping. Fall back to scheduled.
-  const chipDate = task.due ?? task.scheduled;
-  const dateField = task.due ? "due" : "scheduled";
+  // 끝자리는 기한(없으면 예정) 하나 — 선 위는 「N일 지남」 + 막대, 선 아래는 오늘 · 내일.
+  // 날짜 칩 아이콘은 뺐다: 지금 선 위인지 아래인지가 이미 말한다.
+  const eff = task.due ?? task.scheduled;
+  const dayLabel = eff ? (diff < 0 ? relativeDayLabel(eff, todayISO, locale) : laneDayLabel(eff, todayISO, locale)) : "";
   const done = task.status_type === "DONE";
   return (
     <CtxRoot>
       <CtxTrigger
         render={
-          <div className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text" />
+          <div
+            style={gap > 0 ? { marginTop: gap } : undefined}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] text-text-muted transition-colors duration-150 hover:bg-surface-muted hover:text-text"
+          />
         }
       >
         <TaskCheckbox
@@ -286,13 +266,13 @@ function PanelTaskRow({
         >
           {task.text || "—"}
         </button>
-        {chipDate && (
-          <span className="shrink-0">
-            <TaskFieldChip
-              field={dateField}
-              value={relativeDayLabel(chipDate, todayISO, locale)}
-              tone={dayTone(chipDate, todayISO)}
-            />
+        {!undated && eff && (
+          <span className="flex shrink-0 items-center gap-1 text-[10px] tabular-nums">
+            {steps > 0 && <LatenessBar steps={steps} />}
+            {/* 같은 날이 이어지면 글자는 첫 행만 — 낭독기에는 그대로 읽힌다. */}
+            <span className={sameDayAsPrev ? "sr-only" : steps > 0 ? "font-semibold text-text" : "text-text-subtle"}>
+              {dayLabel}
+            </span>
           </span>
         )}
         <TaskRowCtxMenu

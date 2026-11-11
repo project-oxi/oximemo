@@ -1,0 +1,31 @@
+/* NowLane — see NowLane.tsx. 늦음은 막대 칸 수, 남은 날은 행 간격으로. 색 없이 모양 · 위치만. */
+
+.lateness-bar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  gap: 1px;
+  height: 10px;
+}
+.lateness-bar > i {
+  width: 3px;
+  border-radius: 1px;
+  background: transparent;
+}
+/* 빈 칸도 자리를 차지한다 — 막대 길이가 행마다 달라도 뒤 글자가 한 세로줄에 선다. */
+.lateness-bar > i[data-on] {
+  background: var(--color-text);
+}
+
+.now-lane-chevron {
+  transition: transform 150ms ease;
+}
+.now-lane-fold button[aria-expanded="true"] .now-lane-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .now-lane-chevron {
+    transition: none;
+  }
+}

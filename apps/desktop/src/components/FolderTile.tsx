@@ -212,25 +212,7 @@ export function FolderTile({
       <div className="flex min-w-0 items-center gap-2">
         <Folder size={13} className="shrink-0" style={{ color }} />
         {naming ? (
-          <TextCtxMenu
-            render={
-              <input
-                autoFocus
-                defaultValue={card.path.split("/").at(-1) ?? ""}
-                onFocus={(e) => e.currentTarget.select()}
-                ref={(el) => el?.select()}
-                onClick={(e) => e.stopPropagation()}
-                onBlur={(e) => onNameCommit(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === "Enter") onNameCommit(e.currentTarget.value);
-                  else if (e.key === "Escape") onNameCommit(null);
-                }}
-                style={{ boxShadow: "none" }}
-                className="w-full min-w-0 flex-1 bg-transparent px-0 py-0 text-sm font-semibold text-text outline-none"
-              />
-            }
-          />
+          <FolderNameInput path={card.path} onNameCommit={onNameCommit} />
         ) : (
           <button
             type="button"
@@ -284,6 +266,106 @@ export function FolderTile({
         {card.subfolder_count > 0 && <span>·</span>}
         <span>{card.recent[0] ? relativeTime(card.recent[0].updated_at, locale) : ""}</span>
       </div>
+    </FolderMenu>
+  );
+}
+
+/** 폴더 이름 입력칸 — 타일과 선반이 같은 입력 규칙(Enter 확정 · Esc 취소 · 흐리면 확정)을 쓰게 한 곳에 둔다. */
+function FolderNameInput({ path, onNameCommit }: { path: string; onNameCommit: (value: string | null) => void }) {
+  return (
+    <TextCtxMenu
+      render={
+        <input
+          autoFocus
+          defaultValue={path.split("/").at(-1) ?? ""}
+          onFocus={(e) => e.currentTarget.select()}
+          ref={(el) => el?.select()}
+          onClick={(e) => e.stopPropagation()}
+          onBlur={(e) => onNameCommit(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") onNameCommit(e.currentTarget.value);
+            else if (e.key === "Escape") onNameCommit(null);
+          }}
+          style={{ boxShadow: "none" }}
+          className="w-full min-w-0 flex-1 bg-transparent px-0 py-0 text-sm font-semibold text-text outline-none"
+        />
+      }
+    />
+  );
+}
+
+/** 폴더 선반 한 칸 (2026-11-11 · 시간 지층).
+ *  작업 화면이 시간 지층으로 그려질 때 하위 폴더는 메모 카드 칸에서 빠져 머리 위 한 줄에 놓인다 —
+ *  카드와 같은 크기로 섞이면 「어느 메모를 연다」 고르기 대상이 두 종류가 된다.
+ *  내용 엿보기(최근 메모 3개)는 빼고, 타일이 하던 일(열기 · 메뉴 · 끌기 · 놓기 · 이름 고치기)은 그대로 한다. */
+export function FolderShelfItem({
+  card,
+  folders,
+  pinned,
+  onOpen,
+  onRename,
+  onTogglePin,
+  onMoveFolder,
+  onMoveFolderTree,
+  onDelete,
+  namingPath,
+  onNameCommit,
+}: Omit<Props, "onOpenNote" | "onNewNote" | "addNoteLabel">) {
+  const color = colorForFolder(card.path, folders);
+  const naming = namingPath?.path === card.path;
+  const { dropCls, ...dropProps } = useFolderDrop(
+    card.path,
+    (id) => onMoveFolder(id, card.path),
+    onMoveFolderTree ? (p) => onMoveFolderTree(p, card.path) : undefined,
+  );
+  const setDraggingFolder = useUI((s) => s.setDraggingFolder);
+  const name = useFolderNames().leafName(card.path);
+  return (
+    <FolderMenu
+      path={card.path}
+      deep={card.note_count_deep}
+      pinned={pinned}
+      onOpen={onOpen}
+      onRename={onRename}
+      onTogglePin={onTogglePin}
+      onDelete={onDelete}
+      render={
+        <div
+          data-folder-tile={card.path}
+          draggable={!naming}
+          onDragStart={(e) => {
+            setDraggingFolder(card.path);
+            e.dataTransfer.setData("application/x-oximemo-folder", card.path);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragEnd={() => setDraggingFolder(null)}
+          {...dropProps}
+          onClick={() => {
+            if (naming) return;
+            onOpen(card.path);
+          }}
+          className={`folder-shelf-item ${naming ? "w-44" : ""} ${dropCls ?? ""}`}
+        />
+      }
+    >
+      <Folder size={13} aria-hidden className="shrink-0" style={{ color }} />
+      {naming ? (
+        <FolderNameInput path={card.path} onNameCommit={onNameCommit} />
+      ) : (
+        <button
+          type="button"
+          aria-label={`${name} · ${card.note_count_deep}`}
+          title={name}
+          onClick={(e) => { e.stopPropagation(); onOpen(card.path); }}
+          className="folder-shelf-name"
+        >
+          {name}
+        </button>
+      )}
+      <span aria-hidden className="shrink-0 text-[11px] tabular-nums text-text-subtle">
+        {card.note_count_deep}
+      </span>
     </FolderMenu>
   );
 }

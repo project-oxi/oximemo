@@ -27,6 +27,8 @@ import { BaseCardsAdapter, BaseListAdapter } from "./views/BaseAdapters";
 import { TasksView } from "./views/TasksView";
 import { listFolders } from "../lib/api";
 import { FilterBuilder } from "./FilterBuilder";
+import { FilterSentence, tagStrings } from "./FilterSentence";
+import { buildSentence, conditionTagsByColumn, fieldLabelOf } from "../lib/filterSentence";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator } from "./ContextMenu";
 import { keyLabel } from "../lib/platform";
 
@@ -284,6 +286,45 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
 
   const baseFilter: FilterNode | null = "error" in parsed ? null : parseFilters(parsed.def.filters);
   const viewFilter: FilterNode | null = "error" in parsed || !view ? null : parseFilters(view.filters);
+  /** 필터 저장 길 하나 — FilterBuilder 와 조건 문장이 같이 쓴다. 범위를 하나로 모아
+   *  두지 않으면 한쪽만 `views: []` 구체화 같은 규칙을 놓친다. */
+  const saveFilter = (level: "base" | "view", node: FilterNode | null) =>
+    saveYaml((def) => {
+      def.views ??= [DEFAULT_VIEW];
+      if (level === "base") {
+        if (node) def.filters = serializeFilters(node);
+        else delete def.filters;
+      } else {
+        const v = def.views[idx];
+        if (node) def.views[idx] = { ...v, filters: serializeFilters(node) };
+        else {
+          const { filters: _drop, ...rest } = v;
+          def.views[idx] = rest;
+        }
+      }
+    });
+  // 「고급 조건 N」이 FilterBuilder 를 그 조건의 범위로 연다.
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderLevel, setBuilderLevel] = useState<"base" | "view" | null>(null);
+  const fieldLabel = (ident: string) =>
+    fieldLabelOf(
+      ident,
+      {
+        "file.name": t.table_col_name,
+        "file.folder": t.query_field_folder,
+        "file.path": t.query_field_path,
+        "file.format": t.query_field_format,
+        "file.tags": t.table_col_tags,
+        "file.favorite": t.query_field_favorite,
+        "file.created": t.prop_created,
+        "file.updated": t.prop_updated,
+      },
+      Object.fromEntries(
+        Object.entries("error" in parsed ? {} : parsed.def.properties ?? {}).map(([k, p]) => [k, p?.displayName]),
+      ),
+    );
+  // 열 머리 꼬리표: 문장과 같은 조건을 그 열 위에 짧게 다시 보여 준다.
+  const columnTags = conditionTagsByColumn(buildSentence(baseFilter, viewFilter).clauses, tagStrings(t));
   const total = runQ.data?.pages[0]?.total ?? 0;
   const warnings = [...(runQ.data?.pages.flatMap((p) => p.warnings) ?? []), ...summaryWarnings];
   const parseError = "error" in parsed ? parsed.error : null;
@@ -406,22 +447,13 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
             <FilterBuilder
               baseNode={baseFilter}
               viewNode={viewFilter}
-              onSave={(level, node) =>
-                saveYaml((def) => {
-                  def.views ??= [DEFAULT_VIEW];
-                  if (level === "base") {
-                    if (node) def.filters = serializeFilters(node);
-                    else delete def.filters;
-                  } else {
-                    const v = def.views[idx];
-                    if (node) def.views[idx] = { ...v, filters: serializeFilters(node) };
-                    else {
-                      const { filters: _drop, ...rest } = v;
-                      def.views[idx] = rest;
-                    }
-                  }
-                })
-              }
+              onSave={saveFilter}
+              open={builderOpen}
+              onOpenChange={(o) => {
+                setBuilderOpen(o);
+                if (!o) setBuilderLevel(null);
+              }}
+              openLevel={builderLevel}
             />
           )}
           <button
@@ -451,6 +483,21 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
       )}
       {warnings.length > 0 && (
         <div className="mx-4 mb-2 px-1 text-[11px] text-text-subtle">{warnings.join(" · ")}</div>
+      )}
+      {/* 조건 문장: 결과 바로 위에 걸린 조건을 늘 보인다(2026-11-11). 코드 모드에서는
+       * YAML 이 곧 조건이라 겹쳐 보이지 않게 뺀다. */}
+      {!showCode && !parseError && (
+        <FilterSentence
+          baseNode={baseFilter}
+          viewNode={viewFilter}
+          readOnly={readOnly}
+          fieldLabel={fieldLabel}
+          onSave={saveFilter}
+          onOpenAdvanced={(scope) => {
+            setBuilderLevel(scope);
+            setBuilderOpen(true);
+          }}
+        />
       )}
 
       {showCode ? (
@@ -521,6 +568,8 @@ export function BaseView({ source, scrollerRef, onSelect }: Props) {
             summaryFns={summaryFns}
             labelFor={labelFor}
             onColumnsReordered={onColumnsReordered}
+            columnTag={(col) => columnTags.get(columnId(col))}
+            sortable={!runQ.hasNextPage}
             resultKey={resultKey}
             scrollerRef={scrollerRef}
             onLoadMore={() => {

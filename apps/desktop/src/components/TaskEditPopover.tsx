@@ -4,7 +4,11 @@
  * A Base UI Popover that mutates every field on a task line:
  *   - status (status table from cfg)
  *   - priority (None / Highest..Lowest)
- *   - start / scheduled / due (native date input + 오늘/내일/지우기)
+ *   - start / scheduled / due on one `DateAxis` (2026-11-11): three
+ *     handles on a single axis with a today marker — drag / arrow keys
+ *     move by day, a click opens the native date input (+ 오늘/내일/
+ *     지우기) for exact entry. 세 줄 입력으로는 앞뒤를 머릿속에서
+ *     맞춰야 했다.
  *   - recurrence text with LIVE next-occurrence preview (reuses
  *     `lib/taskLine.nextOccurrencePreview`; preview never writes the
  *     shortcut label — the actual commit goes through `applyTransform`
@@ -23,17 +27,17 @@ import { Popover } from "@base-ui-components/react";
 import { useI18n, type Dict, type Locale } from "../lib/i18n";
 import {
   nextOccurrencePreview,
-  type DateField,
   type Priority,
   type StatusType,
   type TaskLineCfg,
 } from "../lib/taskLine";
 import type { TaskEdit } from "../lib/types";
-import { shiftISODate, todayLocalISO } from "../lib/dates";
+import { todayLocalISO } from "../lib/dates";
 import { relativeDayLabel } from "../lib/relativeDay";
 import { effectiveStatuses } from "../lib/taskToggle";
 import { isComposingKey } from "../lib/editorKeys";
 import { keyLabel } from "../lib/platform";
+import { DateAxis } from "./DateAxis";
 /** Position-only anchor (floating-ui's VirtualElement shape): a rect
  *  provider with no DOM box — the editor path's caret-line anchor. */
 export interface VirtualAnchor {
@@ -93,11 +97,6 @@ const PRIORITY_LABEL_KEY: Record<Exclude<Priority, null>, keyof Dict> = {
   lowest: "task_priority_lowest",
 };
 
-
-interface DateFieldMeta {
-  field: DateField;
-  label: string;
-}
 
 export function TaskEditPopover({
   open,
@@ -200,12 +199,6 @@ export function TaskEditPopover({
     }
   };
 
-  const dateMeta: DateFieldMeta[] = [
-    { field: "start", label: t.task_field_start },
-    { field: "scheduled", label: t.task_field_scheduled },
-    { field: "due", label: t.task_field_due },
-  ];
-
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange} modal={false}>
       {/* `open` is fully controlled, so no Trigger part is rendered —
@@ -256,21 +249,19 @@ export function TaskEditPopover({
                   ))}
                 </select>
               </Row>
-              {dateMeta.map((d) => (
-                <DateRow
-                  key={d.field}
-                  label={d.label}
-                  value={d.field === "start" ? start : d.field === "scheduled" ? scheduled : due}
-                  today={today}
-                  locale={locale}
-                  t={t}
-                  onChange={(v) => {
-                    if (d.field === "start") setStart(v);
-                    else if (d.field === "scheduled") setScheduled(v);
-                    else setDue(v);
-                  }}
-                />
-              ))}
+              <DateAxis
+                start={start}
+                scheduled={scheduled}
+                due={due}
+                today={today}
+                locale={locale}
+                t={t}
+                onChange={(field, v) => {
+                  if (field === "start") setStart(v);
+                  else if (field === "scheduled") setScheduled(v);
+                  else setDue(v);
+                }}
+              />
               <Row label={t.task_recurrence}>
                 <div className="flex flex-col gap-1">
                   <input
@@ -324,61 +315,6 @@ function Row({ label, children }: RowProps) {
       </span>
       {children}
     </label>
-  );
-}
-
-interface DateRowProps {
-  label: string;
-  value: string | null;
-  today: string;
-  locale: Locale;
-  t: Dict;
-  onChange: (v: string | null) => void;
-}
-
-function DateRow({ label, value, today, locale, t, onChange }: DateRowProps) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-        {label}
-      </span>
-      <div className="flex items-center gap-1.5">
-        <input
-          type="date"
-          value={value ?? ""}
-          onChange={(e) => onChange(e.target.value.length > 0 ? e.target.value : null)}
-          className="min-w-0 flex-1 rounded-[var(--input-radius)] bg-surface px-2 py-1 text-[12px] shadow-[var(--input-shadow)] focus-visible:outline-none focus-visible:shadow-[var(--input-shadow-focus)]"
-        />
-        <button
-          type="button"
-          onClick={() => onChange(today)}
-          className="rounded-[var(--tag-radius)] bg-surface px-2 py-1 text-[11px] text-text-subtle shadow-[var(--input-shadow)] transition-colors duration-150 hover:bg-surface-muted"
-        >
-          {t.today}
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange(shiftISODate(today, 1))}
-          className="rounded-[var(--tag-radius)] bg-surface px-2 py-1 text-[11px] text-text-subtle shadow-[var(--input-shadow)] transition-colors duration-150 hover:bg-surface-muted"
-        >
-          {t.tomorrow}
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange(null)}
-          aria-label={t.clear}
-          title={t.clear}
-          className="rounded-[var(--tag-radius)] bg-surface px-2 py-1 text-[11px] text-text-subtle shadow-[var(--input-shadow)] transition-colors duration-150 hover:bg-surface-muted"
-        >
-          {t.clear}
-        </button>
-      </div>
-      {value && (
-        <span className="pl-0.5 text-[10px] text-text-subtle">
-          {relativeDayLabel(value, today, locale)}
-        </span>
-      )}
-    </div>
   );
 }
 

@@ -1,0 +1,63 @@
+/* 코파일럿 「변경 영수증」 ChangeReceipt (2026-11-11).
+ * 영수증처럼 점선으로 답 글과 끊고, 행은 기호 · 제목 · (있으면) 크기 막대 한 줄.
+ * 색을 쓰지 않는다 — 종류는 ChangeGlyph 모양이, 크기는 막대 길이가 말한다. */
+
+.change-receipt {
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px dashed var(--color-line-strong);
+}
+
+.change-receipt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.change-receipt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 10px;
+}
+
+.change-receipt-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--color-line);
+  text-underline-offset: 2px;
+  transition: color 150ms ease;
+}
+button.change-receipt-title:hover {
+  color: var(--color-text);
+}
+/* 열 곳이 없는 삭제 항목 — 밑줄을 빼서 누를 수 없다는 것을 모양으로 알린다. */
+.change-receipt-title[data-static] {
+  text-decoration: none;
+}
+
+.change-receipt-size {
+  flex-shrink: 0;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--color-text-muted);
+}
+
+.change-receipt-caption {
+  margin-top: var(--space-1);
+  font-size: 9.5px;
+  color: var(--color-text-subtle);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .change-receipt-title {
+    transition: none;
+  }
+}

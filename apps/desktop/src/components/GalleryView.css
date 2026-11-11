@@ -1,0 +1,16 @@
+/* 미사용 이미지: 오른쪽 위 삼각 빗금. 무채색 앱이라 색 대신 무늬로 「정리하면 지워짐」을 표시한다. */
+.gallery-unused-mark {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-text) 0 2px,
+    var(--color-surface-raised) 2px 5px
+  );
+  pointer-events: none;
+}

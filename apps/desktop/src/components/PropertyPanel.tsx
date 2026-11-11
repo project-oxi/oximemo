@@ -606,11 +606,6 @@ export const PropertyPanel = reactMemo(function PropertyPanel({ memo, folder }: 
           className={expanded ? "rotate-90 transition-transform duration-150" : "transition-transform duration-150"}
         />
         {defs ? t.prop_schema_title : t.prop_free_title}
-        {keys.length > 0 && (
-          <span className="rounded-full border border-line bg-surface-muted px-1.5 text-[9px] font-semibold normal-case tracking-normal tabular-nums text-text-subtle">
-            {keys.length}
-          </span>
-        )}
       </button>
       <AnimatedDisclosure open={expanded}>
           {rows.length > 0 ? (

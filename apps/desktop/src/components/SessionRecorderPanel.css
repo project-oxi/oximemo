@@ -1,0 +1,99 @@
+/* 세션 기록 「처리 레일」 IntakeRail (2026-11-11).
+ * 수집 → 검토 대기 → 격리 → 저장을 한 줄 단계로 놓고, 사람 손이 필요한 단계(검토 대기 · 격리)는
+ * 윗선을 점선으로 그린다. 무채색 앱이라 경고색 상자 대신 선 모양으로 「여기가 다르다」를 말한다.
+ * 고른 단계는 아래 굵은 먹선 — 탭처럼 아래 목록과 이어져 보이게. */
+
+.intake-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.intake-rail-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-2) var(--space-2) 6px;
+  border-top: 1px solid var(--color-line-strong);
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  text-align: left;
+  color: var(--color-text-muted);
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+/* 단계 사이 화살표 — 순서가 있다는 것을 글자 하나로. 낭독기에는 단계 이름만 읽힌다. */
+.intake-rail-stage + .intake-rail-stage::before {
+  content: "→";
+  position: absolute;
+  top: var(--space-2);
+  left: calc(-1 * var(--space-1) - 3px);
+  font-size: 10px;
+  color: var(--color-text-subtle);
+}
+.intake-rail-stage[data-human] {
+  border-top: 2px dashed var(--color-text);
+}
+.intake-rail-stage:hover {
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+}
+.intake-rail-stage[aria-pressed="true"] {
+  color: var(--color-text);
+  border-bottom-color: var(--color-text);
+}
+
+.intake-rail-name {
+  font-size: var(--text-caption);
+}
+.intake-rail-count {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.intake-rail-stage[aria-pressed="true"] .intake-rail-name {
+  font-weight: 600;
+}
+
+.intake-setup {
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-2);
+}
+.intake-setup-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+  list-style: none;
+  padding: 2px var(--space-1);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+.intake-setup-summary::-webkit-details-marker {
+  display: none;
+}
+.intake-setup-summary:hover {
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+}
+.intake-setup-summary:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+.intake-setup-chevron {
+  display: inline-block;
+  transition: transform 150ms ease;
+}
+.intake-setup[open] .intake-setup-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intake-rail-stage,
+  .intake-setup-chevron {
+    transition: none;
+  }
+}

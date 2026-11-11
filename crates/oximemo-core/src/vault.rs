@@ -968,25 +968,38 @@ impl Vault {
     /// Scans every memo body, so call from an explicit user action (gallery
     /// "clean up"), not a hot path.
     pub fn gc_assets(&self) -> Result<u64> {
-        let live = self.asset_refs_in_bodies()?;
+        let root = self.paths.assets_root();
+        let mut removed = 0u64;
+        // 갤러리가 「정리하면 지워질 것」으로 표시하는 목록과 같은 판정을 쓴다 —
+        // 표시와 실제 삭제가 어긋나면 사용자가 보지 못한 이미지가 지워진다.
+        for name in self.unused_assets()? {
+            if std::fs::remove_file(root.join(&name)).is_ok() {
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
+    /// Asset names referenced by no live memo — exactly what `gc_assets`
+    /// would delete. Scans every memo body (same cost as gc), so the gallery
+    /// calls it once per open, not per thumbnail.
+    pub fn unused_assets(&self) -> Result<Vec<String>> {
         let root = self.paths.assets_root();
         if !root.exists() {
-            return Ok(0);
+            return Ok(Vec::new());
         }
-        let mut removed = 0u64;
+        let live = self.asset_refs_in_bodies()?;
+        let mut out = Vec::new();
         for entry in std::fs::read_dir(&root)? {
             let entry = entry?;
             let Some(name) = entry.file_name().to_str().map(str::to_string) else {
                 continue;
             };
-            if !crate::assets::valid_name(&name) || live.contains(&name) {
-                continue;
-            }
-            if std::fs::remove_file(entry.path()).is_ok() {
-                removed += 1;
+            if crate::assets::valid_name(&name) && !live.contains(&name) {
+                out.push(name);
             }
         }
-        Ok(removed)
+        Ok(out)
     }
 
     /// Delete stale `by-vault/<hash>` index namespaces under the
@@ -7288,6 +7301,7 @@ watcher_retry_interval_ms = 200
         // Orphan: saved but never cited.
         let orphan = v.save_asset(&[9, 9, 9], "gif").unwrap();
         assert_eq!(v.list_assets().unwrap().len(), 2);
+        assert_eq!(v.unused_assets().unwrap(), vec![orphan.name.clone()]);
 
         let removed = v.gc_assets().unwrap();
         assert_eq!(removed, 1);

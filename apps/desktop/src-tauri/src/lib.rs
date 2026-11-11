@@ -544,6 +544,7 @@ pub fn run() {
             commands::save_image_bytes,
             commands::list_assets,
             commands::gc_assets,
+            commands::unused_assets,
             commands::memo_for_asset,
             commands::cli_status,
             commands::install_cli,
@@ -2755,6 +2756,12 @@ mod commands {
     #[tauri::command(async)]
     pub fn gc_assets(state: State<'_, AppState>) -> Result<u64, String> {
         state.vault.gc_assets().map_err(|e| e.to_string())
+    }
+
+    /// Asset names «clean up» would delete (gallery marks them before gc).
+    #[tauri::command(async)]
+    pub fn unused_assets(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+        state.vault.unused_assets().map_err(|e| e.to_string())
     }
 
     /// First memo whose body references asset `name` (gallery "open memo").

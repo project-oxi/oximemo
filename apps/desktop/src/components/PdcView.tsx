@@ -11,11 +11,13 @@ import { useEffect, useState } from "react";
 
 import { invoke, listen } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
-import type { PdcInventory, PdcInventoryEntry, PdcSourceFile, PdcWriteReceipt } from "../lib/pdcInventory";
+import { summarizePdcIssues } from "../lib/pdcInventory";
+import type { PdcDuplicateId, PdcInventory, PdcInventoryEntry, PdcSourceFile, PdcWriteReceipt } from "../lib/pdcInventory";
 import { SessionRecorderPanel } from "./SessionRecorderPanel";
 import { TextCtxMenu } from "./TextCtxMenu";
 import { ListSkeleton } from "./Skeletons";
 import { useUI } from "../stores/ui";
+import "./PdcView.css";
 
 function fmt(n: number, template: string): string {
   return template.replace("{n}", String(n));
@@ -36,21 +38,8 @@ function DatabaseHint() {
   return <span className="font-mono text-[11px] font-bold text-hue-violet">Q</span>;
 }
 
-const CLASS_STYLE: Record<string, string> = {
-  document: "bg-hue-green/15 text-hue-green",
-  legacy_document: "bg-hue-amber/15 text-hue-amber",
-  legacy_markdown: "bg-hue-amber/15 text-hue-amber",
-  legacy_html: "bg-hue-amber/15 text-hue-amber",
-  query: "bg-hue-violet/15 text-hue-violet",
-  query_valid_unexecuted: "bg-hue-violet/15 text-hue-violet",
-  invalid: "bg-status-error/15 text-status-error",
-  invalid_query: "bg-status-error/15 text-status-error",
-  unsupported: "bg-surface-muted text-text-muted",
-};
-
-function classStyle(cls: string): string {
-  return CLASS_STYLE[cls] ?? "bg-surface-muted text-text-muted";
-}
+/** 비율 띠의 빗금 칸(문제 문서) 필터 값. 실제 분류 이름과 겹치지 않게 밑줄로 시작한다. */
+const PROBLEMS = "__problems";
 
 function IssueList({ label, values }: { label: string; values: string[] }) {
   if (values.length === 0) return null;
@@ -389,19 +378,83 @@ function CreateDocumentForm({
   );
 }
 
-/** Inventory body. Loading / error / empty / list as early returns — the
- *  destination chain must stay flat and reorderable (project rule: no
- *  nested ternaries). Rows open the guarded source editor via `onOpen`. */
+/** One inventory row: path, class label (plain text — 2026-11-11 분류 알약
+ *  9색은 무채색 규칙에서 구분되지 않아 글자로 바꿨다), title, source button,
+ *  and any findings underneath. Shared by problem rows and healthy rows. */
+function EntryRow({
+  e,
+  classLabel,
+  duplicateIds,
+  onOpen,
+}: {
+  e: PdcInventoryEntry;
+  classLabel: string;
+  duplicateIds: string[];
+  onOpen: (source: OpenSource) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <li className="rounded-lg border border-line bg-surface px-3 py-2 transition-colors hover:bg-surface-muted">
+      <div className="flex items-center gap-2">
+        <EntryIcon path={e.path} />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-text" title={e.path}>
+          {e.path}
+        </span>
+        <span className="text-[10px] text-text-subtle">{classLabel}</span>
+        {e.title && <span className="max-w-40 truncate text-xs text-text-subtle">{e.title}</span>}
+        <button
+          type="button"
+          onClick={() => onOpen({ path: e.path, class: e.class })}
+          className="rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-muted hover:text-text"
+        >
+          {t.pdc_open_source}
+        </button>
+      </div>
+      {(Boolean(e.diagnostic) ||
+        e.broken_document_links.length > 0 ||
+        e.missing_assets.length > 0 ||
+        duplicateIds.length > 0) && (
+        <div className="mt-1.5 border-t border-line pt-1.5">
+          {e.diagnostic && (
+            <p className="text-[11px] text-status-error">
+              <span className="font-mono">{e.diagnostic.code}</span>
+              {": "}
+              {e.diagnostic.message}
+              {typeof e.diagnostic.line === "number" && (
+                <span className="text-text-subtle"> ({fmt(e.diagnostic.line, t.pdc_line)})</span>
+              )}
+            </p>
+          )}
+          <IssueList label={t.pdc_broken_links} values={e.broken_document_links} />
+          <IssueList label={t.pdc_missing_assets} values={e.missing_assets} />
+          <IssueList label={t.pdc_duplicates} values={duplicateIds} />
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** 「문제 먼저」 IssueFirst (2026-11-11): 비율 띠 한 줄로 구성을 보이고, 문제
+ *  문서만 펼쳐 위에 두고, 정상 문서는 접힌 한 줄로 묶는다. 정상 문서 수백 개
+ *  사이에서 문제 행을 스크롤로 찾던 것을 없애려는 배치다.
+ *  Loading / error / empty / list as early returns — the destination chain
+ *  must stay flat and reorderable (project rule: no nested ternaries). Rows
+ *  open the guarded source editor via `onOpen`. */
 function InventoryResults({
   inv,
   items,
+  duplicates,
   onOpen,
 }: {
   inv: UseQueryResult<PdcInventory, Error>;
   items: PdcInventoryEntry[];
+  duplicates: PdcDuplicateId[];
   onOpen: (source: OpenSource) => void;
 }) {
   const { t } = useI18n();
+  // 띠 칸을 누르면 그 분류만 본다. PROBLEMS 는 빗금 칸(문제 문서만).
+  const [filter, setFilter] = useState<string | null>(null);
+  const [healthyOpen, setHealthyOpen] = useState(false);
   if (inv.isLoading) {
     return (
       <div className="mt-4">
@@ -426,51 +479,104 @@ function InventoryResults({
     query_valid_unexecuted: t.pdc_class_query_valid_unexecuted,
     invalid_query: t.pdc_class_invalid_query,
   };
+  const labelOf = (cls: string) => classLabels[cls] ?? cls;
+  const { problemPaths, segments } = summarizePdcIssues(items, duplicates);
+  const dupIdsOf = (path: string) =>
+    duplicates.filter((d) => d.paths.includes(path)).map((d) => d.document_id);
+  // 분류 필터는 문제 행에도 걸린다 — 「이 분류에서 고칠 것」을 바로 보이게.
+  const matches = (e: PdcInventoryEntry) => filter === null || filter === PROBLEMS || e.class === filter;
+  const problems = items.filter((e) => problemPaths.has(e.path) && matches(e));
+  const healthy = filter === PROBLEMS ? [] : items.filter((e) => !problemPaths.has(e.path) && matches(e));
+  const healthyShown = healthyOpen;
+  const toggleFilter = (next: string) => {
+    const off = filter === next;
+    setFilter(off ? null : next);
+    // 분류 하나를 골랐으면 그 분류의 정상 문서를 바로 펼친다 — 누른 뒤 한 번 더 펼치게 하지 않는다.
+    if (!off && next !== PROBLEMS) setHealthyOpen(true);
+  };
+
   return (
-    <ul className="pdc-document-list space-y-1.5">
-      {items.map((e: PdcInventoryEntry) => (
-        <li
-          key={e.path}
-          className="rounded-lg border border-line bg-surface px-3 py-2 transition-colors hover:bg-surface-muted"
-        >
-          <div className="flex items-center gap-2">
-            <EntryIcon path={e.path} />
-            <span className="min-w-0 flex-1 truncate font-mono text-xs text-text" title={e.path}>
-              {e.path}
-            </span>
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${classStyle(e.class)}`}>
-              {classLabels[e.class] ?? e.class}
-            </span>
-            {e.title && <span className="max-w-40 truncate text-xs text-text-subtle">{e.title}</span>}
-            <button
-              type="button"
-              onClick={() => onOpen({ path: e.path, class: e.class })}
-              className="rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface-muted hover:text-text"
-            >
-              {t.pdc_open_source}
-            </button>
-          </div>
-          {(Boolean(e.diagnostic) ||
-            e.broken_document_links.length > 0 ||
-            e.missing_assets.length > 0) && (
-            <div className="mt-1.5 border-t border-line pt-1.5">
-              {e.diagnostic && (
-                <p className="text-[11px] text-status-error">
-                  <span className="font-mono">{e.diagnostic.code}</span>
-                  {": "}
-                  {e.diagnostic.message}
-                  {typeof e.diagnostic.line === "number" && (
-                    <span className="text-text-subtle"> ({fmt(e.diagnostic.line, t.pdc_line)})</span>
-                  )}
-                </p>
-              )}
-              <IssueList label={t.pdc_broken_links} values={e.broken_document_links} />
-              <IssueList label={t.pdc_missing_assets} values={e.missing_assets} />
-            </div>
+    <div className="pdc-issue-first">
+      <p className="pdc-issue-head">
+        <b>{fmt(items.length, t.pdc_summary_docs)}</b>
+        <span> · {fmt(problemPaths.size, t.pdc_summary_issues)}</span>
+      </p>
+      <div className="pdc-ratio" role="group" aria-label={t.pdc_ratio_label}>
+        {segments.map((seg, i) => (
+          <button
+            key={seg.class}
+            type="button"
+            className="pdc-ratio-seg"
+            data-tone={i % 2 === 0 ? "a" : "b"}
+            aria-pressed={filter === seg.class}
+            aria-label={t.pdc_ratio_segment.replace("{name}", labelOf(seg.class)).replace("{n}", String(seg.count))}
+            title={`${labelOf(seg.class)} ${seg.count}`}
+            style={{ flexGrow: seg.count }}
+            onClick={() => toggleFilter(seg.class)}
+          />
+        ))}
+        {problemPaths.size > 0 && (
+          <button
+            type="button"
+            className="pdc-ratio-seg"
+            data-tone="problem"
+            aria-pressed={filter === PROBLEMS}
+            aria-label={t.pdc_ratio_segment.replace("{name}", t.pdc_ratio_problems).replace("{n}", String(problemPaths.size))}
+            title={`${t.pdc_ratio_problems} ${problemPaths.size}`}
+            style={{ flexGrow: problemPaths.size }}
+            onClick={() => toggleFilter(PROBLEMS)}
+          />
+        )}
+      </div>
+      <p className="pdc-ratio-legend">
+        {segments.map((seg) => (
+          <span key={seg.class} data-active={filter === seg.class ? "" : undefined}>
+            {labelOf(seg.class)} {seg.count}
+          </span>
+        ))}
+        {problemPaths.size > 0 && (
+          <span data-active={filter === PROBLEMS ? "" : undefined} data-problem="">
+            {t.pdc_ratio_problems} {problemPaths.size}
+          </span>
+        )}
+        {filter !== null && (
+          <button type="button" className="pdc-ratio-clear" onClick={() => setFilter(null)}>
+            {t.pdc_filter_clear}
+          </button>
+        )}
+      </p>
+
+      {problemPaths.size === 0 && <p className="pdc-no-issues">{t.pdc_no_issues}</p>}
+
+      {problems.length > 0 && (
+        <ul className="pdc-document-list space-y-1.5">
+          {problems.map((e) => (
+            <EntryRow key={e.path} e={e} classLabel={labelOf(e.class)} duplicateIds={dupIdsOf(e.path)} onOpen={onOpen} />
+          ))}
+        </ul>
+      )}
+
+      {healthy.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="pdc-healthy-toggle"
+            aria-expanded={healthyShown}
+            onClick={() => setHealthyOpen(!healthyShown)}
+          >
+            {fmt(healthy.length, t.pdc_healthy)}
+            <span className="pdc-healthy-chevron" aria-hidden>›</span>
+          </button>
+          {healthyShown && (
+            <ul className="pdc-document-list space-y-1.5">
+              {healthy.map((e) => (
+                <EntryRow key={e.path} e={e} classLabel={labelOf(e.class)} duplicateIds={[]} onOpen={onOpen} />
+              ))}
+            </ul>
           )}
-        </li>
-      ))}
-    </ul>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -521,12 +627,6 @@ export function PdcView() {
 
   const items = inv.data?.items ?? [];
   const duplicates = inv.data?.duplicate_ids ?? [];
-  const problematic = items.filter(
-    (e) =>
-      Boolean(e.diagnostic) ||
-      e.broken_document_links.length > 0 ||
-      e.missing_assets.length > 0,
-  );
   // Localized vault-manifest badge (codes from the backend scan); an
   // unknown code falls back to the backend message.
   const manifestLabels: Record<string, string> = {
@@ -569,9 +669,6 @@ export function PdcView() {
             {manifestLabels[inv.data.manifest_diagnostic.code] ?? inv.data.manifest_diagnostic.message}
           </span>
         )}
-        <span className="text-xs text-text-subtle">
-          {items.length > 0 ? fmt(items.length, t.pdc_items) : ""}
-        </span>
         <button
           type="button"
           onClick={() => setShowCreate((shown) => !shown)}
@@ -615,11 +712,7 @@ export function PdcView() {
         </section>
       )}
 
-      <InventoryResults inv={inv} items={items} onOpen={setOpenSource} />
-
-      {problematic.length === 0 && duplicates.length === 0 && !inv.isLoading && !inv.isError && items.length > 0 && (
-        <p className="mt-4 text-center text-xs text-hue-green">{t.pdc_no_issues}</p>
-      )}
+      <InventoryResults inv={inv} items={items} duplicates={duplicates} onOpen={setOpenSource} />
         </>
       )}
       {/* Fixed overlay lives ABOVE the pane switch so flipping to the

@@ -97,6 +97,11 @@ export function gcAssets(): Promise<number> {
   return inTauri ? invoke<number>("gc_assets") : Promise.resolve(0);
 }
 
+/** Names `gcAssets` would delete. Scans every memo body — call once per gallery open. */
+export function unusedAssets(): Promise<string[]> {
+  return inTauri ? invoke<string[]>("unused_assets") : Promise.resolve([]);
+}
+
 /**
  * Resolve an `oximg://localhost/<name>` URL to something a browser `<img>` can
  * load. In Tauri the scheme loads natively (returned unchanged). In browser-dev

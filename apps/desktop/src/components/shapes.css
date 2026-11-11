@@ -1,0 +1,70 @@
+/* Shared shape vocabulary — see shapes.tsx. 무채색 앱에서 상태를 색 대신 모양으로 말한다. */
+
+.change-glyph {
+  display: inline-flex;
+  width: 1.1em;
+  flex-shrink: 0;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+/* 삭제 · 이동은 되돌릴 일이 크다 — 글자 진하기로만 무게를 더한다. */
+.change-glyph[data-kind="deleted"],
+.change-glyph[data-kind="moved"] {
+  color: var(--color-text);
+}
+
+.fill-ring {
+  display: inline-block;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1.5px solid var(--color-text);
+  background: transparent;
+  transition: background-color 150ms ease;
+}
+.fill-ring[data-state="partial"] {
+  background: linear-gradient(90deg, var(--color-text) 50%, transparent 50%);
+}
+.fill-ring[data-state="full"] {
+  background: var(--color-text);
+}
+.fill-ring[data-state="held"] {
+  border-style: dashed;
+  border-color: var(--color-text-muted);
+}
+
+.now-rule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.now-rule::before,
+.now-rule::after {
+  content: "";
+  height: 2px;
+  background: var(--color-text);
+  border-radius: 1px;
+}
+.now-rule::before {
+  flex: 0 0 12px;
+}
+.now-rule::after {
+  flex: 1;
+}
+.now-rule:not(:has(.now-rule-label))::before {
+  flex: 1;
+}
+.now-rule:not(:has(.now-rule-label))::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fill-ring {
+    transition: none;
+  }
+}

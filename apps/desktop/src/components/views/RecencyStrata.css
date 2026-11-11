@@ -1,0 +1,230 @@
+/* 시간 지층 「RecencyStrata」 · 폴더 선반 (2026-11-11).
+ * 앱이 무채색이라 띠의 무게는 색이 아니라 크기 · 밀도 · 굵기로 가른다.
+ * 오늘 = 큰 카드, 이번 주 = 작은 카드, 그 이전 = 한 줄 행. 띠 머리는 글자 + 가는 선뿐 — 상자를 두르지 않는다. */
+
+/* ── 띠 머리 ─────────────────────────────────────────── */
+.strata-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-subtle);
+}
+.strata-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-line);
+}
+/* 오늘 머리는 한 단계 진하게 — 「지금에 가깝다」를 굵기로 말한다. */
+.strata-head[data-band="today"] {
+  color: var(--color-text);
+}
+
+/* ── 폴더 선반 ───────────────────────────────────────── */
+.strata-shelf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 2px 0 8px;
+}
+/* 접힌 선반은 한 줄을 넘지 않는다 — 넘치면 이름이 줄어들고 「모두 보기」가 끝에 남는다. */
+.strata-shelf[data-collapsed] {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.folder-shelf-item {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 16rem;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--tag-radius);
+  background: var(--folder-tile-bg);
+  cursor: default;
+  transition: border-color 150ms ease;
+}
+.folder-shelf-item:hover {
+  border-color: var(--color-line-strong);
+}
+.folder-shelf-item:focus-within {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+.folder-shelf-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: left;
+  outline: none;
+}
+.strata-shelf-more {
+  flex: none;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--tag-radius);
+  font-size: 12px;
+  color: var(--color-text-subtle);
+  white-space: nowrap;
+  transition: color 150ms ease;
+}
+.strata-shelf-more:hover {
+  color: var(--color-text);
+}
+.strata-shelf-more:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── 오늘 · 큰 카드 ─────────────────────────────────── */
+.strata-lead {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+/* ── 이번 주 · 작은 카드 (제목만) ───────────────────── */
+.strata-compact {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+.strata-note-compact {
+  display: flex;
+  min-width: 0;
+  min-height: 56px;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--card-radius);
+  background: var(--color-surface-raised);
+  text-align: left;
+  cursor: default;
+  transition: border-color 150ms ease;
+}
+.strata-note-compact:hover {
+  border-color: var(--color-line-strong);
+}
+.strata-title-2 {
+  display: -webkit-box;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--color-text);
+}
+
+/* ── 그 이전 · 한 줄 행 ─────────────────────────────── */
+.strata-note-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--color-line);
+  border-radius: 0;
+  text-align: left;
+  cursor: default;
+  transition: background-color 150ms ease;
+}
+.strata-note-row:hover {
+  background: var(--color-surface-muted);
+}
+.strata-title-1 {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.strata-row-folder {
+  max-width: 30%;
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--color-text-subtle);
+}
+.strata-row-date {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-subtle);
+}
+
+/* ── 공통 상태 ──────────────────────────────────────── */
+.strata-note-compact:focus-visible,
+.strata-note-row:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+/* 끄는 중인 메모는 Card 와 같은 0.4 로 흐린다 — 어느 띠에서 끌든 같은 신호. */
+.strata-note-compact[data-dragging],
+.strata-note-row[data-dragging] {
+  opacity: 0.4;
+}
+
+/* 새로 저장한 메모가 어느 띠에 들어갔는지 — Card · 목록 행과 같은 한 번 밝힘(keyframes 는 workspace-motion.css). */
+.strata-note-compact[data-fresh],
+.strata-note-row[data-fresh] {
+  animation: note-fresh 1.2s var(--ease-enter) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folder-shelf-item,
+  .strata-shelf-more,
+  .strata-note-compact,
+  .strata-note-row {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* 메모 없는 폴더: 선반 아래 한 줄 + 새 메모. 빈 화면 일러스트 대신 다음 동작만 둔다. */
+.strata-no-notes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-body);
+  color: var(--color-text-muted);
+}
+.strata-no-notes button {
+  padding: 3px 10px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--button-radius);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+}
+.strata-no-notes button:hover {
+  background: var(--color-control-hover);
+}
+.strata-no-notes button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}

@@ -1,0 +1,45 @@
+/* 사이드바 태그 칩 「TriTag」 (2026-11-11).
+ * 포함 · 제외 · 끔 세 상태를 배경 톤이 아니라 모양으로 가른다 — 앱이 무채색이라
+ * info/error 옅은 배경은 실제 화면에서 거의 같은 회색으로 보였다.
+ *   포함 = 꽉 찬 반전(먹 바탕 · 종이 글자)
+ *   제외 = 취소선 + 점선 테두리
+ *   끔   = 글자만 */
+
+.tri-tag {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.tri-tag:hover {
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+}
+.tri-tag:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.tri-tag[data-state="in"] {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-surface);
+  font-weight: 600;
+}
+.tri-tag[data-state="in"]:hover {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+
+.tri-tag[data-state="out"] {
+  border-style: dashed;
+  border-color: var(--color-text-muted);
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tri-tag {
+    transition: none;
+  }
+}

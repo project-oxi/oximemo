@@ -1,0 +1,132 @@
+/* DateAxis — see DateAxis.tsx. 날짜 종류는 모양(● ■ ◆), 앞뒤 어긋남은 빗금으로 — 색을 쓰지 않는다. */
+
+.date-axis {
+  position: relative;
+  height: 28px;
+  margin: 0 10px;
+  touch-action: none;
+}
+
+.date-axis-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--color-line-strong);
+}
+
+/* 시작 ~ 기한 사이 굵은 줄 — 일의 기간이 길이로 보인다. */
+.date-axis-span {
+  position: absolute;
+  top: calc(50% - 1.5px);
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-text-muted);
+}
+/* 앞뒤가 어긋나면 빗금 띠로 바꾼다 — 같은 길이라도 「틀렸다」가 모양으로 보인다. */
+.date-axis-span[data-bad] {
+  top: calc(50% - 4px);
+  height: 8px;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-text) 0 2px,
+    transparent 2px 5px
+  );
+}
+
+.date-axis-today {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 0;
+  border-left: 1px dashed var(--color-text-muted);
+}
+
+/* 손잡이: 20px 누름 칸 안에 10px 모양. 누름 칸이 커야 끌기가 손에 붙는다. */
+.date-axis-handle {
+  position: absolute;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  transition: left 150ms ease;
+}
+.date-axis-handle::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: var(--color-text);
+  /* 바탕색 테두리 — 손잡이가 겹쳐도 경계가 보인다. */
+  box-shadow: 0 0 0 1.5px var(--color-surface-raised);
+}
+.date-axis-handle[data-shape="start"]::before {
+  border-radius: 9999px;
+}
+.date-axis-handle[data-shape="scheduled"]::before {
+  border-radius: 1px;
+}
+.date-axis-handle[data-shape="due"]::before {
+  width: 9px;
+  height: 9px;
+  transform: rotate(45deg);
+  border-radius: 1px;
+}
+.date-axis-handle[data-active]::before {
+  outline: 1.5px solid var(--color-text);
+  outline-offset: 2px;
+}
+/* 어긋난 쌍은 속을 비운다 — 빗금 띠와 함께 「여기가 틀렸다」를 가리킨다. */
+.date-axis-handle[data-bad]::before {
+  background: var(--color-surface-raised);
+  box-shadow: inset 0 0 0 2px var(--color-text);
+}
+.date-axis-handle:hover {
+  background: var(--color-surface-muted);
+}
+.date-axis-handle:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+.date-axis[data-dragging] .date-axis-handle {
+  transition: none;
+  cursor: grabbing;
+}
+
+.date-axis-scale {
+  position: relative;
+  height: 14px;
+  margin: 0 10px;
+  font-size: 10px;
+  color: var(--color-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+.date-axis-scale > span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+.date-axis-scale > .date-axis-scale-today {
+  transform: translateX(-50%);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.date-axis-glyph {
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+  font-size: 9px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .date-axis-handle {
+    transition: none;
+  }
+}

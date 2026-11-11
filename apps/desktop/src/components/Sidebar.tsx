@@ -34,6 +34,7 @@ import type { FolderDef, FolderEntry } from "../lib/types";
 import { keyLabel } from "../lib/platform";
 import { NoteCtxMenu } from "./NoteCtxMenu";
 import { useFolderCreate } from "../lib/useFolderCreate";
+import "./TriTag.css";
 /** 쿼리 행 메뉴 항목 — ⋯ 팝오버와 우클릭이 공유(설계 원칙 2). */
 type QueryMenuItem =
   | { label: string; icon?: LucideIcon; danger?: boolean; onClick: () => void }
@@ -42,12 +43,6 @@ type QueryMenuItem =
 /** Static preset-id → icon table (drives 위치 collection rows). */
 const PRESET_ICON: Record<string, (typeof COLLECTION_CATALOG)[number]["icon"]> =
   Object.fromEntries(COLLECTION_CATALOG.map((c) => [c.id, c.icon]));
-
-const STATE_CLASS: Record<TagState, string> = {
-  off: "bg-surface-muted text-text-muted hover:bg-surface-muted/80",
-  in: "bg-status-info-subtle font-semibold text-status-info-on-subtle",
-  out: "border border-status-error/30 bg-status-error-subtle text-status-error-on-subtle line-through",
-};
 
 export function Sidebar({
   onMoveNote,
@@ -650,13 +645,16 @@ export function Sidebar({
                 render={
                   <button
                     type="button"
+                    // aria-pressed 는 「거르는 중인가」만 말한다 — 포함/제외 구분은
+                    // 세 상태라 aria-label 끝의 상태 낱말이 맡는다.
                     aria-pressed={st !== "off"}
                     aria-label={`#${tag} · ${count} · ${st === "in" ? t.tag_filter_included : st === "out" ? t.tag_filter_excluded : t.tag_filter_off}`}
                     onClick={() => {
                       enterQueryMode();
                       cycleTag(tag);
                     }}
-                    className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${STATE_CLASS[st]}`}
+                    data-state={st}
+                    className="tri-tag rounded-md px-2 py-0.5 text-[11px]"
                   />
                 }
               >

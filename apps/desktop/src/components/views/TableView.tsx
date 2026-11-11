@@ -81,7 +81,68 @@ export interface TableViewProps {
    * stops pointing at rows that may no longer exist (spec §4).
    */
   resultKey?: string;
+  /** 열 머리 조건 꼬리표(예: 「≠ 완료」, 2026-11-11). 그 열 필드에 단순 조건이 걸렸을 때만. */
+  columnTag?: (col: TableColumn) => string | undefined;
+  /** 열 머리를 눌러 정렬한다(세션 한정 · YAML 안 씀). 받은 행만 줄 세우므로 결과를 다
+   *  받았을 때만 켠다 — 덜 받은 채 정렬하면 「맨 위」가 실제 맨 위가 아니다. */
+  sortable?: boolean;
 }
+
+type SortDir = "asc" | "desc";
+const NAME_COL: TableColumn = { kind: "name" };
+const PRIORITY_RANK: Record<TaskDto["priority"], number> = {
+  highest: 0, high: 1, medium: 2, none: 3, low: 4, lowest: 5,
+};
+
+/** 정렬용 값: 숫자는 숫자로, 나머지는 글자로. 빈 값은 null — 방향과 상관없이 맨 뒤로 보낸다. */
+function sortValueOf(
+  row: BaseRow,
+  col: TableColumn,
+  formulaCell: TableViewProps["formulaCell"],
+): string | number | null {
+  switch (col.kind) {
+    case "name":
+      return row.task ? row.task.text || null : row.summary.title ?? row.summary.path;
+    case "tags": {
+      const tags = row.task?.tags.length ? row.task.tags : row.summary.tags;
+      return tags.length ? tags.join(" ") : null;
+    }
+    case "updated":
+      return row.summary.updated_at || null;
+    case "formula": {
+      const v = formulaCell?.(row.row_id, col.key)?.value ?? null;
+      if (v === null || v === "Null") return null;
+      if (typeof v === "object" && "Num" in v) return v.Num;
+      return formatBaseValue(v) || null;
+    }
+    case "task": {
+      if (!row.task) return null;
+      if (col.key === "priority") return PRIORITY_RANK[row.task.priority];
+      const v = (row.task as unknown as Record<string, unknown>)[col.key];
+      if (v === null || v === undefined || v === "") return null;
+      return typeof v === "number" ? v : String(v);
+    }
+    case "prop": {
+      const v = row.summary.props?.[col.key];
+      if (!v) return null;
+      if ("Str" in v) return v.Str || null;
+      if ("Bool" in v) return v.Bool ? 1 : 0;
+      return v.List.length ? v.List.join(" ") : null;
+    }
+  }
+}
+
+function compareSortValues(a: string | number | null, b: string | number | null, locale: string): number {
+  if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), locale, { numeric: true, sensitivity: "base" });
+}
+
+const colKey = (col: TableColumn): string =>
+  col.kind === "prop" ? `p:${col.key}`
+    : col.kind === "task" ? `tk:${col.key}`
+    : col.kind === "formula" ? `f:${col.key}`
+    : col.kind;
 
 type Entry =
   | { type: "group"; key: string; count: number }
@@ -102,6 +163,8 @@ export function TableView({
   labelFor,
   onColumnsReordered,
   resultKey,
+  columnTag,
+  sortable = false,
 }: TableViewProps) {
   const { t, locale } = useI18n();
   const qc = useQueryClient();
@@ -156,13 +219,40 @@ export function TableView({
   // Rows: server items overlaid with locally reconciled NoteDto patches
   // (summary only — task content rides the unchanged BaseRow.task),
   // displayed in the row_id-frozen order while an editor is focused.
+  // 열 머리 정렬(2026-11-11): 그룹처럼 세션 한정이다. 저장된 정렬(YAML order)은 그대로
+  // 두고 화면에서만 줄을 세운다 — 세 번째 누르면 저장된 순서로 돌아간다.
+  const [sort, setSort] = useState<{ key: string; dir: SortDir } | null>(null);
+  const activeSort = sortable ? sort : null;
+  // BaseView 가 매 렌더 새 함수를 넘겨서 의존성에 넣으면 정렬 없이도 행 목록을 매번 다시 만든다.
+  // 공식 값은 items 와 같이 바뀌므로 최신 함수만 들고 있으면 된다.
+  const formulaCellRef = useRef(formulaCell);
+  formulaCellRef.current = formulaCell;
+  const cycleSort = (col: TableColumn) => {
+    const key = colKey(col);
+    setSort((s) => (s?.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : null));
+  };
   const rows = useMemo(() => {
-    const out: BaseRow[] = items.map((r) => {
+    let out: BaseRow[] = items.map((r) => {
       const p = patched[r.row_id];
       return p ? { ...r, summary: p } : r;
     });
+    // 첫 칸은 늘 이름 칸이다(cols[0] 이 무엇이든 이름을 그린다) — 이름 정렬은 cols 에서 찾지 않는다.
+    const sortCol = !activeSort ? undefined
+      : activeSort.key === "name" ? NAME_COL
+      : cols.find((c) => colKey(c) === activeSort.key);
+    if (activeSort && sortCol) {
+      const sign = activeSort.dir === "asc" ? 1 : -1;
+      out = out
+        .map((r) => ({ r, v: sortValueOf(r, sortCol, formulaCellRef.current) }))
+        .sort((a, b) => {
+          const c = compareSortValues(a.v, b.v, locale);
+          // 빈 값은 방향과 상관없이 맨 뒤 — 내림차순에서 빈 칸이 맨 위로 오면 쓸모가 없다.
+          return a.v === null || b.v === null ? c : c * sign;
+        })
+        .map((x) => x.r);
+    }
     return applyFrozenOrderByRowId(out, frozenIds);
-  }, [items, patched, frozenIds]);
+  }, [items, patched, frozenIds, activeSort, cols, locale]);
 
   const rowsForGroup = useMemo(() => rows.map((r) => r.summary), [rows]);
   const groups = useMemo(() => groupRows(rowsForGroup, groupBy), [rowsForGroup, groupBy]);
@@ -313,12 +403,54 @@ export function TableView({
     resetDrag();
   };
 
+  /** 열 머리 글자: 정렬 단추(결과를 다 받았을 때) + 조건 꼬리표. 단추는 글자만 감싸서
+   *  끌어 옮기기 · 그룹 단추와 누르는 자리가 겹치지 않게 한다. */
+  const headerContent = (col: TableColumn, label: string) => {
+    const dir = activeSort?.key === colKey(col) ? activeSort.dir : null;
+    const tag = columnTag?.(col);
+    return (
+      <>
+        {sortable ? (
+          <button
+            type="button"
+            title={t.table_sort}
+            onClick={() => cycleSort(col)}
+            className="flex min-w-0 items-center gap-0.5 rounded-[2px] text-left font-semibold transition-colors duration-150 hover:text-text"
+          >
+            <span className="truncate">{label}</span>
+            {dir && <span aria-hidden className="shrink-0 text-text">{dir === "asc" ? "↑" : "↓"}</span>}
+          </button>
+        ) : (
+          <span className="truncate">{label}</span>
+        )}
+        {tag && (
+          // 조건 꼬리표: 무채색 앱이라 색 대신 테두리 상자로 「걸린 조건」을 가른다.
+          <span
+            title={tag}
+            className="ml-1 min-w-0 shrink truncate rounded-[var(--tag-radius)] border border-line-strong px-1 text-[10px] font-normal leading-4 text-text-muted"
+          >
+            {tag}
+          </span>
+        )}
+      </>
+    );
+  };
+  const ariaSortOf = (col: TableColumn): "ascending" | "descending" | "none" | undefined => {
+    if (!sortable) return undefined;
+    const dir = activeSort?.key === colKey(col) ? activeSort.dir : null;
+    return dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none";
+  };
+
   return (
     <div className="note-table min-w-[560px] pb-1">
       {/* Sticky header: frozen name cell + draggable prop columns. */}
       <div className="sticky top-0 z-10 border-b border-line bg-surface">
         <div role="row" className="grid items-center" style={{ gridTemplateColumns: gridTemplate }}>
-          <div className="sticky left-0 z-20 flex items-center gap-1 bg-surface px-2 py-1.5 text-[11px] font-semibold text-text-subtle">
+          <div
+            role="columnheader"
+            aria-sort={ariaSortOf(NAME_COL)}
+            className="sticky left-0 z-20 flex items-center gap-1 bg-surface px-2 py-1.5 text-[11px] font-semibold text-text-subtle"
+          >
             {groupBy !== null && (
               <button
                 type="button"
@@ -333,7 +465,7 @@ export function TableView({
                 <ChevronRight size={12} aria-hidden />
               </button>
             )}
-            <span className="truncate">{t.table_col_name}</span>
+            {headerContent(NAME_COL, t.table_col_name)}
           </div>
           {cols.slice(1).map((col, i) => {
             const idx = i + 1;
@@ -349,6 +481,7 @@ export function TableView({
                   : col.kind === "task" ? `tk:${col.key}`
                   : col.kind}
                 role="columnheader"
+                aria-sort={ariaSortOf(col)}
                 draggable={!isLast}
                 onDragStart={() => setDragFrom(idx)}
                 onDragOver={(e) => {
@@ -381,7 +514,7 @@ export function TableView({
                     <ChevronDown size={11} aria-hidden />
                   </button>
                 ) : null}
-                <span className="truncate">{headerLabel(col)}</span>
+                {headerContent(col, headerLabel(col))}
               </div>
             );
           })}

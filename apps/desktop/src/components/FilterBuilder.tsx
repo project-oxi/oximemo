@@ -22,23 +22,21 @@ interface Props {
   viewNode: FilterNode | null;
   /** Apply a level's tree (null clears the level). */
   onSave: (level: "base" | "view", node: FilterNode | null) => void;
+  /** 조건 문장의 「고급 조건 N」이 이 팝오버를 연다(2026-11-11). 주지 않으면 스스로 연다. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** 열릴 때 먼저 보일 범위 — 고급 조건이 쿼리 전체에 있으면 그쪽을 펴 준다. */
+  openLevel?: "base" | "view" | null;
 }
 
 const clone = (n: FilterNode): FilterNode => structuredClone(n);
-const emptyCond = (): FilterNode => ({ kind: "cond", ident: "file.name", op: "==", value: "" });
+export const emptyCond = (): FilterNode => ({ kind: "cond", ident: "file.name", op: "==", value: "" });
 
-export function FilterBuilder({ baseNode, viewNode, onSave }: Props) {
-  const { t } = useI18n();
+/** 속성 카탈로그(base_props)로 필드별 타입 · 선택지를 준다. 조건 문장의 한 줄
+ *  편집기도 같은 연산자 규칙을 쓰도록 여기 한 곳에 둔다. */
+export function useFieldCatalog(): Ctx {
   const propsQ = useQuery({ queryKey: ["base-props"], queryFn: baseProps });
   const props: PropInfo[] = propsQ.data ?? [];
-  const [level, setLevel] = useState<"base" | "view">("view");
-  const [draft, setDraft] = useState<FilterNode | null>(() =>
-    level === "base" ? (baseNode ? clone(baseNode) : null) : viewNode ? clone(viewNode) : null,
-  );
-  const [open, setOpen] = useState(false);
-
-  const root: FilterNode = draft ?? { kind: "and", children: [emptyCond()] };
-
   const typesOf = (ident: string): string[] | undefined => {
     const core = CORE_IDENTS.find((c) => c.ident === ident);
     if (core) return [core.type];
@@ -46,6 +44,32 @@ export function FilterBuilder({ baseNode, viewNode, onSave }: Props) {
   };
   const optionsOf = (ident: string): string[] =>
     props.find((p) => p.key === ident)?.options ?? [];
+  return { typesOf, optionsOf };
+}
+
+export function FilterBuilder({ baseNode, viewNode, onSave, open: openProp, onOpenChange, openLevel }: Props) {
+  const { t } = useI18n();
+  const { typesOf, optionsOf } = useFieldCatalog();
+  const [level, setLevel] = useState<"base" | "view">("view");
+  const [draft, setDraft] = useState<FilterNode | null>(() =>
+    level === "base" ? (baseNode ? clone(baseNode) : null) : viewNode ? clone(viewNode) : null,
+  );
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = openProp ?? innerOpen;
+  const setOpen = (next: boolean) => (onOpenChange ? onOpenChange(next) : setInnerOpen(next));
+  // 열릴 때마다 초안을 지금 필터로 다시 뜬다. 조건 문장이 그 사이 필터를 고쳤는데
+  // 처음 뜬 초안을 그대로 저장하면 문장에서 고친 것을 덮어쓴다.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      const lv = openLevel ?? level;
+      setLevel(lv);
+      setDraft(lv === "base" ? (baseNode ? clone(baseNode) : null) : viewNode ? clone(viewNode) : null);
+    }
+  }
+
+  const root: FilterNode = draft ?? { kind: "and", children: [emptyCond()] };
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -122,7 +146,7 @@ export function FilterBuilder({ baseNode, viewNode, onSave }: Props) {
   );
 }
 
-interface Ctx {
+export interface Ctx {
   typesOf: (ident: string) => string[] | undefined;
   optionsOf: (ident: string) => string[];
 }
@@ -247,7 +271,7 @@ function NodeEditor({
   );
 }
 
-function RowEditor({
+export function RowEditor({
   node,
   onChange,
   onRemove,

@@ -93,6 +93,7 @@ import { PdcView } from "./PdcView";
 import { SettingsMenu } from "./SettingsMenu";
 import { ShelfView } from "./views/ShelfView";
 import { GridView, type Cell } from "./views/GridView";
+import { RecencyStrata } from "./views/RecencyStrata";
 import { metadataDomainOf } from "../lib/metadataRegion";
 import { ListView } from "./views/ListView";
 import { TableView } from "./views/TableView";
@@ -541,9 +542,18 @@ export function CardGrid() {
     setFolderExpansion((m) => ({ ...m, [folderFilter ?? ""]: true }));
   }, [folderFilter]);
 
+  // 시간 지층(2026-11-11): 「수정 순」 목록일 때만 오늘 · 이번 주 · 그 이전 띠로 그린다.
+  // 「전체 메모」 · 즐겨찾기 · 태그 거르기(folderFilter === null)도 수정 순이라 띠를 쓴다 — 첫 화면이 가장 자주 열리는 곳이다.
+  // 검색 · 속성 거르기 · 다른 정렬은 순서가 수정 시각이 아니라 띠가 거짓말이 된다 — 그때는 지금 그리드 그대로다.
+  // 지층은 자기 가상화기를 쓰므로 이때 그리드 가상화기는 줄 0개로 쉰다(같은 스크롤 칸에서 두 번 재지 않게).
+  const strata =
+    noteView === "grid" && !inSearch && !propActive && propSort === "default";
+  const loadMoreStrata = useCallback(() => {
+    if (listing.hasNextPage && !listing.isFetchingNextPage) void listing.fetchNextPage();
+  }, [listing]);
   const rowCount = Math.ceil(visibleCells.length / cols);
   const virtualizer = useVirtualizer({
-    count: rowCount,
+    count: strata ? 0 : rowCount,
     getScrollElement: () => scrollerRef.current,
     estimateSize: () => ROW_H,
     overscan: 4,
@@ -1625,6 +1635,36 @@ export function CardGrid() {
     }
     if (noteView === "shelf" && shelfAvailable) {
       return <ShelfView items={items} badges={badgeDefs} preset={preset} onSelect={select} />;
+    }
+    if (noteView === "grid" && strata) {
+      return (
+        <RecencyStrata
+          cells={visibleCells}
+          scrollerRef={scrollerRef}
+          currentFolder={folderFilter}
+          hasMore={listing.hasNextPage}
+          onNearEnd={loadMoreStrata}
+          folders={folders}
+          badges={badgeDefs}
+          preset={preset}
+          folderEntries={folderEntries}
+          onOpenFolder={setFolderFilter}
+          onSelect={select}
+          onToggleFavorite={onToggleFavorite}
+          onMoveFolder={onMoveFolder}
+          onMoveFolderTree={moveFolderTree}
+          onCopyBody={onCopyBody}
+          onDelete={onDelete}
+          onNewNoteIn={onNewNoteIn}
+          onRenameFolder={onRenameFolder}
+          onToggleFolderPin={onToggleFolderPin}
+          namingPath={namingPath}
+          onNameCommit={commitFolderName}
+          onDeleteFolder={onDeleteFolder}
+          onExpandFolders={expandFolders}
+          folderAddLabels={folderAddLabels}
+        />
+      );
     }
     if (noteView === "grid") {
       return (

@@ -14,22 +14,26 @@ import { Skeleton } from "@garden/ui";
 import { useEffect, useState } from "react";
 import { FileText, Images, Maximize2, Trash2, X } from "lucide-react";
 
-import { gcAssets, listAssets, resolveImageUrl, type AssetInfo } from "../lib/assets";
+import { gcAssets, listAssets, resolveImageUrl, unusedAssets, type AssetInfo } from "../lib/assets";
 import { memoForAsset } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { listen } from "../lib/tauri";
 import { useUI } from "../stores/ui";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
+import "./GalleryView.css";
 
 /** One thumbnail; resolves its oximg URL to a loadable src on mount.
  *  Left-click opens the referencing memo (orphan → lightbox fallback);
  *  right-click offers both paths explicitly. */
 function Thumb({
   asset,
+  unused,
   onOpen,
   onView,
 }: {
   asset: AssetInfo;
+  /** 「미사용 이미지 정리」가 지울 이미지. 정리 전에 무엇이 사라질지 보이게 한다. */
+  unused: boolean;
   onOpen: (a: AssetInfo) => void;
   onView: (a: AssetInfo) => void;
 }) {
@@ -45,10 +49,14 @@ function Thumb({
           <button
             type="button"
             onClick={() => onOpen(asset)}
+            aria-label={unused ? t.gallery_unused_thumb.replace("{name}", asset.name) : undefined}
+            data-unused={unused || undefined}
             className="group/img relative aspect-square w-full overflow-hidden rounded-lg border border-line bg-surface-muted"
           />
         }
       >
+        {/* 무채색 앱이라 색 대신 빗금 모서리로 표시한다 — 정리 단추가 지울 대상과 같은 판정이다. */}
+        {unused && <span aria-hidden className="gallery-unused-mark" />}
         {src ? (
           <img
             src={src}
@@ -78,6 +86,10 @@ export function GalleryView() {
   const [cleaning, setCleaning] = useState(false);
 
   const assets = useQuery({ queryKey: ["assets"], queryFn: listAssets });
+  // 모든 메모 본문을 읽는 검사라 갤러리를 열 때 한 번만 돈다(썸네일마다 부르지 않는다).
+  // ["assets", …] 키라 memos:changed 무효화에 함께 따라온다.
+  const unused = useQuery({ queryKey: ["assets", "unused"], queryFn: unusedAssets });
+  const unusedSet = new Set(unused.data ?? []);
 
   useEffect(() => {
     let un: (() => void) | undefined;
@@ -127,10 +139,13 @@ export function GalleryView() {
           <button
             type="button"
             onClick={onClean}
-            disabled={cleaning || items.length === 0}
+            disabled={cleaning || items.length === 0 || (unused.isSuccess && unusedSet.size === 0)}
             className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface-muted disabled:opacity-40"
           >
             <Trash2 size={12} /> {t.clean_unused}
+            {unusedSet.size > 0 && (
+              <span className="text-text-subtle">· {t.gallery_unused_n.replace("{n}", String(unusedSet.size))}</span>
+            )}
           </button>
           <button
             type="button"
@@ -157,7 +172,7 @@ export function GalleryView() {
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
             {items.map((a) => (
-              <Thumb key={a.name} asset={a} onOpen={openAsset} onView={setLightbox} />
+              <Thumb key={a.name} asset={a} unused={unusedSet.has(a.name)} onOpen={openAsset} onView={setLightbox} />
             ))}
           </div>
         )}

@@ -1,0 +1,115 @@
+/* PDC 문서 「문제 먼저」 IssueFirst (2026-11-11).
+ * 분류 9색 알약 대신 비율 띠 한 줄. 앱이 무채색이라 칸은 먹 농도 두 가지를 번갈아 쓰고,
+ * 문제 문서 칸만 빗금으로 가른다 — 색이 아니라 무늬가 「여기가 다르다」를 말한다. */
+
+.pdc-issue-first {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pdc-issue-head {
+  font-size: 12px;
+  color: var(--color-text-subtle);
+}
+.pdc-issue-head b {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.pdc-ratio {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+}
+
+.pdc-ratio-seg {
+  /* 아주 작은 분류도 누를 수 있게 최소 폭을 둔다 — 문제 3 / 문서 412 같은 칸. */
+  min-width: 6px;
+  flex-basis: 0;
+  border: 0;
+  border-radius: 2px;
+  padding: 0;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+.pdc-ratio-seg[data-tone="a"] {
+  background: var(--color-text-muted);
+}
+.pdc-ratio-seg[data-tone="b"] {
+  background: var(--color-line-strong);
+}
+.pdc-ratio-seg[data-tone="problem"] {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-text) 0 2px,
+    transparent 2px 4px
+  );
+  box-shadow: inset 0 0 0 1px var(--color-text);
+}
+/* 하나를 고르면 나머지를 옅게 — 고른 칸이 위치로 남아 비율 맥락을 잃지 않는다. */
+.pdc-ratio:has(.pdc-ratio-seg[aria-pressed="true"]) .pdc-ratio-seg[aria-pressed="false"] {
+  opacity: 0.35;
+}
+.pdc-ratio-seg:hover {
+  opacity: 1;
+}
+
+.pdc-ratio-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  font-size: var(--text-caption);
+  color: var(--color-text-subtle);
+}
+.pdc-ratio-legend [data-active] {
+  color: var(--color-text);
+  font-weight: 600;
+}
+.pdc-ratio-legend [data-problem] {
+  color: var(--color-text);
+}
+.pdc-ratio-clear {
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pdc-ratio-clear:hover {
+  color: var(--color-text);
+}
+
+.pdc-no-issues {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.pdc-healthy-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  align-self: flex-start;
+  padding: 2px var(--space-1);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.pdc-healthy-toggle:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+.pdc-healthy-chevron {
+  display: inline-block;
+  transition: transform 150ms ease;
+}
+.pdc-healthy-toggle[aria-expanded="true"] .pdc-healthy-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdc-ratio-seg,
+  .pdc-healthy-chevron {
+    transition: none;
+  }
+}

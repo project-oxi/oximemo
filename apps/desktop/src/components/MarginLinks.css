@@ -1,0 +1,103 @@
+/* Margin links — see MarginLinks.tsx. 여백 글은 본문보다 늘 약하게: 11px · 옅은 잉크 · 굵기 없음. */
+
+/* 스크롤 틀과 여백 상자를 겹쳐 놓는 무대. 여백은 본문과 함께 흐르지 않는다(시안 「고정 영역」). */
+.memo-margin-stage {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.memo-margin {
+  position: absolute;
+  top: var(--space-6);
+  max-height: calc(100% - var(--space-6) * 2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-text-subtle);
+}
+.memo-margin::-webkit-scrollbar {
+  display: none;
+}
+/* 빈 여백은 아무것도 그리지 않는다 — 안내 문구 없음. */
+.memo-margin:empty {
+  display: none;
+}
+
+.memo-margin-group + .memo-margin-group {
+  margin-top: var(--space-5);
+}
+
+.memo-margin-heading {
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-1);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-subtle);
+}
+
+.memo-margin ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memo-margin-item {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  padding: 3px var(--space-1);
+  text-align: left;
+  color: inherit;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.memo-margin-item:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+.memo-margin-item:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.memo-margin-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+.memo-margin-line {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+}
+
+/* 여백이 나타나고 사라지는 것은 창 폭이 바뀐 결과일 뿐이라, 짧게 흐려지며 들어온다. */
+@media (prefers-reduced-motion: no-preference) {
+  .memo-margin {
+    animation: memo-margin-in 180ms ease-out;
+  }
+}
+@keyframes memo-margin-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Save ring — 시트 머리 맨 왼쪽. 저장 상태를 꼬리 줄 끝 글자에서 쓰는 눈길 안으로 옮겼다. */
+.save-ring {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 11px;
+  color: var(--color-text-subtle);
+}

@@ -1,11 +1,15 @@
 /**
  * Links context card (§3.2, docs/superpowers/specs/2026-08-20-note-detail-context-cards-design.md).
- * Presentational only — data fetching and open/close state live in ContextDock.
+ * Presentational only — open/close state lives in ContextDock. The queries live
+ * in `useNoteLinks` so the footer card and the immersive margins (MarginLinks)
+ * read one cache entry instead of each fetching their own.
  * Renders inside a Popover.Popup, sized per the spec: 320px wide, 360px max height.
  */
+import { useQuery } from "@tanstack/react-query";
 import { FileText, Link2 } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
+import { getBacklinks, relatedMemos } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { previewExcerpt, previewText } from "../lib/markdownPreview";
 import { queryCountVersion, subscribeQueryCounts } from "../lib/queryPreviewCounts";
@@ -14,6 +18,47 @@ import type { BacklinkInfo, MemoSummary } from "../lib/types";
 import { ListSkeleton } from "./Skeletons";
 
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem } from "./ContextMenu";
+
+/** Backlinks + related (BM25 see-also) for one note. */
+export function useNoteLinks(noteId: string) {
+  const backlinks = useQuery({
+    queryKey: ["backlinks", noteId],
+    queryFn: () => getBacklinks(noteId),
+    enabled: !!noteId,
+  });
+
+  const related = useQuery({
+    queryKey: ["related", noteId],
+    queryFn: () => relatedMemos(noteId),
+    enabled: !!noteId,
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  return { backlinks, related };
+}
+
+/** Right-click menu for one backlink row — shared by the card and the margin
+ *  so 「열기 · 위키 링크 복사」 stays the same wherever the row is drawn. */
+export function BacklinkCtxMenu({ id, title, onNavigate }: { id: string; title: string; onNavigate: (id: string) => void }) {
+  const { t } = useI18n();
+  return (
+    <CtxMenu>
+      <CtxItem
+        icon={FileText}
+        label={t.link_open_note}
+        onClick={() => onNavigate(id)}
+      />
+      <CtxItem
+        icon={Link2}
+        label={t.link_copy_wikilink}
+        onClick={() => {
+          void navigator.clipboard.writeText(`[[${title}]]`);
+        }}
+      />
+    </CtxMenu>
+  );
+}
 
 export interface LinksCardProps {
   backlinks: BacklinkInfo[];
@@ -57,20 +102,7 @@ export function LinksCard({ backlinks, seeAlso, isLoading, onNavigate }: LinksCa
                     <span className="mt-0.5 line-clamp-2 whitespace-pre-line text-text-subtle">
                       {previewText(previewExcerpt(bl.preview, bl.title), 200, { thisId: bl.id, resultsN: t.query_embed_results_n }) || ""}
                     </span>
-                    <CtxMenu>
-                      <CtxItem
-                        icon={FileText}
-                        label={t.link_open_note}
-                        onClick={() => onNavigate(bl.id)}
-                      />
-                      <CtxItem
-                        icon={Link2}
-                        label={t.link_copy_wikilink}
-                        onClick={() => {
-                          void navigator.clipboard.writeText(`[[${bl.title}]]`);
-                        }}
-                      />
-                    </CtxMenu>
+                    <BacklinkCtxMenu id={bl.id} title={bl.title} onNavigate={onNavigate} />
                   </CtxTrigger>
                 </CtxRoot>
               </li>

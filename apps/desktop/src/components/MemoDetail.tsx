@@ -27,11 +27,15 @@ import { fragmentPosition } from "../lib/editorFragments";
 import { isSaveAndCloseKey } from "../lib/editorKeys";
 import { reconcileEditorSource } from "../lib/editorSource";
 import { useWorkspaceMotion } from "../lib/workspaceMotion";
+import { NO_MARGINS, marginLayout, sameMarginLayout, type MarginLayout } from "../lib/marginLayout";
+import { aliasList } from "../lib/backlinkContext";
 import { useI18n } from "../lib/i18n";
 import { useFolderNames } from "../lib/folders";
 import { daysBetween, shiftISODate, todayLocalISO } from "../lib/dates";
 import { useUI } from "../stores/ui";
 import { ContextDock } from "./ContextDock";
+import { MarginSlot } from "./MarginLinks";
+import { SaveRing } from "./SaveRing";
 import { HistoryPanel } from "./HistoryPanel";
 import { PropertyPanel } from "./PropertyPanel";
 import { HtmlNoteEditor } from "./HtmlNoteEditor";
@@ -567,6 +571,47 @@ export function MemoDetail({
   // provider must never happen silently.
   const autoSuggest = copilotVisible && configQ.data?.copilot?.suggest_after_save === true;
 
+  // Margin links (2026-11-11 «MarginLinks»): immersive 마크다운 본문의 양옆 여백에
+  // 연결을 놓는다. 창이 아니라 스크롤 틀의 내용 폭을 잰다 — 코파일럿 padding 이 여백을
+  // 줄이기 때문이다. 프레임이 펼쳐지는 동안은 재지 않는다(폭이 매 프레임 바뀌어 여백이 깜박인다).
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const attachScroll = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    setScrollEl(el);
+  }, []);
+  const [margins, setMargins] = useState<MarginLayout>(NO_MARGINS);
+  const [marginLeftEl, setMarginLeftEl] = useState<HTMLElement | null>(null);
+  const [marginRightEl, setMarginRightEl] = useState<HTMLElement | null>(null);
+  const marginsActive = memoLayout === "immersive" && !frameMotion && memo.data?.format === "markdown";
+  useLayoutEffect(() => {
+    if (!scrollEl || !marginsActive) {
+      setMargins(NO_MARGINS);
+      return;
+    }
+    const measure = () => {
+      const cs = getComputedStyle(scrollEl);
+      const next = marginLayout({
+        outerWidth: scrollEl.offsetWidth,
+        clientWidth: scrollEl.clientWidth,
+        padLeft: parseFloat(cs.paddingLeft) || 0,
+        padRight: parseFloat(cs.paddingRight) || 0,
+        readingWidth: parseFloat(cs.getPropertyValue("--memo-reading-width")) || 760,
+      });
+      setMargins((prev) => (sameMarginLayout(prev, next) ? prev : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scrollEl);
+    return () => observer.disconnect();
+  }, [scrollEl, marginsActive]);
+  // 여백 위에서 굴린 휠은 본문으로 넘긴다 — 여백 상자는 스크롤 틀의 형제라 그냥 두면 휠이 멎는다.
+  const forwardMarginWheel = useCallback((e: React.WheelEvent<HTMLElement>) => {
+    const box = e.currentTarget;
+    if (box.scrollHeight <= box.clientHeight) scrollRef.current?.scrollBy({ top: e.deltaY });
+  }, []);
+  const memoProps = memo.data?.props;
+  const aliases = useMemo(() => aliasList(memoProps?.aliases), [memoProps]);
+
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
       <Dialog.Portal>
@@ -587,6 +632,9 @@ export function MemoDetail({
                 render={<span className="contents" />}
               >
                 <div className="memo-sheet-header" data-tauri-drag-region="deep">
+              {memo.data && seededId === memo.data.id && (
+                <SaveRing dirty={dirty} saving={saving} blocked={saveBlocked || saveProblem !== null} />
+              )}
               {(!memo.data || memo.data.format === "html") && (
                 <span className="inline-flex items-center gap-1 text-xs text-text-subtle">
                   <Folder size={12} aria-hidden />
@@ -691,8 +739,9 @@ export function MemoDetail({
               // document (user prompt 2026-08-30 — many properties no longer
               // cap the content viewport). Chrome (header, dock, history)
               // stays fixed outside.
+              <div className="memo-margin-stage">
               <div
-                ref={scrollRef}
+                ref={attachScroll}
                 data-memo-scroll
                 data-format={memo.data.format}
                 className="memo-sheet-scroll flex min-h-0 flex-1 flex-col overflow-y-auto"
@@ -742,6 +791,13 @@ export function MemoDetail({
                   </GPage>
                 )}
               </div>
+              {margins.left && (
+                <MarginSlot side="left" box={margins.left} label={t.margin_backlinks} slotRef={setMarginLeftEl} onWheel={forwardMarginWheel} />
+              )}
+              {margins.right && (
+                <MarginSlot side="right" box={margins.right} label={t.margin_related} slotRef={setMarginRightEl} onWheel={forwardMarginWheel} />
+              )}
+              </div>
             )}
             {memo.data && seededId === memo.data.id && (
               <div className="memo-sheet-footer flex-wrap">
@@ -765,9 +821,9 @@ export function MemoDetail({
                   noteId={memo.data.id}
                   title={memo.data.title}
                   tags={memo.data.tags}
-                  dirty={dirty}
-                  saving={saving}
-                  saveBlocked={saveBlocked}
+                  aliases={aliases}
+                  marginLeft={margins.left ? marginLeftEl : null}
+                  marginRight={margins.right ? marginRightEl : null}
                   onNavigateMemo={onNavigateMemo}
                 />
                 {memo.data.path && <HistoryPanel path={memo.data.path} />}

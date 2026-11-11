@@ -38,10 +38,13 @@ interface Props {
   /** Folder preset id for the first-party value vocabulary (§7.2):
    *  `status` words are per-collection (완독 vs 완결). */
   preset?: string;
+  /** 시간 지층의 「오늘」 띠(2026-11-11): 같은 카드를 키워 미리보기를 4줄까지 보인다.
+   *  카드를 따로 만들지 않고 이 값만 바꾼다 — 메뉴 · 끌기 · 즐겨찾기 동작이 갈라지지 않게. */
+  variant?: "grid" | "lead";
 }
 
 
-export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip, badges, preset }: Props) {
+export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip, badges, preset, variant = "grid" }: Props) {
   const { t, locale } = useI18n();
   const { displayName: displayFolder } = useFolderNames();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
@@ -53,12 +56,12 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
   const previewHtml = useMemo(
     () =>
       memo.preview
-        ? renderPreviewMarkdown(previewExcerpt(memo.preview, memo.title, memo.path), 320, {
+        ? renderPreviewMarkdown(previewExcerpt(memo.preview, memo.title, memo.path), variant === "lead" ? 480 : 320, {
             thisId: memo.id,
             resultsN: t.query_embed_results_n,
           })
         : "",
-    [memo.preview, memo.title, memo.path, memo.id, t.query_embed_results_n, queryCountVer],
+    [memo.preview, memo.title, memo.path, memo.id, t.query_embed_results_n, queryCountVer, variant],
   );
   return (
     <CtxRoot>
@@ -77,7 +80,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
             onDragEnd={() => setDraggingNote(null)}
             onClick={() => onSelect(memo.id)}
             data-fresh={fresh || undefined}
-            className={`note-card group relative flex h-44 cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus-ring ${
+            className={`note-card group relative flex ${variant === "lead" ? "h-52" : "h-44"} cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus-ring ${
               draggingNote?.id === memo.id ? "opacity-40" : ""
             }`}
           />
@@ -157,7 +160,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
       </h3>
       {memo.preview ? (
         <div
-          className="md-preview note-excerpt mt-1 line-clamp-3 min-h-0 flex-1 text-xs leading-relaxed text-text-muted"
+          className={`md-preview note-excerpt mt-1 ${variant === "lead" ? "line-clamp-4" : "line-clamp-3"} min-h-0 flex-1 text-xs leading-relaxed text-text-muted`}
           dangerouslySetInnerHTML={{ __html: previewHtml }}
         />
       ) : (

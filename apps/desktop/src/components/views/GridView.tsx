@@ -20,7 +20,8 @@ export type Cell =
   | { kind: "note"; note: MemoSummary }
   | { kind: "folderOverflow"; total: number };
 
-interface Props {
+/** 시간 지층(RecencyStrata)도 같은 손잡이를 받는다 — 두 꼴이 동작에서 갈라지지 않게. */
+export interface GridViewProps {
   cells: Cell[];
   virtualizer: Virtualizer<HTMLDivElement, Element>;
   cols: number;
@@ -82,7 +83,7 @@ export function GridView({
   preset,
   onExpandFolders,
   folderAddLabels,
-}: Props) {
+}: GridViewProps) {
   const { t } = useI18n();
   const rowCount = Math.ceil(cells.length / cols);
   return (

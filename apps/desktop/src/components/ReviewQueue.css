@@ -1,0 +1,87 @@
+/* 리뷰 큐 「한 장 넘기기」 RecallCard (2026-11-11).
+ * 무채색 앱이라 진행 상태를 색이 아니라 채움으로 말한다 — FillRing 과 같은 규칙:
+ * 끝 = 꽉 · 지금 = 반 · 남음 = 빈 테두리. */
+
+.recall-cells {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+}
+.recall-cells > i {
+  flex: 1 1 0;
+  min-width: 3px;
+  height: 6px;
+  border-radius: 2px;
+  border: 1px solid var(--color-line-strong);
+  background: transparent;
+}
+.recall-cells > i[data-state="done"] {
+  border-color: var(--color-text);
+  background: var(--color-text);
+}
+.recall-cells > i[data-state="current"] {
+  border-color: var(--color-text);
+  background: linear-gradient(90deg, var(--color-text) 50%, transparent 50%);
+}
+
+/* 30개를 넘으면 칸 대신 비율 띠 하나. */
+.recall-bar {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 2px;
+  border: 1px solid var(--color-line-strong);
+  overflow: hidden;
+}
+.recall-bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--color-text);
+  transition: width var(--duration-base) var(--ease-out);
+}
+
+/* 장이 바뀔 때 짧게 올라온다 — 같은 자리의 글자만 바뀌면 넘겼는지 알아채기 어렵다.
+ * 200ms 를 넘기지 않는다(판정은 하루 수십 번 반복되는 손놀림이다). */
+.recall-card {
+  animation: recall-in 160ms var(--ease-out);
+}
+@keyframes recall-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 본문 가림막: 제목만 보고 먼저 떠올려 보게 하는 한 단계. 점선 = 「아직 안 펼침」. */
+.recall-veil {
+  border: 1px dashed var(--color-line-strong);
+}
+.recall-veil:hover {
+  border-color: var(--color-text-muted);
+}
+
+.recall-kbd {
+  display: inline-flex;
+  min-width: 1.4em;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recall-card {
+    animation: none;
+  }
+  .recall-bar > span {
+    transition: none;
+  }
+}
