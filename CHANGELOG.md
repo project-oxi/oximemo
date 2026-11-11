@@ -7,8 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-11-11
+
+### Added
+
+- **Change ledger.** Settled vault changes are journaled with an observed
+  source: this app, a Copilot turn, or outside the app (a CLI agent or another
+  editor — the app never claims which). A new 「변경」 view groups them by
+  Copilot turn and by burst, shows a line diff in place, and reverts a change
+  or a whole turn from the git auto-commit history (created notes go to the
+  trash). Unseen outside changes are marked on cards, rows and the note sheet
+  until the note is opened.
+- **Gallery unused marks.** Images that «clean unused» would delete are marked
+  before cleanup, using the same rule as the cleanup itself.
+
 ### Changed
 
+- **Task-shaped views.** Shared shapes replace color-only states in the
+  achromatic app: a «now» rule, change glyphs and fill rings. The workspace
+  groups recent notes into today / this week / earlier bands with folders on
+  one shelf; tasks sit on a single now-lane with a one-axis date editor; review
+  shows one card at a time; query views keep the active filter visible as an
+  editable sentence; Copilot lists observed changes as a receipt; PDC lists
+  problems first; session intake reads as a stage rail.
+- **Note margins.** Immersive Markdown notes show backlinks and related notes
+  in the side margins; the save state is a ring in the sheet header.
 - **Actionable writing review.** AI review returns original passages, proposed
   rewrites, and contextual reasons. Apply or Ignore advances to the next
   suggestion; resolved decisions remain visible while switching writing tabs.

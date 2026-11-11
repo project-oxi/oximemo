@@ -494,6 +494,6 @@ jobs:
     name: Publish to crates.io
     needs: release
     # These desktop releases ship the CLI binary with local-only registry dependencies.
-    if: "!contains(fromJSON('[\"v0.21.1\",\"v0.21.2\"]'), github.event.inputs.tag || github.ref_name)"
+    if: "!contains(fromJSON('[\"v0.21.1\",\"v0.21.2\",\"v0.22.0\"]'), github.event.inputs.tag || github.ref_name)"
     uses: ./.github/workflows/publish-crates.yml
     secrets: inherit
