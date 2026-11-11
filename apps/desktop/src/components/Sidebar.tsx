@@ -8,7 +8,7 @@
  * switcher pinned to the bottom edge. Folder browsing happens in the main area.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowUpDown, BookMarked, CalendarDays, ChevronRight, Clock3, Database, FileText, Folder, FolderPlus, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Search, Star, Trash2, TriangleAlert, X } from "lucide-react";
+import { Archive, ArrowUpDown, BookMarked, CalendarDays, ChevronRight, Clock3, Database, FileDiff, FileText, Folder, FolderPlus, GraduationCap, GripVertical, Images, Layers, ListChecks, MoreHorizontal, PenLine, Plus, Search, Star, Trash2, TriangleAlert, X } from "lucide-react";
 import { Popover } from "@base-ui-components/react";
 import { Button } from "@garden/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -24,6 +24,7 @@ import { listen } from "../lib/tauri";
 import { CtxRoot, CtxTrigger, CtxMenu, CtxItem, CtxSeparator, BtnMenuRoot, BtnMenuTrigger, BtnMenuPopup, BtnMenuItem, BtnMenuSeparator } from "./ContextMenu";
 import { useFolderDrop, parentOf } from "../lib/dropTarget";
 import { useI18n } from "../lib/i18n";
+import { useUnseenChanges } from "../lib/changes";
 import { relativeTime } from "../lib/time";
 import { folderDisplayName, useFolderNames, useSchemaInfo, DEFAULT_KNOWLEDGE_FOLDER } from "../lib/folders";
 import { TasksPanel } from "./TasksPanel";
@@ -146,6 +147,7 @@ export function Sidebar({
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const view = useUI((s) => s.view);
   const setView = useUI((s) => s.setView);
+  const unseenChanges = useUnseenChanges();
   const select = useUI((s) => s.select);
   const setError = useUI((s) => s.setError);
   const qc = useQueryClient();
@@ -416,6 +418,14 @@ export function Sidebar({
           title={t.gallery}
           selected={view === "gallery" && location.kind !== "pdc"}
           onClick={() => setView("gallery")}
+        />
+        {/* 변경 장부 — 수는 앱 밖에서 바뀌고 아직 확인하지 않은 노트 수다. 0 이면 숫자를 빼서 조용히 둔다. */}
+        <NavCell
+          icon={<FileDiff size={18} aria-hidden />}
+          title={t.changes_nav}
+          count={unseenChanges.count || undefined}
+          selected={view === "changes" && location.kind !== "pdc"}
+          onClick={() => setView("changes")}
         />
         <p className="mt-2 px-1 py-1 text-[10px] font-semibold text-text-subtle">{t.nav_folders}</p>
         <LocationCell

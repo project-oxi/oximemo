@@ -1,0 +1,27 @@
+/* 메모 시트 머리 아래 「앱 밖에서 바뀜」 한 줄 (2026-11-11).
+ * 머리와 본문 사이에 끼는 얇은 띠 — 경고색 대신 아래 선 하나와 출처 기호로 「여기 볼 것이 있다」를 말한다. */
+
+.change-note-line {
+  flex-shrink: 0;
+  padding: 4px 16px 6px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.change-note-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.change-note-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.change-note-diff {
+  margin-top: 6px;
+}

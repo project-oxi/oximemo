@@ -26,6 +26,8 @@ import { ChevronDown, ChevronRight, Star } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { patchTask, updateMemo } from "../../lib/api";
 import { isoToLocalDate, todayLocalISO } from "../../lib/dates";
+import type { ChangeEntry } from "../../lib/api";
+import { useUnseenChanges } from "../../lib/changes";
 import { useI18n } from "../../lib/i18n";
 import { propValueLabel } from "../../lib/propDisplay";
 import { dayTone, relativeDayLabel, useTodayKey } from "../../lib/relativeDay";
@@ -38,6 +40,7 @@ import type { BaseCell, BaseRow, FolderSchema, MemoSummary, PropMutation, PropVa
 import { useUI } from "../../stores/ui";
 import { TaskCellEditor } from "../TaskCellEditor";
 import { TaskCheckbox } from "../TaskCheckbox";
+import { UnseenStamp, unseenFor } from "../UnseenStamp";
 import { TaskFieldChip } from "../TaskFieldChip";
 import { PropCellEditor } from "../propEditors";
 import { CtxRoot, CtxTrigger } from "../ContextMenu";
@@ -170,6 +173,8 @@ export function TableView({
   const qc = useQueryClient();
   const setToast = useUI((s) => s.setToast);
   const todayISO = useTodayKey();
+  // 안 본 변경은 표 전체에서 한 번만 듣고 이름 칸에 내려 준다.
+  const unseen = useUnseenChanges();
   // Shared row actions (CONTEXT-MENUS §3.2): the note context menus commit
   // through the same api calls CardGrid owns, with ["base"] invalidated so
   // base-mode mounts refresh. The star keeps the prop when a folder-mode
@@ -599,6 +604,7 @@ export function TableView({
                       onSelect={onSelect}
                       onToggleFavorite={toggleFavorite}
                       onToggleTask={onTaskToggle(row)}
+                      change={row.task ? undefined : unseenFor(unseen, row.summary)}
                     />
                   </div>
                   {cols.slice(1).map((col) => {
@@ -731,6 +737,7 @@ function TaskRowNameCell({
   onSelect,
   onToggleFavorite,
   onToggleTask,
+  change,
 }: {
   row: BaseRow;
   todayISO: string;
@@ -738,6 +745,8 @@ function TaskRowNameCell({
   onSelect: (id: string) => void;
   onToggleFavorite: (m: MemoSummary) => void;
   onToggleTask: () => void;
+  /** 노트 행의 안 본 변경 — 카드 · 목록과 같은 「↗ 3분 전」을 이름 뒤에 붙인다. */
+  change?: ChangeEntry;
 }) {
   const emptyFallback = "—";
   if (!row.task) {
@@ -751,6 +760,7 @@ function TaskRowNameCell({
         >
           {title}
         </button>
+        {change && <UnseenStamp change={change} />}
         <button
           type="button"
           aria-label="favorite"

@@ -1768,6 +1768,8 @@ impl Vault {
                 if destination.exists() {
                     return Err(CoreError::other("rename destination already exists"));
                 }
+                crate::self_writes::mark(&old_path);
+                crate::self_writes::mark(&destination);
                 std::fs::rename(&old_path, &destination)?;
                 destination
             } else {
@@ -1812,6 +1814,7 @@ impl Vault {
             // Pre-stage the existing file so write_document's
             // parse-merge sees the original id/created.
             let old_bytes = std::fs::read(&old_path)?;
+            crate::self_writes::mark(&new_path);
             oxi_frontmatter::atomic_write(&new_path, &old_bytes)?;
             let outcome = write_document(
                 &new_path,
@@ -1829,6 +1832,7 @@ impl Vault {
             }
             // Remove the old file if it differs.
             if new_path != old_path && old_path.exists() {
+                crate::self_writes::mark(&old_path);
                 std::fs::remove_file(&old_path)?;
             }
             let new_rel = self.paths.relative_path(&new_path).unwrap_or_default();
@@ -1870,6 +1874,7 @@ impl Vault {
                 let outcome = match src {
                     Some(src) => {
                         let bytes = std::fs::read(&src)?;
+                        crate::self_writes::mark(&p);
                         oxi_frontmatter::atomic_write(&p, &bytes)?;
                         write_document(
                             &p,
@@ -2600,6 +2605,8 @@ impl Vault {
             if let Some(parent) = trash.parent() {
                 std::fs::create_dir_all(parent)?;
             }
+            crate::self_writes::mark(&canonical_path);
+            crate::self_writes::mark(&trash);
             std::fs::rename(&canonical_path, &trash)?;
             let saved = self
                 .files
@@ -3408,6 +3415,8 @@ impl Vault {
         if let Some(parent) = new_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        crate::self_writes::mark(&old_path);
+        crate::self_writes::mark(&new_path);
         std::fs::rename(&old_path, &new_path)?;
         if let Some(d) = new_path.parent() {
             // fsync the parent dir so the rename survives power loss.
@@ -4148,6 +4157,7 @@ impl Vault {
         self.with_redb_and_search(|idx, search| {
             // Delete all live note files the scanner finds.
             for path in self.files.scan() {
+                crate::self_writes::mark(&path);
                 std::fs::remove_file(&path)?;
             }
             // Wipe both legacy and discovery-visible canonical trash.

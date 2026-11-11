@@ -8,6 +8,7 @@
  * - NowRule     : 시간이 있는 목록에서 「지금」을 긋는 굵은 선. 위 = 지난 것, 아래 = 올 것.
  * - ChangeGlyph : 노트 변경 종류 기호 (+ 생성 · ~ 수정 · − 삭제 · → 이동).
  * - FillRing    : 진행 상태 고리 (빈 · 반 · 꽉 · 점선). TaskCheckbox 의 채움 규칙과 같은 뜻.
+ * - SourceMark  : 변경이 어디서 왔는지 (◇ 코파일럿 턴 중 · ↗ 앱 밖). 앱이 직접 쓴 것은 표시하지 않는다.
  *
  * Styles live in `shapes.css`.
  */
@@ -64,5 +65,25 @@ export function NowRule({ label }: { label?: string }) {
     <div className="now-rule" role="separator" aria-label={label}>
       {label && <span className="now-rule-label">{label}</span>}
     </div>
+  );
+}
+
+export type ChangeOrigin = "app" | "copilot" | "external";
+
+const ORIGIN_GLYPH: Record<Exclude<ChangeOrigin, "app">, string> = {
+  copilot: "◇",
+  external: "↗",
+};
+
+/**
+ * 출처 표시. 출처는 관찰이다 — external 은 CLI 에이전트일 수도, 다른 편집기를 쓰는 사람일 수도 있다.
+ * 그래서 낭독 이름도 「앱 밖에서 바뀜」처럼 관찰만 말한다. app 은 사용자가 이 앱에서 쓴 것이라 표시하지 않는다.
+ */
+export function SourceMark({ source, label }: { source: ChangeOrigin; label: string }) {
+  if (source === "app") return null;
+  return (
+    <span className="source-mark" data-source={source} role="img" aria-label={label} title={label}>
+      {ORIGIN_GLYPH[source]}
+    </span>
   );
 }

@@ -348,6 +348,9 @@ export interface TurnResult {
   /** Tool requests the agent's OWN permission policy denied this turn
    * (claude's result JSON discloses them). null = not measurable. */
   denials: string[] | null;
+  /** Change-journal id grouping the vault changes observed during this turn
+   * (see `listChanges({ turn })`). null when the journal is unavailable. */
+  turn_id?: string | null;
  }
 
 export interface ActiveMemoRef {
@@ -799,4 +802,83 @@ export function transformTaskDraft(
   today: string,
 ): Promise<TaskDraftTransform> {
   return invoke<TaskDraftTransform>("transform_task_draft", { body, line, edit, today });
+}
+
+// --- Change journal (2026-11-11) -------------------------------------------
+// 볼트에 일어난 변경을 「어디서 왔는지」와 함께 남긴다. 출처는 관찰이다 — 앱이 직접 쓴 것(app),
+// 코파일럿 턴이 도는 동안 앱 밖에서 일어난 것(copilot), 그 밖에 앱 밖에서 일어난 것(external).
+// external 은 CLI 에이전트일 수도, 다른 편집기를 쓰는 사람일 수도 있다 — 「에이전트」라고 단정하지 않는다.
+
+export type ChangeSource = "app" | "copilot" | "external";
+export type ChangeKind = "created" | "modified" | "deleted";
+
+export interface ChangeEntry {
+  /** Monotonic journal id. */
+  seq: number;
+  /** RFC 3339 time the settled change was observed. */
+  at: string;
+  /** Vault-relative path ("/"-separated). */
+  path: string;
+  memo_id: string | null;
+  title: string | null;
+  kind: ChangeKind;
+  source: ChangeSource;
+  /** Copilot turn this change was observed in. */
+  turn: { id: string; prompt: string } | null;
+  /** Git commit holding this file's state just before the change; null when
+   * auto-commit is off or the file had no history (then it can't be reverted). */
+  before_commit: string | null;
+  /** False until the user opens the note or dismisses the entry. App-sourced entries start seen. */
+  seen: boolean;
+}
+
+export interface ChangeDiff {
+  /** File text before the change (null = did not exist). */
+  before: string | null;
+  /** File text now (null = does not exist now). */
+  after: string | null;
+  revertible: boolean;
+  /** Why it can't be reverted. */
+  reason: "git_off" | "no_history" | null;
+  /** Later journal entries for the same path — reverting also discards them. */
+  later_changes: number;
+}
+
+export interface ChangeListReq {
+  limit?: number;
+  /** Include app-sourced entries (default false: the ledger is about changes made outside the app's editor). */
+  include_app?: boolean;
+  /** Only entries of this copilot turn. */
+  turn?: string;
+  /** Only entries older than this seq (paging). */
+  before_seq?: number;
+}
+
+export function listChanges(req: ChangeListReq = {}): Promise<ChangeEntry[]> {
+  return invoke<ChangeEntry[]>("changes_list", { req });
+}
+
+export function changeDiff(seq: number): Promise<ChangeDiff> {
+  return invoke<ChangeDiff>("changes_diff", { seq });
+}
+
+/** Restore the file to `before_commit` (created → moved to trash). The restore
+ * itself is journaled as an app change. */
+export function revertChange(seq: number): Promise<void> {
+  return invoke<void>("changes_revert", { seq });
+}
+
+/** Revert every change of a copilot turn, newest first. */
+export function revertTurn(turnId: string): Promise<{ reverted: number; skipped: number }> {
+  return invoke<{ reverted: number; skipped: number }>("changes_revert_turn", { turnId });
+}
+
+/** Mark entries for these paths as seen (opening a note calls this). */
+export function markChangesSeen(paths: string[]): Promise<void> {
+  return invoke<void>("changes_mark_seen", { paths });
+}
+
+/** Unseen non-app changes, latest entry per path. */
+export function unseenChanges(): Promise<ChangeEntry[]> {
+  return invoke<ChangeEntry[]>("changes_unseen", {});
 }

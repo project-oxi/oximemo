@@ -609,6 +609,7 @@ fn update_prepared_document_locked(
     )
     .map_err(diagnostic_error)?;
     let target = safe_existing_path(&paths.vault, relative_path)?;
+    crate::self_writes::mark(&target);
     oxi_frontmatter::atomic_write(&target, &guarded)?;
     read_source(paths, relative_path)
 }
@@ -930,6 +931,7 @@ pub(crate) fn atomic_create(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
             "target has no parent directory",
         )
     })?;
+    crate::self_writes::mark(path);
     let temp = parent.join(format!(".pdc-write-{}.tmp", Uuid::now_v7()));
     let mut file = OpenOptions::new()
         .write(true)

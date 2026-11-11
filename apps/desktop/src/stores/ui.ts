@@ -52,9 +52,9 @@ export type Location =
 interface UIState {
   search: string;
   setSearch: (s: string) => void;
-  /** Active top-level view. Gallery shows all images across notes. */
-  view: "memos" | "gallery";
-  setView: (v: "memos" | "gallery") => void;
+  /** Active top-level view. Gallery shows all images across notes; changes is the change journal ledger. */
+  view: "memos" | "gallery" | "changes";
+  setView: (v: "memos" | "gallery" | "changes") => void;
   /** Per-folder view mode override (folder sidebar view switcher). */
   noteView: ViewMode;
   setNoteView: (v: ViewMode) => void;

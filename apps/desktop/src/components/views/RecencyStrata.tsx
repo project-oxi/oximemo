@@ -25,6 +25,9 @@ import { Card } from "../Card";
 import { CtxRoot, CtxTrigger } from "../ContextMenu";
 import { FolderShelfItem } from "../FolderTile";
 import { NoteCtxMenu } from "../NoteCtxMenu";
+import { UnseenStamp, unseenFor, useChangeArrived } from "../UnseenStamp";
+import type { ChangeEntry } from "../../lib/api";
+import { useUnseenChanges, type UnseenIndex } from "../../lib/changes";
 import { useFolderNames } from "../../lib/folders";
 import { useI18n } from "../../lib/i18n";
 import { splitByRecency } from "../../lib/recencyBands";
@@ -95,6 +98,8 @@ export function RecencyStrata(props: StrataProps) {
   const { cells, scrollerRef, hasMore, onNearEnd } = props;
   const { t } = useI18n();
   const today = useTodayKey();
+  // 안 본 변경은 지층 전체에서 한 번만 듣고 줄마다 찾아 내려 준다 — 가상 스크롤 줄마다 구독하지 않게.
+  const unseen = useUnseenChanges();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   const [margin, setMargin] = useState(0);
@@ -183,7 +188,7 @@ export function RecencyStrata(props: StrataProps) {
             className="absolute left-0 top-0 w-full"
             style={{ transform: `translateY(${v.start - margin}px)` }}
           >
-            <StrataItem item={it} leadCols={leadCols} compactCols={compactCols} props={props} folderCards={folderCards} overflow={overflow} />
+            <StrataItem item={it} leadCols={leadCols} compactCols={compactCols} props={props} folderCards={folderCards} overflow={overflow} unseen={unseen} />
           </div>
         );
       })}
@@ -198,6 +203,7 @@ function StrataItem({
   props,
   folderCards,
   overflow,
+  unseen,
 }: {
   item: Item;
   leadCols: number;
@@ -205,6 +211,7 @@ function StrataItem({
   props: StrataProps;
   folderCards: FolderCard[];
   overflow: number;
+  unseen: UnseenIndex;
 }) {
   const { t } = useI18n();
   switch (item.k) {
@@ -259,6 +266,7 @@ function StrataItem({
               key={note.id}
               variant="lead"
               memo={note}
+              change={unseenFor(unseen, note)}
               showFolderChip={props.currentFolder === null}
               folders={props.folders}
               folderEntries={props.folderEntries}
@@ -278,22 +286,23 @@ function StrataItem({
       return (
         <div className="strata-compact" style={{ gridTemplateColumns: `repeat(${compactCols}, minmax(0, 1fr))` }}>
           {item.notes.map((note) => (
-            <StrataNote key={note.id} note={note} shape="compact" props={props} />
+            <StrataNote key={note.id} note={note} shape="compact" props={props} change={unseenFor(unseen, note)} />
           ))}
         </div>
       );
     case "row":
-      return <StrataNote note={item.note} shape="row" props={props} />;
+      return <StrataNote note={item.note} shape="row" props={props} change={unseenFor(unseen, item.note)} />;
   }
 }
 
 /** 이번 주 작은 카드 · 그 이전 행. 카드와 같은 메뉴 · 끌기 · 열기를 단다 — 꼴만 작다. */
-function StrataNote({ note, shape, props }: { note: MemoSummary; shape: "compact" | "row"; props: StrataProps }) {
+function StrataNote({ note, shape, props, change }: { note: MemoSummary; shape: "compact" | "row"; props: StrataProps; change?: ChangeEntry }) {
   const { t, locale } = useI18n();
   const { displayName } = useFolderNames();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const dragging = useUI((s) => s.draggingNote?.id === note.id);
   const fresh = useUI((s) => s.freshId === note.id);
+  const changeArrived = useChangeArrived(change);
   const title = note.title || t.empty_memo;
   const showFolder = shape === "row" && (props.currentFolder === null || note.folder !== props.currentFolder);
   const onDragStart = useCallback(
@@ -314,7 +323,7 @@ function StrataNote({ note, shape, props }: { note: MemoSummary; shape: "compact
             onDragStart={onDragStart}
             onDragEnd={() => setDraggingNote(null)}
             onClick={() => props.onSelect(note.id)}
-            data-fresh={fresh || undefined}
+            data-fresh={fresh || changeArrived || undefined}
             data-dragging={dragging || undefined}
             className={shape === "compact" ? "strata-note-compact" : "strata-note-row"}
           />
@@ -325,7 +334,9 @@ function StrataNote({ note, shape, props }: { note: MemoSummary; shape: "compact
           <Star size={11} role="img" aria-label={t.favorite} className="shrink-0 fill-hue-amber text-hue-amber" />
         )}
         {showFolder && <span className="strata-row-folder">{displayName(note.folder)}</span>}
-        {shape === "row" && (
+        {/* 안 본 변경은 작은 카드 · 행 모두 같은 「↗ 3분 전」 꼴 — 행에서는 날짜 자리를 대신한다. */}
+        {change && <UnseenStamp change={change} />}
+        {shape === "row" && !change && (
           <time dateTime={note.updated_at} title={relativeTime(note.updated_at, locale)} className="strata-row-date">
             {shortDate(note.updated_at, locale)}
           </time>

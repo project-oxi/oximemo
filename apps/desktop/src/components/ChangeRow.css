@@ -1,0 +1,181 @@
+/* 변경 장부 한 줄 ChangeRow · 차이 · 되돌리기 (2026-11-11).
+ * 색을 쓰지 않는다 — 확인 안 함은 채운 점과 굵은 제목, 더함 · 지움은 칸 기호(+ −)와 취소선이 말한다. */
+
+.change-row {
+  min-width: 0;
+}
+
+.change-row-toggle {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  text-align: left;
+  color: var(--color-text-muted);
+  transition: background-color 150ms ease;
+}
+.change-row-toggle:hover {
+  background: var(--color-surface-muted);
+}
+.change-row-toggle:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+/* 확인 안 함 표시 칸. 확인한 줄에도 자리를 남겨 제목 열이 흔들리지 않게 한다. */
+.change-row-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+}
+.change-row[data-unseen] .change-row-dot {
+  background: var(--color-text);
+}
+
+.change-row-source {
+  display: inline-flex;
+  width: 1.1em;
+  flex-shrink: 0;
+}
+
+.change-row-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.change-row[data-unseen] .change-row-title {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.change-row-time {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--color-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.change-row-body {
+  margin: 2px 0 6px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* --- 차이 ----------------------------------------------------------- */
+
+.change-diff {
+  max-height: 22rem;
+  overflow: auto;
+  padding: 4px 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.change-diff-line {
+  display: flex;
+  min-width: 0;
+}
+.change-diff-gutter {
+  width: 1.6em;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--color-text-subtle);
+  user-select: none;
+}
+.change-diff-line[data-op="add"] .change-diff-gutter,
+.change-diff-line[data-op="del"] .change-diff-gutter {
+  font-weight: 700;
+  color: var(--color-text);
+}
+.change-diff-text {
+  min-width: 0;
+  flex: 1;
+  padding-right: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-text-subtle);
+  text-decoration: none;
+}
+/* 더한 줄은 진하게 그대로, 지운 줄은 취소선. 같은 줄(맥락)은 옅게 물러난다. */
+.change-diff-line[data-op="add"] .change-diff-text {
+  color: var(--color-text);
+}
+.change-diff-line[data-op="del"] .change-diff-text {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--color-text-muted);
+}
+.change-diff-gap {
+  padding: 0 1.6em;
+  color: var(--color-text-subtle);
+  user-select: none;
+}
+
+.change-diff-note {
+  font-size: 11px;
+  color: var(--color-text-subtle);
+}
+
+/* --- 동작 ----------------------------------------------------------- */
+
+.change-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.change-action {
+  padding: 2px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--color-text);
+  background: transparent;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.change-action:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+}
+.change-action:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+.change-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* 한 번 누른 상태 — 무채색이라 테두리를 진하게 · 두껍게 해서 「다음 누름이 실행」임을 모양으로 알린다. */
+.change-action[data-armed] {
+  border-color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-text);
+  font-weight: 600;
+}
+
+.change-reason {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-subtle);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .change-row-toggle,
+  .change-action {
+    transition: none;
+  }
+}

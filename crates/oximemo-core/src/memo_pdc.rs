@@ -253,6 +253,7 @@ pub(crate) fn update(
     let current = std::fs::read(path)?;
     let candidate = save_guarded(&snapshot, &current, candidate)
         .map_err(|e| CoreError::other(e.to_string()))?;
+    crate::self_writes::mark(path);
     oxi_frontmatter::atomic_write(path, &candidate)?;
     Ok(WriteOutcome::Written)
 }
@@ -376,6 +377,7 @@ pub(crate) fn write_document(
     synth: Synthesize,
     now: OffsetDateTime,
 ) -> std::result::Result<WriteOutcome, FrontmatterError> {
+    crate::self_writes::mark(path);
     if std::fs::read_to_string(path)
         .ok()
         .is_some_and(|source| crate::pdc_inventory::is_pdc_document(&source))

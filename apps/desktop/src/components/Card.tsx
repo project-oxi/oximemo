@@ -10,6 +10,7 @@ import { useI18n } from "../lib/i18n";
 import { useFolderNames } from "../lib/folders";
 import { propValueLabel, badgeTone } from "../lib/propDisplay";
 import type { FolderDef, FolderEntry, MemoSummary } from "../lib/types";
+import type { ChangeEntry } from "../lib/api";
 
 
 import { relativeTime } from "../lib/time";
@@ -19,6 +20,7 @@ import { useChangedSinceMount } from "../lib/workspaceMotion";
 import { useUI } from "../stores/ui";
 import { CtxRoot, CtxTrigger } from "./ContextMenu";
 import { NoteCtxMenu } from "./NoteCtxMenu";
+import { UnseenStamp, useChangeArrived } from "./UnseenStamp";
 
 interface Props {
   memo: MemoSummary;
@@ -41,15 +43,19 @@ interface Props {
   /** 시간 지층의 「오늘」 띠(2026-11-11): 같은 카드를 키워 미리보기를 4줄까지 보인다.
    *  카드를 따로 만들지 않고 이 값만 바꾼다 — 메뉴 · 끌기 · 즐겨찾기 동작이 갈라지지 않게. */
   variant?: "grid" | "lead";
+  /** 이 메모의 안 본 변경(앱 밖 · 코파일럿 턴 중). 목록이 useUnseenChanges() 를 한 번 불러 내려 준다 —
+   *  카드마다 부르면 가상 스크롤로 카드가 붙었다 떨어질 때마다 구독이 생기고 사라진다. */
+  change?: ChangeEntry;
 }
 
 
-export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip, badges, preset, variant = "grid" }: Props) {
+export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite, onMoveFolder, onCopyBody, onDelete, onOpenFolder, showFolderChip, badges, preset, variant = "grid", change }: Props) {
   const { t, locale } = useI18n();
   const { displayName: displayFolder } = useFolderNames();
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const draggingNote = useUI((s) => s.draggingNote);
   const fresh = useUI((s) => s.freshId === memo.id);
+  const changeArrived = useChangeArrived(change);
   const favPop = useChangedSinceMount(memo.favorite) ? "motion-pop" : "";
   const folderColor = colorForFolder(memo.folder, folders);
   const queryCountVer = useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
@@ -79,7 +85,7 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
             }}
             onDragEnd={() => setDraggingNote(null)}
             onClick={() => onSelect(memo.id)}
-            data-fresh={fresh || undefined}
+            data-fresh={fresh || changeArrived || undefined}
             className={`note-card group relative flex ${variant === "lead" ? "h-52" : "h-44"} cursor-default flex-col overflow-hidden rounded-[var(--card-radius)] border border-line bg-surface-raised p-4 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus-ring ${
               draggingNote?.id === memo.id ? "opacity-40" : ""
             }`}
@@ -103,7 +109,12 @@ export function Card({ memo, folders, folderEntries, onSelect, onToggleFavorite,
             <span aria-hidden className="text-text-subtle">·</span>
           </>
         )}
-        <time className="shrink-0 text-[11px]">{relativeTime(memo.updated_at, locale)}</time>
+        {/* 안 본 변경이 있으면 시각 자리에 「↗ 3분 전」을 둔다 — 수정 시각과 바뀐 시각을 두 번 보이지 않게. */}
+        {change ? (
+          <UnseenStamp change={change} />
+        ) : (
+          <time className="shrink-0 text-[11px]">{relativeTime(memo.updated_at, locale)}</time>
+        )}
         {badges?.map((b) => {
           const v = memo.props?.[b.key];
           const value = v

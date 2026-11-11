@@ -56,6 +56,22 @@ button.change-receipt-title:hover {
   color: var(--color-text-subtle);
 }
 
+/* 장부 항목으로 그릴 때(턴 id 가 있을 때) — 줄은 ChangeRow 그대로, 좁은 패널에 맞춰 글자만 줄인다. */
+.change-receipt .change-row-toggle {
+  padding: 2px 4px;
+  font-size: 11px;
+}
+.change-receipt .change-row-body {
+  margin-left: 12px;
+}
+.change-receipt-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .change-receipt-title {
     transition: none;

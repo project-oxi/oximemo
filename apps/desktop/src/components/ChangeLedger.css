@@ -1,0 +1,116 @@
+/* 「변경」 장부 ChangeLedger (2026-11-11).
+ * 왼쪽 시각 칸 + 세로 선이 시간 축이다(새것이 위). 묶음 머리는 출처 기호와 글자, 줄은 ChangeRow. */
+
+.change-ledger {
+  height: 100%;
+  overflow-y: auto;
+  padding: 20px 24px 40px;
+}
+
+.change-ledger-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  max-width: 52rem;
+  margin-bottom: 16px;
+}
+.change-ledger-title {
+  font-size: var(--text-display); /* DESIGN.md 위치 제목 22px 과 맞춘다 */
+  font-weight: 600;
+  color: var(--color-text);
+}
+.change-ledger-count {
+  font-size: 12px;
+  color: var(--color-text-subtle);
+}
+.change-ledger-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.change-ledger-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.change-ledger-toggle input:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.change-ledger-empty {
+  font-size: 13px;
+  color: var(--color-text-subtle);
+}
+
+.change-ledger-axis {
+  max-width: 52rem;
+}
+
+.change-day {
+  margin: 14px 0 4px 4.25rem;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-subtle);
+}
+.change-group-wrap:first-child .change-day {
+  margin-top: 0;
+}
+
+.change-group {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr;
+  column-gap: 12px;
+}
+.change-group-time {
+  padding-top: 3px;
+  font-size: 11px;
+  text-align: right;
+  color: var(--color-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+.change-group-main {
+  min-width: 0;
+  padding: 0 0 12px 10px;
+  border-left: 1px solid var(--color-line-strong);
+}
+
+.change-group-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 4px;
+  font-size: 12px;
+  color: var(--color-text);
+}
+.change-group-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.change-group-count {
+  flex-shrink: 0;
+  color: var(--color-text-subtle);
+}
+.change-group-tail {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.change-group-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.change-ledger-more {
+  margin: 8px 0 0 4.25rem;
+}

@@ -24,6 +24,8 @@ import { Pencil } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Card } from "../Card";
+import { UnseenStamp, unseenFor } from "../UnseenStamp";
+import { useUnseenChanges } from "../../lib/changes";
 import { useI18n } from "../../lib/i18n";
 import { useFolderNames } from "../../lib/folders";
 import { useUI } from "../../stores/ui";
@@ -130,6 +132,7 @@ interface CardsProps {
 
 export function BaseCardsAdapter({ rows, folders, folderEntries, onSelect }: CardsProps) {
   const actions = useNoteRowActions();
+  const unseen = useUnseenChanges();
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 p-2">
       {rows.map((r) =>
@@ -139,6 +142,7 @@ export function BaseCardsAdapter({ rows, folders, folderEntries, onSelect }: Car
           <Card
             key={r.row_id}
             memo={r.summary}
+            change={unseenFor(unseen, r.summary)}
             folders={folders}
             folderEntries={folderEntries}
             onSelect={onSelect}
@@ -163,10 +167,12 @@ export function BaseListAdapter({
   const { t, locale } = useI18n();
   useSyncExternalStore(subscribeQueryCounts, queryCountVersion);
   const { displayName } = useFolderNames();
+  const unseen = useUnseenChanges();
   return (
     <div className="flex flex-col">
       {rows.map((r) => {
         const title = r.summary.title ?? r.summary.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
+        const change = unseenFor(unseen, r.summary);
         if (r.task) return <TaskListRow key={r.row_id} row={r} title={title} onSelect={onSelect} />;
         return (
           <button
@@ -183,7 +189,7 @@ export function BaseListAdapter({
               {displayName(r.summary.folder) || t.vault_root}
             </span>
             <span className="w-16 shrink-0 text-right text-[11px] text-text-subtle">
-              {relativeTime(r.summary.updated_at, locale)}
+              {change ? <UnseenStamp change={change} /> : relativeTime(r.summary.updated_at, locale)}
             </span>
           </button>
         );

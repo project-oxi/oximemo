@@ -1408,6 +1408,18 @@ async function browserFallback(
       return { changes: out.changes, spawned_line_hint: null };
     }
 
+    // Change journal is desktop-only (watcher + git); the browser preview
+    // shows an empty ledger rather than a second engine.
+    case "changes_list":
+    case "changes_unseen":
+      return [];
+    case "changes_mark_seen":
+      return null;
+    case "changes_diff":
+    case "changes_revert":
+    case "changes_revert_turn":
+      throw new Error("change journal requires the desktop app");
+
     default:
       return null;
   }

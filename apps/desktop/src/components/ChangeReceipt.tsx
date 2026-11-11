@@ -8,6 +8,11 @@
  * 원칙(§9.4): 볼트는 공유되고 다른 작성자가 있다. 그래서 이 목록은 「관찰」만 말하고
  * 에이전트가 바꿨다고 단정하지 않는다 — 아래 캡션이 그 원칙을 화면 글자로 옮긴 것이다.
  */
+import { useQuery } from "@tanstack/react-query";
+
+import { listChanges, type ChangeEntry } from "../lib/api";
+import { CHANGES_KEY } from "../lib/changes";
+import { ChangeRow, TurnRevertButton } from "./ChangeRow";
 import { CHANGE_ORDER, ChangeGlyph, changeKindOf, type ChangeKind } from "./shapes";
 import "./ChangeReceipt.css";
 
@@ -51,7 +56,45 @@ function TitleCell({
   return <span className="change-receipt-title" data-static="">{title}</span>;
 }
 
-export function ChangeReceipt({
+/**
+ * 변경 장부에 이 턴의 항목이 있으면 장부와 같은 줄(ChangeRow)로 그린다 — 같은 데이터는 같은 모양.
+ * 장부가 없거나(브라우저 미리보기 · 장부 꺼짐) 비어 있으면 예전 영수증이 대신 선다.
+ */
+function JournalReceipt({ turnId, entries, listLabel, caption }: { turnId: string; entries: ChangeEntry[]; listLabel: string; caption: string }) {
+  const rows = entries
+    .map((e) => ({ e, k: changeKindOf(e.kind) }))
+    // 영수증의 정렬 규칙(되돌리기 어려운 것이 위)을 그대로 따르고, 같은 종류 안에서는 새것이 위.
+    .sort((a, b) => CHANGE_ORDER[a.k] - CHANGE_ORDER[b.k] || b.e.seq - a.e.seq);
+  return (
+    <div className="change-receipt">
+      <ul className="change-receipt-list" aria-label={listLabel}>
+        {rows.map(({ e }) => <ChangeRow key={e.seq} entry={e} />)}
+      </ul>
+      <div className="change-receipt-foot">
+        <p className="change-receipt-caption">{caption}</p>
+        <TurnRevertButton turnId={turnId} count={rows.length} />
+      </div>
+    </div>
+  );
+}
+
+export function ChangeReceipt(props: Parameters<typeof LegacyReceipt>[0] & { turnId?: string | null }) {
+  const { turnId, ...rest } = props;
+  const journal = useQuery({
+    queryKey: [...CHANGES_KEY, "turn", turnId ?? ""],
+    queryFn: () => listChanges({ turn: turnId ?? "" }),
+    enabled: !!turnId,
+    retry: false,
+  });
+  const entries = journal.data ?? [];
+  if (turnId && entries.length > 0) {
+    return <JournalReceipt turnId={turnId} entries={entries} listLabel={rest.listLabel} caption={rest.caption} />;
+  }
+  if (rest.items.length === 0) return null;
+  return <LegacyReceipt {...rest} />;
+}
+
+function LegacyReceipt({
   items,
   titleFor,
   kindLabel,

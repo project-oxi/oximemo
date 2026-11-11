@@ -63,6 +63,17 @@
   display: none;
 }
 
+.source-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  justify-content: center;
+  width: 1.1em;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-text);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fill-ring {
     transition: none;

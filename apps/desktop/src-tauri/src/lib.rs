@@ -16,6 +16,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 // NDL/DNB (XML) and KMDB (approval-gated) adapters stay stubs — see
 // the fetch_* bodies in metadata.rs for the follow-up notes.
 mod capture;
+mod changes;
 mod copilot;
 mod writing_lexicon;
 
@@ -58,6 +59,8 @@ pub struct AppState {
     /// boot; settings changes apply on the next interaction spawn.
     pub brain_enabled: bool,
     pub brain_executable: String,
+    /// 변경 기록 (2026-11-11): 정착된 볼트 변경과 그 출처 · 되돌릴 자리.
+    pub changes: Arc<changes::ChangeLog>,
 }
 
 impl AppState {
@@ -68,6 +71,7 @@ impl AppState {
     ) -> Self {
         let (brain_enabled, brain_executable) =
             vault.with_config(|c| (c.brain.enabled, c.brain.executable.clone()));
+        let changes = changes::ChangeLog::open(changes::journal_file(&vault));
         Self {
             vault,
             capture_monitor: Mutex::new(None),
@@ -83,6 +87,7 @@ impl AppState {
             brain_indexing: Arc::new(AtomicBool::new(false)),
             brain_enabled,
             brain_executable,
+            changes,
         }
     }
 
@@ -556,6 +561,12 @@ pub fn run() {
             commands::install_cli,
             commands::uninstall_cli,
             commands::show_capture_window,
+            changes::commands::changes_list,
+            changes::commands::changes_diff,
+            changes::commands::changes_revert,
+            changes::commands::changes_revert_turn,
+            changes::commands::changes_mark_seen,
+            changes::commands::changes_unseen,
             capture::complete_capture,
             capture::dismiss_capture,
             capture::open_captured_note,
@@ -642,6 +653,8 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
         Duration::from_millis(state.vault.with_config(|c| c.index.watcher_debounce_ms) as u64);
     let emit_handle = handle.clone();
     let git_tx = state.git_tx.clone();
+    let git = state.git.clone();
+    let journal = state.changes.clone();
     let brain_in_flight = state.brain_indexing.clone();
     let (brain_enabled, brain_executable) = (state.brain_enabled, state.brain_executable.clone());
     let on_change: oximemo_core::watcher::OnChange = Arc::new(move |path| {
@@ -653,8 +666,14 @@ fn spawn_watcher(state: &AppState, handle: &AppHandle) {
             let _ = emit_handle.emit("bases:changed", ());
             return;
         }
+        // 변경 기록은 git 소비자에게 넘기기 전에 — HEAD 가 아직 이번 변경
+        // 직전 상태일 때 읽어야 비교 · 되돌리기의 기준이 된다.
+        let recorded = changes::record_from_watcher(&journal, &vault, &git, &path);
         vault.reindex_path(&path);
         let _ = emit_handle.emit("memos:changed", ());
+        if recorded {
+            let _ = emit_handle.emit(changes::commands::RECORDED_EVENT, ());
+        }
         let _ = git_tx.send(path);
         // Documents-plane reconcile (brain 0.10 cutover §2): the
         // debounced settle is oximemo's ingestion trigger. Single-flight
@@ -3269,6 +3288,8 @@ mod commands {
         /// turn (claude's result JSON discloses them). None = not
         /// measurable for this agent.
         pub denials: Option<Vec<String>>,
+        /// 변경 기록에서 이 턴 동안 관찰된 변경을 묶는 id (`listChanges({ turn })`).
+        pub turn_id: Option<String>,
     }
 
     /// Full-vault manifest walk; heavy (redb + per-file read/hash), so
@@ -3407,6 +3428,9 @@ mod commands {
                 .await
                 .map_err(|e| format!("snapshot join: {e}"))??
         };
+        // 변경 기록: 이 턴 동안 앱 밖에서 일어난 볼트 변경을 턴에 묶는다.
+        // 값이 떨어지는 때(오류 경로 포함) 턴이 닫히고 유예 창이 시작된다.
+        let journal_turn = state.changes.begin_turn(&message);
         let started = std::time::Instant::now();
         let outcome = {
             // Live rendering (goal 2026-10-25): forward honest incremental
@@ -3452,6 +3476,7 @@ mod commands {
             // Refresh the grid: the watcher also reacts, but the panel
             // result lands the moment the process exits.
             let _ = app.emit("memos:changed", ());
+            reconcile_journal_turn(&app, &state, &journal_turn.turn, &changed).await;
         }
         // Response parsing is adapter-dialect work: oxios prints one JSON
         // object, omp/claude/codex/oxicode print event streams. omp and
@@ -3504,7 +3529,39 @@ mod commands {
             model,
             provider,
             denials,
+            turn_id: Some(journal_turn.turn.id.clone()),
         })
+    }
+
+    /// 턴 끝 대조 (변경 기록): 매니페스트 비교가 잡았는데 감시기가 놓친 노트를
+    /// 이 턴의 코파일럿 변경으로 넣는다. git · 파일을 읽으므로 블로킹 풀에서.
+    async fn reconcile_journal_turn(
+        app: &AppHandle,
+        state: &State<'_, AppState>,
+        turn: &crate::changes::TurnRef,
+        changed: &[crate::copilot::ChangedNote],
+    ) {
+        let (log, vault, git) = (
+            state.changes.clone(),
+            state.vault.clone(),
+            state.git.clone(),
+        );
+        let turn = turn.clone();
+        let ids: Vec<String> = changed.iter().map(|c| c.id.clone()).collect();
+        let added = tokio::task::spawn_blocking(move || {
+            crate::changes::reconcile_turn(
+                &log,
+                &vault,
+                &git,
+                &turn,
+                ids.iter().map(String::as_str),
+            )
+        })
+        .await
+        .unwrap_or(0);
+        if added > 0 {
+            let _ = app.emit(crate::changes::commands::RECORDED_EVENT, ());
+        }
     }
 
     /// Kill the in-flight turn's whole process tree (spec §8).
@@ -3668,6 +3725,9 @@ mod commands {
                 .map_err(|e| format!("snapshot join: {e}"))?
                 .map_err(|e| format!("snapshot: {e}"))?
         };
+        // 제안 턴은 쓰지 않아야 하지만 에이전트 정책은 에이전트 몫이다 — 쓰면
+        // 변경 기록에 이 턴으로 남긴다. 사용자 문장이 없어 종류를 표시로 쓴다.
+        let journal_turn = state.changes.begin_turn(&format!("제안: {kind}"));
         let outcome = {
             let out = crate::copilot::run_agent_process(
                 &exe,
@@ -3711,8 +3771,10 @@ mod commands {
                 .map_err(|e| format!("snapshot join: {e}"))?
                 .unwrap_or_else(|_| before.clone())
         };
-        if !crate::copilot::diff_manifests(&before, &after).is_empty() {
+        let changed = crate::copilot::diff_manifests(&before, &after);
+        if !changed.is_empty() {
             let _ = app.emit("memos:changed", ());
+            reconcile_journal_turn(&app, &state, &journal_turn.turn, &changed).await;
         }
         Ok(result)
     }

@@ -645,8 +645,9 @@ function AgentMessage({ result, agentName }: { result: TurnResult; agentName: st
         </p>
       )}
 
-      {result.changed.length > 0 && (
+      {(result.changed.length > 0 || !!result.turn_id) && (
         <ChangeReceipt
+          turnId={result.turn_id}
           items={result.changed}
           titleFor={(id) => {
             // 삭제된 노트는 색인에서 빠져 있다 — 휴지통에 있으면 거기 남은 제목을 쓴다.

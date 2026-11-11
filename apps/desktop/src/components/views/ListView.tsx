@@ -15,6 +15,7 @@ import { Folder, Star } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
 import { colorForFolder } from "../../lib/color";
+import { useUnseenChanges } from "../../lib/changes";
 import { useI18n } from "../../lib/i18n";
 import { useFolderNames } from "../../lib/folders";
 import { useFolderDrop } from "../../lib/dropTarget";
@@ -29,6 +30,7 @@ import { CtxRoot, CtxTrigger } from "../ContextMenu";
 import { FolderMenu, type NamingSession } from "../FolderTile";
 import { NoteCtxMenu } from "../NoteCtxMenu";
 import { TextCtxMenu } from "../TextCtxMenu";
+import { UnseenStamp, unseenFor } from "../UnseenStamp";
 
 interface Props {
   items: MemoSummary[];
@@ -73,6 +75,8 @@ export function ListView({
   const setDraggingNote = useUI((s) => s.setDraggingNote);
   const draggingNote = useUI((s) => s.draggingNote);
   const freshId = useUI((s) => s.freshId);
+  // 안 본 변경은 목록 전체에서 한 번만 듣는다 — 행마다 부르지 않는다.
+  const unseen = useUnseenChanges();
   return (
     <ul className="note-list divide-y divide-line">
       {folderCards.map((f) => (
@@ -90,7 +94,9 @@ export function ListView({
           onNameCommit={onNameCommit}
         />
       ))}
-      {items.map((n) => (
+      {items.map((n) => {
+        const change = unseenFor(unseen, n);
+        return (
         <li key={n.id}>
           <CtxRoot>
             <CtxTrigger
@@ -155,9 +161,13 @@ export function ListView({
                   </div>
                 )}
               </div>
-              <time className="note-list-time text-text-subtle" dateTime={n.updated_at}>
-                {relativeTime(n.updated_at, locale)}
-              </time>
+              {change ? (
+                <UnseenStamp change={change} className="note-list-time" />
+              ) : (
+                <time className="note-list-time text-text-subtle" dateTime={n.updated_at}>
+                  {relativeTime(n.updated_at, locale)}
+                </time>
+              )}
               <NoteCtxMenu
                 memo={n}
                 folderEntries={folderEntries}
@@ -169,7 +179,8 @@ export function ListView({
             </CtxTrigger>
           </CtxRoot>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }

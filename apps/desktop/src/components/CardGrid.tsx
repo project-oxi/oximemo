@@ -90,6 +90,8 @@ import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
 import { useFolderCreate } from "../lib/useFolderCreate";
 import { GalleryView } from "./GalleryView";
+import { ChangeLedger } from "./ChangeLedger";
+import { useChangeJournalEvents } from "../lib/changes";
 import { PdcView } from "./PdcView";
 import { SettingsMenu } from "./SettingsMenu";
 import { ShelfView } from "./views/ShelfView";
@@ -141,6 +143,15 @@ export function CardGrid() {
   const setFavoritesOnly = useUI((s) => s.setFavoritesOnly);
   const view = useUI((s) => s.view);
   const setView = useUI((s) => s.setView);
+  // 변경 장부는 위치가 아니라 setView 로만 들어온다 — 그 사이 위치가 바뀌었다면(사이드바 폴더 · 즐겨찾기)
+  // 그 위치로 가려는 것이다. 이렇게 하지 않으면 폴더를 눌러도 장부가 그대로 남는다.
+  const ledgerLocationRef = useRef(location);
+  useEffect(() => {
+    if (ledgerLocationRef.current !== location && useUI.getState().view === "changes") setView("memos");
+    ledgerLocationRef.current = location;
+  }, [location, setView]);
+  // 변경 기록 신호(changes:recorded)는 화면 어디서나 수 · 표시를 새로 고쳐야 해서 앱 껍데기에서 한 번 듣는다.
+  useChangeJournalEvents();
   const noteView = useUI((s) => s.noteView);
   const setNoteView = useUI((s) => s.setNoteView);
   const [queryCalendarField, setQueryCalendarField] = useState(loadCalendarFieldQuery);
@@ -1458,7 +1469,8 @@ export function CardGrid() {
     : items.length;
   const countHasMore = !unfiltered && !inSearch && (propActive ? propQuery.hasNextPage : listing.hasNextPage);
 
-  if (view === "gallery") {
+  // 변경 장부도 갤러리와 같은 껍데기(사이드바 · 머리 · 메모 시트)를 쓴다 — 본문만 다르다.
+  if (view === "gallery" || view === "changes") {
     // h-dvh: see the memos return below — the height chain anchors here too.
     return (
       <div className="workspace-shell" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
@@ -1486,13 +1498,13 @@ export function CardGrid() {
             className="workspace-titlebar"
           >
             {sidebarToggle}
-            <span className="min-w-0 flex-1 text-[13px] font-medium text-text-muted">{t.gallery}</span>
+            <span className="min-w-0 flex-1 text-[13px] font-medium text-text-muted">{view === "changes" ? t.changes_nav : t.gallery}</span>
             <IconTool className="workspace-command" label={t.command_palette_title} hint={keyLabel("⌘K")} onClick={() => setCmdPaletteOpen(true)}><Command size={16} aria-hidden /></IconTool>
             {copilotVisible && <IconTool data-copilot-trigger className="workspace-command" label={t.copilot_fab} aria-expanded={copilotOpen} onClick={() => setCopilotOpen(!copilotOpen)}><Bot size={16} aria-hidden /></IconTool>}
             <SettingsMenu />
           </header>
-          <div key="gallery" className="view-fade min-h-0 flex-1">
-            <GalleryView />
+          <div key={view} className="view-fade min-h-0 flex-1">
+            {view === "changes" ? <ChangeLedger /> : <GalleryView />}
           </div>
         </div>
         <MemoDetail

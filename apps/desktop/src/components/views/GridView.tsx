@@ -12,6 +12,8 @@ import { MoreHorizontal } from "lucide-react";
 
 import { Card } from "../Card";
 import { FolderTile, type NamingSession } from "../FolderTile";
+import { unseenFor } from "../UnseenStamp";
+import { useUnseenChanges } from "../../lib/changes";
 import { useI18n } from "../../lib/i18n";
 import type { FolderCard, FolderDef, FolderEntry, MemoSummary } from "../../lib/types";
 
@@ -85,6 +87,8 @@ export function GridView({
   folderAddLabels,
 }: GridViewProps) {
   const { t } = useI18n();
+  // 안 본 변경은 그리드 전체에서 한 번만 듣고 카드마다 찾아 내려 준다.
+  const unseen = useUnseenChanges();
   const rowCount = Math.ceil(cells.length / cols);
   return (
     <div style={{ height: virtualizer.getTotalSize() }} className="relative w-full">
@@ -145,6 +149,7 @@ export function GridView({
                   <Card
                     key={cell.note.id}
                     memo={cell.note}
+                    change={unseenFor(unseen, cell.note)}
                     folders={folders}
                     folderEntries={folderEntries}
                     onOpenFolder={onOpenFolder}

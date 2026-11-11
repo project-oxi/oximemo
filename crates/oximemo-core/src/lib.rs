@@ -30,6 +30,7 @@ pub mod pdc_documents;
 pub mod pdc_inventory;
 pub mod props;
 pub mod schema;
+pub mod self_writes;
 pub mod spaces;
 pub mod tags;
 pub mod tasks;

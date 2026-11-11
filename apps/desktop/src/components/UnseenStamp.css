@@ -1,0 +1,20 @@
+/* 「안 본 변경」 표시 — 기호 + 바뀐 시각 (UnseenStamp.tsx).
+ * 색을 쓰지 않는다: 둘레 시각(옅은 글자)보다 진하고 굵게 써서 「이건 최근에 남이 바꾼 것」을 무게로만 가른다.
+ * 줄바꿈하지 않는다 — 기호와 시각이 갈라지면 「↗」 혼자 줄 끝에 남아 뜻을 잃는다. */
+.unseen-stamp {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 0.2em;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+/* 이번 주 작은 카드: 제목 오른쪽 끝에 붙인다 — 제목 두 줄과 겹치지 않게 첫 줄 높이에 맞춘다. */
+.strata-note-compact .unseen-stamp {
+  margin-left: auto;
+  padding-top: 2px;
+}

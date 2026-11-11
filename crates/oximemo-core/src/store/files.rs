@@ -385,6 +385,7 @@ impl FileStore {
             if let Some(d) = trash.parent() {
                 std::fs::create_dir_all(d)?;
             }
+            crate::self_writes::mark(&live);
             std::fs::rename(&live, &trash)?;
             if let Some(d) = trash.parent() {
                 fsync_dir(d)?;
@@ -407,6 +408,7 @@ impl FileStore {
             if let Some(parent) = live.parent() {
                 std::fs::create_dir_all(parent)?;
             }
+            crate::self_writes::mark(&live);
             std::fs::rename(&trash, &live)?;
             if let Some(d) = live.parent() {
                 fsync_dir(d)?;

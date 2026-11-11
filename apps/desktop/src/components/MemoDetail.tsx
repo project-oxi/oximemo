@@ -36,6 +36,7 @@ import { useFolderNames } from "../lib/folders";
 import { daysBetween, shiftISODate, todayLocalISO } from "../lib/dates";
 import { useUI } from "../stores/ui";
 import { ContextDock } from "./ContextDock";
+import { useMarkSeenOnOpen } from "./UnseenStamp";
 import { MarginSlot } from "./MarginLinks";
 import { SaveRing } from "./SaveRing";
 import { HistoryPanel } from "./HistoryPanel";
@@ -53,6 +54,7 @@ import { isWritingTag, preservesPublishedChapters, readManuscript, writingProfil
 import { writingRevisionUpdate } from "../lib/writingReview";
 import type { WritingRevision } from "../lib/api";
 import type { FolderComboboxHandle } from "./FolderCombobox";
+import { ChangeNoteLine } from "./ChangeNoteLine";
 import type { FolderEntry, Memo, MemoSummary } from "../lib/types";
 
 const AUTOSAVE_IDLE_MS = 1200;
@@ -124,6 +126,8 @@ export function MemoDetail({
   const wordsButtonRef = useRef<HTMLButtonElement>(null);
   const [reviewSource, setReviewSource] = useState<{ id: string; body: string } | null>(null);
   const currentNote = open && memo.data?.id === selectedId && seededId === selectedId ? memo.data : null;
+  // 시트에서 연 메모의 「안 본 변경」을 본 것으로 돌린다 — 목록 · 검토 대기열 · 팔레트 모두 여기를 거친다.
+  useMarkSeenOnOpen(currentNote?.path ?? null);
   const reviewId = writingEnabled && currentNote?.format === "markdown" ? currentNote.id : null;
   useEffect(() => {
     if (!reviewId) return;
@@ -938,6 +942,8 @@ export function MemoDetail({
                 )}
               </CtxTrigger>
             </CtxRoot>
+            {/* selectedId 로 바로 붙인다 — 노트 본문을 다 불러온 뒤에 붙이면 그 사이 「열면 확인함」이 먼저 돌아 잡을 항목이 사라진다. */}
+            {open && selectedId && <ChangeNoteLine key={selectedId} memoId={selectedId} dirty={dirty} />}
             <div
               ref={writingWorkspaceRef}
               className="memo-writing-workspace min-h-0 flex-1"
